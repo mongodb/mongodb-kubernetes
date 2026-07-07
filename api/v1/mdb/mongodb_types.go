@@ -730,7 +730,7 @@ type AgentConfig struct {
 	// +optional
 	LogLevel LogLevel `json:"logLevel"`
 	// +optional
-	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`
+	MaxLogFileDurationHours int `json:"maxLogFileDurationHours,omitempty"`
 	// DEPRECATED please use mongod.logRotate
 	// +optional
 	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`

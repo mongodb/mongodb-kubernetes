@@ -11,8 +11,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -65,12 +67,85 @@ type GenerateOptions struct {
 	PrometheusPassword string
 }
 
+// resolveK8sResourceName resolves the K8s resource name from the AC name or an explicit override.
+// Returns "" when the name cannot be normalized and no override was provided.
+func resolveK8sResourceName(acName string, opts GenerateOptions) string {
+	if opts.ResourceNameOverride != "" {
+		return opts.ResourceNameOverride
+	}
+	return util.NormalizeName(acName)
+}
+
+// buildDbCommonSpec constructs the DbCommonSpec shared by replica set and sharded cluster specs,
+// including version, FCV, security, Prometheus, connection, and agent config.
+func buildDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, version, fcv string, resourceType mdbv1.ResourceType, resourceName string) (mdbv1.DbCommonSpec, error) {
+	security, err := buildSecurity(ac, opts.CertsSecretPrefix, resourceName)
+	if err != nil {
+		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to build security config: %w", err)
+	}
+	if roles := ac.Deployment.GetRoles(); len(roles) > 0 {
+		if security == nil {
+			security = &mdbv1.Security{}
+		}
+		security.Roles = roles
+	}
+
+	prom, err := extractPrometheusConfig(ac.Deployment)
+	if err != nil {
+		return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to extract Prometheus config: %w", err)
+	}
+	if prom != nil && opts.PrometheusSecretName != "" {
+		prom.PasswordSecretRef.Name = opts.PrometheusSecretName
+	}
+	if prom != nil {
+		if acProm := ac.Deployment.GetPrometheus(); acProm != nil && acProm.PasswordSalt != "" {
+			if opts.PrometheusPassword == "" {
+				return mdbv1.DbCommonSpec{}, fmt.Errorf("prometheus is enabled with a password hash in the automation config but no password was provided; create a Kubernetes Secret with the password and pass --prometheus-secret-name")
+			}
+			match, pErr := passwordhash.PasswordMatchesHash(opts.PrometheusPassword, acProm.PasswordHash, acProm.PasswordSalt)
+			if pErr != nil {
+				return mdbv1.DbCommonSpec{}, fmt.Errorf("failed to verify prometheus password against automation config: %w", pErr)
+			}
+			if !match {
+				return mdbv1.DbCommonSpec{}, fmt.Errorf("prometheus password in Secret %q does not match the password in the automation config", opts.PrometheusSecretName)
+			}
+		}
+	}
+
+	var additionalConfig *mdbv1.AdditionalMongodConfig
+	if opts.SourceProcess != nil {
+		additionalConfig = opts.SourceProcess.AdditionalMongodConfig()
+	}
+	additionalConfig = applyClientCertificateMode(ac.AgentSSL, additionalConfig)
+
+	var featureCompatibilityVersion *string
+	if fcv != "" {
+		featureCompatibilityVersion = &fcv
+	}
+
+	return mdbv1.DbCommonSpec{
+		Version:                     version,
+		ResourceType:                resourceType,
+		FeatureCompatibilityVersion: featureCompatibilityVersion,
+		ConnectionSpec: mdbv1.ConnectionSpec{
+			SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+				OpsManagerConfig: &mdbv1.PrivateCloudConfig{
+					ConfigMapRef: mdbv1.ConfigMapRef{Name: opts.ConfigMapName},
+				},
+			},
+			Credentials: opts.CredentialsSecretName,
+		},
+		Security:               security,
+		Prometheus:             prom,
+		AdditionalMongodConfig: additionalConfig,
+		Agent:                  extractAgentConfig(opts.SourceProcess, opts.ProjectConfigs),
+	}, nil
+}
+
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
 func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
-	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
-
-	if isSharded {
-		return nil, "", fmt.Errorf("sharded cluster migration is not yet supported")
+	if len(ac.Deployment.GetShardedClusters()) > 0 {
+		return generateShardedCluster(ac, opts)
 	}
 	return generateReplicaSet(ac, opts)
 }

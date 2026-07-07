@@ -13,7 +13,6 @@ spec:
         allowConnectionsWithoutCertificates: false
         mode: allowTLS
   agent:
-    maxLogFileDurationHours: 0
     mongod:
       systemLog:
         destination: file

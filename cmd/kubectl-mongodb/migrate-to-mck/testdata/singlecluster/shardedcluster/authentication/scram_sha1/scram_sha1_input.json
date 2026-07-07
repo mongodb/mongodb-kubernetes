@@ -1,0 +1,139 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "user": "mms-automation-agent",
+        "db": "admin",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": ["SCRAM-SHA-1"],
+        "scramSha1Creds": {"iterationCount": 10000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "authenticationRestrictions": []
+      },
+      {
+        "user": "app-user",
+        "db": "admin",
+        "roles": [
+          {"role": "readWrite", "db": "myapp"},
+          {"role": "read", "db": "reporting"}
+        ],
+        "mechanisms": ["SCRAM-SHA-1"],
+        "scramSha1Creds": {"iterationCount": 10000, "salt": "def", "serverKey": "skey2", "storedKey": "stkey2"},
+        "authenticationRestrictions": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": false,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-1", "MONGODB-CR"],
+    "autoAuthMechanisms": ["MONGODB-CR"],
+    "autoAuthMechanism": "MONGODB-CR",
+    "autoUser": "mms-automation-agent",
+    "autoAuthRestrictions": []
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "sc-scram-sha1-shard-rs"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "shard-0.example.com",
+      "name": "sc-scram-sha1-shard-rs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "sc-scram-sha1-shard-rs"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "shard-1.example.com",
+      "name": "sc-scram-sha1-shard-rs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27019, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "sc-scram-sha1-csrs"},
+        "sharding": {"clusterRole": "configsvr"},
+        "storage": {"dbPath": "/data/config"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "config-0.example.com",
+      "name": "sc-scram-sha1-csrs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27019, "tls": {"mode": "disabled"}},
+        "replication": {"replSetName": "sc-scram-sha1-csrs"},
+        "sharding": {"clusterRole": "configsvr"},
+        "storage": {"dbPath": "/data/config"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "config-1.example.com",
+      "name": "sc-scram-sha1-csrs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongos.log"}
+      },
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongos-0.example.com",
+      "name": "sc-scram-sha1-mongos-0",
+      "processType": "mongos",
+      "version": "8.0.4-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "sc-scram-sha1-shard-rs",
+      "members": [
+        {"_id": 0, "host": "sc-scram-sha1-shard-rs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "sc-scram-sha1-shard-rs-1", "priority": 1, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    },
+    {
+      "_id": "sc-scram-sha1-csrs",
+      "members": [
+        {"_id": 0, "host": "sc-scram-sha1-csrs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "sc-scram-sha1-csrs-1", "priority": 1, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [
+    {
+      "_id": "sc-scram-sha1-cluster",
+      "name": "sc-scram-sha1-cluster",
+      "configServerReplica": "sc-scram-sha1-csrs",
+      "shards": [
+        {"_id": "sc-scram-sha1-shard", "rs": "sc-scram-sha1-shard-rs"}
+      ]
+    }
+  ],
+  "version": 1
+}

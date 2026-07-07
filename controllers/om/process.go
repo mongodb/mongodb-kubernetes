@@ -27,6 +27,16 @@ const (
 	ProcessTypeMongod MongoType = "mongod"
 )
 
+// Cluster role values that may appear under args2_6.sharding.clusterRole.
+const (
+	// ClusterRoleConfigSrv defines a constant for the config server cluster role.
+	ClusterRoleConfigSrv = "configsvr"
+
+	// ClusterRoleShardSrv defines a constant for the shard server cluster role.
+	ClusterRoleShardSrv = "shardsvr"
+)
+
+
 // infrastructureFieldPaths lists args2_6 field paths that are set into the
 // mongod spec by the operator or deployment infrastructure, not by the
 // arguments present on the mongod config level. AdditionalMongodConfig
@@ -37,6 +47,9 @@ var infrastructureFieldPaths = [][]string{
 	{"storage", "dbPath"},
 	{"replication", "replSetName"},
 	{"security", "clusterAuthMode"},
+	// clusterRole is inferred by the operator from the sharded cluster topology, so it must not
+	// be surfaced as user-supplied additionalMongodConfig.
+	{"sharding", "clusterRole"},
 }
 
 // infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
@@ -370,7 +383,7 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	}
 
 	// drop sections that became empty after stripping operator fields
-	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"setParameter"}} {
+	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"setParameter"}, {"sharding"}} {
 		if sub := maputil.ReadMapValueAsMap(m, path...); len(sub) == 0 && sub != nil {
 			maputil.DeleteMapValue(m, path...)
 		}
@@ -642,6 +655,12 @@ func (p Process) ReplicaSetName() string {
 	return maputil.ReadMapValueAsString(p.Args(), "replication", "replSetName")
 }
 
+// ClusterRole returns the sharding role declared for this process (configsvr, shardsvr, or empty).
+func (p Process) ClusterRole() string {
+	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
+}
+
+
 func (p Process) security() map[string]interface{} {
 	args := p.Args()
 	if _, ok := args["security"]; ok {
@@ -660,7 +679,7 @@ func (p Process) ClusterAuthMode() string {
 // These methods are ONLY FOR CONFIG SERVER REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during sharded cluster merge
 func (p Process) setClusterRoleConfigSrv() Process {
-	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = "configsvr"
+	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = ClusterRoleConfigSrv
 	return p
 }
 

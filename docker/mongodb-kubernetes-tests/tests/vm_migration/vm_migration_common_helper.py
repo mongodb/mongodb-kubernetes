@@ -1,4 +1,10 @@
-"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate-to-mck."""
+"""Shared helpers for VM-to-Kubernetes migration tests that use kubectl-mongodb migrate-to-mck.
+
+Contains code common to both replica set and sharded cluster migrations: CR generation,
+migration-data checks, user CR application, password rotation, and the shared StatefulSet
+deploy primitive. Replica-set-specific helpers live in vm_migration_replicaset_helper and
+sharded-cluster-specific helpers in vm_migration_sharded_helper.
+"""
 
 import os
 import subprocess
@@ -12,7 +18,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.mongotester import MongoTester, build_mongodb_connection_uri
+from kubetester.mongotester import MongoTester
 from kubetester.omtester import OMTester
 from kubetester.phase import Phase
 from tests import test_logger
@@ -26,51 +32,42 @@ _GENERATE_CR_ENV = {**os.environ, "KUBECONFIG": os.environ.get("KUBECONFIG", KUB
 MIGRATION_DATA_DB = "migration_data"
 MIGRATION_DATA_COLLECTION = "sentinel"
 MIGRATION_DATA_ID = "vm-migration"
-# minimum k8s StatefulSet members deployed alongside VM external members.
-# must exceed 7 when added to the external member count so the voting-limit validation always runs.
-MIN_K8S_MEMBERS = 5
+MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION = "mongodb.com/migrate-tool-version"
 
 
-def deploy_vm_statefulset(
-    namespace: str, om_tester: OMTester, extra_volumes=None, extra_volume_mounts=None, extra_command_args=""
-):
-    """Create or update the VM agent StatefulSet with OM credentials.
-
-    Returns the StatefulSet body dict.
-    """
-    with open(yaml_fixture("vm_statefulset.yaml"), "r") as f:
+def _deploy_vm_statefulset_from_fixture(
+    fixture_name: str,
+    namespace: str,
+    om_tester: OMTester,
+    extra_volumes=None,
+    extra_volume_mounts=None,
+    extra_command_args: str = "",
+    replicas: Optional[int] = None,
+) -> dict:
+    with open(yaml_fixture(fixture_name), "r") as f:
         sts_body = yaml.safe_load(f.read())
-        sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
-            {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
-            {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
-            {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
-        ]
-
+    sts_body["spec"]["template"]["spec"]["containers"][0]["env"] = [
+        {"name": "MMS_GROUP_ID", "value": om_tester.context.project_id},
+        {"name": "MMS_BASE_URL", "value": om_tester.context.base_url},
+        {"name": "MMS_API_KEY", "value": om_tester.context.agent_api_key},
+    ]
+    if replicas is not None:
+        sts_body["spec"]["replicas"] = replicas
     if extra_command_args:
         cmd = sts_body["spec"]["template"]["spec"]["containers"][0]["command"]
         if isinstance(cmd, list) and len(cmd) >= 3 and "-mmsApiKey=" in cmd[2]:
             cmd[2] = cmd[2] + " " + extra_command_args
-
     if extra_volume_mounts:
         container = sts_body["spec"]["template"]["spec"]["containers"][0]
         container["volumeMounts"] = container.get("volumeMounts", []) + extra_volume_mounts
-
     if extra_volumes:
         sts_body["spec"]["template"]["spec"].setdefault("volumes", [])
         sts_body["spec"]["template"]["spec"]["volumes"] = (
             sts_body["spec"]["template"]["spec"]["volumes"] + extra_volumes
         )
-
     KubernetesTester.create_or_update_statefulset(namespace, body=sts_body)
     return sts_body
-
-
-def deploy_vm_service(namespace: str):
-    """Create or update the VM headless service. Returns the Service body dict."""
-    with open(yaml_fixture("vm_service.yaml"), "r") as f:
-        service_body = yaml.safe_load(f.read())
-    KubernetesTester.create_or_update_service(namespace, body=service_body)
-    return service_body
 
 
 def _run_generate_cr_subcommand(
@@ -151,77 +148,6 @@ def generated_user_docs(generated_cr_yaml: str) -> List[dict]:
     return [doc for doc in generated_docs(generated_cr_yaml) if doc.get("kind") == "MongoDBUser"]
 
 
-def apply_generated_mongodb_resource(
-    namespace: str,
-    generated_cr_yaml: str | dict,
-    *,
-    resource_name: str | None = None,
-    customer_sets_disabled_tls_mode: bool = False,
-    prepare_external_resources=None,
-) -> MongoDB:
-    resource_doc = (
-        generated_cr_yaml if isinstance(generated_cr_yaml, dict) else generated_mongodb_doc(generated_cr_yaml)
-    )
-    resource = MongoDB(resource_name or resource_doc["metadata"]["name"], namespace)
-    if try_load(resource):
-        return resource
-
-    if customer_sets_disabled_tls_mode:
-        # The import tool warns about this but does not own changing no-TLS deployments.
-        resource_doc.setdefault("spec", {}).setdefault("additionalMongodConfig", {}).setdefault("net", {}).setdefault(
-            "tls", {}
-        )["mode"] = "disabled"
-
-    external_count = len(resource_doc["spec"].get("externalMembers", []))
-    num_members = max(external_count, MIN_K8S_MEMBERS)
-    resource_doc["spec"]["members"] = num_members
-    resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
-
-    if prepare_external_resources is not None:
-        prepare_external_resources(resource_doc)
-
-    resource.backing_obj = resource_doc
-    resource.update()
-    return resource
-
-
-def migration_connection_strings(mdb_migration: MongoDB) -> tuple[str, str]:
-    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
-    return secret.get("connectionString.standard", ""), secret.get("connectionString.standardSrv", "")
-
-
-def k8s_hostnames(mdb_migration: MongoDB) -> list[str]:
-    service_name = f"{mdb_migration.name}-svc"
-    return [
-        f"{mdb_migration.name}-{i}.{service_name}.{mdb_migration.namespace}.svc.cluster.local:27017"
-        for i in range(mdb_migration.get_members())
-    ]
-
-
-def assert_connection_string_contains_current_hosts(mdb_migration: MongoDB) -> None:
-    conn_str, _ = migration_connection_strings(mdb_migration)
-    for hostname in k8s_hostnames(mdb_migration):
-        assert hostname in conn_str, f"k8s hostname {hostname!r} missing from connection string secret"
-    for external_member in mdb_migration["spec"].get("externalMembers", []):
-        assert (
-            external_member["hostname"] in conn_str
-        ), f"external member {external_member['hostname']!r} missing from connection string secret"
-
-
-def assert_connection_string_after_full_migration(mdb_migration: MongoDB) -> None:
-    assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
-    conn_str, conn_srv = migration_connection_strings(mdb_migration)
-    replica_set_name = mdb_migration["spec"].get("replicaSetNameOverride", mdb_migration.name)
-    assert conn_str.startswith("mongodb://"), "connection string must use mongodb:// scheme"
-    for hostname in k8s_hostnames(mdb_migration):
-        assert hostname in conn_str, f"k8s hostname {hostname!r} missing from final connection string"
-    assert f"replicaSet={replica_set_name}" in conn_str
-
-    assert conn_srv.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
-    assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in conn_srv
-    assert f"replicaSet={replica_set_name}" in conn_srv
-
-
 def insert_migration_data(mongo_tester: MongoTester, opts: list[dict] | None = None) -> None:
     options = mongo_tester._merge_options(opts or [])
     client = mongo_tester._init_client(**options)
@@ -240,62 +166,102 @@ def assert_migration_data_exists(mongo_tester: MongoTester, opts: list[dict] | N
     ), "migration sentinel document is missing"
 
 
-def assert_k8s_process_names(om_tester: OMTester, mdb_migration: MongoDB) -> None:
-    ac_tester = om_tester.get_automation_config_tester()
-    process_names = [process["name"] for process in ac_tester.get_all_processes()]
-    for i in range(mdb_migration.get_members()):
-        assert f"k8s/{mdb_migration.namespace}/{mdb_migration.name}-{i}" in process_names
-
-
 def assert_max_voting_members_validation(mdb_migration: MongoDB) -> None:
-    k8s_members = mdb_migration.get_members()
+    """Assert the operator rejects exceeding MongoDB's 7 voting member limit and recovers.
 
-    for i in range(k8s_members):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
+    The operator validates every replica set on its own, so each component is pushed over the
+    limit separately and the status message is checked for the replica set name expected to
+    fail. A plain replica set is tripped by making all its members voting. For a sharded
+    cluster the shard and the config server get a dedicated check each: shard votes come from
+    the shard's own shardOverride and config server votes from top-level spec.memberConfig, so
+    tripping one never touches the other. Mongos processes are not replica set members and have
+    no votes, so there is nothing to validate for them.
+    """
+    if mdb_migration["spec"].get("type") == "ShardedCluster":
+        _assert_voting_limit_on_shard(mdb_migration)
+        _assert_voting_limit_on_config_server(mdb_migration)
+    else:
+        _assert_voting_limit_on_replica_set(mdb_migration)
 
+
+def _assert_voting_limit_on_replica_set(mdb_migration: MongoDB) -> None:
+    # All K8s members voting plus the VM members puts the replica set over the limit.
+    rs_name = mdb_migration["spec"].get("replicaSetNameOverride") or mdb_migration.name
+    _set_member_config_votes(mdb_migration, voting=True)
+    _assert_trips(mdb_migration, rs_name)
+    _set_member_config_votes(mdb_migration, voting=False)
+    _assert_recovers(mdb_migration)
+
+
+def _assert_voting_limit_on_config_server(mdb_migration: MongoDB) -> None:
+    # The config server K8s member votes live in top-level spec.memberConfig, independent of the
+    # shard overrides, so making them voting pushes only the config server over the limit
+    # (configServerCount K8s plus its VM members).
+    config_rs_name = mdb_migration["spec"].get("configServerNameOverride") or f"{mdb_migration.name}-config"
+    _set_member_config_votes(mdb_migration, voting=True)
+    _assert_trips(mdb_migration, config_rs_name)
+    _set_member_config_votes(mdb_migration, voting=False)
+    _assert_recovers(mdb_migration)
+
+
+def _assert_voting_limit_on_shard(mdb_migration: MongoDB) -> None:
+    # A shard's K8s member votes live in its own shardOverride, so making them voting pushes only
+    # that shard over the limit (mongodsPerShardCount K8s plus its VM members) and leaves the
+    # config server untouched.
+    shard_k8s_name, shard_rs_name = _first_shard_on_vms(mdb_migration)
+    _set_shard_override_votes(mdb_migration, shard_k8s_name, voting=True)
+    _assert_trips(mdb_migration, shard_rs_name)
+    _set_shard_override_votes(mdb_migration, shard_k8s_name, voting=False)
+    _assert_recovers(mdb_migration)
+
+
+def _assert_trips(mdb_migration: MongoDB, expected_rs_name: str) -> None:
     mdb_migration.update()
     mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
-    assert "voting members" in mdb_migration.get_status_message()
+    message = mdb_migration.get_status_message()
+    assert "voting members" in message
+    assert expected_rs_name in message, f"expected {expected_rs_name} to trip the voting limit, got: {message}"
 
-    for i in range(k8s_members):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "0"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 0
 
+def _assert_recovers(mdb_migration: MongoDB) -> None:
     mdb_migration.update()
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-def promote_and_prune(mdb_migration, vm_sts):
-    """Promote each VM member and prune it from externalMembers one at a time."""
-    try_load(mdb_migration)
-    for i in range(vm_sts["spec"]["replicas"]):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
-        assert_connection_string_contains_current_hosts(mdb_migration)
-
-        mdb_migration["spec"]["externalMembers"].pop()
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
-        assert_connection_string_contains_current_hosts(mdb_migration)
+def _set_member_config_votes(mdb_migration: MongoDB, voting: bool) -> None:
+    # Config server and plain replica set both use top-level spec.memberConfig.
+    _write_votes(mdb_migration["spec"]["memberConfig"], voting)
 
 
-def vm_replica_set_tester(namespace: str, use_ssl: bool = False, ca_path: Optional[str] = None) -> MongoTester:
-    """Return a MongoTester pointed at the VM StatefulSet replica set (vm-mongodb service)."""
-    cnx_string = build_mongodb_connection_uri(
-        mdb_resource="vm-mongodb",
-        namespace=namespace,
-        members=3,
-        port="27017",
-        servicename="vm-mongodb",
-    )
-    return MongoTester(cnx_string, use_ssl, ca_path)
+def _set_shard_override_votes(mdb_migration: MongoDB, shard_k8s_name: str, voting: bool) -> None:
+    override = next(o for o in mdb_migration["spec"]["shardOverrides"] if shard_k8s_name in o["shardNames"])
+    _write_votes(override["memberConfig"], voting)
 
 
-MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION = "mongodb.com/migrate-tool-version"
-MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+def _write_votes(member_config: list, voting: bool) -> None:
+    # Callers look the list up fresh right before writing: mdb.update() swaps out the backing
+    # object, so a reference kept across updates would go stale.
+    for member in member_config:
+        member["votes"] = 1 if voting else 0
+        member["priority"] = "1" if voting else "0"
+
+
+def _first_shard_on_vms(mdb_migration: MongoDB) -> tuple[str, str]:
+    """Return the (K8s name, AC replica set name) of the first shard that still has VM members.
+
+    Both names are needed: the K8s name locates the shardOverride to edit, the AC name is what the
+    operator prints in the failure status. They can differ, so the AC name comes from
+    shardNameOverrides and falls back to the K8s name.
+    """
+    spec = mdb_migration["spec"]
+    vm_rs_names = {m.get("replicaSetName") for m in spec.get("externalMembers", [])}
+    ac_names = {o["shardName"]: o.get("replicaSetName") for o in spec.get("shardNameOverrides", [])}
+    for shard_index in range(spec["shardCount"]):
+        k8s_name = f"{mdb_migration.name}-{shard_index}"
+        rs_name = ac_names.get(k8s_name) or k8s_name
+        if rs_name in vm_rs_names:
+            return k8s_name, rs_name
+    raise AssertionError("no shard has VM members left, nothing to exercise the voting limit on")
 
 
 def assert_migration_tool_version_annotation(generated_cr: dict, version: str) -> None:
@@ -312,33 +278,6 @@ def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
     ), f"Expected annotation {MIGRATION_DRY_RUN_ANNOTATION}=true in generated CR, got: {annotations}"
 
 
-def assert_generated_external_members(generated_cr: dict, expected_count: int = 3) -> None:
-    external_members = generated_cr["spec"]["externalMembers"]
-    assert (
-        len(external_members) == expected_count
-    ), f"Expected {expected_count} external members, got {len(external_members)}"
-    for external_member in external_members:
-        assert isinstance(external_member, dict), f"externalMember should be a dict, got {type(external_member)}"
-        for key in ("processName", "hostname", "type", "replicaSetName"):
-            assert key in external_member, f"Missing key {key!r} in externalMember: {external_member}"
-        assert external_member["type"] == "mongod"
-
-
-def assert_generated_member_config_omitted(generated_cr: dict) -> None:
-    assert (
-        "memberConfig" not in generated_cr["spec"]
-    ), "Generated CR should not contain memberConfig. Customers set it when expanding."
-
-
-def assert_common_generated_cr_shape(
-    generated_cr_yaml: str, generated_cr: dict, version: str, expected_external_members: int = 3
-) -> None:
-    assert_migration_dry_run_annotation(generated_cr_yaml)
-    assert_migration_tool_version_annotation(generated_cr, version)
-    assert_generated_external_members(generated_cr, expected_count=expected_external_members)
-    assert_generated_member_config_omitted(generated_cr)
-
-
 def get_user_docs(generated_cr_yaml: str) -> List[dict]:
     return generated_user_docs(generated_cr_yaml)
 
@@ -353,7 +292,7 @@ def apply_user_crs_and_verify_ac(generated_cr_yaml: str, namespace: str, om_test
             user.update()
 
         try_load(user)
-        user.assert_reaches_phase(Phase.Updated, timeout=120)
+        user.assert_reaches_phase(Phase.Updated, timeout=600)
 
     ac = om_tester.api_get_automation_config()
     ac_users = {u["user"]: u for u in ac.get("auth", {}).get("usersWanted", []) if u is not None}

@@ -159,6 +159,16 @@ repos:
         files: cmd/connectivity-validator/.*\.go$
         stages: [pre-commit]
 
+  - repo: local
+    hooks:
+      - id: check-migrate-to-mck-fixtures
+        name: check migrate-to-mck golden fixtures
+        entry: go test -run TestFixtureMatch ./cmd/kubectl-mongodb/migrate-to-mck/...
+        language: system
+        pass_filenames: false
+        files: ^cmd/kubectl-mongodb/migrate-to-mck/.*(\.go$|/testdata/.*)
+        stages: [pre-commit]
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.0.2
     hooks:

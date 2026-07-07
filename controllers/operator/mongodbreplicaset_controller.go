@@ -911,6 +911,7 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	return r.updateStatus(ctx, dryRunStatus, dryRunStatus.StatusOptions()...)
 }
 
+
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 
