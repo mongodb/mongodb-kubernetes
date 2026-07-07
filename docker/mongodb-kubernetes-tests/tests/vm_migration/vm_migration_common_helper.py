@@ -165,17 +165,16 @@ def assert_migration_data_exists(mongo_tester: MongoTester, opts: list[dict] | N
     ), "migration sentinel document is missing"
 
 
-MAX_VOTING_MEMBERS = 7
-
-
 def assert_max_voting_members_validation(mdb_migration: MongoDB) -> None:
     """Assert the operator rejects exceeding MongoDB's 7 voting member limit and recovers.
 
     The operator validates every replica set on its own, so each component is pushed over the
     limit separately and the status message is checked for the replica set name expected to
     fail. A plain replica set is tripped by making all its members voting. For a sharded
-    cluster the shard and the config server get a dedicated check each. Mongos processes are
-    not replica set members and have no votes, so there is nothing to validate for them.
+    cluster the shard and the config server get a dedicated check each: shard votes come from
+    the shard's own shardOverride and config server votes from top-level spec.memberConfig, so
+    tripping one never touches the other. Mongos processes are not replica set members and have
+    no votes, so there is nothing to validate for them.
     """
     if mdb_migration["spec"].get("type") == "ShardedCluster":
         _assert_voting_limit_on_shard(mdb_migration)
@@ -185,72 +184,82 @@ def assert_max_voting_members_validation(mdb_migration: MongoDB) -> None:
 
 
 def _assert_voting_limit_on_replica_set(mdb_migration: MongoDB) -> None:
-    # All 5 K8s members voting plus the 3 VM members puts the replica set at 8.
+    # All K8s members voting plus the VM members puts the replica set over the limit.
     rs_name = mdb_migration["spec"].get("replicaSetNameOverride") or mdb_migration.name
-    all_positions = set(range(len(mdb_migration["spec"]["memberConfig"])))
-    _assert_voting_limit_trips(mdb_migration, all_positions, rs_name)
-
-
-def _assert_voting_limit_on_shard(mdb_migration: MongoDB) -> None:
-    # A shard only uses the first mongodsPerShardCount entries of the shared memberConfig.
-    # Votes on exactly those (the first 4) put the shard at 4 K8s + 4 VM = 8 voting members,
-    # while the config server stays within the limit at 4 K8s + 3 VM = 7.
-    shard_rs_name = _shard_rs_name_on_vms(mdb_migration)
-    shard_positions = set(range(mdb_migration["spec"]["mongodsPerShardCount"]))
-    _assert_voting_limit_trips(mdb_migration, shard_positions, shard_rs_name)
+    _set_member_config_votes(mdb_migration, voting=True)
+    _assert_trips(mdb_migration, rs_name)
+    _set_member_config_votes(mdb_migration, voting=False)
+    _assert_recovers(mdb_migration)
 
 
 def _assert_voting_limit_on_config_server(mdb_migration: MongoDB) -> None:
-    # The config server uses all memberConfig entries, so the ones past mongodsPerShardCount
-    # belong to it alone. Votes on those two plus the first 3 put the config server at
-    # 5 K8s + 3 VM = 8 voting members, while each shard stays within the limit at 3 + 4 = 7.
-    spec = mdb_migration["spec"]
-    config_rs_name = spec.get("configServerNameOverride") or f"{mdb_migration.name}-config"
-    config_only_positions = set(range(spec["mongodsPerShardCount"], len(spec["memberConfig"])))
-    votes_still_needed = MAX_VOTING_MEMBERS + 1 - _vm_member_count(mdb_migration, config_rs_name)
-    front_positions = set(range(votes_still_needed - len(config_only_positions)))
-    _assert_voting_limit_trips(mdb_migration, config_only_positions | front_positions, config_rs_name)
+    # The config server K8s member votes live in top-level spec.memberConfig, independent of the
+    # shard overrides, so making them voting pushes only the config server over the limit
+    # (configServerCount K8s plus its VM members).
+    config_rs_name = mdb_migration["spec"].get("configServerNameOverride") or f"{mdb_migration.name}-config"
+    _set_member_config_votes(mdb_migration, voting=True)
+    _assert_trips(mdb_migration, config_rs_name)
+    _set_member_config_votes(mdb_migration, voting=False)
+    _assert_recovers(mdb_migration)
 
 
-def _assert_voting_limit_trips(mdb_migration: MongoDB, voting_positions: set, expected_rs_name: str) -> None:
-    """Make the given memberConfig entries voting, assert the expected replica set fails
-    the voting limit validation, then revert all entries to non voting and recover."""
-    _set_voting_positions(mdb_migration, voting_positions)
+def _assert_voting_limit_on_shard(mdb_migration: MongoDB) -> None:
+    # A shard's K8s member votes live in its own shardOverride, so making them voting pushes only
+    # that shard over the limit (mongodsPerShardCount K8s plus its VM members) and leaves the
+    # config server untouched.
+    shard_k8s_name, shard_rs_name = _first_shard_on_vms(mdb_migration)
+    _set_shard_override_votes(mdb_migration, shard_k8s_name, voting=True)
+    _assert_trips(mdb_migration, shard_rs_name)
+    _set_shard_override_votes(mdb_migration, shard_k8s_name, voting=False)
+    _assert_recovers(mdb_migration)
+
+
+def _assert_trips(mdb_migration: MongoDB, expected_rs_name: str) -> None:
+    mdb_migration.update()
     mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
     message = mdb_migration.get_status_message()
     assert "voting members" in message
     assert expected_rs_name in message, f"expected {expected_rs_name} to trip the voting limit, got: {message}"
 
-    _set_voting_positions(mdb_migration, set())
+
+def _assert_recovers(mdb_migration: MongoDB) -> None:
+    mdb_migration.update()
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=300)
 
 
-def _set_voting_positions(mdb_migration: MongoDB, voting_positions: set) -> None:
-    for i, member in enumerate(mdb_migration["spec"]["memberConfig"]):
-        voting = i in voting_positions
+def _set_member_config_votes(mdb_migration: MongoDB, voting: bool) -> None:
+    # Config server and plain replica set both use top-level spec.memberConfig.
+    _write_votes(mdb_migration["spec"]["memberConfig"], voting)
+
+
+def _set_shard_override_votes(mdb_migration: MongoDB, shard_k8s_name: str, voting: bool) -> None:
+    override = next(o for o in mdb_migration["spec"]["shardOverrides"] if shard_k8s_name in o["shardNames"])
+    _write_votes(override["memberConfig"], voting)
+
+
+def _write_votes(member_config: list, voting: bool) -> None:
+    # Callers look the list up fresh right before writing: mdb.update() swaps out the backing
+    # object, so a reference kept across updates would go stale.
+    for member in member_config:
         member["votes"] = 1 if voting else 0
         member["priority"] = "1" if voting else "0"
-    mdb_migration.update()
 
 
-def _vm_member_count(mdb_migration: MongoDB, rs_name: str) -> int:
-    return len([m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == rs_name])
+def _first_shard_on_vms(mdb_migration: MongoDB) -> tuple[str, str]:
+    """Return the (K8s name, AC replica set name) of the first shard that still has VM members.
 
-
-def _shard_rs_name_on_vms(mdb_migration: MongoDB) -> str:
-    """Return the AC replica set name of the first shard that still has VM members.
-
-    spec.shardCount covers every shard, the VM ones included. The AC name comes from
-    shardNameOverrides, falling back to the K8s shard name.
+    Both names are needed: the K8s name locates the shardOverride to edit, the AC name is what the
+    operator prints in the failure status. They can differ, so the AC name comes from
+    shardNameOverrides and falls back to the K8s name.
     """
     spec = mdb_migration["spec"]
     vm_rs_names = {m.get("replicaSetName") for m in spec.get("externalMembers", [])}
-    overrides = {o["shardName"]: o.get("replicaSetName") for o in spec.get("shardNameOverrides", [])}
+    ac_names = {o["shardName"]: o.get("replicaSetName") for o in spec.get("shardNameOverrides", [])}
     for shard_index in range(spec["shardCount"]):
         k8s_name = f"{mdb_migration.name}-{shard_index}"
-        rs_name = overrides.get(k8s_name) or k8s_name
+        rs_name = ac_names.get(k8s_name) or k8s_name
         if rs_name in vm_rs_names:
-            return rs_name
+            return k8s_name, rs_name
     raise AssertionError("no shard has VM members left, nothing to exercise the voting limit on")
 
 

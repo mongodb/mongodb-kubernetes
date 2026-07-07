@@ -40,6 +40,7 @@ from tests.vm_migration.vm_migration_sharded_helper import (
     deploy_vm_sharded_mongos_statefulset,
     deploy_vm_sharded_shard_service,
     deploy_vm_sharded_shard_statefulset,
+    promote_and_prune_shard,
     vm_mongos_tester,
 )
 
@@ -355,18 +356,7 @@ def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTe
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha1
 def test_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
-    try_load(mdb_migration)
-    shard_external = [
-        m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_SHARD_RS_NAME
-    ]
-    for _ in range(len(shard_external)):
-        current = [m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_SHARD_RS_NAME]
-        if not current:
-            break
-        mdb_migration["spec"]["externalMembers"].remove(current[-1])
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
-        om_tester.assert_cluster_available(VM_MONGOS_NAME)
+    promote_and_prune_shard(mdb_migration, om_tester, VM_SHARD_RS_NAME, VM_MONGOS_NAME)
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha1

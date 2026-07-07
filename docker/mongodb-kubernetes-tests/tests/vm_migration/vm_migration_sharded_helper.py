@@ -15,16 +15,18 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoTester, build_mongodb_connection_uri
 from kubetester.omtester import OMTester
+from kubetester.phase import Phase
 from tests.vm_migration.vm_migration_common_helper import (
     MIGRATION_DRY_RUN_ANNOTATION,
     _deploy_vm_statefulset_from_fixture,
     generated_mongodb_doc,
 )
 
-# The counts are sized so the voting limit test can trip the config server and a shard
-# independently through the shared spec.memberConfig: the config server uses all of its
-# entries while a shard only uses the first MIN_K8S_SHARD, leaving two config server only
-# entries. See assert_max_voting_members_validation for the arithmetic.
+# The voting limit test trips the config server and a shard independently: the config server
+# votes come from top-level spec.memberConfig and the shard votes from its own shardOverride,
+# so making one component's K8s members voting never affects the other. Each K8s count plus
+# its VM members is sized to cross the 7 voting member limit on its own. See
+# assert_max_voting_members_validation for the arithmetic.
 MIN_K8S_CONFIGSRV = 6
 MIN_K8S_SHARD = 4
 MIN_K8S_MONGOS = 2
@@ -126,7 +128,8 @@ def apply_generated_sharded_cluster_resource(
     customer_sets_disabled_tls_mode: bool = False,
     prepare_external_resources=None,
 ) -> MongoDB:
-    """Apply the generated sharded cluster CR. Only config server members get memberConfig (votes=0)."""
+    """Apply the generated sharded cluster CR. The config server K8s members get their votes from
+    top-level memberConfig and each shard gets its own shardOverride, both non voting to start."""
     resource_doc = generated_mongodb_doc(generated_cr_yaml)
     resource = MongoDB(resource_name or resource_doc["metadata"]["name"], namespace)
     if try_load(resource):
@@ -143,6 +146,18 @@ def apply_generated_sharded_cluster_resource(
     # externalMembers and the Kubernetes members scale up from 0.
     resource_doc["spec"]["mongodsPerShardCount"] = MIN_K8S_SHARD
     resource_doc["spec"]["mongosCount"] = MIN_K8S_MONGOS
+
+    # Shard K8s members default to voting, which would already put a shard over the limit once its
+    # VM members are counted. A per-shard override pins them non voting and keeps shard votes
+    # independent of the config server for the voting limit test.
+    resource_name_value = resource_doc["metadata"]["name"]
+    resource_doc["spec"]["shardOverrides"] = [
+        {
+            "shardNames": [f"{resource_name_value}-{shard_index}"],
+            "memberConfig": [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_SHARD)],
+        }
+        for shard_index in range(resource_doc["spec"]["shardCount"])
+    ]
 
     config_members = [
         m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
@@ -441,3 +456,51 @@ def build_sharded_cluster_ac(
     )
 
     return ac
+
+
+def promote_and_prune_shard(
+    mdb_migration: MongoDB,
+    om_tester: OMTester,
+    vm_shard_rs_name: str,
+    mongos_cluster_name: str,
+    timeout: int = 600,
+) -> None:
+    """Promote each Kubernetes shard member and prune one VM shard member at a time.
+
+    Shard member votes live in the shard's own shardOverride, so they must be promoted explicitly
+    here. Otherwise pruning the voting VM members would leave the shard with only non voting
+    Kubernetes members, which is not a valid replica set.
+    """
+    try_load(mdb_migration)
+    shard_k8s_name = _shard_k8s_name_for_rs(mdb_migration, vm_shard_rs_name)
+    vm_shard_count = len(
+        [m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == vm_shard_rs_name]
+    )
+    for i in range(vm_shard_count):
+        override = next(o for o in mdb_migration["spec"]["shardOverrides"] if shard_k8s_name in o["shardNames"])
+        override["memberConfig"][i]["priority"] = "1"
+        override["memberConfig"][i]["votes"] = 1
+        mdb_migration.update()
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+        current = [m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == vm_shard_rs_name]
+        if current:
+            mdb_migration["spec"]["externalMembers"].remove(current[-1])
+            mdb_migration.update()
+            mdb_migration.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+        om_tester.assert_cluster_available(mongos_cluster_name)
+
+
+def _shard_k8s_name_for_rs(mdb_migration: MongoDB, vm_shard_rs_name: str) -> str:
+    """Return the Kubernetes shard name whose AC replica set name is vm_shard_rs_name.
+
+    The AC name comes from shardNameOverrides and falls back to the Kubernetes name.
+    """
+    spec = mdb_migration["spec"]
+    ac_names = {o["shardName"]: o.get("replicaSetName") for o in spec.get("shardNameOverrides", [])}
+    for shard_index in range(spec["shardCount"]):
+        k8s_name = f"{mdb_migration.name}-{shard_index}"
+        if (ac_names.get(k8s_name) or k8s_name) == vm_shard_rs_name:
+            return k8s_name
+    raise AssertionError(f"no shard maps to replica set {vm_shard_rs_name}")
