@@ -1,0 +1,132 @@
+{
+  "auth": {
+    "usersWanted": [
+      {
+        "user": "mms-automation-agent",
+        "db": "admin",
+        "roles": [{"role": "root", "db": "admin"}],
+        "mechanisms": ["SCRAM-SHA-256"],
+        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
+        "authenticationRestrictions": []
+      }
+    ],
+    "usersDeleted": [],
+    "disabled": false,
+    "authoritativeSet": false,
+    "deploymentAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanisms": ["SCRAM-SHA-256"],
+    "autoAuthMechanism": "SCRAM-SHA-256",
+    "autoUser": "mms-automation-agent",
+    "autoAuthRestrictions": []
+  },
+  "options": {
+    "downloadBase": "/var/lib/mongodb-mms-automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "allowTLS", "PEMKeyFile": "/mongodb-automation/server.pem"}},
+        "replication": {"replSetName": "allow-shard-rs"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "shard-0.example.com",
+      "name": "allow-shard-rs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27018, "tls": {"mode": "allowTLS", "PEMKeyFile": "/mongodb-automation/server.pem"}},
+        "replication": {"replSetName": "allow-shard-rs"},
+        "sharding": {"clusterRole": "shardsvr"},
+        "storage": {"dbPath": "/data/shard"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "shard-1.example.com",
+      "name": "allow-shard-rs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27019, "tls": {"mode": "allowTLS", "PEMKeyFile": "/mongodb-automation/server.pem"}},
+        "replication": {"replSetName": "allow-csrs"},
+        "sharding": {"clusterRole": "configsvr"},
+        "storage": {"dbPath": "/data/config"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "config-0.example.com",
+      "name": "allow-csrs-0",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27019, "tls": {"mode": "allowTLS", "PEMKeyFile": "/mongodb-automation/server.pem"}},
+        "replication": {"replSetName": "allow-csrs"},
+        "sharding": {"clusterRole": "configsvr"},
+        "storage": {"dbPath": "/data/config"},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "config-1.example.com",
+      "name": "allow-csrs-1",
+      "processType": "mongod",
+      "version": "8.0.4-ent"
+    },
+    {
+      "args2_6": {
+        "net": {"port": 27017, "tls": {"mode": "allowTLS", "PEMKeyFile": "/mongodb-automation/server.pem"}},
+        "systemLog": {"destination": "file", "path": "/var/log/mongodb/mongos.log"}
+      },
+      "featureCompatibilityVersion": "8.0",
+      "hostname": "mongos-0.example.com",
+      "name": "allow-mongos-0",
+      "processType": "mongos",
+      "version": "8.0.4-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "allow-shard-rs",
+      "members": [
+        {"_id": 0, "host": "allow-shard-rs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "allow-shard-rs-1", "priority": 1, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    },
+    {
+      "_id": "allow-csrs",
+      "members": [
+        {"_id": 0, "host": "allow-csrs-0", "priority": 1, "votes": 1, "tags": {}},
+        {"_id": 1, "host": "allow-csrs-1", "priority": 1, "votes": 1, "tags": {}}
+      ],
+      "protocolVersion": "1"
+    }
+  ],
+  "roles": [],
+  "sharding": [
+    {
+      "_id": "allow-cluster",
+      "name": "allow-cluster",
+      "configServerReplica": "allow-csrs",
+      "shards": [
+        {"_id": "allow-shard", "rs": "allow-shard-rs"}
+      ]
+    }
+  ],
+  "tls": {
+    "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
+    "clientCertificateMode": "REQUIRE"
+  },
+  "version": 1
+}

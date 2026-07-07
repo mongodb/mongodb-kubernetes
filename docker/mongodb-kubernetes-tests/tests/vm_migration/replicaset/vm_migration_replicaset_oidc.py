@@ -13,29 +13,31 @@ import kubetester.oidc as oidc
 from kubetester import create_or_update_secret, get_statefulset
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import with_scram
+from kubetester.mongotester import MongoDBBackgroundTester, with_scram
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from kubetester.scram import build_sha256_creds
 from pytest import fixture, mark, skip
-from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
-from tests.vm_migration.vm_migration_helpers import (
-    apply_generated_mongodb_resource,
+from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
+    assert_max_voting_members_validation,
+    assert_migration_data_exists,
+    generated_mongodb_doc,
+    generated_user_docs,
+    insert_migration_data,
+    run_generate_cr,
+)
+from tests.vm_migration.vm_migration_dry_run import run_migration_dry_run_connectivity_passes
+from tests.vm_migration.vm_migration_replicaset_helper import (
+    apply_generated_mongodb_resource,
     assert_common_generated_cr_shape,
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
-    assert_max_voting_members_validation,
-    assert_migration_data_exists,
     deploy_vm_service,
     deploy_vm_statefulset,
-    generated_mongodb_doc,
-    generated_user_docs,
-    insert_migration_data,
     promote_and_prune,
-    run_generate_cr,
     vm_replica_set_tester,
 )
 
@@ -227,6 +229,14 @@ def scram_opts() -> list[dict]:
     return [with_scram(APP_USER, APP_USER_PASSWORD, SCRAM_MECHANISM)]
 
 
+@fixture(scope="module")
+def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mdb_migration.tester(use_ssl=False),
+        health_function_params={"attempts": 1, "opts": scram_opts},
+    )
+
+
 # Test flow
 
 
@@ -343,8 +353,19 @@ def test_migration_data_exists_after_migration(mdb_migration: MongoDB, scram_opt
 
 
 @mark.e2e_vm_migration_replicaset_oidc
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+@mark.e2e_vm_migration_replicaset_oidc
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
     promote_and_prune(mdb_migration, vm_sts)
+
+
+@mark.e2e_vm_migration_replicaset_oidc
+def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
 
 
 @mark.e2e_vm_migration_replicaset_oidc
@@ -360,3 +381,8 @@ def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
 @mark.e2e_vm_migration_replicaset_oidc
 def test_oidc_authentication_after_promote(mdb_migration: MongoDB):
     mdb_migration.tester(use_ssl=False).assert_oidc_authentication()
+
+
+@mark.e2e_vm_migration_replicaset_oidc
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB, scram_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)

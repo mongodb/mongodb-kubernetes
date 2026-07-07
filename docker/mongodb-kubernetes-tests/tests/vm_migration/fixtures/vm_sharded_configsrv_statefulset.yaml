@@ -1,0 +1,49 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vm-sharded-configsrv
+spec:
+  serviceName: vm-sharded-configsrv
+  replicas: 0 # THE TEST SETS THIS
+  selector:
+    matchLabels:
+      app: vm-sharded-configsrv
+  template:
+    metadata:
+      labels:
+        app: vm-sharded-configsrv
+    spec:
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: mongodb-agent
+          image: quay.io/mongodb/mongodb-agent:13.52.0.10711-1
+          ports:
+            - containerPort: 27017
+              name: mongodb
+          command:
+            - /bin/sh
+            - -c
+            - ./agent/mongodb-agent -mmsGroupId=$(MMS_GROUP_ID) -mmsBaseUrl=$(MMS_BASE_URL) -mmsApiKey=$(MMS_API_KEY)
+          env:
+            - name: MMS_GROUP_ID
+              value: ""
+            - name: MMS_BASE_URL
+              value: ""
+            - name: MMS_API_KEY
+              value: ""
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodb-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

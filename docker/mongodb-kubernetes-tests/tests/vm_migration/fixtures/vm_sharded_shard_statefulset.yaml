@@ -2,17 +2,17 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: vm-mongodb
+  name: vm-sharded-shard
 spec:
-  serviceName: vm-mongodb
-  replicas: 3
+  serviceName: vm-sharded-shard
+  replicas: 0 # THE TEST SETS THIS
   selector:
     matchLabels:
-      app: vm-mongodb
+      app: vm-sharded-shard
   template:
     metadata:
       labels:
-        app: vm-mongodb
+        app: vm-sharded-shard
     spec:
       securityContext:
         runAsUser: 0
@@ -20,7 +20,7 @@ spec:
         fsGroup: 0
       containers:
         - name: mongodb-agent
-          image: quay.io/mongodb/mongodb-agent:13.51.0.10584-1
+          image: quay.io/mongodb/mongodb-agent:13.52.0.10711-1
           ports:
             - containerPort: 27017
               name: mongodb
@@ -38,13 +38,6 @@ spec:
           volumeMounts:
             - name: mongodb-data
               mountPath: /data
-#            - name: mongodb-certs
-#              mountPath: /etc/mongodb/certs
-#              readOnly: true
-#      volumes:
-#        - name: mongodb-certs
-#          secret:
-#            secretName: mdb-certs
 
   volumeClaimTemplates:
     - metadata:

@@ -39,7 +39,6 @@ spec:
           journalCompressor: zlib
           zstdCompressionLevel: 6
   agent:
-    maxLogFileDurationHours: 0
     mongod:
       systemLog:
         destination: file
