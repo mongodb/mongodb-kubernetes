@@ -1154,6 +1154,25 @@ def _set_mongot_memory_request(mdbs: MongoDBSearch, list_pos: int, memory: str |
     mdbs.update()
 
 
+def _delete_mongot_pods_for_cluster(
+    mdbs: MongoDBSearch,
+    cluster_index: int,
+    member_cluster_clients: List[MultiClusterClient],
+) -> None:
+    """Delete the mongot StatefulSet pods for a cluster so the STS recreates them from the
+    current template, if the pods are stuck in pending STS would not updated them."""
+    sts_prefix = f"{MDBS_RESOURCE_NAME}-search-{cluster_index}-"
+    for mcc in member_cluster_clients:
+        if mcc.cluster_index != cluster_index:
+            continue
+        core = mcc.core_v1_api()
+        for pod in core.list_namespaced_pod(mdbs.namespace).items:
+            name = pod.metadata.name
+            if name.startswith(sts_prefix) and not name.startswith(f"{sts_prefix}lb"):
+                logger.info(f"deleting wedged mongot pod {name} in cluster {mcc.cluster_name}")
+                core.delete_namespaced_pod(name, mdbs.namespace)
+
+
 def _set_envoy_memory_request(mdbs: MongoDBSearch, list_pos: int, memory: str | None) -> None:
     """Set (memory != None) or clear the managed Envoy resourceRequirements.requests.memory
     for spec.clusters[list_pos].
@@ -1202,11 +1221,13 @@ def test_mongot_fault_degrades_only_that_clusters_search(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_mongot_fault_recovers(mdbs: MongoDBSearch):
+def test_mongot_fault_recovers(mdbs: MongoDBSearch, member_cluster_clients: List[MultiClusterClient]):
     """Reverting the mongot request transitions the fault cluster's `search` sub-phase back
-    to Running and clears its message automatically."""
+    to Running and clears its message.
+    """
     faulted_ci = _cluster_index_at(mdbs, MONGOT_FAULT_POS)
     _set_mongot_memory_request(mdbs, MONGOT_FAULT_POS, None)
+    _delete_mongot_pods_for_cluster(mdbs, faulted_ci, member_cluster_clients)
     mdbs.wait_for_cluster_search_phase(faulted_ci, Phase.Running, expect_message=False, timeout=STATUS_RECOVER_TIMEOUT)
     mdbs.assert_reaches_phase(Phase.Running, timeout=STATUS_RECOVER_TIMEOUT)
 
