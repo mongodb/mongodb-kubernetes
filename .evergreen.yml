@@ -9,7 +9,7 @@ ignore:
   - ".gitignore"
   - "**/OWNERS"
   - ".github/**"
-  - "changelog/**"
+  - "!changelog/**"
 
 # 2h timeout for all the tasks
 exec_timeout_secs: 7200
