@@ -144,7 +144,12 @@ def build_operator_config_spec_from_test_env() -> dict:
     # dedicated telemetry variant (MDB_OPERATOR_TELEMETRY_SEND_ENABLED=true, which also points the
     # operator at a cloud-dev endpoint via MDB_OPERATOR_TELEMETRY_SEND_BASEURL). Setting
     # MDB_OPERATOR_TELEMETRY_ENABLED=false disables telemetry entirely (master switch).
-    telemetry: dict = {"send": {"mode": "Disabled"}}
+    #
+    # Collection frequency is set to the minimum (1m) so telemetry tests observe fresh, populated
+    # payloads quickly: the operator collects once immediately at startup (before any deployment
+    # exists) and then on this interval, so a short interval is needed to pick up resources created
+    # later in the test within its polling window.
+    telemetry: dict = {"send": {"mode": "Disabled"}, "collection": {"frequency": "1m"}}
     if os.getenv("MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "false") == "true":
         telemetry["send"]["mode"] = "Enabled"
     if os.getenv("MDB_OPERATOR_TELEMETRY_ENABLED", "true") == "false":
@@ -176,6 +181,29 @@ def get_operator_pod_restart_count(namespace: str, name: str, api_client=None) -
     if operator_status is None:
         return None
     return operator_status.restart_count
+
+
+def wait_for_operator_pod_present(namespace: str, name: str, api_client=None, retries: int = 120) -> int:
+    """Polls until exactly one operator pod with started containers is present and returns its restart
+    count. Raises AssertionError if the pod does not appear within the timeout.
+
+    Some install paths report readiness before the operator Deployment has finished rolling out its
+    pod (notably OLM, which signals readiness via the CSV phase, and rolling upgrades where the old
+    and new pods coexist transiently). Polling avoids a one-shot read racing that rollout.
+    """
+    timeout_seconds = retries
+    while retries > 0:
+        count = get_operator_pod_restart_count(namespace, name, api_client=api_client)
+        if count is not None:
+            return count
+        time.sleep(1)
+        retries -= 1
+
+    raise AssertionError(
+        f"Operator pod '{name}' in namespace '{namespace}' did not appear within {timeout_seconds} "
+        "seconds before applying OperatorConfig. Ensure the operator is running before calling "
+        "apply_operator_config_from_test_env."
+    )
 
 
 def wait_for_operator_pod_restart(
@@ -244,20 +272,21 @@ def apply_operator_config_from_test_env(
     if not spec:
         return False
 
-    previous_restart_count = get_operator_pod_restart_count(namespace, name, api_client=api_client)
+    if local_operator():
+        # No operator pod in the cluster — the operator process reads OperatorConfig directly from the
+        # API server, so there is no pod restart to wait for.
+        create_operator_config(namespace, spec, api_client=api_client)
+        return True
+
+    # Snapshot the operator pod's restart count before applying the CR. Poll for the pod to be present
+    # first: some install paths report readiness before the operator Deployment has finished rolling
+    # out (e.g. OLM's CSV phase, or a rolling upgrade where the old pod is still terminating).
+    previous_restart_count = wait_for_operator_pod_present(namespace, name, api_client=api_client)
+
     if not create_operator_config(namespace, spec, api_client=api_client):
         # The CR already existed, so the operator already loaded this config and will not restart.
         return False
 
-    if local_operator():
-        # No operator pod in the cluster — the operator process reads OperatorConfig directly from the
-        # API server, so no restart to wait for.
-        return True
-
-    assert previous_restart_count is not None, (
-        f"Operator pod '{name}' in namespace '{namespace}' was not found before OperatorConfig was applied. "
-        "Ensure the operator is running before calling apply_operator_config_from_test_env."
-    )
     wait_for_operator_pod_restart(namespace, name, previous_restart_count, api_client=api_client)
     if wait_for_ready is not None:
         wait_for_ready()
