@@ -147,7 +147,7 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 		},
 	})
 
-	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, false, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
 	// this affects Get interceptor func, blocking automatically marking sts as ready
@@ -362,7 +362,7 @@ func TestStandaloneRoleAnnotationIsSet(t *testing.T) {
 func defaultStandaloneReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, false, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
