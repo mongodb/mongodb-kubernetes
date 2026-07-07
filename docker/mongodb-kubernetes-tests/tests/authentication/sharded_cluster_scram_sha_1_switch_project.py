@@ -10,12 +10,6 @@ from .helper_switch_project import SwitchProjectHelper
 
 MDB_RESOURCE_NAME = "sharded-cluster-scram-sha-1-switch-project"
 
-# Quarantined: blocked on an upstream Cloud Manager Automation Agent 13.53 regression that
-# stalls mongos recovery after a sharded cluster project switch. See HELP-96015.
-# The Evergreen task for this file is patchable:false, so it only runs on master merge commits
-# (never in PR/manual patches) and its result still gates master's releasability.
-# See EVERGREEN.md#quarantined-tests.
-
 
 @pytest.fixture(scope="function")
 def sharded_cluster(namespace: str) -> MongoDB:
