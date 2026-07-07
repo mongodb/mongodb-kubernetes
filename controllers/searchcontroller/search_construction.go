@@ -98,6 +98,9 @@ type TLSSourceConfig struct {
 // sizing is the resolved per-(cluster, shard) ClusterSpec — see
 // MongoDBSearch.ResolveSizingForClusterShard — read for Replicas / Persistence /
 // ResourceRequirements / JVMFlags / StatefulSetConfiguration.
+//
+// Ownership is not set here: createOrUpdateStatefulSet (mongodbsearch_reconcile_helper.go)
+// is the sole owner-reference choke point for the StatefulSets this builds.
 func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
@@ -142,7 +145,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 		statefulset.WithNamespace(namespace),
 		statefulset.WithServiceName(svcName),
 		statefulset.WithLabels(labels),
-		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
 		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),

@@ -31,7 +31,11 @@ type TLSConfigurableResource interface {
 // ensureTLSSecret will create or update the operator-managed Secret containing
 // the concatenated certificate and key from the user-provided Secret.
 // Returns the file name of the concatenated certificate and key
-func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource) (string, error) {
+//
+// Cross-cluster ownership note: Kubernetes garbage collection does not span
+// clusters, so we only set an OwnerReference when writing into the central
+// cluster (clusterName == "").
+func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource, clusterName string) (string, error) {
 	certKey, err := getPemOrConcatenatedCrtAndKey(ctx, getUpdateCreator, resource.TLSSecretNamespacedName())
 	if err != nil {
 		return "", err
@@ -39,14 +43,15 @@ func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreat
 	// Calculate file name from certificate and key
 	fileName := OperatorSecretFileName(certKey)
 
-	operatorSecret := secret.Builder().
+	secretBuilder := secret.Builder().
 		SetName(resource.TLSOperatorSecretNamespacedName().Name).
 		SetNamespace(resource.TLSOperatorSecretNamespacedName().Namespace).
-		SetField(fileName, certKey).
-		SetOwnerReferences(resource.GetOwnerReferences()).
-		Build()
+		SetField(fileName, certKey)
+	if clusterName == "" {
+		secretBuilder = secretBuilder.SetOwnerReferences(resource.GetOwnerReferences())
+	}
 
-	return fileName, secret.CreateOrUpdate(ctx, getUpdateCreator, operatorSecret)
+	return fileName, secret.CreateOrUpdate(ctx, getUpdateCreator, secretBuilder.Build())
 }
 
 // getCertAndKey will fetch the certificate and key from the user-provided Secret.

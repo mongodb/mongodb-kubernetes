@@ -2600,7 +2600,7 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "")
 	require.NoError(t, err)
 
 	// Apply modifications and verify no changes
@@ -2641,7 +2641,7 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tls must be enabled")
 }
@@ -2666,8 +2666,21 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "")
 	require.NoError(t, err)
+
+	// Central cluster (clusterName == ""): the operator-managed secret keeps its owner ref.
+	centralOperatorSecret, err := fakeClient.GetSecret(t.Context(), (&x509AuthResource{MongoDBSearch: search}).TLSOperatorSecretNamespacedName())
+	require.NoError(t, err)
+	assert.NotEmpty(t, centralOperatorSecret.OwnerReferences, "central cluster's operator-managed x509 secret must carry an owner reference")
+
+	// Member cluster (clusterName != ""): Kubernetes GC does not span clusters, so no owner
+	// reference must be set, or the member cluster's own GC controller deletes the secret.
+	_, _, err = helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "cluster-a")
+	require.NoError(t, err)
+	memberOperatorSecret, err := fakeClient.GetSecret(t.Context(), (&x509AuthResource{MongoDBSearch: search}).TLSOperatorSecretNamespacedName())
+	require.NoError(t, err)
+	assert.Empty(t, memberOperatorSecret.OwnerReferences, "member cluster's operator-managed x509 secret must not carry an owner reference")
 
 	// Apply mongot modification to a config with both ReplicaSet and Router (sharded scenario)
 	config := &mongot.Config{
@@ -2765,7 +2778,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret, keyPasswordSecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "")
 	require.NoError(t, err)
 
 	// Verify mongot config has key password path
@@ -3378,6 +3391,24 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	err = clusterBClient.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
+
+	// Kubernetes GC does not span clusters: member-cluster resources must carry no
+	// owner reference back to the central MongoDBSearch CR (its UID doesn't exist in
+	// the member cluster's etcd, so the member cluster's own GC controller would
+	// otherwise delete them).
+	assert.Empty(t, stsA.OwnerReferences, "cluster-a STS must not carry an owner reference")
+	assert.Empty(t, stsB.OwnerReferences, "cluster-b STS must not carry an owner reference")
+	assert.Empty(t, cmB.OwnerReferences, "cluster-b mongot ConfigMap must not carry an owner reference")
+
+	headlessSvcA := &corev1.Service{}
+	require.NoError(t, clusterAClient.Get(t.Context(),
+		mdb.SearchServiceNamespacedNameForCluster(0), headlessSvcA))
+	assert.Empty(t, headlessSvcA.OwnerReferences, "cluster-a headless Service must not carry an owner reference")
+
+	proxySvcB := &corev1.Service{}
+	require.NoError(t, clusterBClient.Get(t.Context(),
+		mdb.ProxyServiceNamespacedNameForCluster(1), proxySvcB))
+	assert.Empty(t, proxySvcB.OwnerReferences, "cluster-b proxy Service must not carry an owner reference")
 }
 
 // Sharded MC: buildShardedPlan emits one unit per (cluster, shard) plus one
@@ -3550,7 +3581,7 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	for _, res := range plan.clusterLevelResources {
 		clusterClient, err := r.clientForCluster(res.clusterName)
 		require.NoError(t, err)
-		require.NoError(t, r.ensureSearchService(t.Context(), zap.S(), clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)))
+		require.NoError(t, r.ensureSearchService(t.Context(), zap.S(), clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res), res.clusterName))
 	}
 
 	// Per-(cluster, shard) STS + ConfigMap + per-shard proxy Service on the right client.
