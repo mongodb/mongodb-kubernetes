@@ -539,13 +539,25 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		unitClient         kubernetesClient.Client
 		expectedGeneration int64
 	}
+	// reconcileErrs aggregates per-unit failures so that one failing member
+	// cluster does not block the others. Returned once, after all units ran.
+	var reconcileErrs error
 	applied := make([]unitApplyResult, 0, len(plan.units))
 	for _, unit := range plan.units {
 		unitLog := log.With(unit.logFields...)
 
+		// Skip units whose cluster has no client configured in the operator.
+		if _, err := r.clientForCluster(unit.clusterName); err != nil {
+			unitLog.Warnf("Skipping unit for cluster %q: %s", unit.clusterName, err)
+			continue
+		}
+
 		mutatedSts, unitClient, err := r.applyReconcileUnit(ctx, unitLog, plan, unit, mods)
 		if err != nil {
-			return workflow.Failed(err)
+			// e.g. unreachable cluster: aggregate and continue with the other units.
+			unitLog.Warnf("Failed to reconcile unit on cluster %q: %s", unit.clusterName, err)
+			reconcileErrs = multierror.Append(reconcileErrs, err)
+			continue
 		}
 		applied = append(applied, unitApplyResult{
 			unit:               unit,
@@ -562,10 +574,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 		clusterClient, err := r.clientForCluster(res.clusterName)
 		if err != nil {
-			return workflow.Failed(err)
+			log.Warnf("Skipping cluster-level resources for cluster %q: %s", res.clusterName, err)
+			continue
 		}
 		if err := r.ensureSearchService(ctx, log, clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)); err != nil {
-			return workflow.Failed(err)
+			log.Warnf("Failed to ensure cluster-level proxy service on cluster %q: %s", res.clusterName, err)
+			reconcileErrs = multierror.Append(reconcileErrs, err)
+			continue
 		}
 	}
 
@@ -575,14 +590,13 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// state CM) before the worst-of readiness return: one not-ready or failing unit
 	// must not block the others, so per-unit errors are aggregated instead of
 	// failing fast.
-	var switchErrs error
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
-			switchErrs = multierror.Append(switchErrs, err)
+			reconcileErrs = multierror.Append(reconcileErrs, err)
 		}
 	}
-	if switchErrs != nil {
-		return workflow.Failed(switchErrs)
+	if reconcileErrs != nil {
+		return workflow.Failed(reconcileErrs)
 	}
 
 	// Worst-of readiness check — first non-OK status wins.
