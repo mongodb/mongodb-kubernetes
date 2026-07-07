@@ -54,7 +54,7 @@ def create_or_replace_from_yaml_single_item(k8s_client, yml_object, namespace="d
             pass
 
 
-def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **kwargs):
+def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", timeout=300, **kwargs):
     k8s_api = get_k8s_api(k8s_client, yml_object)
     kind = get_kind(yml_object)
     # Decide which namespace we are going to put the object in,
@@ -64,7 +64,7 @@ def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **k
     name = yml_object["metadata"]["name"]
 
     if kind == "custom_resource_definition":
-        deadline = time.time() + 300
+        deadline = time.time() + timeout
         last_error = None
         while time.time() < deadline:
             resource = client.ApiextensionsV1Api().read_custom_resource_definition(name)
