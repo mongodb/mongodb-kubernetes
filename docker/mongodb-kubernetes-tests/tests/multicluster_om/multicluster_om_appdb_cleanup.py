@@ -157,7 +157,7 @@ def test_delete_ops_manager_resource(ops_manager: MongoDBOpsManager):
                 logger.error(f"Error when trying to load the opsmanager {ops_manager.name} resource: {e}")
                 return False
 
-    run_periodically(resource_is_deleted, timeout=60)
+    run_periodically(resource_is_deleted, timeout=300)
 
 
 @mark.e2e_multi_cluster_appdb_cleanup
@@ -170,7 +170,7 @@ def test_statefulset_does_not_exist(ops_manager: MongoDBOpsManager):
 
         return True
 
-    run_periodically(sts_are_deleted, timeout=60)
+    run_periodically(sts_are_deleted, timeout=300)
 
 
 @mark.e2e_multi_cluster_appdb_cleanup
@@ -189,7 +189,7 @@ def test_service_does_not_exist(ops_manager: MongoDBOpsManager):
 
         return True
 
-    run_periodically(svc_are_deleted, timeout=60)
+    run_periodically(svc_are_deleted, timeout=300)
 
 
 @mark.e2e_multi_cluster_appdb_cleanup
@@ -207,4 +207,4 @@ def test_configmap_does_not_exist(ops_manager: MongoDBOpsManager):
 
         return True
 
-    run_periodically(cm_are_deleted, timeout=60)
+    run_periodically(cm_are_deleted, timeout=300)

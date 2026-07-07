@@ -36,6 +36,7 @@ from evergreen.api import EvergreenApi
 from evergreen.task import Task
 from evergreen.version import BuildVariantStatus, Version
 
+from scripts.evergreen.notify_flaky_tests import get_flaky_tasks
 from scripts.python.evergreen_api import get_evergreen_api
 
 # Terminal statuses that indicate a patch/version has completed
@@ -167,16 +168,27 @@ def get_failed_and_running_tasks(
 MAX_DETAILED_FAILURES = 10
 
 
+def _format_task_name(task: TaskInfo, flaky_map: dict[tuple[str, str], float]) -> str:
+    """Format a task display_name, appending flakiness info if known."""
+    flakiness = flaky_map.get((task.display_name, task.build_variant))
+    if flakiness is not None:
+        return f"{task.display_name} *(flaky: {flakiness:.0f}% over 7d)*"
+    return task.display_name
+
+
 def format_slack_message(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo] | None = None,
+    flaky_map: dict[tuple[str, str], float] | None = None,
 ) -> dict[str, object]:
     """Format a Slack message for build status.
 
     Args:
         version_info: Version information
         failed_tasks: List of failed tasks
+        flaky_map: Optional {(task_name, variant): flakiness_percent} from Honeycomb
     """
+    flaky_map = flaky_map or {}
     evergreen_version_url = f"https://spruce.mongodb.com/version/{version_info.version_id}"
     is_failure = bool(failed_tasks)
     num_failures = len(failed_tasks) if failed_tasks else 0
@@ -209,12 +221,26 @@ def format_slack_message(
         },
     ]
 
+    # Flakiness context: how many failed tasks are known-flaky
+    if is_failure and failed_tasks and flaky_map:
+        flaky_failed = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)
+        if flaky_failed > 0:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"_{flaky_failed} of {num_failures} failed task(s) show flaky behavior in the past 7 days_",
+                    },
+                }
+            )
+
     if is_failure and failed_tasks:
         failures_by_variant: dict[str, list[str]] = {}
         for task in failed_tasks:
             if task.build_variant not in failures_by_variant:
                 failures_by_variant[task.build_variant] = []
-            failures_by_variant[task.build_variant].append(task.display_name)
+            failures_by_variant[task.build_variant].append(_format_task_name(task, flaky_map))
 
         num_variants = len(failures_by_variant)
         blocks.append({"type": "divider"})
@@ -274,6 +300,7 @@ def print_stdout_report(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo],
     running_tasks: list[TaskInfo],
+    flaky_map: dict[tuple[str, str], float] | None = None,
 ) -> None:
     """Print a concise report to stdout.
 
@@ -281,26 +308,31 @@ def print_stdout_report(
         version_info: Version information
         failed_tasks: List of failed tasks
         running_tasks: List of running/pending tasks
+        flaky_map: Optional {(task_name, variant): flakiness_percent} from Honeycomb
     """
+    flaky_map = flaky_map or {}
     status_str = version_info.status.upper()
     print(f"BUILD {status_str}: {version_info.version_id}")
     print(f"Commit:  {version_info.revision[:8]} by {version_info.author}")
     print(f"Link:    https://spruce.mongodb.com/version/{version_info.version_id}")
 
-    def print_task_table(tasks: list[TaskInfo], title: str) -> None:
+    def print_task_table(tasks: list[TaskInfo], title: str, flaky_map: dict[tuple[str, str], float]) -> None:
         print(f"\n{title} ({len(tasks)}):")
-        print(f"{'Variant':<45} {'Task':<40}")
-        print("-" * 85)
+        print(f"{'Variant':<45} {'Task':<60}")
+        print("-" * 105)
         for task in sorted(tasks, key=lambda t: (t.build_variant, t.display_name)):
             variant = task.build_variant[:44]
-            task_name = task.display_name[:39]
-            print(f"{variant:<45} {task_name:<40}")
+            display = task.display_name[:39]
+            flakiness = flaky_map.get((task.display_name, task.build_variant))
+            if flakiness is not None:
+                display = f"{display} (flaky: {flakiness:.0f}% over 7d)"
+            print(f"{variant:<45} {display:<60}")
 
     if failed_tasks:
-        print_task_table(failed_tasks, "Failed Tasks")
+        print_task_table(failed_tasks, "Failed Tasks", flaky_map)
 
     if running_tasks:
-        print_task_table(running_tasks, "Pending Tasks")
+        print_task_table(running_tasks, "Pending Tasks", flaky_map)
 
 
 def main() -> None:
@@ -346,16 +378,28 @@ def main() -> None:
         print(f"Error fetching tasks: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Look up flakiness when there are failures (best-effort, non-fatal).
+    flaky_map: dict[tuple[str, str], float] = {}
+    if failed_tasks:
+        print("Looking up flakiness for failed tasks...", file=sys.stderr)
+        try:
+            flaky_tasks_list = get_flaky_tasks()
+            flaky_map = {(t.task_name, t.variant): t.flakiness_percent for t in flaky_tasks_list}
+            flaky_matches = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)
+            print(f"  {flaky_matches} of {len(failed_tasks)} failed tasks are known-flaky", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: flakiness lookup failed: {e}", file=sys.stderr)
+
     if failed_tasks or running_tasks:
         print(f"Found {len(failed_tasks)} failed, {len(running_tasks)} running tasks", file=sys.stderr)
 
         if use_slack_dry_run:
-            message = format_slack_message(version_info, failed_tasks)
+            message = format_slack_message(version_info, failed_tasks, flaky_map)
             print(json.dumps(message, indent=2))
         else:
-            print_stdout_report(version_info, failed_tasks, running_tasks)
+            print_stdout_report(version_info, failed_tasks, running_tasks, flaky_map)
             if use_slack and slack_webhook_url and failed_tasks:
-                message = format_slack_message(version_info, failed_tasks)
+                message = format_slack_message(version_info, failed_tasks, flaky_map)
                 send_slack_notification(slack_webhook_url, message)
     else:
         print("No failed or running tasks found", file=sys.stderr)
