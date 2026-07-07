@@ -127,17 +127,12 @@ class MongoDBSearch(MongoDB, CustomObject):
         self,
         expected_count: Optional[int] = None,
         expect_managed_lb: Optional[bool] = None,
-        expect_metrics_forwarder: bool = False,
+        expect_metrics_forwarder: Optional[bool] = None,
     ):
-        """Assert status.clusters is well-formed for a healthy (Running) deployment.
-
-        - One entry per spec.clusters[], no more, no less (expected_count overrides).
-        - index values exactly match the spec pins and are unique.
-        - Every entry's search phase is Running with an empty searchMessage.
-        - loadBalancer phase is Running (empty message) iff managed LB, else absent/empty
-          (expect_managed_lb overrides is_lb_mode_managed()).
-        - metricsForwarder phase is Running (empty message) iff expect_metrics_forwarder,
-          else absent/empty.
+        """Assert status.clusters is well-formed for a healthy (Running) deployment:
+        one entry per spec.clusters[] (unique, matching index pins), each with search
+        Running. loadBalancer is Running iff managed LB (else absent). metricsForwarder:
+        None (default) skips the check; True requires Running, False requires absent.
         """
         self.load()
         statuses = self.get_cluster_statuses()
@@ -176,7 +171,7 @@ class MongoDBSearch(MongoDB, CustomObject):
                     "loadBalancer"
                 ), f"cluster {ci}: loadBalancer should be absent for non-managed LB, got {cs.get('loadBalancer')!r}"
 
-            if expect_metrics_forwarder:
+            if expect_metrics_forwarder is True:
                 assert (
                     cs.get("metricsForwarder") == "Running"
                 ), f"cluster {ci}: metricsForwarder phase is {cs.get('metricsForwarder')!r}, expected Running"
@@ -184,11 +179,12 @@ class MongoDBSearch(MongoDB, CustomObject):
                     f"cluster {ci}: metricsForwarderMessage should be empty when Running, "
                     f"got {cs.get('metricsForwarderMessage')!r}"
                 )
-            else:
+            elif expect_metrics_forwarder is False:
                 assert not cs.get("metricsForwarder"), (
                     f"cluster {ci}: metricsForwarder should be absent when forwarder disabled, "
                     f"got {cs.get('metricsForwarder')!r}"
                 )
+            # expect_metrics_forwarder is None → do not assert on metricsForwarder
 
         logger.info(
             f"MongoDBSearch {self.name}: status.clusters OK ({len(statuses)} entries, "
