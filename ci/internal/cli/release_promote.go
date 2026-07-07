@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mongodb/mongodb-kubernetes/internal/ci/release"
+	"github.com/mongodb/mongodb-kubernetes/ci/internal/release"
 )
 
 func newReleasePromoteCmd() *cobra.Command {
