@@ -215,8 +215,7 @@ class MongoDBSearch(MongoDB, CustomObject):
         expect_message: bool,
         timeout: int = 300,
     ):
-        """Poll until the given cluster's per-cluster LOAD BALANCER phase reaches expected_phase.
-        """
+        """Poll until the given cluster's per-cluster LOAD BALANCER phase reaches expected_phase."""
         self._wait_for_cluster_phase(
             "loadBalancer", "loadBalancerMessage", cluster_index, expected_phase, expect_message, timeout
         )
@@ -228,8 +227,7 @@ class MongoDBSearch(MongoDB, CustomObject):
         expect_message: bool,
         timeout: int = 300,
     ):
-        """Poll until the given cluster's per-cluster METRICS FORWARDER phase reaches expected_phase.
-        """
+        """Poll until the given cluster's per-cluster METRICS FORWARDER phase reaches expected_phase."""
         self._wait_for_cluster_phase(
             "metricsForwarder", "metricsForwarderMessage", cluster_index, expected_phase, expect_message, timeout
         )
