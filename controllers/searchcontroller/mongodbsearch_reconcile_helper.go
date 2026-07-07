@@ -996,7 +996,6 @@ func (r *MongoDBSearchReconcileHelper) createOrUpdateStatefulSet(ctx context.Con
 	return sts, nil
 }
 
-// Cross-cluster ownership note: see createOrUpdateStatefulSet.
 func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, svcName types.NamespacedName, desired corev1.Service, clusterName string) error {
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: svcName.Name, Namespace: svcName.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, kubeClient, svc, func() error {
@@ -1027,8 +1026,6 @@ func (r *MongoDBSearchReconcileHelper) ensureSearchService(ctx context.Context, 
 // ensureMongotConfig creates or updates the mongot ConfigMap. When
 // auto-embedding is configured, generates leader/follower config files plus
 // pod-name role keys.
-//
-// Cross-cluster ownership note: see createOrUpdateStatefulSet.
 func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, log *zap.SugaredLogger, kubeClient kubernetesClient.Client, cmName types.NamespacedName, stsName, clusterName string, replicas int, modifications ...mongot.Modification) (string, error) {
 	usePerPodConfig := r.mdbSearch.HasAutoEmbedding()
 
@@ -1232,8 +1229,6 @@ const (
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
-//
-// Cross-cluster ownership note: see createOrUpdateStatefulSet.
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	svcLabels := map[string]string{
 		appLabelKey:       unit.headlessSvc.Name,
@@ -1273,8 +1268,6 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 // traffic keeps flowing to mongot directly while Envoy is deploying. Selector
 // uses LoadBalancerDeploymentNameForCluster(unit.clusterIndex) to match
 // per-cluster Envoy pod labels.
-//
-// Cross-cluster ownership note: see createOrUpdateStatefulSet.
 func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
@@ -1323,8 +1316,6 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 // buildClusterLevelProxyService builds the shard-agnostic proxy Service used by mongos.
 // Selector: Envoy pool when managed LB is ready, else the first shard's mongot pool.
 // Callers must skip when managed LB is configured but not yet ready.
-//
-// Cross-cluster ownership note: see createOrUpdateStatefulSet.
 func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLevelResource) corev1.Service {
 	var selector map[string]string
 	if search.IsLBModeManaged() && search.IsLoadBalancerReady() {
