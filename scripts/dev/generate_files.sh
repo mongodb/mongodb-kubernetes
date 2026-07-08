@@ -11,8 +11,10 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-  source "${PROJECT_DIR}/venv/bin/activate"
+# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
+if [ -f "${venv_path}/bin/activate" ]; then
+  source "${venv_path}/bin/activate"
 fi
 
 mkdir -p "$(go env GOPATH)/bin"

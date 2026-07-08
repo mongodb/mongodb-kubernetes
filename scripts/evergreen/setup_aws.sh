@@ -42,13 +42,15 @@ install_aws_cli_binary() {
 install_aws_cli_pip() {
     echo "Installing AWS CLI v1 via pip (for IBM architectures)..."
 
-    if [[ ! -d "${PROJECT_DIR}/venv" ]]; then
-        echo "Error: Python venv not found at ${PROJECT_DIR}/venv. Please run recreate_python_venv.sh first." >&2
+    # Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+    local venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
+    if [[ ! -d "${venv_path}" ]]; then
+        echo "Error: Python venv not found at ${venv_path}. Please run recreate_python_venv.sh first." >&2
         return 1
     fi
 
     # Activate the venv
-    source "${PROJECT_DIR}/venv/bin/activate"
+    source "${venv_path}/bin/activate"
 
     # Check if AWS CLI exists and works in the venv
     if command -v aws &> /dev/null; then
