@@ -10,6 +10,10 @@ operator:
   # Values are "static" and "non-static:
   mdbDefaultArchitecture: non-static
 
+  # Cluster identity for multi-cluster operator deployments.
+  clusterIdentity:
+    clusterName: ''
+
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-kubernetes-operator
 
@@ -17,7 +21,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.9.0
+  version: 1.10.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -131,11 +135,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.9.0
+  version: 1.10.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.9.0
+  version: 1.10.0
 
 ## Ops Manager
 opsManager:
@@ -143,7 +147,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.9.0
+  version: 1.10.0
 
 agent:
   name: mongodb-agent
@@ -197,7 +201,7 @@ community:
     imageType: ubi8
   agent:
     name: mongodb-agent
-    version: 108.0.2.8729-1
+    version: 108.0.23.8997-1
   registry:
     agent: quay.io/mongodb
   resource:
