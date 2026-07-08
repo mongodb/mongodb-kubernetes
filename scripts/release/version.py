@@ -10,6 +10,7 @@ from scripts.release.changelog import ChangeEntry, ChangeKind, get_changelog_ent
 class VersionTag:
     name: str
     commit: Commit
+    is_initial: bool = False
 
 
 def calculate_next_version(
@@ -20,37 +21,41 @@ def calculate_next_version(
 
 def calculate_next_version_with_changelog(
     repo: Repo, changelog_sub_path: str, initial_commit_sha: str | None, initial_version: str | None
-) -> (str, list[ChangeEntry]):
-    previous_version_tag, previous_version_commit = find_previous_version(repo, initial_commit_sha)
+) -> tuple[str, list[ChangeEntry]]:
+    previous_version_tag = find_previous_version(
+        repo=repo,
+        initial_commit_sha=initial_commit_sha,
+        initial_version=initial_version,
+    )
 
-    changelog: list[ChangeEntry] = get_changelog_entries(previous_version_commit, repo, changelog_sub_path)
+    changelog: list[ChangeEntry] = get_changelog_entries(previous_version_tag.commit, repo, changelog_sub_path)
     changelog_kinds = list(set(entry.kind for entry in changelog))
 
-    # If there is no previous version tag, we start with the initial version tag
-    if not previous_version_tag:
-        if not initial_version:
-            raise ValueError("No previous version tag found and no initial version provided.")
-        version = initial_version
+    # If we start with the initial version tag, do not increment it
+    if previous_version_tag.is_initial:
+        version = previous_version_tag.name
     else:
         version = increment_previous_version(previous_version_tag.name, changelog_kinds)
 
     return version, changelog
 
 
-def find_previous_version(repo: Repo, initial_commit_sha: str = None) -> (VersionTag | None, Commit):
+def find_previous_version(repo: Repo, initial_commit_sha: str = None, initial_version: str = None) -> VersionTag:
     """Find the most recent version that is an ancestor of the current HEAD commit."""
 
     previous_version_tag = find_previous_version_tag(repo)
+    if previous_version_tag:
+        return previous_version_tag
 
     # If there is no previous version tag, we start with the initial commit
-    if not previous_version_tag:
-        # If no initial commit SHA provided, use the first commit in the repository
-        if not initial_commit_sha:
-            initial_commit_sha = list(repo.iter_commits(reverse=True))[0].hexsha
+    # If no initial commit SHA provided, use the first commit in the repository
+    if not initial_commit_sha:
+        initial_commit_sha = list(repo.iter_commits(reverse=True))[0].hexsha
 
-        return None, repo.commit(initial_commit_sha)
+    if not initial_version:
+        raise ValueError("No previous version tag found and no initial version provided.")
 
-    return previous_version_tag, previous_version_tag.commit
+    return VersionTag(initial_version, repo.commit(initial_commit_sha), True)
 
 
 def find_previous_version_tag(repo: Repo) -> VersionTag | None:
