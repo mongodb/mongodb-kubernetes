@@ -1,5 +1,3 @@
-{{ if .Values.operator.createOperatorServiceAccount }}
-
 {{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
@@ -37,7 +35,6 @@ rules:
 {{- if not (eq $namespace "*") }}
 {{- $namespaceBlock = printf "namespace: %s" $namespace }}
 {{- end }}
-
 ---
 {{- if eq $namespace "*" }}
 kind: ClusterRoleBinding
@@ -58,4 +55,3 @@ subjects:
     namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
 {{- end }}
 
-{{- end}}{{/* if .Values.operator.createOperatorServiceAccount */}}
