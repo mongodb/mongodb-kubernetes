@@ -1,6 +1,6 @@
 requests==2.34.2
 evergreen.py==3.14.1
-click==8.4.1
+click==8.4.2
 docker==7.1.0
 Jinja2==3.1.6
 ruamel.yaml==0.19.1
@@ -11,34 +11,33 @@ chardet==5.2.0
 jsonpatch==1.33
 kubernetes==32.0.1
 pymongo==4.17.0
-pytest==9.0.3
+pytest==9.1.1
 pytest-asyncio==1.4.0
 pycognito==2024.5.1
 PyYAML==6.0.3
 urllib3==2.7.0
-cryptography==48.0.0
+cryptography==49.0.0
 python-dateutil==2.9.0.post0
 python-ldap==3.4.7
 GitPython==3.1.50
 setuptools>=82.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
-opentelemetry-api==1.42.1
-opentelemetry-sdk==1.42.1
+opentelemetry-api==1.43.0
+opentelemetry-sdk==1.43.0
 # grpcio segfaults at process exit on s390x + Python 3.13 and is pulled by pytest-opentelemetry
 pytest-opentelemetry==1.1.0 ; platform_machine != "s390x"
-grpcio==1.80.0 ; platform_machine != "s390x"
+grpcio==1.81.1 ; platform_machine != "s390x"
 black==26.5.1
 flake8==7.3.0
 isort==8.0.1
-shrub.py==3.10.0
+shrub.py==3.11.0
 pytest-mock==3.15.1
 wrapt==1.17.3
-botocore==1.43.16
-boto3==1.43.16
+botocore==1.43.40
+boto3==1.43.40
 python-frontmatter==1.3.0
 python-on-whales==0.81.0
 yamale==6.1.0
 yamllint==1.38.0
-pre-commit==4.6.0
 PyGithub==2.9.1
 
 # from kubeobject
@@ -55,5 +54,5 @@ types-requests==2.33.0.20260518
 pipupgrade==1.12.0
 pytest-cov==7.1.0
 pytest-socket==0.8.0
-pytest-rerunfailures==16.3
+pytest-rerunfailures==16.4
 python-dotenv==1.2.2

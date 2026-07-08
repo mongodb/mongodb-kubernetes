@@ -16,9 +16,9 @@ from helm_files_handler import (
     get_value_in_yaml_file,
     set_value_in_yaml_file,
     update_all_helm_values_files,
-    update_standalone_installer,
+    update_community_agent_image_in_file,
+    update_community_agent_image_in_go_file,
 )
-from packaging.version import Version
 
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
@@ -50,24 +50,32 @@ def main() -> int:
         if k in RELEASE_JSON_TO_HELM_KEY:
             update_all_helm_values_files(RELEASE_JSON_TO_HELM_KEY[k], release[k])
 
-    update_helm_charts(operator_version, release)
-    update_standalone(operator_version)
+    agent_version = get_latest_community_agent_version(release)
+
+    update_helm_charts(operator_version, release, agent_version)
+    update_community_manifests(agent_version)
     update_cluster_service_version(operator_version)
 
     return 0
 
 
-def update_standalone(operator_version):
-    file_paths = [
-        "public/mongodb-kubernetes.yaml",
-        "public/mongodb-kubernetes-openshift.yaml",
-        "public/mongodb-kubernetes-multi-cluster.yaml",
-    ]
-    for file_path in file_paths:
-        update_standalone_installer(file_path, operator_version)
+def get_latest_community_agent_version(release) -> str:
+    """Returns the agent version for the highest OM major from latestOpsManagerAgentMapping."""
+    latest_mapping = release["latestOpsManagerAgentMapping"]
+    latest = max(latest_mapping, key=lambda x: int(list(x.keys())[0]))
+    return list(latest.values())[0]["agentVersion"]
 
 
-def update_helm_charts(operator_version, release):
+def update_community_manifests(agent_version: str):
+    # config/manager/manager.yaml is regenerated from the helm template by the generate-standalone-yaml
+    # hook; updating it here would conflict (ruamel.yaml vs helm produce different byte sequences).
+    update_community_agent_image_in_file(
+        "mongodb-community-operator/deploy/openshift/operator_openshift.yaml", agent_version
+    )
+    update_community_agent_image_in_go_file("mongodb-community-operator/test/e2e/setup/test_config.go", agent_version)
+
+
+def update_helm_charts(operator_version, release, agent_version):
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
         "relatedImages.opsManager",
@@ -88,6 +96,7 @@ def update_helm_charts(operator_version, release):
     set_value_in_yaml_file("helm_chart/Chart.yaml", "version", operator_version)
 
     set_value_in_yaml_file("helm_chart/values.yaml", "search.version", release["search"]["version"])
+    set_value_in_yaml_file("helm_chart/values.yaml", "community.agent.version", agent_version)
 
 
 def update_cluster_service_version(operator_version):

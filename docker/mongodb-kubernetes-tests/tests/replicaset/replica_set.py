@@ -3,7 +3,14 @@ from typing import Dict
 import kubernetes.client.rest
 import pytest
 from kubernetes import client
-from kubetester import assert_pod_container_security_context, assert_pod_security_context, try_load
+from kubetester import (
+    assert_pod_container_security_context,
+    assert_pod_security_context,
+    get_statefulset,
+    scale_statefulset,
+    try_load,
+    wait_for_statefulset_replicas,
+)
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -510,6 +517,28 @@ def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_replica_set
+def test_statefulset_watch_reverts_manual_scaling(replica_set: MongoDB, namespace: str):
+    """Asserts the single-cluster StatefulSet watch fires and triggers a reconcile.
+
+    The watch reacts to StatefulSet status updates and resolves the owner through the controller
+    ownerReference. Scaling the StatefulSet up directly drops readiness below
+    the desired count, which only the operator reverts (Kubernetes never undoes a manual scale). A
+    Running resource requeues only after 24h, so a prompt revert proves the watch drove the reconcile
+    rather than the periodic resync."""
+    sts = get_statefulset(namespace, RESOURCE_NAME)
+    owner_refs = sts.metadata.owner_references or []
+    assert any(
+        ref.kind == "MongoDB" and ref.name == RESOURCE_NAME for ref in owner_refs
+    ), f"StatefulSet {RESOURCE_NAME} must have an ownerReference to its MongoDB CR, got: {owner_refs}"
+
+    desired_replicas = sts.spec.replicas
+    scale_statefulset(namespace, RESOURCE_NAME, desired_replicas + 1)
+    wait_for_statefulset_replicas(namespace, RESOURCE_NAME, desired_replicas)
+
+    replica_set.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@pytest.mark.e2e_replica_set
 class TestReplicaSetDelete(KubernetesTester):
     """
     name: Replica Set Deletion
@@ -559,7 +588,6 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
             "MULTI_CLUSTER_MODE",
             "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
-            "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR",
             "MDB_LOG_FILE_AUTOMATION_AGENT",
             "MDB_LOG_FILE_MONITORING_AGENT",
             "MDB_LOG_FILE_BACKUP_AGENT",

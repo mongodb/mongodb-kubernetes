@@ -209,8 +209,16 @@ func WithSecurityContext(context corev1.SecurityContext) Modification {
 
 // DefaultSecurityContext returns the default container security context with:
 // - readOnlyRootFilesystem set to true
+// - allowPrivilegeEscalation set to false
+// - capabilities.drop set to ALL
 func DefaultSecurityContext() corev1.SecurityContext {
 	readOnlyRootFilesystem := true
 	allowPrivilegeEscalation := false
-	return corev1.SecurityContext{ReadOnlyRootFilesystem: &readOnlyRootFilesystem, AllowPrivilegeEscalation: &allowPrivilegeEscalation}
+	return corev1.SecurityContext{
+		ReadOnlyRootFilesystem:   &readOnlyRootFilesystem,
+		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
 }

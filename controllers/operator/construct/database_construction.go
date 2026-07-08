@@ -3,6 +3,7 @@ package construct
 import (
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -58,6 +60,12 @@ const (
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
 
+	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
+	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
+	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
+	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
+	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
+	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
 )
 
 type StsType int
@@ -113,8 +121,15 @@ type DatabaseStatefulSetOptions struct {
 	StatefulSetNameOverride       string // this needs to be overriden of the
 	HostNameOverrideConfigmapName string
 
-	AgentDebug      bool
-	AgentDebugImage string
+	AgentDebug          bool
+	AgentDebugImage     string
+	DefaultArchitecture architectures.DefaultArchitecture
+}
+
+func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
+	return func(options *DatabaseStatefulSetOptions) {
+		options.DefaultArchitecture = defaultArchitecture
+	}
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -229,9 +244,10 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	opts := DatabaseStatefulSetOptions{
 		Name:                    cfg.rsName,
 		ServiceName:             cfg.serviceName,
+		Annotations:             map[string]string{"type": "ShardedCluster"},
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
 		ServicePort:             cfg.componentSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		OwnerReference:          kube.BaseOwnerReference(&cfg.mdb),
+		OwnerReference:          cfg.mdb.OwnerReferenceForMemberCluster(),
 		AgentConfig:             cfg.componentSpec.GetAgentConfig(),
 		StatefulSetSpecOverride: statefulSetSpecOverride,
 		Labels:                  cfg.mdb.Labels,
@@ -476,7 +492,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
 		}
@@ -683,7 +699,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	var modifications podtemplatespec.Modification
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb)
 	} else {
 		modifications = buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
@@ -711,7 +727,8 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(staticContainersEnvVars(mdb)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
 		container.WithVolumeMounts(volumeMounts),
@@ -782,7 +799,8 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
-		container.WithEnvs(staticContainersEnvVars(mdb)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
 
@@ -897,14 +915,58 @@ func defaultAgentParameters() mdbv1.StartupParameters {
 	return map[string]string{}
 }
 
-func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
+func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
 	}
 	return envVars
 }
 
+func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) corev1.EnvVar {
+	auditLogFile := path.Join(util.PvcMountPathLogs, "mongodb-audit.log")
+	if additionalMongodConfig != nil {
+		if auditLogMap := maputil.ReadMapValueAsMap(additionalMongodConfig.ToMap(), "auditLog"); auditLogMap != nil {
+			auditLogDestination := maputil.ReadMapValueAsString(auditLogMap, "destination")
+			auditLogFilePath := maputil.ReadMapValueAsString(auditLogMap, "path")
+			if auditLogDestination == "file" && len(auditLogFile) > 0 {
+				auditLogFile = auditLogFilePath
+			}
+		}
+	}
+
+	return corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: auditLogFile}
+}
+
+func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
+	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
+	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
+		automationLogFile = logFileValue
+	}
+
+	logFileDir, logFileName := path.Split(automationLogFile)
+	logFileExt := path.Ext(logFileName)
+	logFileWithoutExt := logFileName[0 : len(logFileName)-len(logFileExt)]
+
+	verboseLogFile := fmt.Sprintf("%s%s-verbose%s", logFileDir, logFileWithoutExt, logFileExt)
+	return []corev1.EnvVar{
+		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
+		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
+	}
+}
+
+func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
+	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
+
+	// the following are hardcoded log files where we don't support changing the names
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
+
+	return envVars
+}
 
 // databaseScriptsVolumeMount constructs the VolumeMount for the Database scripts
 // this should be readonly for the Database, and not read only for the init container.
@@ -1053,5 +1115,6 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+
 	return volumes, volumeMounts
 }

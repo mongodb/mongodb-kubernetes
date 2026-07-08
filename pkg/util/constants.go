@@ -196,6 +196,7 @@ const (
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
+	OperatorClusterNameEnv           = "OPERATOR_CLUSTER_NAME"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
@@ -215,11 +216,24 @@ const (
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
 
+	// This default for the healthy streak is also configured in the values.yaml file.
+	// It should always be consistent with the default in the helm chart. Always change both.
+	DefaultRequiredHealthyStreak = 5
+	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
+
 	// Search environment variables
-	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
-	SearchNameEnv    = "MDB_SEARCH_NAME"
-	SearchVersionEnv = "MDB_SEARCH_VERSION"
-	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
+	SearchRepoURLEnv         = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv            = "MDB_SEARCH_NAME"
+	SearchVersionEnv         = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
+	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
+	// SearchEnableMultiClusterEnv lets a single operator reconcile a MongoDBSearch with
+	// more than one spec.clusters entry; defaults to false (block on) when unset, so an
+	// accidentally-set or zero-value bool fails safe to blocking.
+	SearchEnableMultiClusterEnv = "MDB_SEARCH_ENABLE_MULTI_CLUSTER"
+
+	// VoyageAI environment variables
+	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -335,6 +349,8 @@ const (
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
+
+	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 )
 
 type OperatorEnvironment string

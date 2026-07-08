@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import ruamel.yaml
@@ -68,28 +69,43 @@ def get_value_in_yaml_file(yaml_file_path: str, key: str):
     return get_value_in_doc(doc, key)
 
 
-def update_standalone_installer(yaml_file_path: str, version: str):
-    """
-    Updates a bundle of manifests with the correct image version for
-    the operator deployment.
-    """
+def update_community_agent_image_in_file(yaml_file_path: str, new_version: str):
+    """Updates MDB_COMMUNITY_AGENT_IMAGE and AGENT_IMAGE env vars in Kubernetes Deployment manifests."""
     yaml = ruamel.yaml.YAML()
-
-    yaml.explicit_start = True  # Ensure explicit `---` in the output
-    yaml.indent(mapping=2, sequence=4, offset=2)  # Align with tab width produced by Helm
-    yaml.preserve_quotes = True  # Preserve original quotes in the YAML file
-    yaml.width = 4096  # Set a very large line width to prevent inconsistent line wrapping
+    yaml.explicit_start = True
+    yaml.preserve_quotes = True
+    yaml.width = 4096
 
     with open(yaml_file_path, "r") as fd:
-        data = list(yaml.load_all(fd))  # Convert the generator to a list
+        docs = list(yaml.load_all(fd))
 
-    for doc in data:
-        # We're only interested in the Deployments of the operator, where
-        # we change the image version to the one provided in the release.
-        if doc["kind"] == "Deployment":
-            full_image = doc["spec"]["template"]["spec"]["containers"][0]["image"]
-            image = full_image.rsplit(":", 1)[0]
-            doc["spec"]["template"]["spec"]["containers"][0]["image"] = image + ":" + version
+    updated = False
+    for doc in docs:
+        if doc is None or doc.get("kind") != "Deployment":
+            continue
+        containers = doc.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+        for container in containers:
+            for env in container.get("env", []):
+                if env.get("name") in ("MDB_COMMUNITY_AGENT_IMAGE", "AGENT_IMAGE"):
+                    registry = env["value"].rsplit(":", 1)[0]
+                    new_value = f"{registry}:{new_version}"
+                    if env["value"] != new_value:
+                        env["value"] = new_value
+                        updated = True
 
-    with open(yaml_file_path, "w") as fd:
-        yaml.dump_all(data, fd)
+    if updated:
+        with open(yaml_file_path, "w") as fd:
+            yaml.dump_all(docs, fd)
+        print(f"Updated community agent image to {new_version} in {yaml_file_path}")
+
+
+def update_community_agent_image_in_go_file(go_file_path: str, new_version: str):
+    """Updates the hardcoded mongodb-agent default version in a Go source file."""
+    pattern = re.compile(r"(quay\.io/mongodb/mongodb-agent:)\d+\.\d+\.\d+\.\d+-\d+")
+    with open(go_file_path, "r") as fd:
+        content = fd.read()
+    new_content, count = pattern.subn(rf"\g<1>{new_version}", content)
+    if count:
+        with open(go_file_path, "w") as fd:
+            fd.write(new_content)
+        print(f"Updated community agent image to {new_version} in {go_file_path}")

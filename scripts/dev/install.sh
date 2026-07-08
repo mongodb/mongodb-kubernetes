@@ -40,6 +40,9 @@ else
   exit 1
 fi
 
+echo "Installing prek (pre-commit replacement)"
+scripts/evergreen/setup_prek.sh 2>&1 | prepend "setup_prek.sh"
+
 echo "Installing Python packages"
 scripts/dev/recreate_python_venv.sh 2>&1 | prepend "recreate_python_venv.sh"
 

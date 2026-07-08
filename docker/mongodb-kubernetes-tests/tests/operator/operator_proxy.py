@@ -1,7 +1,7 @@
 import os
 
 from kubernetes import client
-from kubetester import create_or_update_configmap, try_load
+from kubetester import create_or_update_configmap, create_or_update_namespace, try_load
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml as apply_yaml
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as _fixture
@@ -14,26 +14,29 @@ from pytest import fixture, mark
 MDB_RESOURCE = "replica-set"
 PROXY_SVC_NAME = "squid-service"
 PROXY_SVC_PORT = 3128
+SQUID_NAMESPACE = "squid"
 
 
 @fixture(scope="module")
 def squid_proxy(namespace: str) -> str:
+    create_or_update_namespace(SQUID_NAMESPACE, labels={"pod-security.kubernetes.io/warn": "restricted"})
+
     with open(_fixture("squid.conf"), "r") as conf_file:
         squid_conf = conf_file.read()
-        create_or_update_configmap(namespace=namespace, name="squid-config", data={"squid": squid_conf})
+        create_or_update_configmap(namespace=SQUID_NAMESPACE, name="squid-config", data={"squid": squid_conf})
 
-    apply_yaml(client.api_client.ApiClient(), _fixture("squid-proxy.yaml"), namespace=namespace)
+    apply_yaml(client.api_client.ApiClient(), _fixture("squid-proxy.yaml"), namespace=SQUID_NAMESPACE)
 
     def check_svc_endpoints():
         try:
-            endpoint = client.CoreV1Api().read_namespaced_endpoints("squid-service", namespace)
+            endpoint = client.CoreV1Api().read_namespaced_endpoints("squid-service", SQUID_NAMESPACE)
             assert len(endpoint.subsets[0].addresses) == 1
             return True
         except:
             return False
 
     KubernetesTester.wait_until(check_svc_endpoints, timeout=30)
-    return f"http://{PROXY_SVC_NAME}:{PROXY_SVC_PORT}"
+    return f"http://{PROXY_SVC_NAME}.{SQUID_NAMESPACE}.svc.cluster.local:{PROXY_SVC_PORT}"
 
 
 @fixture(scope="module")
@@ -63,7 +66,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 def test_install_operator_with_proxy(
     operator_with_proxy: Operator,
 ):
-    operator_with_proxy.assert_is_running()
+    operator_with_proxy.wait_for_operator_ready()
 
 
 @mark.e2e_operator_proxy
@@ -74,10 +77,10 @@ def test_replica_set_reconciles(replica_set: MongoDB):
 
 @mark.e2e_operator_proxy
 def test_proxy_logs_requests(namespace: str):
-    proxy_pods = client.CoreV1Api().list_namespaced_pod(namespace, label_selector="app=squid").items
+    proxy_pods = client.CoreV1Api().list_namespaced_pod(SQUID_NAMESPACE, label_selector="app=squid").items
     pod_name = proxy_pods[0].metadata.name
     container_name = "squid"
-    pod_logs = KubernetesTester.read_pod_logs(namespace, pod_name, container_name)
+    pod_logs = KubernetesTester.read_pod_logs(SQUID_NAMESPACE, pod_name, container_name)
     assert "cloud-qa.mongodb.com" not in pod_logs
     assert "api-agents-qa.mongodb.com" in pod_logs
     assert "api-backup-qa.mongodb.com" in pod_logs
@@ -97,5 +100,5 @@ def test_proxy_env_vars_set_in_pod(namespace: str):
             == env_vars["http_proxy"]
             == env_vars["HTTPS_PROXY"]
             == env_vars["https_proxy"]
-            == f"http://{PROXY_SVC_NAME}:{PROXY_SVC_PORT}"
+            == f"http://{PROXY_SVC_NAME}.{SQUID_NAMESPACE}.svc.cluster.local:{PROXY_SVC_PORT}"
         )

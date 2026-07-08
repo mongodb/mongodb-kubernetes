@@ -52,6 +52,8 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
             "securityContext": {
                 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
                 "runAsUser": 1337,
+                "allowPrivilegeEscalation": False,
+                "capabilities": {"drop": ["ALL"]},
             },
             "volumeMounts": [
                 {

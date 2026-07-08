@@ -217,7 +217,7 @@ tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT:-${MMS_LOG_DIR}/mongodb-audit.log}" 2>
 # captured by kubectl logs, so no tail needed.
 
 # Run agent directly to stdout (no file logging, no tailing)
-"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" &
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"

@@ -171,7 +171,7 @@ def get_all_users(namespace, mdb: MongoDB) -> list[MongoDBUser]:
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
@@ -314,7 +314,7 @@ def test_restart_operator_pod(
 ):
     # this enforces a requeue of all existing resources, increasing the chances of races to happen
     multi_cluster_operator.restart_operator_deployment()
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
     time.sleep(5)
     for r in get_all_rs(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
@@ -355,4 +355,4 @@ def test_telemetry_configmap(namespace: str):
             assert isinstance(payload, list), "payload should be a list"
             assert len(payload) > 0, "payload should not be empty"
         except json.JSONDecodeError:
-            pytest.fail("payload contains invalid JSON data")  # ty: ignore[invalid-argument-type]
+            pytest.fail("payload contains invalid JSON data")

@@ -60,7 +60,7 @@ github.com/prometheus/procfs,v0.16.1,https://github.com/prometheus/procfs/blob/v
 github.com/r3labs/diff/v3,v3.0.2,https://github.com/r3labs/diff/blob/v3.0.2/LICENSE,MPL-2.0
 github.com/ryanuber/go-glob,v1.0.0,https://github.com/ryanuber/go-glob/blob/v1.0.0/LICENSE,MIT
 github.com/spf13/cast,v1.10.0,https://github.com/spf13/cast/blob/v1.10.0/LICENSE,MIT
-github.com/spf13/pflag,v1.0.9,https://github.com/spf13/pflag/blob/v1.0.9/LICENSE,BSD-3-Clause
+github.com/spf13/pflag,v1.0.10,https://github.com/spf13/pflag/blob/v1.0.10/LICENSE,BSD-3-Clause
 github.com/stretchr/objx,v0.5.3,https://github.com/stretchr/objx/blob/v0.5.3/LICENSE,MIT
 github.com/stretchr/testify/assert,v1.11.1,https://github.com/stretchr/testify/blob/v1.11.1/LICENSE,MIT
 github.com/vmihailenco/msgpack/v5,v5.4.1,https://github.com/vmihailenco/msgpack/blob/v5.4.1/LICENSE,BSD-2-Clause
@@ -88,11 +88,11 @@ gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-C
 gopkg.in/natefinch/lumberjack.v2,v2.2.1,https://github.com/natefinch/lumberjack/blob/v2.2.1/LICENSE,MIT
 gopkg.in/yaml.v2,v2.4.0,https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE,Apache-2.0
 gopkg.in/yaml.v3,v3.0.1,https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE,MIT
-k8s.io/api,v0.33.12,https://github.com/kubernetes/api/blob/v0.33.12/LICENSE,Apache-2.0
+k8s.io/api,v0.33.13,https://github.com/kubernetes/api/blob/v0.33.13/LICENSE,Apache-2.0
 k8s.io/apiextensions-apiserver/pkg/apis/apiextensions,v0.32.1,https://github.com/kubernetes/apiextensions-apiserver/blob/v0.32.1/LICENSE,Apache-2.0
-k8s.io/apimachinery/pkg,v0.33.12,https://github.com/kubernetes/apimachinery/blob/v0.33.12/LICENSE,Apache-2.0
-k8s.io/apimachinery/third_party/forked/golang,v0.33.12,https://github.com/kubernetes/apimachinery/blob/v0.33.12/third_party/forked/golang/LICENSE,BSD-3-Clause
-k8s.io/client-go,v0.33.12,https://github.com/kubernetes/client-go/blob/v0.33.12/LICENSE,Apache-2.0
+k8s.io/apimachinery/pkg,v0.33.13,https://github.com/kubernetes/apimachinery/blob/v0.33.13/LICENSE,Apache-2.0
+k8s.io/apimachinery/third_party/forked/golang,v0.33.13,https://github.com/kubernetes/apimachinery/blob/v0.33.13/third_party/forked/golang/LICENSE,BSD-3-Clause
+k8s.io/client-go,v0.33.13,https://github.com/kubernetes/client-go/blob/v0.33.13/LICENSE,Apache-2.0
 k8s.io/klog/v2,v2.140.0,https://github.com/kubernetes/klog/blob/v2.140.0/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg,v0.0.0-20250318190949-c8a335a9a2ff,https://github.com/kubernetes/kube-openapi/blob/c8a335a9a2ff/LICENSE,Apache-2.0
 k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json,v0.0.0-20250318190949-c8a335a9a2ff,https://github.com/kubernetes/kube-openapi/blob/c8a335a9a2ff/pkg/internal/third_party/go-json-experiment/json/LICENSE,BSD-3-Clause

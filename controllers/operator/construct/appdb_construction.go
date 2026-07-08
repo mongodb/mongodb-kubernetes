@@ -19,7 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -109,7 +109,7 @@ func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefu
 }
 
 // appDbPodSpec return the podtemplatespec modification required for the AppDB statefulset.
-func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplatespec.Modification {
+func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager, defaultArchitecture architectures.DefaultArchitecture) podtemplatespec.Modification {
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := NewDefaultPodSpecWrapper(*om.Spec.AppDB.PodSpec)
@@ -127,7 +127,7 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager) podtemplat
 	hooksVolumeMount := statefulset.CreateVolumeMount("hooks", "/hooks", statefulset.WithReadOnly(false))
 
 	initUpdateFunc := podtemplatespec.NOOP()
-	if !architectures.IsRunningStaticArchitecture(om.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(om.Annotations, defaultArchitecture) {
 		// appdb will have a single init container,
 		// all the necessary binaries will be copied into the various
 		// volumes of different containers.
@@ -374,7 +374,7 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	// If we can enable monitoring, let's fill in container modification function
@@ -387,7 +387,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	externalDomain := appDb.GetExternalDomainForMemberCluster(scaler.MemberClusterName())
 
 	if ShouldEnableMonitoring(podVars) {
-		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations), log)
+		monitoringModification = addMonitoringContainer(*appDb, *podVars, opts, externalDomain, architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), log)
 	} else {
 		// Otherwise, let's remove for now every podTemplateSpec related to monitoring
 		// We will apply them when enabling monitoring
@@ -397,7 +397,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations), true, opsManager.Spec.AppDB.GetAgentLogLevel(), "/dev/stdout", opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), true, opsManager.Spec.AppDB.GetAgentLogLevel(), "/dev/stdout", opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -442,7 +442,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	withStaticContainerModification := podtemplatespec.NOOP()
 	shareProcessNs := statefulset.NOOP()
 
-	withInitContainers := !architectures.IsRunningStaticArchitecture(opsManager.Annotations)
+	withInitContainers := !architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture)
 	upgradeInitContainer := podtemplatespec.NOOP()
 	readinessInitContainer := podtemplatespec.NOOP()
 
@@ -489,7 +489,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		statefulset.WithServiceName(opsManager.Spec.AppDB.HeadlessServiceNameForCluster(scaler.MemberClusterNum())),
 		statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
 		statefulset.WithUpdateStrategyType(updateStrategyType),
-		statefulset.WithOwnerReference(kube.BaseOwnerReference(&opsManager)),
+		statefulset.WithOwnerReference(opsManager.AppDBOwnerReferenceForMemberCluster()),
 		dataVolumeClaim,
 		logVolumeClaim,
 		singleModeVolumeClaim,
@@ -514,7 +514,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 					container.WithEnvs(appdbContainerEnv(*appDb)...),
 				),
 				vaultModification(*appDb, podVars, opts),
-				appDbPodSpec(opts.InitAppDBImage, opsManager),
+				appDbPodSpec(opts.InitAppDBImage, opsManager, defaultArchitecture),
 				monitoringModification,
 				tlsVolumes(*appDb, podVars, log),
 			),
@@ -535,6 +535,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if clusterSpecItem.StatefulSetConfiguration != nil {
 			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
 		}
+		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}
 	return sts, nil
 }

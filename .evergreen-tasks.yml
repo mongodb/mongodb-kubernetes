@@ -707,13 +707,25 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  # Quarantined: blocked on HELP-96015 (upstream Automation Agent 13.53 regression stalling
+  # mongos recovery after a project switch). github_pr_aliases selects task: ".*" for every
+  # pr_patch variant, so tags alone can't exclude this from PR runs — patchable:false is the
+  # mechanism that actually keeps it out of PR/manual patches while still letting it run (and
+  # gate releasability) on master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_sharded_cluster_scram_sha_256_switch_project
-    tags: [ "patch-run" ]
+    tags: [ "quarantined" ]
+    patchable: false
     commands:
       - func: "e2e_test"
 
+  # Quarantined: blocked on HELP-96015 (upstream Automation Agent 13.53 regression stalling
+  # mongos recovery after a project switch). github_pr_aliases selects task: ".*" for every
+  # pr_patch variant, so tags alone can't exclude this from PR runs — patchable:false is the
+  # mechanism that actually keeps it out of PR/manual patches while still letting it run (and
+  # gate releasability) on master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_sharded_cluster_scram_sha_1_switch_project
-    tags: [ "patch-run" ]
+    tags: [ "quarantined" ]
+    patchable: false
     commands:
       - func: "e2e_test"
 
@@ -1350,6 +1362,26 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_auto_embedding_bad_secret
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_auto_embedding_key_handling
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_external_auto_embedding
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_auto_embedding_rolling_restart
+    tags: ["patch-run"]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_community_tls
     tags: ["patch-run"]
     commands:
@@ -1370,7 +1402,7 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_enterprise_tls
+  - name: e2e_search_enterprise_enc_mtls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1396,6 +1428,87 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_tool
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_tool_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_rolling_restarts
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_block_multi_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_sharded_routed_from_another_shard
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_sharded_onboarding_no_outage
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_cds_hot_reload
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_connectivity_tool_mc_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  # Quarantined: flaky, producing unreliable results in CI and slowing down development.
+  # See KUBE-161. github_pr_aliases selects task: ".*" for every pr_patch variant, so tags
+  # alone can't exclude this from PR runs — patchable:false is the mechanism that actually
+  # keeps it out of PR/manual patches while still letting it run (and gate releasability) on
+  # master merge commits. See EVERGREEN.md#quarantined-tests.
+  - name: e2e_search_connectivity_tool_mc_sharded
+    tags: [ "quarantined" ]
+    patchable: false
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_q2_mc_rs_steady
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_simulated_mc_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_simulated_mc_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_q3_mc_sharded_external_mtls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_ext_mc_rs_x509_enc_mtls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_ext_mc_sharded_scram_enc_mtls
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1450,6 +1563,31 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_sharded_openshift_external
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_envoy_retry_policy
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_metrics_forwarder_replicaset
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_enterprise_metrics_forwarder_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_external_metrics_forwarder_replicaset
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_search_external_metrics_forwarder_sharded
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

@@ -1,0 +1,54 @@
+name: Check Kubernetes Versions
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Every Monday at 00:00 UTC
+  workflow_dispatch:
+    inputs:
+      operator_release_date:
+        description: 'Override OPERATOR_RELEASE_DATE (YYYY-MM-DD). Leave blank to use today.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  check-kubernetes-versions:
+    name: Check Kubernetes Versions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Check Kubernetes versions
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          OPERATOR_RELEASE_DATE: ${{ inputs.operator_release_date }}
+        run: scripts/check-kube-versions.sh
+
+  failure-alert:
+    name: Slack Alert on Failure
+    runs-on: ubuntu-latest
+    needs:
+      - check-kubernetes-versions
+    if: >-
+      always() &&
+      needs.check-kubernetes-versions.result == 'failure' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Send Slack notification
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [ -z "${SLACK_WEBHOOK}" ]; then
+            echo "SLACK_WEBHOOK not set, skipping notification"
+            exit 0
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MSG="❌ *Kubernetes Versions Check Failed* | ${{ github.repository }}\nTrigger: ${{ github.event_name }}\n<${RUN_URL}|View Failing Logs>"
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"${MSG}\"}" \
+            "${SLACK_WEBHOOK}"

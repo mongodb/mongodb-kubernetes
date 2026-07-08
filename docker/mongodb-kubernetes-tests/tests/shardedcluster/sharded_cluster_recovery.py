@@ -30,7 +30,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_recovery
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_recovery
@@ -50,7 +50,7 @@ class TestShardedClusterRecoversBadOmConfiguration:
         secret_data = {"publicApiKey": "wrongKey"}
         KubernetesTester.update_secret(sc.namespace, "my-credentials", secret_data)
 
-        sc.assert_reaches_phase(Phase.Failed, timeout=20)
+        sc.assert_reaches_phase(Phase.Failed, timeout=100)
 
         sc.load()
         assert "You are not authorized for this resource" in sc["status"]["message"]

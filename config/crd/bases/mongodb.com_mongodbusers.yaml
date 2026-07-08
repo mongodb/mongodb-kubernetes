@@ -107,6 +107,8 @@ spec:
                 type: string
               project:
                 type: string
+              projectId:
+                type: string
               pvc:
                 items:
                   properties:

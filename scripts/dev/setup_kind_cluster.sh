@@ -5,6 +5,7 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
+source scripts/funcs/install
 
 usage() {
   echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.
@@ -57,19 +58,14 @@ shift "$((OPTIND - 1))"
 
 kubeconfig_path="${HOME}/.kube/${cluster_name}"
 
-# create a cluster with the local registry enabled in containerd
-registry="docker.io"
-if [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
-  registry="268558157000.dkr.ecr.eu-west-1.amazonaws.com/docker-hub-mirrors"
-fi
-
 metallb_version="v0.13.7"
 metrics_server_version="v0.7.2"
 
+# local registry
 reg_name='kind-registry'
 reg_port='5000'
-kube_max_version=$(jq -r '.kubernetes.max' kubernetes-versions.json)
-kind_image="${registry}/kindest/node:v${kube_max_version}"
+# kind image source
+kind_image="${KIND_NODE_IMAGE:-$(scripts/get-kind-image.sh max)}"
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
@@ -178,10 +174,20 @@ function kind_wait_for_nodes_are_ready() {
   kubectl --kubeconfig "${kubeconfig_path}" wait nodes --all --for=condition=ready --timeout=600s >/dev/null
 }
 
+function kind_wait_for_rbac_bootstrap() {
+  echo "waiting for RBAC bootstrap"
+  local i=0
+  while ! kubectl --kubeconfig "${kubeconfig_path}" get clusterrole cluster-admin &>/dev/null; do
+    [[ ${i} -ge 120 ]] && { echo "ERROR: RBAC bootstrap timed out"; return 1; }
+    printf "."; sleep 1; i=$((i + 1))
+  done
+  echo ""
+}
+
 function kind_install_metallb() {
   echo "installing metallb"
   kubectl get --kubeconfig "${kubeconfig_path}" nodes -owide
-  kubectl apply --kubeconfig "${kubeconfig_path}" --timeout=600s -f https://raw.githubusercontent.com/metallb/metallb/${metallb_version}/config/manifests/metallb-native.yaml
+  kubectl_apply_retry --kubeconfig "${kubeconfig_path}" --timeout=600s -f https://raw.githubusercontent.com/metallb/metallb/${metallb_version}/config/manifests/metallb-native.yaml
 
   echo "waiting metallb to be ready"
   kubectl wait --kubeconfig "${kubeconfig_path}" --timeout=3000s --namespace metallb-system \
@@ -208,7 +214,7 @@ EOF
 }
 
 kind_install_metrics_server() {
-  kubectl apply --kubeconfig "${kubeconfig_path}" -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${metrics_server_version}/components.yaml"
+  kubectl_apply_retry --kubeconfig "${kubeconfig_path}" -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${metrics_server_version}/components.yaml"
   kubectl patch --kubeconfig "${kubeconfig_path}" -n kube-system deployment metrics-server --type=json \
     -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
   kubectl patch --kubeconfig "${kubeconfig_path}" -n kube-system deployment metrics-server --type=json -p \
@@ -241,6 +247,7 @@ fi
 
 kind_configure_local_registry
 kind_wait_for_nodes_are_ready
+kind_wait_for_rbac_bootstrap
 kind_install_metallb
 kind_install_metrics_server
 

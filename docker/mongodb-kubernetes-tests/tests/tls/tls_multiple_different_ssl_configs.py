@@ -15,7 +15,7 @@ def cert_names(namespace, members=3):
 
 @pytest.mark.e2e_tls_multiple_different_ssl_configs
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_tls_multiple_different_ssl_configs

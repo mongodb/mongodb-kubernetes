@@ -114,14 +114,14 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 	return fmt.Sprintf("%s:%s", imageURL, version)
 }
 
-func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string) string {
+func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture) string {
 	repoUrl := imageUrls[util.MongodbRepoUrlEnv]
 	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
 	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
 	// env.ReadOrDefault(MongoDBImageType, string(architectures.DefaultImageType))
 	var imageType string
 
-	if architectures.IsRunningStaticArchitecture(annotations) {
+	if architectures.IsRunningStaticArchitecture(annotations, defaultArchitecture) {
 		imageType = string(architectures.ImageTypeUBI9)
 	} else {
 		// For non-static architecture, we need to default to UBI8 to support customers running MongoDB versions < 6.0.4,

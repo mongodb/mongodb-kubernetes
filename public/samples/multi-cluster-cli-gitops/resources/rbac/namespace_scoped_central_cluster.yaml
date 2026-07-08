@@ -37,6 +37,14 @@ rules:
   verbs:
   - '*'
 - apiGroups:
+  - ai.mongodb.com
+  resources:
+  - voyageais
+  - voyageais/finalizers
+  - voyageais/status
+  verbs:
+  - '*'
+- apiGroups:
   - ""
   resources:
   - secrets
