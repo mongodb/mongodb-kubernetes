@@ -135,6 +135,9 @@ def build_operator_config_spec_from_test_env() -> dict:
     spec: dict = {}
     if is_default_architecture_static():
         spec["defaultArchitecture"] = "Static"
+    max_concurrent_reconciles = os.getenv("MDB_MAX_CONCURRENT_RECONCILES")
+    if max_concurrent_reconciles:
+        spec["maxConcurrentReconciles"] = int(max_concurrent_reconciles)
     return spec
 
 
