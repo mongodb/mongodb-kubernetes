@@ -3,6 +3,11 @@
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
+# Derive PROJECT_DIR from script location so it works even if the caller didn't export it.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "${script_dir}/../.." && pwd)}"
+export PROJECT_DIR
+
 usage() {
   echo "Initialize git worktree for the given branch."
   echo "It will create worktree and initialize it to be ready to use."
@@ -22,7 +27,7 @@ while getopts 'f' opt; do
 done
 shift "$((OPTIND-1))"
 
-branch=$1
+branch="${1:-}"
 
 if [[ -z ${branch} ]]; then
   echo "Error: missing branch parameter"
@@ -32,9 +37,11 @@ fi
 
 # Convert slashes to underscores for directory name
 branch_dir="${branch//\//_}"
-worktree_path="${PROJECT_DIR}/../${branch_dir}"
+# Canonicalise (no literal "..") so it matches `git worktree list` output.
+worktree_path="$(realpath "${PROJECT_DIR}/..")/${branch_dir}"
 
-if ! git worktree list | grep "${worktree_path}" >/dev/null; then
+# Exact match on column 1 so prefix-sharing siblings don't collide.
+if ! git worktree list | awk '{print $1}' | grep -Fxq "${worktree_path}"; then
   echo "Creating git worktree for branch '${branch}' at ${worktree_path}..."
 
   # Check if branch exists (locally or remotely)
@@ -61,11 +68,15 @@ if ! git worktree list | grep "${worktree_path}" >/dev/null; then
   fi
 fi
 
-if [[ ! -f "${worktree_path}/scripts/dev/contexts/private-context" || ${force} == 1 ]]; then
+# Init on fresh (no private-context), partially-initialised (no venv), or -f.
+if [[ ! -f "${worktree_path}/scripts/dev/contexts/private-context" \
+      || ! -f "${worktree_path}/venv/bin/activate" \
+      || ${force} == 1 ]]; then
   echo "Initializing worktree in ${worktree_path}..."
   init_flags=()
   [[ ${force} == 1 ]] && init_flags+=(-f)
-  time "${PROJECT_DIR}/scripts/dev/init_worktree.sh" "${init_flags[@]}" "${worktree_path}" "${PROJECT_DIR}"
+  # Guarded expansion: empty array must not trip `set -u` on bash 3.2 (macOS).
+  time "${PROJECT_DIR}/scripts/dev/init_worktree.sh" "${init_flags[@]+"${init_flags[@]}"}" "${worktree_path}" "${PROJECT_DIR}"
 fi
 
 (
