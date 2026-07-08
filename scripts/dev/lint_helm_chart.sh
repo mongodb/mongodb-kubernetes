@@ -13,10 +13,6 @@ if [ -z "${PROJECT_DIR}" ]; then
   exit 1
 fi
 
-# the binaries yamale and yamllint required by ct are available in the venv's bin.
-# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
-export PATH="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}/bin:${PATH}"
-
 ct lint --charts="${PROJECT_DIR}/helm_chart/" \
     --chart-yaml-schema "${PROJECT_DIR}/helm_chart/tests/schemas/chart_schema.yaml" \
     --lint-conf "${PROJECT_DIR}/helm_chart/tests/schemas/lintconf.yaml"

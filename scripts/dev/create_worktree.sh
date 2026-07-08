@@ -85,7 +85,6 @@ fi
 (
   cd "${worktree_path}"
   make switch context="$(cat ".generated/.current_context")"
-  source "${PROJECT_VENV_PATH:-venv}/bin/activate"
   source .generated/context.export.env
 )
 

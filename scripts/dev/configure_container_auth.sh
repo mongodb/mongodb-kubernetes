@@ -8,13 +8,6 @@ source scripts/funcs/checks
 source scripts/funcs/printing
 source scripts/funcs/kubernetes
 
-# Activate venv if it exists (needed for AWS CLI on IBM architectures)
-# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
-venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
-if [[ -f "${venv_path}/bin/activate" ]]; then
-    source "${venv_path}/bin/activate"
-fi
-
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME-"docker"}"
 
 setup_validate_container_runtime() {

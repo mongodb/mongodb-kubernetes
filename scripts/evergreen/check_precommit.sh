@@ -9,13 +9,6 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
-# Activate virtual environment if it exists (ty/uvx resolves imports via VIRTUAL_ENV)
-# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
-venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
-if [ -f "${venv_path}/bin/activate" ]; then
-  source "${venv_path}/bin/activate"
-fi
-
 # Ensure prek is installed
 if ! command -v prek &>/dev/null; then
   echo "prek not found, please run scripts/evergreen/setup_prek.sh first" >&2
