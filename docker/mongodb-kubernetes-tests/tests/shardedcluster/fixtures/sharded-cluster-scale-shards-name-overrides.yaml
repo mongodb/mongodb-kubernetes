@@ -1,0 +1,23 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sc-scale-overrides
+spec:
+  type: ShardedCluster
+  shardCount: 2
+  mongodsPerShardCount: 1
+  mongosCount: 1
+  configServerCount: 1
+  version: 4.4.0
+  opsManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: false
+  configServerNameOverride: ac-config
+  shardedClusterNameOverride: ac-mongos
+  shardNameOverrides:
+    - shardName: sc-scale-overrides-0
+      shardId: ac-rs-0
+      replicaSetName: ac-rs-0
+    - shardName: sc-scale-overrides-1

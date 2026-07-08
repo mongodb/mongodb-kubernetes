@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 /* This corresponds to:
@@ -41,7 +42,8 @@ type ReplicaSet map[string]interface{}
 		"_id": 0,
 		"host": "blue_0",
  		"priority": 0,
- 		"slaveDelay": 0
+ 		"secondaryDelaySecs": 0,
+ 		"buildIndexes": true
  }*/
 
 type ReplicaSetMember map[string]interface{}
@@ -94,6 +96,22 @@ func (r ReplicaSetMember) Priority() float32 {
 
 func (r ReplicaSetMember) Tags() map[string]string {
 	return r["tags"].(map[string]string)
+}
+
+func (r ReplicaSetMember) SecondaryDelaySecs() int {
+	return cast.ToInt(r["secondaryDelaySecs"])
+}
+
+func (r ReplicaSetMember) IsHidden() bool {
+	return cast.ToBool(r["hidden"])
+}
+
+func (r ReplicaSetMember) BuildIndexes() bool {
+	v, ok := r["buildIndexes"]
+	if !ok {
+		return true
+	}
+	return cast.ToBool(v)
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
@@ -356,6 +374,52 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 		}
 	}
 	return ans
+}
+
+// ExtractExternalMembers builds CR-shaped externalMembers from the given processes, skipping disabled ones.
+// mongos processes naturally produce an empty ReplicaSetName since their AC args do not declare replication.replSetName.
+func ExtractExternalMembers(processes []Process) []mdbv1.ExternalMember {
+	var out []mdbv1.ExternalMember
+	for _, proc := range processes {
+		if proc.IsDisabled() {
+			continue
+		}
+		out = append(out, mdbv1.ExternalMember{
+			ProcessName:    proc.Name(),
+			Hostname:       fmt.Sprintf("%s:%s", proc.HostName(), proc.Port()),
+			Type:           string(proc.ProcessType()),
+			ReplicaSetName: proc.ReplicaSetName(),
+		})
+	}
+	return out
+}
+
+// ExtractMemberInfo reads version, FCV, and per-member metadata from the
+// given replica set members and process map. Each member becomes an
+// mdbv1.ExternalMember suitable for the CR's spec.externalMembers.
+func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process) ([]mdbv1.ExternalMember, string, string) {
+	if len(members) == 0 {
+		return nil, "", ""
+	}
+	firstProc := processMap[members[0].Name()]
+	version := firstProc.Version()
+	fcv := firstProc.FeatureCompatibilityVersion()
+
+	var externalMembers []mdbv1.ExternalMember
+	for _, m := range members {
+		host := m.Name()
+		proc := processMap[host]
+		port := maputil.ReadMapValueAsInt(proc.Args(), "net", "port")
+
+		externalMembers = append(externalMembers, mdbv1.ExternalMember{
+			ProcessName:    host,
+			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), port),
+			Type:           "mongod",
+			ReplicaSetName: proc.ReplicaSetName(),
+		})
+	}
+
+	return externalMembers, version, fcv
 }
 
 // Builds the map[<process name>]<replica set member>. This makes intersection easier

@@ -9,7 +9,7 @@ import (
 type MigratingConditionReason string
 
 const (
-	// MigratingReasonValidating is used while the MigrationDryRunAnnotationKey annotation is present.
+	// MigratingReasonValidating is used while the migration dry-run annotation (util.MigrationDryRunAnnotation) is present.
 	MigratingReasonValidating MigratingConditionReason = "Validating"
 	// MigratingReasonExtending is used when spec.members exceeds the last-reconciled in-cluster member count
 	// (status.members from the prior reconcile). The replica set is being extended with new k8s members.

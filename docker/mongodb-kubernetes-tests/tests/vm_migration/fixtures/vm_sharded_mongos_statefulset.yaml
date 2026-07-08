@@ -2,17 +2,17 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: vm-mongodb
+  name: vm-sharded-mongos
 spec:
-  serviceName: vm-mongodb
-  replicas: 3
+  serviceName: vm-sharded-mongos
+  replicas: 0 # THE TEST SETS THIS
   selector:
     matchLabels:
-      app: vm-mongodb
+      app: vm-sharded-mongos
   template:
     metadata:
       labels:
-        app: vm-mongodb
+        app: vm-sharded-mongos
     spec:
       securityContext:
         runAsUser: 0
@@ -20,7 +20,7 @@ spec:
         fsGroup: 0
       containers:
         - name: mongodb-agent
-          image: quay.io/mongodb/mongodb-agent:13.48.0.10348-1
+          image: quay.io/mongodb/mongodb-agent:13.52.0.10711-1
           ports:
             - containerPort: 27017
               name: mongodb

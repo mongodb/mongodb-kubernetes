@@ -1,0 +1,694 @@
+package migratetomck
+
+import (
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+)
+
+func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfig {
+	t.Helper()
+	data, err := os.ReadFile("testdata/" + filename)
+	require.NoError(t, err)
+	ac, err := om.BuildAutomationConfigFromBytes(data)
+	require.NoError(t, err)
+	return ac
+}
+
+// baseValidReplicaSetAC returns a minimal single-replica-set automation config that passes
+// ValidateMigration with no errors. Tests mutate one field to exercise a single validator,
+// so the mutation is the only thing that can trip the validation.
+func baseValidReplicaSetAC() *om.AutomationConfig {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"options": map[string]interface{}{"downloadBase": util.PvcMmsMountPath},
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "my-rs-0", "processType": string(om.ProcessTypeMongod),
+				"version": "7.0.12-ent", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{
+					"net":         map[string]interface{}{"port": 27017, "tls": map[string]interface{}{"mode": "requireSSL"}},
+					"storage":     map[string]interface{}{"dbPath": "/data/db"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"_id": 0, "host": "my-rs-0", "votes": 1, "priority": 1, "buildIndexes": true, "tags": map[string]string{}},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+	ac.Auth = &om.Auth{
+		Disabled:          false,
+		AutoUser:          util.AutomationAgentName,
+		AutoAuthMechanism: "SCRAM-SHA-256",
+		KeyFile:           util.AutomationAgentKeyFilePathInContainer,
+		KeyFileWindows:    util.AutomationAgentWindowsKeyFilePath,
+		Users: []*om.MongoDBUser{
+			{Username: util.AutomationAgentName, Database: util.DefaultUserDatabase},
+		},
+	}
+	return ac
+}
+
+func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		assert.NotEqual(t, SeverityError, r.Severity, "single-RS config should not produce errors: %s", r.Message)
+	}
+}
+
+func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "rs-alpha", "members": []interface{}{}},
+			map[string]interface{}{"_id": "rs-beta", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "before migrating")
+}
+
+func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	assert.Empty(t, results, "single sharded cluster should not trigger one-deployment-per-project error")
+}
+
+func TestValidation_OneDeploymentPerProject_ShardedWithExtraReplicaSet(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "stray-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "stray-rs")
+}
+
+func TestValidation_OneDeploymentPerProject_MultipleSharded(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "sc-a",
+				"configServerReplica": "config-a",
+				"shards":              []interface{}{},
+			},
+			map[string]interface{}{
+				"name":                "sc-b",
+				"configServerReplica": "config-b",
+				"shards":              []interface{}{},
+			},
+		},
+	})
+
+	results := validateOneDeploymentPerProject(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "2 sharded clusters")
+}
+
+func TestValidation_EmbeddedConfigServer(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "shard-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+					map[string]interface{}{"_id": "shard1", "rs": "shard-rs-1"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "embedded config server")
+	assert.Contains(t, results[0].Message, "shard0")
+	assert.Contains(t, results[0].Message, "shard-rs")
+}
+
+func TestValidation_DedicatedConfigServer_NoError(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "config-rs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	assert.Empty(t, results, "dedicated config server should not trigger embedded-config-server error")
+}
+
+func TestValidation_EmbeddedConfigServer_ViaProcessClusterRole(t *testing.T) {
+	// Malformed AC where the sharding section claims a dedicated config server
+	// (configServerReplica = csrs) but a shard process declares
+	// sharding.clusterRole = configsvr. The cross-check must still flag this.
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name":     "shard0-0",
+				"hostname": "shard0-0.example.com",
+				"args2_6": map[string]interface{}{
+					"replication": map[string]interface{}{"replSetName": "shard-rs"},
+					"sharding":    map[string]interface{}{"clusterRole": "configsvr"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
+			map[string]interface{}{"_id": "csrs", "members": []interface{}{}},
+		},
+		"sharding": []interface{}{
+			map[string]interface{}{
+				"name":                "my-sharded-cluster",
+				"configServerReplica": "csrs",
+				"shards": []interface{}{
+					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				},
+			},
+		},
+	})
+
+	results := validateEmbeddedConfigServer(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "shard0")
+	assert.Contains(t, results[0].Message, "shard-rs")
+	assert.Contains(t, results[0].Message, "clusterRole = configsvr")
+}
+
+func TestValidation_NoReplicaSets(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes":   []interface{}{},
+		"replicaSets": []interface{}{},
+		"sharding":    []interface{}{},
+	})
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "No replica sets found") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when replicaSets is empty")
+}
+
+func TestValidation_NonDefaultKeyFile(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Auth.KeyFile = "/custom/path/keyfile"
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "keyFile") {
+			hasError = true
+			assert.Contains(t, r.Message, "/custom/path/keyfile")
+		}
+	}
+	assert.True(t, hasError, "expected error when keyFile differs from default")
+}
+
+func TestValidation_NonDefaultCAFilePath(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "CAFilePath") {
+			hasWarning = true
+			assert.Contains(t, r.Message, "/etc/ssl/ca.pem")
+		}
+	}
+	assert.True(t, hasWarning, "expected error when CAFilePath differs from default")
+}
+
+func TestValidation_NonDefaultDownloadBase(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	options := ac.Deployment["options"].(map[string]interface{})
+	options["downloadBase"] = "/opt/mongodb/automation"
+	ac.Deployment["options"] = options
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "downloadBase") {
+			hasError = true
+			assert.Contains(t, r.Message, "/opt/mongodb/automation")
+		}
+	}
+	assert.True(t, hasError, "expected error when downloadBase differs from default")
+}
+
+func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Auth.KeyFileWindows = "C:\\custom\\keyfile"
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "keyFileWindows") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when keyFileWindows differs from default")
+}
+
+func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	processes := ac.Deployment.GetProcesses()
+	processes[0]["authSchemaVersion"] = 3
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "authSchemaVersion") {
+			hasError = true
+			assert.Contains(t, r.Message, "3")
+		}
+	}
+	assert.True(t, hasError, "expected error when authSchemaVersion differs from default")
+}
+
+func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	monitoringConfig := &om.MonitoringAgentConfig{
+		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectConfigs{MonitoringConfig: monitoringConfig})
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "monitoringAgentConfig.logPath") {
+			hasError = true
+			assert.Contains(t, r.Message, "/var/log/mongodb/monitoring.log")
+		}
+	}
+	assert.True(t, hasError, "expected error when monitoring agent logPath differs from default")
+}
+
+func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	backupConfig := &om.BackupAgentConfig{
+		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectConfigs{BackupConfig: backupConfig})
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "backupAgentConfig.logPath") {
+			hasError = true
+			assert.Contains(t, r.Message, "/var/log/mongodb/backup.log")
+		}
+	}
+	assert.True(t, hasError, "expected error when backup agent logPath differs from default")
+}
+
+func TestValidation_ValidConfig_NoErrors(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		assert.NotEqual(t, SeverityError, r.Severity, "valid config should not produce errors: %s", r.Message)
+	}
+}
+
+func TestValidation_LdapBindMethodSASL(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Ldap = &ldap.Ldap{
+		Servers:    "ldap.example.com:636",
+		BindMethod: "sasl",
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "bindMethod") {
+			hasWarning = true
+			assert.Contains(t, r.Message, "sasl")
+			assert.Contains(t, r.Message, "simple")
+		}
+	}
+	assert.True(t, hasWarning, "expected error when LDAP bindMethod is not simple")
+}
+
+func TestValidation_LdapBindMethodSimple_NoWarning(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Ldap = &ldap.Ldap{
+		Servers:    "ldap.example.com:636",
+		BindMethod: "simple",
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "bindMethod") {
+			t.Errorf("unexpected warning/error about bindMethod: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_LdapCaFileContents(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Ldap = &ldap.Ldap{
+		Servers:        "ldap.example.com:636",
+		CaFileContents: "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----",
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "LDAP CA") {
+			hasWarning = true
+			assert.Contains(t, r.Message, "ldap-ca")
+			assert.Contains(t, r.Message, "ca.pem")
+		}
+	}
+	assert.True(t, hasWarning, "expected warning when LDAP CA file contents exist")
+}
+
+func TestValidation_LdapNoCaFileContents_NoWarning(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Ldap = &ldap.Ldap{
+		Servers: "ldap.example.com:636",
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "LDAP CA") {
+			t.Errorf("unexpected warning about LDAP CA: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_NilLdap_NoWarning(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Ldap = nil
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "LDAP") {
+			t.Errorf("unexpected LDAP warning/error when LDAP is nil: %s", r.Message)
+		}
+	}
+}
+
+func TestValidateAgentTLS_WarnsAboutGeneratedServerTLSResources(t *testing.T) {
+	results := validateAgentTLS(&om.AgentSSL{CAFilePath: defaultCAFilePath})
+
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Contains(t, results[0].Message, "spec.security.certsSecretPrefix")
+	assert.Contains(t, results[0].Message, "spec.security.tls.ca")
+	assert.Contains(t, results[0].Message, "<resourceName>-ca")
+	assert.Contains(t, results[0].Message, "ca-pem")
+	assert.Contains(t, results[0].Message, "<certsSecretPrefix>-<resourceName>-cert")
+	assert.Contains(t, results[0].Message, "tls.crt")
+	assert.Contains(t, results[0].Message, "tls.key")
+}
+
+func TestValidation_RequireTLS_NoWarning(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		if strings.Contains(r.Message, "allowTLS") || strings.Contains(r.Message, "allowSSL") {
+			t.Errorf("unexpected warning about allow TLS mode: %s", r.Message)
+		}
+	}
+}
+
+func sourceProcessFromDeployment(d om.Deployment) *om.Process {
+	procs := d.GetProcesses()
+	if len(procs) == 0 {
+		return nil
+	}
+	p := procs[0]
+	return &p
+}
+
+func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
+	d := om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
+			},
+		},
+	}
+	results := validateTLS(sourceProcessFromDeployment(d))
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Contains(t, results[0].Message, "net.tls.mode")
+	assert.Contains(t, results[0].Message, "rs-0")
+}
+
+func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
+	d := om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{
+						"port": 27017,
+						"tls":  map[string]interface{}{"mode": "disabled"},
+					},
+				},
+			},
+		},
+	}
+	results := validateTLS(sourceProcessFromDeployment(d))
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+}
+
+func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
+	d := om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{
+						"port": 27017,
+						"tls":  map[string]interface{}{"mode": "requireTLS"},
+					},
+				},
+			},
+		},
+	}
+	results := validateTLS(sourceProcessFromDeployment(d))
+	for _, r := range results {
+		assert.NotEqual(t, SeverityWarning, r.Severity, "unexpected warning for TLS-enabled process")
+	}
+}
+
+func TestValidation_EmptyAutoUser(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Auth.AutoUser = ""
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "empty") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when autoUser is empty and auth is enabled")
+}
+
+func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Auth.AutoUser = "nonexistent-agent"
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "nonexistent-agent") && strings.Contains(r.Message, "usersWanted") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when autoUser has no matching entry in usersWanted")
+}
+
+func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") {
+			t.Errorf("valid autoUser should not produce errors: %s", r.Message)
+		}
+	}
+}
+
+func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
+	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
+	ac.Auth.Users = nil
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasError := false
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "CN=mms-automation-agent,OU=test,O=cluster.local") && strings.Contains(r.Message, "usersWanted") {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "expected error when X509 autoUser has no matching entry in usersWanted")
+}
+
+func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
+	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
+	ac.Auth.Users = []*om.MongoDBUser{
+		{Username: "CN=mms-automation-agent,OU=test,O=cluster.local", Database: "$external"},
+	}
+	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "autoUser") && strings.Contains(r.Message, "usersWanted") {
+			t.Errorf("X509 autoUser with matching usersWanted entry should not produce an error: %s", r.Message)
+		}
+	}
+}
+
+func TestValidateX509_WarnsAboutGeneratedClientCertificateSecretRef(t *testing.T) {
+	results := validateX509(
+		&om.Auth{Disabled: false, AutoAuthMechanism: "MONGODB-X509"},
+		&om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"},
+	)
+
+	require.NotEmpty(t, results)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Contains(t, results[0].Message, "spec.security.authentication.agents.clientCertificateSecretRef")
+	assert.Contains(t, results[0].Message, "<certsSecretPrefix>-<resourceName>-agent-certs")
+	assert.Contains(t, results[0].Message, "tls.crt")
+	assert.Contains(t, results[0].Message, "tls.key")
+	assert.Contains(t, results[0].Message, "clientCertificateSecretRef.name")
+}
+
+func TestValidateX509_ErrorWhenAutoPEMKeyFilePathMissing(t *testing.T) {
+	results := validateX509(
+		&om.Auth{Disabled: false, AutoAuthMechanism: "MONGODB-X509"},
+		nil,
+	)
+
+	require.NotEmpty(t, results)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "tls.autoPEMKeyFilePath")
+}
+
+func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"options": map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"},
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
+				"logRotate": map[string]interface{}{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
+				"args2_6": map[string]interface{}{
+					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
+					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{
+			map[string]interface{}{
+				"_id": "my-rs", "protocolVersion": "1",
+				"members": []interface{}{
+					map[string]interface{}{"host": "rs-0", "votes": 1, "priority": 1, "tags": map[string]string{}},
+				},
+			},
+		},
+		"sharding": []interface{}{},
+	})
+
+	projectProcessConfigs := &ProjectConfigs{
+		SystemLogRotate: &automationconfig.AcLogRotate{
+			LogRotate: automationconfig.LogRotate{
+				TimeThresholdHrs: 24,
+				NumUncompressed:  5,
+				NumTotal:         10,
+			},
+			SizeThresholdMB:    1000,
+			PercentOfDiskspace: 0.02,
+		},
+	}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), projectProcessConfigs)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "logRotate") && strings.Contains(r.Message, "differs from project-level") {
+			hasWarning = true
+		}
+	}
+	assert.True(t, hasWarning, "expected warning when per-process logRotate differs from project-level setting")
+}

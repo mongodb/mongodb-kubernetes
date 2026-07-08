@@ -1,8 +1,5 @@
 package status
 
-// MigrationDryRunAnnotationKey is the annotation key that triggers migration connectivity dry-run.
-const MigrationDryRunAnnotationKey = "mongodb.com/migration-dry-run"
-
 // ComputeMigratingConditionReason derives the Migrating condition reason from inputs (pure).
 //
 // The caller is responsible for clearing migration-related status (conditions and

@@ -1,0 +1,63 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: oidc-rs
+  namespace: mongodb
+spec:
+  agent:
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: oidc-rs-0
+    replicaSetName: oidc-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: oidc-rs-1
+    replicaSetName: oidc-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: oidc-rs-2
+    replicaSetName: oidc-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
+      - OIDC
+      oidcProviderConfigs:
+      - audience: api://mongodb-cluster
+        authorizationMethod: WorkforceIdentityFederation
+        authorizationType: GroupMembership
+        clientId: 0oa1abc2def3ghi4j567
+        configurationName: okta
+        groupsClaim: groups
+        issuerURI: https://dev-123456.okta.com/oauth2/default
+        requestedScopes:
+        - openid
+        - profile
+        - groups
+        userClaim: sub
+      - audience: api://mongodb-workload
+        authorizationMethod: WorkloadIdentityFederation
+        authorizationType: UserID
+        configurationName: azure-svc
+        issuerURI: https://login.microsoftonline.com/tenant-id/v2.0
+        userClaim: sub
+  type: ReplicaSet
+  version: 8.0.4-ent

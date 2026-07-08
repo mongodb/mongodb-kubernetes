@@ -7,6 +7,33 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
 )
 
+// ShardNameOverride maps a Kubernetes shard StatefulSet name to its automation config identity.
+// Use this when the AC _id or replicaSetName for a shard differs from the K8s StatefulSet name.
+// Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+//
+// Two forms are supported:
+// 1. ShardName only (brevity): all three values (_id, replicaSetName, K8s name) are equal.
+// 2. ShardName + ShardId + ReplicaSetName: full form when any AC value differs from the K8s name.
+//
+// ShardId and ReplicaSetName must always be set together or omitted together.
+type ShardNameOverride struct {
+	// ShardName is the operator-generated Kubernetes StatefulSet name for this shard (e.g. "my-mdb-0").
+	// It is always computed as {resourceName}-{index} and cannot be changed.
+	// Use this field to identify which shard the AC override applies to.
+	// +kubebuilder:validation:Required
+	ShardName string `json:"shardName"`
+
+	// ShardId is the shard _id in the automation config sharding section.
+	// Must be set together with ReplicaSetName. Omit when AC values match the K8s StatefulSet name.
+	// +optional
+	ShardId string `json:"shardId,omitempty"`
+
+	// ReplicaSetName is the replicaSetName in the automation config for this shard's processes.
+	// Must be set together with ShardId. Omit when AC values match the K8s StatefulSet name.
+	// +optional
+	ReplicaSetName string `json:"replicaSetName,omitempty"`
+}
+
 // ShardedClusterSpec is the spec consisting of configuration specific for sharded cluster only.
 type ShardedClusterSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -22,6 +49,21 @@ type ShardedClusterSpec struct {
 	// +kubebuilder:pruning:PreserverUnknownFields
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
+
+	// ShardNameOverrides maps shard K8s StatefulSet names to their automation config identities.
+	// Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+	// +optional
+	ShardNameOverrides []ShardNameOverride `json:"shardNameOverrides,omitempty"`
+
+	// ConfigServerNameOverride overrides the automation config replicaSetName for the config server.
+	// When omitted, the default ("{resourceName}-config") is used. Immutable once set.
+	// +optional
+	ConfigServerNameOverride string `json:"configServerNameOverride,omitempty"`
+
+	// ShardedClusterNameOverride overrides the automation config sharded cluster name.
+	// When omitted, the default ("{resourceName}") is used. Immutable once set.
+	// +optional
+	ShardedClusterNameOverride string `json:"shardedClusterNameOverride,omitempty"`
 
 	ConfigSrvPodSpec *MongoDbPodSpec `json:"configSrvPodSpec,omitempty"`
 	MongosPodSpec    *MongoDbPodSpec `json:"mongosPodSpec,omitempty"`

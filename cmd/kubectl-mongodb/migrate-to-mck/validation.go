@@ -1,0 +1,525 @@
+package migratetomck
+
+import (
+	"fmt"
+	"reflect"
+	"slices"
+
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+)
+
+type Severity string
+
+const (
+	SeverityError   Severity = "ERROR"
+	SeverityWarning Severity = "WARNING"
+)
+
+type ValidationResult struct {
+	Severity Severity
+	Message  string
+}
+
+var (
+	defaultKeyFile                = util.AutomationAgentKeyFilePathInContainer
+	defaultKeyFileWindows         = util.AutomationAgentWindowsKeyFilePath
+	defaultCAFilePath             = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+	defaultDownloadBase           = util.PvcMmsMountPath
+	defaultMonitoringAgentLogPath = fmt.Sprintf("%s/monitoring-agent.log", util.PvcMountPathLogs)
+	defaultBackupAgentLogPath     = fmt.Sprintf("%s/backup-agent.log", util.PvcMountPathLogs)
+	defaultAuthSchemaVersion      = om.CalculateAuthSchemaVersion()
+)
+
+// ValidateMigration checks the automation config for operator compatibility.
+// Structural errors gate further checks.
+func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process, projectConfigs *ProjectConfigs) ([]ValidationResult, *om.Process) {
+	var results []ValidationResult
+
+	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
+	results = append(results, validateReplicaSetsExist(ac.Deployment)...)
+	results = append(results, validateEmbeddedConfigServer(ac.Deployment)...)
+	for _, r := range results {
+		if r.Severity == SeverityError {
+			return results, nil
+		}
+	}
+
+	results = append(results, validateAuth(ac.Auth)...)
+	results = append(results, validateScram(ac.Auth)...)
+	results = append(results, validateX509(ac.Auth, ac.AgentSSL)...)
+	results = append(results, validateAgentTLS(ac.AgentSSL)...)
+	results = append(results, validateAgentConfig(projectConfigs)...)
+	results = append(results, validateLDAP(ac)...)
+	results = append(results, validatePrometheus(ac.Deployment)...)
+	results = append(results, validateProjectOptions(ac.Deployment)...)
+	results = append(results, validateMemberPreservedFields(ac.Deployment)...)
+	for _, r := range results {
+		if r.Severity == SeverityError {
+			return results, nil
+		}
+	}
+
+	replicaSets := ac.Deployment.GetReplicaSets()
+	if len(replicaSets) == 0 {
+		return results, nil
+	}
+	members := replicaSets[0].Members()
+	sourceProcess, err := pickSourceProcess(members, processMap)
+	if err != nil {
+		return append(results, ValidationResult{Severity: SeverityError, Message: err.Error()}), nil
+	}
+	results = append(results, ValidationResult{
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.", sourceProcess.Name()),
+	})
+	results = append(results, validateProcessConfig(ac.Deployment, sourceProcess, projectConfigs)...)
+
+	return results, sourceProcess
+}
+
+// pickSourceProcess returns the first voting+priority member's process, or an error if none qualify.
+func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.Process) (*om.Process, error) {
+	for _, candidate := range members {
+		if candidate.Votes() > 0 && candidate.Priority() > 0 {
+			proc, ok := processMap[candidate.Name()]
+			if !ok {
+				continue
+			}
+			return &proc, nil
+		}
+	}
+	return nil, fmt.Errorf("no voting+priority member found in replica set. Cannot determine source process")
+}
+
+// validateOneDeploymentPerProject ensures the project has exactly one logical deployment:
+// either a single replica set or a single sharded cluster with no extra replica sets.
+func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
+	shardedClusters := d.GetShardedClusters()
+	if len(shardedClusters) > 1 {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("The project contains %d sharded clusters. The operator requires exactly one deployment per project. Split the project before migrating.", len(shardedClusters)),
+		}}
+	}
+	if len(shardedClusters) == 1 {
+		sc := shardedClusters[0]
+		expected := map[string]bool{sc.ConfigServerRsName(): true}
+		for _, shard := range sc.Shards() {
+			expected[shard.Rs()] = true
+		}
+		var extras []string
+		for _, rs := range d.GetReplicaSets() {
+			if !expected[rs.Name()] {
+				extras = append(extras, rs.Name())
+			}
+		}
+		if len(extras) > 0 {
+			return []ValidationResult{{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("The project contains replica sets %v that are not part of the sharded cluster. The operator requires exactly one deployment per project. Split the project before migrating.", extras),
+			}}
+		}
+		return nil
+	}
+	count := len(d.GetReplicaSets())
+	if count <= 1 {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityError,
+		Message:  fmt.Sprintf("The project contains %d deployments. The operator requires exactly one deployment per project. Split the project before migrating.", count),
+	}}
+}
+
+// validateEmbeddedConfigServer rejects a shard sharing a replica set with the config server.
+// The check considers two AC signals:
+//   - sharding.configServerReplica colliding with a shard's rs
+//   - a process declaring sharding.clusterRole = configsvr inside a shard's replica set
+func validateEmbeddedConfigServer(d om.Deployment) []ValidationResult {
+	replicaSetsWithConfigsvrRole := map[string]bool{}
+	for _, proc := range d.GetProcesses() {
+		if proc.ClusterRole() == om.ClusterRoleConfigSrv {
+			replicaSetsWithConfigsvrRole[proc.ReplicaSetName()] = true
+		}
+	}
+
+	var results []ValidationResult
+	for _, sc := range d.GetShardedClusters() {
+		for _, shard := range sc.Shards() {
+			var reason string
+			switch {
+			case shard.Rs() == sc.ConfigServerRsName():
+				reason = "configServerReplica points to a shard replica set"
+			case replicaSetsWithConfigsvrRole[shard.Rs()]:
+				reason = "a process in this replica set declares sharding.clusterRole = configsvr"
+			default:
+				continue
+			}
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message: fmt.Sprintf(
+					"Sharded cluster %q has shard %q backed by replica set %q which is also the config server (%s). "+
+						"The operator does not support an embedded config server. Move the config server to a dedicated replica set before migrating.",
+					sc.Name(), shard.Id(), shard.Rs(), reason,
+				),
+			})
+		}
+	}
+	return results
+}
+
+func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
+	if len(d.GetReplicaSets()) == 0 {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  "No replica sets found. Only replica set and sharded cluster deployments can be migrated.",
+		}}
+	}
+	return nil
+}
+
+// validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.
+func validateAuth(auth *om.Auth) []ValidationResult {
+	if auth == nil || auth.Disabled {
+		return nil
+	}
+
+	var results []ValidationResult
+
+	if auth.AutoUser == "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  "auth.autoUser is empty. The operator requires an automation agent user when authentication is enabled.",
+		})
+	}
+	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("auth.keyFile %q differs from the operator default %q. This value is not configurable via the Custom Resource.", auth.KeyFile, defaultKeyFile),
+		})
+	}
+	if auth.KeyFileWindows != "" && auth.KeyFileWindows != defaultKeyFileWindows {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("auth.keyFileWindows %q differs from the operator default %q. This value is not configurable via the Custom Resource.", auth.KeyFileWindows, defaultKeyFileWindows),
+		})
+	}
+
+	return results
+}
+
+// validateScram checks the autoUser has a matching usersWanted entry for SCRAM.
+func validateScram(auth *om.Auth) []ValidationResult {
+	if auth == nil || auth.Disabled || auth.AutoUser == "" {
+		return nil
+	}
+	switch auth.AutoAuthMechanism {
+	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
+	default:
+		return nil
+	}
+	hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
+		return u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase
+	})
+	if !hasMatchingUser {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, util.DefaultUserDatabase),
+		}}
+	}
+	return nil
+}
+
+// validateX509 warns when MONGODB-X509 agent auth is configured and errors when autoPEMKeyFilePath is missing.
+func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
+	if auth == nil || auth.Disabled {
+		return nil
+	}
+	if auth.AutoAuthMechanism != "MONGODB-X509" {
+		return nil
+	}
+	var results []ValidationResult
+	if agentSSL == nil || agentSSL.AutoPEMKeyFilePath == "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  "MONGODB-X509 agent authentication requires tls.autoPEMKeyFilePath to be set in the automation config.",
+		})
+	}
+	results = append(results, ValidationResult{
+		Severity: SeverityWarning,
+		Message:  "MONGODB-X509 agent authentication is configured. The generated CR sets spec.security.authentication.agents.clientCertificateSecretRef to \"<certsSecretPrefix>-<resourceName>-agent-certs\". Create a kubernetes.io/tls Secret with that name and keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use a different Secret name, update clientCertificateSecretRef.name in the generated CR.",
+	})
+	if auth.AutoUser != "" {
+		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
+			return u != nil && u.Username == auth.AutoUser && u.Database == "$external"
+		})
+		if !hasMatchingUser {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, "$external"),
+			})
+		}
+	}
+	return results
+}
+
+// validateAgentTLS checks project-level agent TLS paths against operator defaults.
+func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
+	if agentSSL == nil {
+		return nil
+	}
+
+	var results []ValidationResult
+
+	if agentSSL.CAFilePath != "" && agentSSL.CAFilePath != defaultCAFilePath {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("tls.CAFilePath %q differs from the operator default %q and will be overwritten.", agentSSL.CAFilePath, defaultCAFilePath),
+		})
+	}
+	if agentSSL.CAFilePath != "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  "TLS CA is configured. The generated CR sets spec.security.certsSecretPrefix to \"<certsSecretPrefix>\" and spec.security.tls.ca to \"<resourceName>-ca\". Create a ConfigMap named \"<resourceName>-ca\" with key \"ca-pem\" containing the CA certificate, and create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use different names, update spec.security.tls.ca and the server certificate Secret name accordingly.",
+		})
+	}
+
+	return results
+}
+
+// validateAgentConfig checks agent log paths against operator defaults.
+func validateAgentConfig(configs *ProjectConfigs) []ValidationResult {
+	if configs == nil {
+		return nil
+	}
+
+	var results []ValidationResult
+
+	if configs.MonitoringConfig != nil {
+		logPath := configs.MonitoringConfig.LogPath()
+		if logPath != "" && logPath != defaultMonitoringAgentLogPath {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("monitoringAgentConfig.logPath %q differs from the operator default %q. This value is not configurable via the Custom Resource.", logPath, defaultMonitoringAgentLogPath),
+			})
+		}
+	}
+
+	if configs.BackupConfig != nil {
+		logPath := configs.BackupConfig.LogPath()
+		if logPath != "" && logPath != defaultBackupAgentLogPath {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("backupAgentConfig.logPath %q differs from the operator default %q. This value is not configurable via the Custom Resource.", logPath, defaultBackupAgentLogPath),
+			})
+		}
+	}
+
+	return results
+}
+
+// validateLDAP checks bindMethod is "simple" and warns when passwords or CA are present.
+func validateLDAP(ac *om.AutomationConfig) []ValidationResult {
+	l := ac.Ldap
+	if l == nil {
+		return nil
+	}
+
+	var results []ValidationResult
+
+	if l.BindMethod != "" && l.BindMethod != "simple" {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("LDAP bindMethod %q is not supported by the operator. Only \"simple\" is supported", l.BindMethod),
+		})
+	}
+	if l.BindQueryPassword != "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("LDAP bind query password is present in the automation config. The tool will create Secret %q with key %q containing the password automatically.", LdapBindQuerySecretName, passwordSecretDataKey),
+		})
+	}
+	if l.CaFileContents != "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  "LDAP CA certificate is present. The tool will create ConfigMap \"ldap-ca\" with key \"ca.pem\" automatically.",
+		})
+	}
+	if ac.Auth != nil && ac.Auth.AutoPwd != "" {
+		if mode, ok := authn.MapMechanismToAuthMode(ac.Auth.AutoAuthMechanism); ok && mode == util.LDAP {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("LDAP agent password (auth.autoPwd) is present. The tool will create Secret %q with key %q containing the password automatically.", LdapAgentPasswordSecretName, passwordSecretDataKey),
+			})
+		}
+	}
+
+	return results
+}
+
+// validateProjectOptions checks options.downloadBase against the operator default.
+func validateProjectOptions(d om.Deployment) []ValidationResult {
+	downloadBase := d.DownloadBase()
+	if downloadBase == "" || downloadBase == defaultDownloadBase {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityError,
+		Message:  fmt.Sprintf("options.downloadBase %q differs from the operator default %q. This value is not configurable via the Custom Resource.", downloadBase, defaultDownloadBase),
+	}}
+}
+
+func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	for _, rs := range d.GetReplicaSets() {
+		rsID := rs.Name()
+
+		for _, m := range rs.Members() {
+			host := m.Name()
+
+			if delay := m.SecondaryDelaySecs(); delay > 0 {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("Member %q (replica set %q) has secondaryDelaySecs %d. This setting is not supported by the operator and will not be applied to new Kubernetes members managed by the operator.", host, rsID, delay),
+				})
+			}
+
+			if m.IsHidden() {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("Member %q (replica set %q) is hidden. This setting is not supported by the operator and will not be applied to new Kubernetes members managed by the operator.", host, rsID),
+				})
+			}
+
+			if !m.BuildIndexes() {
+				results = append(results, ValidationResult{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("Member %q (replica set %q) has buildIndexes set to false. This setting is not supported by the operator and will not be applied to new Kubernetes members managed by the operator.", host, rsID),
+				})
+			}
+		}
+	}
+	return results
+}
+
+// validateProcessConfig runs per-process checks against the deployment and source process.
+func validateProcessConfig(d om.Deployment, sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
+	var results []ValidationResult
+
+	results = append(results, validateProcessesAreValid(d)...)
+	results = append(results, validateAuthSchemaVersion(d)...)
+	results = append(results, validateTLS(sourceProcess)...)
+	results = append(results, validateProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
+
+	return results
+}
+
+// validateProcessesAreValid checks that all processes are mongod or mongos and not disabled.
+func validateProcessesAreValid(d om.Deployment) []ValidationResult {
+	processes := d.GetProcesses()
+	if len(processes) == 0 {
+		return []ValidationResult{{
+			Severity: SeverityError,
+			Message:  "The automation config contains no processes.",
+		}}
+	}
+
+	var results []ValidationResult
+	for _, proc := range processes {
+		name := proc.Name()
+		pt := proc.ProcessType()
+
+		if pt != om.ProcessTypeMongod && pt != om.ProcessTypeMongos {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Process %q has processType %q. Only mongod and mongos processes are supported.", name, string(pt)),
+			})
+		}
+
+		if proc.IsDisabled() {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("Process %q is disabled and will be skipped.", name),
+			})
+		}
+	}
+	return results
+}
+
+// validateAuthSchemaVersion checks each mongod process has the expected authSchemaVersion.
+// validatePrometheus warns when Prometheus is enabled, since a pre-created Secret is required.
+func validatePrometheus(d om.Deployment) []ValidationResult {
+	prom := d.GetPrometheus()
+	if prom == nil || !prom.Enabled {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("Prometheus is enabled for user %q. Create a Kubernetes Secret with key %q containing the password, then pass --prometheus-secret-name to reference it.", prom.Username, passwordSecretDataKey),
+	}}
+}
+
+func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
+	var results []ValidationResult
+	for _, proc := range d.GetProcesses() {
+		if proc.ProcessType() == om.ProcessTypeMongos {
+			continue
+		}
+		asv := proc.AuthSchemaVersion()
+		if asv != defaultAuthSchemaVersion {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Process %q has authSchemaVersion %d. The operator default is %d.", proc.Name(), asv, defaultAuthSchemaVersion),
+			})
+		}
+	}
+	return results
+}
+
+// validateTLS warns when TLS is absent so the user knows to set net.tls.mode to "disabled".
+func validateTLS(proc *om.Process) []ValidationResult {
+	if len(proc.NetTLSSections()) == 0 || pkgtls.GetTLSModeFromMongodConfig(proc.Args()) == pkgtls.Disabled {
+		return []ValidationResult{{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("Process %q has no TLS. Set spec.additionalMongodConfig.net.tls.mode to \"disabled\" to match the operator and avoid a deployment change.", proc.Name()),
+		}}
+	}
+	return nil
+}
+
+// validateProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
+func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
+	if projectProcessConfigs == nil {
+		return nil
+	}
+
+	projectLogRotate, _ := maputil.StructToMap(projectProcessConfigs.SystemLogRotate)
+	projectAuditLogRotate, _ := maputil.StructToMap(projectProcessConfigs.AuditLogRotate)
+
+	var results []ValidationResult
+	if len(projectLogRotate) > 0 {
+		processLR := sourceProcess.GetLogRotate()
+		if len(processLR) > 0 && !reflect.DeepEqual(processLR, projectLogRotate) {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("Process %q logRotate differs from project-level config. The Custom Resource will use the project-level value.", sourceProcess.Name()),
+			})
+		}
+	}
+
+	if len(projectAuditLogRotate) > 0 {
+		processALR := sourceProcess.GetAuditLogRotate()
+		if len(processALR) > 0 && !reflect.DeepEqual(processALR, projectAuditLogRotate) {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("Process %q auditLogRotate differs from project-level config. The Custom Resource will use the project-level value.", sourceProcess.Name()),
+			})
+		}
+	}
+
+	return results
+}

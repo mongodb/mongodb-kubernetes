@@ -781,6 +781,7 @@ task_groups:
       - e2e_replica_set_readiness_probe
       - e2e_replica_set_update_delete_parallel
       - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_scale_shards_name_overrides
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_mongod_options_and_log_rotation
       - e2e_tls_rs_external_access
@@ -872,8 +873,26 @@ task_groups:
       - e2e_search_enterprise_tls
       - e2e_search_enterprise_x509_cluster_auth
       # VM Migration
-      - e2e_vm_migration
-      - e2e_vm_migration_x509
+      - e2e_vm_migration_replicaset_x509
+      - e2e_vm_migration_replicaset_ldap
+      - e2e_vm_migration_replicaset_prometheus
+      - e2e_vm_migration_replicaset_oidc
+      - e2e_vm_migration_replicaset_oidc_group
+      - e2e_vm_migration_replicaset_oidc_workforce
+      - e2e_vm_migration_replicaset_scram_sha256
+      - e2e_vm_migration_replicaset_scram_sha1
+      - e2e_vm_migration_replicaset_scram_sha256_tls
+      - e2e_vm_migration_replicaset_no_auth
+      - e2e_vm_migration_shardedcluster_no_auth
+      - e2e_vm_migration_shardedcluster_x509
+      - e2e_vm_migration_shardedcluster_scram_sha256
+      - e2e_vm_migration_shardedcluster_scram_sha1
+      - e2e_vm_migration_shardedcluster_scram_sha256_tls
+      - e2e_vm_migration_shardedcluster_ldap
+      - e2e_vm_migration_shardedcluster_oidc
+      - e2e_vm_migration_shardedcluster_oidc_group
+      - e2e_vm_migration_shardedcluster_oidc_workforce
+      - e2e_vm_migration_shardedcluster_prometheus
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
@@ -1077,6 +1096,7 @@ task_groups:
       - e2e_sharded_cluster_pv_resize
       - e2e_sharded_cluster_recovery
       - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_scale_shards_name_overrides
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_secret
       - e2e_sharded_cluster_statefulset_status

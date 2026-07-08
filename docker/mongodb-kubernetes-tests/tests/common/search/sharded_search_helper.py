@@ -130,10 +130,15 @@ def verify_mongos_search_config(namespace: str, mdb_resource_name: str):
     """Verify mongos has mongotHost and searchIndexManagementHostAndPort configured."""
     mongos_pod = f"{mdb_resource_name}-mongos-0"
 
+    # The agent names the config file after the AC process name, which is k8s/{namespace}/{pod} for
+    # fresh deployments and the bare pod name for legacy ones, so locate the file instead of
+    # hardcoding one form.
+    find_mongos_conf = "find /var/lib/mongodb-mms-automation/workspace -name '*.conf' -path '*mongos*' -exec cat {} +"
+
     def check_mongos_config():
         try:
             config = KubernetesTester.run_command_in_pod_container(
-                mongos_pod, namespace, ["cat", f"/var/lib/mongodb-mms-automation/workspace/mongos-{mongos_pod}.conf"]
+                mongos_pod, namespace, ["/bin/sh", "-c", find_mongos_conf]
             )
 
             has_mongot_host = "mongotHost" in config

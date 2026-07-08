@@ -357,6 +357,15 @@ func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func generatedResourceUsedCorrectImportToolVersion(m *MongoDB) v1.ValidationResult {
+	if version, ok := m.Annotations[util.MigrateToolVersionAnnotation]; ok {
+		if version != "latest" && version != util.OperatorVersion {
+			return v1.ValidationError("The resource was generated with import tool version %s. Operator is on version %s. Make sure the version of the import tool matches the operator.", version, util.OperatorVersion)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.ValidationResult {
 	if d.Security == nil || d.Security.Authentication == nil {
 		return v1.ValidationSuccess()
@@ -433,6 +442,75 @@ func noExternalMembersAdditionOrChanges(newObj, oldObj MongoDbSpec) v1.Validatio
 		}
 	}
 	return v1.ValidationSuccess()
+}
+
+// noShardNameOverridesAddedOrModified rejects updates that add or change shardNameOverrides entries.
+// Entries are immutable once set because they map a shard to its AC identity.
+func noShardNameOverridesAddedOrModified(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	oldByShardName := make(map[string]ShardNameOverride, len(oldObj.ShardNameOverrides))
+	for _, o := range oldObj.ShardNameOverrides {
+		oldByShardName[o.ShardName] = o
+	}
+	for _, n := range newObj.ShardNameOverrides {
+		old, exists := oldByShardName[n.ShardName]
+		if !exists {
+			return v1.ValidationError("Cannot add shardNameOverrides entries to an existing MongoDB resource.")
+		}
+		if n != old {
+			return v1.ValidationError("Cannot make changes to existing shardNameOverrides entries. Entry for shard %q was changed.", n.ShardName)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// noShardNameOverridesRemovedForActiveShards ensures that only entries for scaled-away shards may be removed.
+// It requires the full MongoDB object to resolve K8s shard names by index.
+func (m *MongoDB) noShardNameOverridesRemovedForActiveShards(old *MongoDB) v1.ValidationResult {
+	if len(m.Spec.ShardNameOverrides) >= len(old.Spec.ShardNameOverrides) {
+		return v1.ValidationSuccess()
+	}
+	newByShardName := make(map[string]struct{}, len(m.Spec.ShardNameOverrides))
+	for _, o := range m.Spec.ShardNameOverrides {
+		newByShardName[o.ShardName] = struct{}{}
+	}
+	activeShardNames := make(map[string]struct{}, m.Spec.ShardCount)
+	for i := 0; i < m.Spec.ShardCount; i++ {
+		activeShardNames[m.ShardName(i)] = struct{}{}
+	}
+	for _, o := range old.Spec.ShardNameOverrides {
+		if _, exists := newByShardName[o.ShardName]; exists {
+			continue
+		}
+		// Entry was removed. It is only allowed if the shard no longer exists.
+		if _, active := activeShardNames[o.ShardName]; active {
+			return v1.ValidationError("Cannot remove shardNameOverrides entry for active shard %q.", o.ShardName)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// nameOverrideImmutable rejects adding, changing, or removing an AC name override field.
+// Overrides may only be set at creation.
+func nameOverrideImmutable(fieldName, oldVal, newVal string) v1.ValidationResult {
+	if newVal == oldVal {
+		return v1.ValidationSuccess()
+	}
+	if oldVal == "" {
+		return v1.ValidationError("Cannot add %s to an existing MongoDB resource.", fieldName)
+	}
+	return v1.ValidationError("Cannot change %s once set.", fieldName)
+}
+
+func noConfigServerNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nameOverrideImmutable("configServerNameOverride", oldObj.ConfigServerNameOverride, newObj.ConfigServerNameOverride)
+}
+
+func noShardedClusterNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nameOverrideImmutable("shardedClusterNameOverride", oldObj.ShardedClusterNameOverride, newObj.ShardedClusterNameOverride)
+}
+
+func noReplicaSetNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return nameOverrideImmutable("replicaSetNameOverride", oldObj.ReplicaSetNameOverride, newObj.ReplicaSetNameOverride)
 }
 
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
@@ -540,25 +618,49 @@ func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationcon
 
 // atMostOneMigrationChangeAtATime enforces that during migration (when
 // externalMembers is present on the old object) only one type of change may
-// occur per update: scaling Kubernetes members, removing external members, or
-// updating member votes/priority — never two types simultaneously.
+// occur per update: adding Kubernetes members, removing external members, or
+// updating member votes/priority — never two types simultaneously. Kubernetes
+// members may not be removed while migration is in progress.
 func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if len(oldObj.ExternalMembers) == 0 {
 		return v1.ValidationSuccess()
 	}
 
-	membersDelta := newObj.Members - oldObj.Members
+	// The member delta and the memberConfig bound are computed per resource type.
+	var membersDelta, existingMembersCount int
+	switch newObj.ResourceType {
+	case ShardedCluster:
+		perShardDelta := newObj.MongodsPerShardCount - oldObj.MongodsPerShardCount
+		shardCountDelta := newObj.ShardCount - oldObj.ShardCount
+		configSrvDelta := newObj.ConfigServerCount - oldObj.ConfigServerCount
+		mongosDelta := newObj.MongosCount - oldObj.MongosCount
+		// The four counts fold into one delta, they all represent the same migration step.
+		if perShardDelta < 0 || shardCountDelta < 0 || configSrvDelta < 0 || mongosDelta < 0 {
+			membersDelta = -1
+		} else if perShardDelta > 0 || shardCountDelta > 0 || configSrvDelta > 0 || mongosDelta > 0 {
+			membersDelta = 1
+		}
+		// spec.memberConfig applies to both config server and shard members.
+		existingMembersCount = max(oldObj.ConfigServerCount, oldObj.MongodsPerShardCount)
+	default:
+		membersDelta = newObj.Members - oldObj.Members
+		existingMembersCount = oldObj.Members
+	}
+
 	externalDelta := len(oldObj.ExternalMembers) - len(newObj.ExternalMembers)
 	memberConfigChanges := countMemberConfigChangesForExistingMembers(
-		newObj.MemberConfig, oldObj.MemberConfig, oldObj.Members,
+		newObj.MemberConfig, oldObj.MemberConfig, existingMembersCount,
 	)
 
+	if membersDelta < 0 {
+		return v1.ValidationError("Kubernetes members may not be removed during migration")
+	}
 	if externalDelta < 0 {
 		return v1.ValidationError("external members may not be added once migration has started")
 	}
 
 	activeChanges := 0
-	if membersDelta != 0 {
+	if membersDelta > 0 {
 		activeChanges++
 	}
 	if externalDelta > 0 {
@@ -577,6 +679,10 @@ func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationRe
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// The below validators apply to all MongoDB resource (but not MongoDBMulti), regardless of the value of the
 	// Topology field
+	metaValidators := []func(m *MongoDB) v1.ValidationResult{
+		generatedResourceUsedCorrectImportToolVersion,
+	}
+
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
 		horizonsMustEqualMembers,
 		horizonDomainNamesMustBeValid,
@@ -590,9 +696,20 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		noSimultaneousTLSDisablingAndScaling,
 		atMostOneMigrationChangeAtATime,
 		noExternalMembersAdditionOrChanges,
+		noShardNameOverridesAddedOrModified,
+		noConfigServerNameOverrideChanges,
+		noShardedClusterNameOverrideChanges,
+		noReplicaSetNameOverrideChanges,
 	}
 
 	var validationResults []v1.ValidationResult
+
+	for _, validator := range metaValidators {
+		res := validator(m)
+		if res.Level > 0 {
+			validationResults = append(validationResults, res)
+		}
+	}
 
 	for _, validator := range mongoDBValidators {
 		res := validator(m.Spec)
@@ -643,6 +760,9 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
 		}
+	}
+	if res := m.noShardNameOverridesRemovedForActiveShards(old); res.Level > 0 {
+		validationResults = append(validationResults, res)
 	}
 
 	return validationResults

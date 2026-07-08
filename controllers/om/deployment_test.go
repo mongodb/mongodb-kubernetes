@@ -345,7 +345,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 	_, err := d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
+	assert.Len(t, d.getShardedClusterByName("sc001").Shards(), 3)
 	assert.Len(t, d.GetReplicaSets(), 4)
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
 
@@ -362,27 +362,49 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
+	assert.Len(t, d.getShardedClusterByName("sc001").Shards(), 2)
 	assert.Len(t, d.GetReplicaSets(), 4)
 
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
 }
 
-func TestIsShardOf(t *testing.T) {
-	clusterName := "my-shard"
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-0"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-3"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-9"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-10"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-23"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-452"))
+// TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName verifies that scale down works the same
+// with shardedClusterNameOverride, where the AC cluster name intentionally differs from the K8s
+// resource name. Junk replica sets are recognised through the draining list, names play no role.
+func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("ac-config", false)
 
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-my-shard"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-s"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1-0"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "mmy-shard-1"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1s"))
+	// Initial: cluster named "ac-mongos", two shards with K8s prefix "sc-overrides".
+	twoShards := createSpecificNumberOfShards(2, "sc-overrides")
+	_, err := d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "ac-mongos",
+		MongosProcesses: createMongosProcesses(1, "sc-overrides-mongos", "ac-mongos"),
+		ConfigServerRs:  configRs,
+		Shards:          twoShards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", nil))
+
+	// Scale down to 1 shard: "sc-overrides-1" is removed from the sharding section
+	// but its RS lingers in the deployment (phase 1 of scale-down).
+	oneShards := twoShards[0:1]
+	_, err = d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "ac-mongos",
+		MongosProcesses: createMongosProcesses(1, "sc-overrides-mongos", "ac-mongos"),
+		ConfigServerRs:  configRs,
+		Shards:          oneShards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	assert.Len(t, d.getShardedClusterByName("ac-mongos").Shards(), 1)
+	// The junk RS is still present in the deployment.
+	assert.Len(t, d.GetReplicaSets(), 3)
+
+	// The junk RS is recognised through the draining list, exactly as without an override.
+	assert.Equal(t, []string{"sc-overrides-1"}, d.getShardedClusterByName("ac-mongos").draining())
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", nil))
 }
 
 func TestProcessBelongsToReplicaSet(t *testing.T) {

@@ -1176,7 +1176,7 @@ func TestValidateACForMigration_TLSModeNotSet(t *testing.T) {
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	// NewMongodProcess sets tls.mode="disabled" by default; delete the key entirely
-	// so net.tls.mode is absent — validateACForMigration rejects absent TLS, not just "disabled"
+	// so net.tls.mode is absent, validateACForMigration rejects absent TLS, not just "disabled"
 	delete(d.GetProcesses()[0].EnsureNetConfig(), "tls")
 
 	conn := om.NewMockedOmConnection(d)
@@ -1206,7 +1206,7 @@ func statusMsg(st workflow.Status) string {
 }
 
 func TestValidateACForMigration_BoundarySeven_OK(t *testing.T) {
-	// 3 K8s voting + 4 voting external = 7 — at boundary, should pass
+	// 3 K8s voting + 4 voting external = 7, at boundary, should pass
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 3, fourExternalMembers())
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
 
@@ -1367,7 +1367,7 @@ func mongoDBForMigrationTest(name, namespace string, members int, externalMember
 // newMigrationACConn builds an Ops Manager connection whose deployment has the migration-shaped
 // replica set: externalMembers first (with low _ids 0..N-1) followed by k8sCount K8s members
 // (with _ids starting at len(externalMembers)). K8s member names use the k8s/<namespace>/...
-// naming scheme — which matches the names computePostReconcileVoting expects to find. TLS mode is
+// naming scheme, which matches the names computePostReconcileVoting expects to find. TLS mode is
 // set on the first process so the TLS check passes. By default each K8s member is voting.
 func newMigrationACConn(t *testing.T, mdb *mdbv1.MongoDB, externalMembers []om.ReplicaSetMember, k8sCount int) om.Connection {
 	t.Helper()
@@ -1409,7 +1409,7 @@ func newMigrationACConnWithK8sVotes(t *testing.T, mdb *mdbv1.MongoDB, externalMe
 }
 
 // createK8sProcessesForMigrationTest builds K8s processes whose Process.Name() equals
-// process.PodNameToProcessName(dns.GetPodName(rsName, i), namespace) — i.e. "k8s/<ns>/<rs>-<i>".
+// process.PodNameToProcessName(dns.GetPodName(rsName, i), namespace), i.e. "k8s/<ns>/<rs>-<i>".
 // This matches the name format computePostReconcileVoting expects when looking up K8s members in
 // the AC.
 func createK8sProcessesForMigrationTest(rsName, namespace string, count int) []om.Process {
@@ -1473,6 +1473,256 @@ func fourVotingExternals() []om.ReplicaSetMember {
 	}
 }
 
+func TestCheckExternalMembersDrift_ShardedMongosProcess(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	mongosProc := om.NewMongosProcess(
+		"myCluster-mongos-0", "myCluster-mongos-0.some.host",
+		"fake-image", false,
+		&mdbv1.AdditionalMongodConfig{},
+		&mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}},
+		"", nil, "",
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{mongosProc},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "myCluster-mongos-0", Hostname: "myCluster-mongos-0.some.host:27017", Type: "mongos"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_ShardedMongodWithReplicaSetName(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "myCluster-config"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.True(t, status.IsOK())
+}
+
+func TestCheckExternalMembersDrift_ShardedMongodWrongReplicaSetName(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	conn := om.NewMockedOmConnection(d)
+	externalMembers := []mdbv1.ExternalMember{
+		{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "wrong-rs"},
+	}
+	status := checkExternalMembersDrift(conn, externalMembers)
+	assert.False(t, status.IsOK())
+}
+
+func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
+	d := om.NewDeployment()
+	configRs := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet("myCluster-config", "6.0.0"),
+		createRSProcessesHelper("myCluster-config", 1),
+		[]automationconfig.MemberOptions{{}},
+		nil,
+	)
+	mongosProc := om.NewMongosProcess(
+		"myCluster-mongos-0", "myCluster-mongos-0.some.host",
+		"fake-image", false,
+		&mdbv1.AdditionalMongodConfig{},
+		&mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}},
+		"", nil, "",
+	)
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            "myCluster",
+		MongosProcesses: []om.Process{mongosProc},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{},
+	})
+	require.NoError(t, err)
+
+	// Both process types have net.tls.mode set.
+	for _, p := range d.GetProcesses() {
+		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "disabled"}
+	}
+
+	conn := om.NewMockedOmConnection(d)
+	mdb := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: "myCluster"},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ShardedCluster},
+			ExternalMembers: []mdbv1.ExternalMember{
+				{ProcessName: "myCluster-mongos-0", Hostname: "myCluster-mongos-0.some.host:27017", Type: "mongos"},
+				{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "myCluster-config"},
+			},
+		},
+	}
+	status := validateACForMigration(conn, mdb)
+	assert.True(t, status.IsOK())
+}
+
+func TestValidateVotingLimitSharded_ConfigServerExceedsLimit(t *testing.T) {
+	// 3 voting external config server members + 5 K8s config server members = 8 → error.
+	sc := newShardedMDBForVotingTest("myCluster", 5, 1)
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	require.False(t, st.IsOK())
+	msg := statusMsg(st)
+	assert.Contains(t, msg, "8 voting members")
+	assert.Contains(t, msg, "myCluster-config")
+}
+
+func TestValidateVotingLimitSharded_ConfigServerUnderLimit(t *testing.T) {
+	// 3 voting external + 3 K8s = 6 → OK.
+	sc := newShardedMDBForVotingTest("myCluster", 3, 1)
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+func TestValidateVotingLimitSharded_ConfigServerNonVotingK8s(t *testing.T) {
+	// 5 external voting + 5 K8s all non-voting via MemberConfig = 5 → OK.
+	v0 := 0
+	p0 := "0"
+	sc := newShardedMDBForVotingTest("myCluster", 5, 1)
+	sc.Spec.MemberConfig = make([]automationconfig.MemberOptions, 5)
+	for i := range sc.Spec.MemberConfig {
+		sc.Spec.MemberConfig[i] = automationconfig.MemberOptions{Votes: &v0, Priority: &p0}
+	}
+	d := buildShardedDeploymentForVotingTest(t, sc, 5)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+func TestValidateVotingLimitSharded_ShardExceedsLimit(t *testing.T) {
+	// Shard 0: 3 voting external + 5 K8s = 8 → error.
+	sc := newShardedMDBForVotingTest("myCluster", 1, 5)
+	sc.Spec.ExternalMembers = append(sc.Spec.ExternalMembers,
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-0", Hostname: "shard-0:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-1", Hostname: "shard-1:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-2", Hostname: "shard-2:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+	)
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	require.False(t, st.IsOK())
+	msg := statusMsg(st)
+	assert.Contains(t, msg, "8 voting members")
+	assert.Contains(t, msg, "myCluster-0")
+}
+
+func TestValidateVotingLimitSharded_MongosNotCounted(t *testing.T) {
+	// Mongos external members must not contribute to RS voting counts.
+	sc := newShardedMDBForVotingTest("myCluster", 3, 1)
+	for i := range sc.Spec.ExternalMembers {
+		if sc.Spec.ExternalMembers[i].Type == "mongod" {
+			sc.Spec.ExternalMembers[i].Type = "mongos"
+			sc.Spec.ExternalMembers[i].ReplicaSetName = ""
+		}
+	}
+	d := buildShardedDeploymentForVotingTest(t, sc, 0)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+// newShardedMDBForVotingTest builds a minimal sharded cluster MongoDB with configServerCount K8s
+// config server members and mongodsPerShard K8s shard members. External members are 3 voting
+// config server mongods.
+func newShardedMDBForVotingTest(name string, configServerCount, mongodsPerShard int) *mdbv1.MongoDB {
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ShardedCluster},
+			MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+				ShardCount:           1,
+				MongodsPerShardCount: mongodsPerShard,
+				ConfigServerCount:    configServerCount,
+			},
+			ExternalMembers: []mdbv1.ExternalMember{
+				{ProcessName: name + "-config-0", Hostname: "cfg-0:27017", Type: "mongod", ReplicaSetName: name + "-config"},
+				{ProcessName: name + "-config-1", Hostname: "cfg-1:27017", Type: "mongod", ReplicaSetName: name + "-config"},
+				{ProcessName: name + "-config-2", Hostname: "cfg-2:27017", Type: "mongod", ReplicaSetName: name + "-config"},
+			},
+		},
+	}
+}
+
+// buildShardedDeploymentForVotingTest creates an OM deployment with a config server RS containing
+// configVotingExternal voting external members and a shard RS containing shardVotingExternal voting
+// external members. TLS mode is set so the TLS check passes.
+func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardVotingExternal int) om.Deployment {
+	t.Helper()
+	configRsName := sc.ConfigRsName()
+	shardRsName := sc.ShardName(0)
+
+	configExternalProcs := createRSProcessesHelper(configRsName, 3)
+	configRS := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet(configRsName, "6.0.0"),
+		configExternalProcs,
+		[]automationconfig.MemberOptions{{}, {}, {}},
+		nil,
+	)
+
+	shardExternalProcs := createRSProcessesHelper(shardRsName, shardVotingExternal)
+	shardOpts := make([]automationconfig.MemberOptions, shardVotingExternal)
+	for i := range shardOpts {
+		shardOpts[i] = automationconfig.MemberOptions{}
+	}
+	shardRS := om.NewReplicaSetWithProcesses(
+		om.NewReplicaSet(shardRsName, "6.0.0"),
+		shardExternalProcs,
+		shardOpts,
+		nil,
+	)
+
+	d := om.NewDeployment()
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sc.Name,
+		ConfigServerRs:  configRS,
+		Shards:          []om.ReplicaSetWithProcesses{shardRS},
+		MongosProcesses: []om.Process{},
+	})
+	require.NoError(t, err)
+
+	for _, p := range d.GetProcesses() {
+		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+	}
+	return d
+}
+
 // ---------------------------------------------------------------------------
 // Task 10: checkIfHasExcessProcesses
 // ---------------------------------------------------------------------------
@@ -1529,4 +1779,153 @@ func TestGetReplicaSetProcessIdsFromReplicaSets_Found(t *testing.T) {
 	assert.Equal(t, 0, result["my-rs-0"])
 	assert.Equal(t, 1, result["my-rs-1"])
 	assert.Equal(t, 2, result["my-rs-2"])
+}
+
+// TestValidateVotingLimitSharded_ShardNonVotingK8sViaMemberConfig verifies spec.memberConfig is
+// honoured for shard members in single cluster topology.
+func TestValidateVotingLimitSharded_ShardNonVotingK8sViaMemberConfig(t *testing.T) {
+	v0 := 0
+	p0 := "0"
+	sc := newShardedMDBForVotingTest("myCluster", 1, 5)
+	sc.Spec.ExternalMembers = append(sc.Spec.ExternalMembers,
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-0", Hostname: "shard-0:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-1", Hostname: "shard-1:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-2", Hostname: "shard-2:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+	)
+	sc.Spec.MemberConfig = make([]automationconfig.MemberOptions, 5)
+	for i := range sc.Spec.MemberConfig {
+		sc.Spec.MemberConfig[i] = automationconfig.MemberOptions{Votes: &v0, Priority: &p0}
+	}
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+// TestValidateVotingLimitSharded_ShardNonVotingK8sViaShardOverride verifies that shardOverrides
+// memberConfig is honoured for shard members in single cluster topology.
+func TestValidateVotingLimitSharded_ShardNonVotingK8sViaShardOverride(t *testing.T) {
+	v0 := 0
+	p0 := "0"
+	sc := newShardedMDBForVotingTest("myCluster", 1, 5)
+	sc.Spec.ExternalMembers = append(sc.Spec.ExternalMembers,
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-0", Hostname: "shard-0:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-1", Hostname: "shard-1:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+		mdbv1.ExternalMember{ProcessName: "myCluster-0-2", Hostname: "shard-2:27017", Type: "mongod", ReplicaSetName: "myCluster-0"},
+	)
+	overrideMemberConfig := make([]automationconfig.MemberOptions, 5)
+	for i := range overrideMemberConfig {
+		overrideMemberConfig[i] = automationconfig.MemberOptions{Votes: &v0, Priority: &p0}
+	}
+	sc.Spec.ShardOverrides = []mdbv1.ShardOverride{{ShardNames: []string{"myCluster-0"}, MemberConfig: overrideMemberConfig}}
+	d := buildShardedDeploymentForVotingTest(t, sc, 3)
+	st := validateVotingLimitSharded(sc, d)
+	assert.True(t, st.IsOK())
+}
+
+// TestValidateShardedACIdentity verifies that the resolved AC names are required to match the
+// existing sharded cluster in the AC during migration.
+func TestValidateShardedACIdentity(t *testing.T) {
+	sc := newShardedMDBForVotingTest("myCluster", 1, 1)
+	d := buildShardedDeploymentForVotingTest(t, sc, 1)
+
+	assert.True(t, validateShardedACIdentity(sc, d).IsOK())
+
+	wrongClusterName := sc.DeepCopy()
+	wrongClusterName.Spec.ShardedClusterNameOverride = "other-cluster"
+	st := validateShardedACIdentity(wrongClusterName, d)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "does not contain a sharded cluster named other-cluster")
+
+	wrongConfigName := sc.DeepCopy()
+	wrongConfigName.Spec.ConfigServerNameOverride = "vm-config"
+	st = validateShardedACIdentity(wrongConfigName, d)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "config server replica set")
+
+	wrongShardRs := sc.DeepCopy()
+	wrongShardRs.Spec.ShardNameOverrides = []mdbv1.ShardNameOverride{{ShardName: "myCluster-0", ShardId: "vm-0", ReplicaSetName: "vm-0"}}
+	st = validateShardedACIdentity(wrongShardRs, d)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "no shard with replica set name vm-0")
+
+	// The merge matches shards by _id, so a correct replicaSetName paired with a wrong shardId is rejected.
+	wrongShardId := sc.DeepCopy()
+	wrongShardId.Spec.ShardNameOverrides = []mdbv1.ShardNameOverride{{ShardName: "myCluster-0", ShardId: "vm-id", ReplicaSetName: "myCluster-0"}}
+	st = validateShardedACIdentity(wrongShardId, d)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "spec.shardNameOverrides specifies shardId vm-id")
+}
+
+// TestValidateShardedACIdentity_UncoveredACShard verifies that an AC shard the resource does not
+// resolve to is rejected instead of being silently drained by the merge.
+func TestValidateShardedACIdentity_UncoveredACShard(t *testing.T) {
+	sc := newShardedMDBForVotingTest("myCluster", 1, 1)
+
+	d := om.NewDeployment()
+	d["sharding"] = []om.ShardedCluster{{
+		"name":                sc.Name,
+		"configServerReplica": sc.ConfigRsName(),
+		"shards": []om.Shard{
+			{"_id": "myCluster-0", "rs": "myCluster-0"},
+			{"_id": "vm-extra", "rs": "vm-extra"},
+		},
+	}}
+	st := validateShardedACIdentity(sc, d)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "vm-extra")
+	assert.Contains(t, statusMsg(st), "does not cover")
+
+	// A covered replica set name whose AC _id differs from the resolved _id is rejected as well.
+	d["sharding"] = []om.ShardedCluster{{
+		"name":                sc.Name,
+		"configServerReplica": sc.ConfigRsName(),
+		"shards":              []om.Shard{{"_id": "weird-id", "rs": "myCluster-0"}},
+	}}
+	st = validateShardedACIdentity(sc, d)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "the resource resolves to _id myCluster-0")
+}
+
+// TestValidateRSACIdentity verifies the AC must contain a replica set under the resolved name during migration.
+func TestValidateRSACIdentity(t *testing.T) {
+	d := om.NewDeployment()
+	rs := buildRsByProcessesHelper("vm-rs", createRSProcessesHelper("vm-rs", 3))
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
+
+	mdb := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-rs"},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec:           mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet},
+			ReplicaSetNameOverride: "vm-rs",
+		},
+	}
+	acRs, st := validateRSACIdentity(mdb, d)
+	assert.True(t, st.IsOK())
+	require.NotNil(t, acRs)
+	assert.Equal(t, "vm-rs", acRs.Name())
+
+	mdb.Spec.ReplicaSetNameOverride = ""
+	acRs, st = validateRSACIdentity(mdb, d)
+	require.False(t, st.IsOK())
+	assert.Nil(t, acRs)
+	assert.Contains(t, statusMsg(st), "does not contain a replica set named my-rs")
+}
+
+// TestValidateVotingLimitRS exercises the voting limit check directly with the looked up replica set.
+func TestValidateVotingLimitRS(t *testing.T) {
+	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 3, fourExternalMembers())
+	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
+	deployment, err := conn.ReadDeployment()
+	require.NoError(t, err)
+	rs := deployment.GetReplicaSetByName(mdb.GetReplicaSetName())
+	require.NotNil(t, rs)
+
+	// 3 K8s voting plus 4 voting external members is exactly at the limit.
+	assert.True(t, validateVotingLimitRS(mdb, rs).IsOK())
+
+	// Scaling spec members to 4 makes position 3 voting and pushes the total to 8.
+	mdb.Spec.Members = 4
+	st := validateVotingLimitRS(mdb, rs)
+	require.False(t, st.IsOK())
+	assert.Contains(t, statusMsg(st), "8 voting members")
 }

@@ -1,0 +1,43 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: prom-https-rs
+  namespace: mongodb
+spec:
+  agent:
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  credentials: my-credentials
+  externalMembers:
+  - hostname: vm-0.example.com:27017
+    processName: prom-https-rs-0
+    replicaSetName: prom-https-rs
+    type: mongod
+  - hostname: vm-1.example.com:27017
+    processName: prom-https-rs-1
+    replicaSetName: prom-https-rs
+    type: mongod
+  - hostname: vm-2.example.com:27017
+    processName: prom-https-rs-2
+    replicaSetName: prom-https-rs
+    type: mongod
+  featureCompatibilityVersion: "8.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  prometheus:
+    passwordSecretRef:
+      key: password
+      name: prometheus-password
+    port: 9216
+    tlsSecretKeyRef:
+      name: prometheus-tls
+    username: prom-user
+  type: ReplicaSet
+  version: 8.0.4-ent
