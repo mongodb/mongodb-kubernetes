@@ -251,6 +251,7 @@ class TestGetFailedAndRunningTasks:
         assert len(failed) == 1
         assert failed[0].display_name == "e2e_real_fail"
 
+
 class TestSendSlackNotification:
     @patch("scripts.evergreen.notify_master_failures.requests.post")
     def test_success(self, mock_post):
