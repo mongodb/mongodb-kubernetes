@@ -5,12 +5,14 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
+# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
 # shellcheck disable=SC2154
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-    source "${PROJECT_DIR}/venv/bin/activate"
+if [ -f "${venv_path}/bin/activate" ]; then
+    source "${venv_path}/bin/activate"
 else
-  echo "Cannot find python venv in ${PROJECT_DIR}"
-  ls -al "${PROJECT_DIR}"
+  echo "Cannot find python venv at ${venv_path}"
+  ls -al "$(dirname "${venv_path}")" 2>/dev/null || true
   exit 1
 fi
 

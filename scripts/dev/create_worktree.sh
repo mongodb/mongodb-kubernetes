@@ -68,9 +68,12 @@ if ! git worktree list | awk '{print $1}' | grep -Fxq "${worktree_path}"; then
   fi
 fi
 
+# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+venv_path="${PROJECT_VENV_PATH:-${worktree_path}/venv}"
+
 # Init on fresh (no private-context), partially-initialised (no venv), or -f.
 if [[ ! -f "${worktree_path}/scripts/dev/contexts/private-context" \
-      || ! -f "${worktree_path}/venv/bin/activate" \
+      || ! -f "${venv_path}/bin/activate" \
       || ${force} == 1 ]]; then
   echo "Initializing worktree in ${worktree_path}..."
   init_flags=()
@@ -82,7 +85,7 @@ fi
 (
   cd "${worktree_path}"
   make switch context="$(cat ".generated/.current_context")"
-  source venv/bin/activate
+  source "${PROJECT_VENV_PATH:-venv}/bin/activate"
   source .generated/context.export.env
 )
 
