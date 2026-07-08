@@ -1198,17 +1198,17 @@ def test_mongot_fault_degrades_only_that_clusters_search(mdbs: MongoDBSearch):
     other_ci = _cluster_index_at(mdbs, ENVOY_FAULT_POS)
     _set_mongot_memory_request(mdbs, MONGOT_FAULT_POS, UNSCHEDULABLE_MEMORY)
 
-    # Affected cluster's SEARCH half degrades and carries a message.
+    # Affected cluster's SEARCH degrades and carries a message.
     mdbs.wait_for_cluster_search_phase(faulted_ci, Phase.Pending, expect_message=True, timeout=STATUS_DEGRADE_TIMEOUT)
 
-    # Independence: the SAME cluster's LB half is untouched (still Running, no message)...
+    # The SAME cluster's LB is untouched (still Running, no message)...
     lb = mdbs.get_cluster_status(faulted_ci) or {}
     assert (
         lb.get("loadBalancer") == "Running"
     ), f"cluster {faulted_ci}: loadBalancer should stay Running during a mongot fault, got {lb.get('loadBalancer')!r}"
     assert not lb.get("loadBalancerMessage"), f"cluster {faulted_ci}: loadBalancerMessage should stay empty"
 
-    # ...and the OTHER cluster is fully Running — no cross-cluster bleed.
+    # Other cluster is fully Running — making sure statuses are reflected per cluster properly.
     other = mdbs.get_cluster_status(other_ci) or {}
     assert other.get("search") == "Running", (
         f"cluster {other_ci}: search should stay Running while only cluster "
@@ -1240,14 +1240,14 @@ def test_envoy_fault_degrades_only_that_clusters_lb(mdbs: MongoDBSearch):
     # Affected cluster's LB half degrades and carries a message.
     mdbs.wait_for_cluster_lb_phase(faulted_ci, Phase.Pending, expect_message=True, timeout=STATUS_DEGRADE_TIMEOUT)
 
-    # Independence: the SAME cluster's search half is untouched (still Running, no message)...
+    # The SAME cluster's search is untouched (still Running, no message)...
     search = mdbs.get_cluster_status(faulted_ci) or {}
     assert (
         search.get("search") == "Running"
     ), f"cluster {faulted_ci}: search should stay Running during an Envoy fault, got {search.get('search')!r}"
     assert not search.get("searchMessage"), f"cluster {faulted_ci}: searchMessage should stay empty"
 
-    # ...and the OTHER cluster is fully Running.
+    # The OTHER cluster is fully Running.
     other = mdbs.get_cluster_status(other_ci) or {}
     assert other.get("search") == "Running", f"cluster {other_ci}: search should stay Running"
     assert other.get("loadBalancer") == "Running", (
