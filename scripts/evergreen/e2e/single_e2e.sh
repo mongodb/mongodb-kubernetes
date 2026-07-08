@@ -100,6 +100,10 @@ deploy_test_app() {
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "customOmVersion=${CUSTOM_OM_VERSION}")
     fi
+    if [[ -n "${MDB_MAX_CONCURRENT_RECONCILES:-}" ]]; then
+        # Perf variants set this; it is passed to the test pod so the OperatorConfig CR gets it
+        helm_params+=("--set" "maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
+    fi
     if [[ -n "${pytest_addopts:-}" ]]; then
         # The test needs to create an OM resource with specific version
         helm_params+=("--set" "pytest.addopts=${pytest_addopts:-}")
