@@ -1,4 +1,8 @@
-"""E2E for the search connectivity tool against a MultiCluster sharded source.x"""
+"""E2E for the search connectivity tool against a MultiCluster sharded source.x
+
+Quarantined: flaky, producing unreliable results in CI. Tracking ticket: KUBE-161.
+See EVERGREEN.md#quarantined-tests.
+"""
 
 from __future__ import annotations
 
