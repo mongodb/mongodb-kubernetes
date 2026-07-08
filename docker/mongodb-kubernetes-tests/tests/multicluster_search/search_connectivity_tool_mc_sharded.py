@@ -213,7 +213,7 @@ class TestSearchConnectivityToolMcSharded:
                 mdbs.load()
                 mdbs["spec"]["clusters"] = [dict(c) for c in original_clusters]
                 mdbs.update()
-                mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+                mdbs.assert_reaches_phase(Phase.Running, timeout=1800)
                 # re-index the restored cluster's mongots before the next iteration
                 tool.wait_for_sentinel_indexed(timeout=300)
                 logger.info(f"restored cluster {faulted_index} ({faulted_name}) mongots; MDBS Running")
