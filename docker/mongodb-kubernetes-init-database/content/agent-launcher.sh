@@ -12,9 +12,12 @@ MMS_LOG_DIR=${MMS_LOG_DIR:-/var/log/mongodb-mms-automation}
 # Under ShareProcessNamespace (static arch) PID 1 is the pause container and
 # /proc/1/fd/1 is /dev/null, but FIFOs don't depend on /proc (POSIX pipes).
 # $$ resolves to 1 in non static and in static to launcher pid.
+# The while-loop reopens the FIFO after EOF so the reader survives mongod restarts.
 mkdir -p "${MMS_LOG_DIR}"
 mkfifo "${MMS_LOG_DIR}/mongod-stdout"
-jq --unbuffered -Rc --arg p mongod '{process:$p,msg:.}' < "${MMS_LOG_DIR}/mongod-stdout" &
+while true; do
+  jq --unbuffered -Rc --arg p mongod '{process:$p,msg:.}' < "${MMS_LOG_DIR}/mongod-stdout" 2>/dev/null
+done &
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   AGENT_BINARY_PATH="${MMS_HOME}/files/mongodb-mms-automation-agent"
@@ -216,9 +219,13 @@ tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT:-${MMS_LOG_DIR}/mongodb-audit.log}" 2>
 # Monitoring/backup goroutines are configured via automation config logPath;
 # each writes to its own FIFO, drained tagged to stdout. No log files.
 mkfifo "${MMS_LOG_DIR}/monitoring-stdout"
-jq --unbuffered -Rc --arg p monitoring '{process:$p,msg:.}' < "${MMS_LOG_DIR}/monitoring-stdout" &
+while true; do
+  jq --unbuffered -Rc --arg p monitoring '{process:$p,msg:.}' < "${MMS_LOG_DIR}/monitoring-stdout" 2>/dev/null
+done &
 mkfifo "${MMS_LOG_DIR}/backup-stdout"
-jq --unbuffered -Rc --arg p backup '{process:$p,msg:.}' < "${MMS_LOG_DIR}/backup-stdout" &
+while true; do
+  jq --unbuffered -Rc --arg p backup '{process:$p,msg:.}' < "${MMS_LOG_DIR}/backup-stdout" 2>/dev/null
+done &
 
 # Run agent stderr/stdout through jq for process tagging.
 "${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>&1 | jq --unbuffered -Rc --arg p agent '{process:$p,msg:.}' &

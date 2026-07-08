@@ -1,5 +1,5 @@
 from kubetester import find_fixture, try_load
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -152,13 +152,17 @@ def _assert_audit_logs_in_pods(sc: MongoDB):
             _assert_audit_logs(sc.namespace, sc.mongos_pod_name(member_idx, cluster_idx), api_client)
 
 
+def _container_name() -> str:
+    return "mongodb-agent" if is_default_architecture_static() else "mongodb-enterprise-database"
+
+
 def _assert_agent_and_mongodb_logs(namespace: str, pod: str, api_client=None):
-    logs = get_pod_logs(namespace, pod, "mongodb-agent", api_client=api_client)
+    logs = get_pod_logs(namespace, pod, _container_name(), api_client=api_client)
     assert len(get_agent_logs(logs)) > 0, f"{pod}: expected agent logs in stdout"
     assert len(get_mongodb_logs(logs)) > 0, f"{pod}: expected mongod logs in stdout"
 
 
 def _assert_audit_logs(namespace: str, pod: str, api_client=None):
-    logs = get_pod_logs(namespace, pod, "mongodb-agent", api_client=api_client)
+    logs = get_pod_logs(namespace, pod, _container_name(), api_client=api_client)
     audit_lines = [line for line in logs if "atype" in line and "ts" in line]
     assert len(audit_lines) > 0, f"{pod}: expected audit log lines in stdout"
