@@ -73,7 +73,13 @@ def test_mongodb_json_logs_in_stdout(deployed_replica_set: MongoDB):
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        inner = json.loads(obj["msg"]) if isinstance(obj.get("msg"), str) else obj
+        if isinstance(obj.get("msg"), str):
+            try:
+                inner = json.loads(obj["msg"])
+            except json.JSONDecodeError:
+                continue
+        else:
+            inner = obj
         if all(k in inner for k in ("t", "s", "c", "ctx", "msg")):
             mongod_lines.append(inner)
 
@@ -181,7 +187,13 @@ def test_audit_logs_in_stdout(deployed_replica_set: MongoDB):
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        inner = json.loads(obj["msg"]) if isinstance(obj.get("msg"), str) else obj
+        if isinstance(obj.get("msg"), str):
+            try:
+                inner = json.loads(obj["msg"])
+            except json.JSONDecodeError:
+                continue
+        else:
+            inner = obj
         if "atype" in inner and "ts" in inner:
             audit_lines.append(inner)
 
