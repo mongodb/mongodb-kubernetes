@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 #
-# CI script to run prek checks in Evergreen.
-# This script is called by the Evergreen CI pipeline.
+# Run prek checks locally (make precommit / make precommit-full) or in Evergreen CI.
 #
 
 set -Eeou pipefail
+
+full_mode=false
+if [[ "${1:-}" == "--full" ]]; then
+  full_mode=true
+fi
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
@@ -22,8 +26,10 @@ fi
 
 title "Running pre-commit checks"
 
-# Set EVERGREEN_MODE to signal we're in CI
-export EVERGREEN_MODE=true
+if [[ "${full_mode}" == true ]]; then
+  export MDB_UPDATE_LICENSES=true
+  export MDB_REGENERATE_RBAC=true
+fi
 
 # Store the current state of the index and working directory
 initial_index_state=$(git diff --name-only --cached --diff-filter=AM)
