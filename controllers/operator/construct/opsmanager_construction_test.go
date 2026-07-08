@@ -276,8 +276,8 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
 			{Name: "ENABLE_IRP", Value: "true"},
-			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
-			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m -DDAEMON.DEBUG.PORT=8090"},
+			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms286m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms286m -DDAEMON.DEBUG.PORT=8090"},
 		}
 		env := sts.Spec.Template.Spec.Containers[0].Env
 		assert.Equal(t, expectedVars, env)
