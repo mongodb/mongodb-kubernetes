@@ -50,10 +50,6 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
     echo "KUBECONFIG=${KUBECONFIG}"
   fi
 
-  # Telemetry enable/send/frequency are configured via the OperatorConfig CR, not env vars. Only the
-  # internal SEND_BASEURL knob (used to point telemetry at a mock/cloud-dev endpoint) is still an
-  # env var read by the operator. Note: when running the operator locally without an OperatorConfig
-  # CR in the target cluster, telemetry defaults to enabled (opt-out model).
   if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-""}" != "" ]]; then
     echo "MDB_OPERATOR_TELEMETRY_SEND_BASEURL=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}"
   fi

@@ -16,8 +16,7 @@ export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 # Telemetry is configured via the OperatorConfig CR now. Send is translated into
-# OperatorConfig.spec.telemetry.send.mode by the test harness. Frequencies are not configurable in
-# tests (first collect/send are immediate at startup).
+# OperatorConfig.spec.telemetry.send.mode by the test harness.
 export MDB_OPERATOR_TELEMETRY_SEND_ENABLED=true
 
 # MCK is capable of deploying a webhook (optional).

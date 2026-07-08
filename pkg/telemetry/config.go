@@ -3,7 +3,7 @@ package telemetry
 import "time"
 
 // BaseUrl is an internal, undocumented env var used only to point telemetry at a mock
-// endpoint in tests. Production uses the Atlas SDK default (https://cloud.mongodb.com/).
+// endpoint in tests. Production uses the Atlas SDK default.
 // All other telemetry settings are configured via the OperatorConfig CR.
 const (
 	BaseUrl = "MDB_OPERATOR_TELEMETRY_SEND_BASEURL"

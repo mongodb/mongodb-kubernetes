@@ -30,9 +30,6 @@ get_operator_helm_values() {
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
-    # Telemetry send/collection are configured via the OperatorConfig CR (see
-    # build_operator_config_spec_from_test_env); they are no longer Helm values. The retained
-    # operator.telemetry.send.baseUrl knob is set further below.
     "search.repo=${MDB_SEARCH_REPO_URL}"
     "search.name=${MDB_SEARCH_NAME}"
     "search.version=${MDB_SEARCH_VERSION}"
