@@ -693,8 +693,6 @@ def get_multi_cluster_operator(
         run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     helm_opts = {
         "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-        # override the serviceAccountName for the operator deployment
-        "operator.createOperatorServiceAccount": "false",
     }
     return _install_multi_cluster_operator(
         namespace,
@@ -730,8 +728,6 @@ def multi_cluster_operator_with_monitored_appdb(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
         },
         central_cluster_name,
     )
@@ -756,8 +752,6 @@ def multi_cluster_operator_manual_remediation(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             "multiCluster.performFailOver": "false",
         },
         central_cluster_name,
@@ -786,8 +780,6 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             # Skip creating the ClusterMongoDBRole RBAC.
             "operator.enableClusterMongoDBRoles": "false",
         },
@@ -823,8 +815,6 @@ def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
         get_member_cluster_clients(),
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": "*",
         },
         get_central_cluster_name(),
@@ -862,8 +852,6 @@ def install_multi_cluster_operator_set_members_fn(
             member_cluster_clients,
             {
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-                # override the serviceAccountName for the operator deployment
-                "operator.createOperatorServiceAccount": "false",
                 "multiCluster.clusters": "{" + mcn + "}",
             },
             central_cluster_name,
@@ -1112,8 +1100,6 @@ def install_official_operator(
         helm_args.update(
             {
                 "operator.name": operator_name,
-                # override the serviceAccountName for the operator deployment
-                "operator.createOperatorServiceAccount": "false",
                 "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
             }
         )
@@ -1746,7 +1732,6 @@ def install_multi_cluster_operator_cluster_scoped(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
         },
         central_cluster_name,
