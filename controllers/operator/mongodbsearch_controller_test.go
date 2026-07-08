@@ -951,6 +951,15 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 					"headless Service for shard %s must exist", shard)
 
 				assertSearchOwnerLabels(t, search, tc.opCluster, sts, cm, svc)
+
+				// The operator-managed ingress TLS secret is written locally with
+				// clusterName != "" — Kubernetes GC does not span clusters, so it
+				// must carry no owner reference back to the MongoDBSearch CR.
+				tlsOperatorSecret := &corev1.Secret{}
+				require.NoError(t, c.Get(ctx, search.TLSOperatorSecretForClusterShard(tc.wantIdx, shard), tlsOperatorSecret),
+					"operator-managed ingress TLS secret for shard %s must exist", shard)
+				assert.Empty(t, tlsOperatorSecret.OwnerReferences,
+					"operator-managed ingress TLS secret for shard %s must not carry an owner reference", shard)
 			}
 
 			clusterLevelProxy := &corev1.Service{}
@@ -1195,6 +1204,8 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 		require.NoError(t, mc.Get(ctx,
 			search.ProxyServiceNamespacedNameForCluster(idx), svc),
 			"cluster-level proxy Service missing on %s", clusterName)
+		// Hub-and-spoke member-cluster write: owner labels present, owner refs absent.
+		assertSearchOwnerLabels(t, search, clusterName, svc)
 
 		dep := &appsv1.Deployment{}
 		require.NoError(t, mc.Get(ctx,
