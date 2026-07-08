@@ -28,7 +28,7 @@ process_licenses() {
     PATH="${REAL_GOROOT}/bin:$(go env GOPATH)/bin:${PATH}" \
     GOTOOLCHAIN=local GOROOT="${REAL_GOROOT}" \
     GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" \
-    go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
+    "$(go env GOPATH)"/bin/go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
 
     # Filter and sort the licenses report
     # Use LC_ALL=C to ensure consistent ASCII sorting across macOS and Linux
