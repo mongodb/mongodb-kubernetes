@@ -349,8 +349,25 @@ def test_per_cluster_resources_exist(
             f"[{mcc.cluster_name}] {sts_name} expected {MONGOT_REPLICAS_PER_CLUSTER} replicas, "
             f"got {sts.spec.replicas}"
         )
-        mcc.read_namespaced_service(svc_name, namespace)
-        mcc.read_namespaced_service(proxy_svc_name, namespace)
+        headless_svc = mcc.read_namespaced_service(svc_name, namespace)
+        proxy_svc = mcc.read_namespaced_service(proxy_svc_name, namespace)
+
+        # KUBE-154: even though the localized CR exists in this cluster (so a ref
+        # WOULD be a valid GC target), the operator must not set ownerReferences on
+        # any per-cluster write — lifecycle is owned by the label-based sweep.
+        mongot_cm = mcc.read_namespaced_config_map(mongot_cm_name, namespace)
+        tls_secret_name = f"{MDBS_RESOURCE_NAME}-search-certificate-key"
+        tls_secret = mcc.core_v1_api().read_namespaced_secret(tls_secret_name, namespace)
+        for obj, where in (
+            (sts, f"STS {sts_name}"),
+            (headless_svc, f"headless Service {svc_name}"),
+            (proxy_svc, f"proxy Service {proxy_svc_name}"),
+            (mongot_cm, f"mongot CM {mongot_cm_name}"),
+            (tls_secret, f"operator TLS Secret {tls_secret_name}"),
+        ):
+            refs = obj.metadata.owner_references or []
+            assert not refs, f"[{mcc.cluster_name}] {where}: unexpected ownerReferences {refs}"
+
         assert_workload_ready_in_cluster(mcc, namespace, {sts_name: MONGOT_REPLICAS_PER_CLUSTER}, envoy_dep_name)
 
         assert_mongot_sync_source_hosts(mcc, mongot_cm_name, namespace, seed_hosts)

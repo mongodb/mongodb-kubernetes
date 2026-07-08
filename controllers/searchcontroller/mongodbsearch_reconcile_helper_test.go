@@ -3124,6 +3124,11 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, int32(27028), portMap["mongot-grpc"])
 	assert.Equal(t, int32(8080), portMap["healthcheck"])
 
+	// Legacy single-cluster (clusterName == ""): owner refs stay so CR delete GCs the Service.
+	assert.True(t, slices.ContainsFunc(svc.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name
+	}))
+
 	// Verify StatefulSet
 	stsNsName := search.StatefulSetNamespacedNameForCluster(0)
 	sts, err := fakeClient.GetStatefulSet(t.Context(), stsNsName)
@@ -3146,6 +3151,9 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 
 	assert.Equal(t, "test-search-search-0-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
+	assert.True(t, slices.ContainsFunc(cm.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name
+	}))
 }
 
 type fakeExternalSource struct {
@@ -3630,6 +3638,8 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		svc := &corev1.Service{}
 		require.NoError(t, c.Get(t.Context(), res.svcName, svc),
 			"cluster-level proxy svc %s missing on %s", res.svcName.Name, res.clusterName)
+		assert.Empty(t, svc.OwnerReferences,
+			"member-cluster cluster-level proxy svc %s must not carry an owner reference", res.svcName.Name)
 		// Service must be created via the per-cluster client, not central.
 		err := centralClient.Get(t.Context(), res.svcName, &corev1.Service{})
 		assert.True(t, apierrors.IsNotFound(err),
@@ -3752,6 +3762,14 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		err := exp.c.Get(t.Context(), types.NamespacedName{Name: exp.name, Namespace: "ns"}, &appsv1.StatefulSet{})
 		require.NoError(t, err, "STS %s must have been created before the readiness short-circuit fired", exp.name)
 	}
+
+	// The ingress TLS path also runs per unit: the operator-managed cert+key
+	// secret is written to the member cluster and must carry no owner reference
+	// (unit.clusterName is threaded through ensureIngressTlsConfig into EnsureTLSSecret).
+	memberIngressSecret, err := clusterAClient.GetSecret(t.Context(), search.TLSOperatorSecretForClusterShard(0, "sh-0"))
+	require.NoError(t, err)
+	assert.Empty(t, memberIngressSecret.OwnerReferences,
+		"member cluster's operator-managed ingress TLS secret must not carry an owner reference")
 
 	// Cluster-level proxy Services deferred until LB is Ready.
 	for _, exp := range []struct {
@@ -4239,6 +4257,13 @@ func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
 	helper.Reconcile(t.Context(), zap.S())
 	assert.False(t, switchedOn("sh-0"))
 	assert.False(t, switchedOn("sh-removed"), "switch entry for a removed shard must be pruned")
+
+	// Legacy single-cluster (clusterName == ""): the operator-managed ingress TLS
+	// secret keeps its owner reference so CR delete GCs it.
+	legacyIngressSecret, err := fakeClient.GetSecret(t.Context(), search.TLSOperatorSecretForClusterShard(0, "sh-0"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, legacyIngressSecret.OwnerReferences,
+		"legacy cluster's operator-managed ingress TLS secret must carry an owner reference")
 
 	// sh-0 reaches the routing-readiness threshold (sh-1 stays unready).
 	stsName := search.MongotStatefulSetForClusterShard(0, "sh-0")

@@ -712,7 +712,9 @@ func driveSearchReconcileToRunning(
 // namespace + cluster name) on every operator-created object. Watch routing
 // (EnqueueMemberClusterObjectToSearch) and label-based GC depend on these, so a
 // path that creates resources without them passes existence checks but breaks
-// re-enqueue in e2e only.
+// re-enqueue in e2e only. Non-legacy (clusterName != "") resources must also
+// carry NO owner reference: Kubernetes GC does not span clusters, and in the
+// operator-per-cluster mode a ref would resurrect GC coupling the sweep replaced.
 func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clusterName string, objs ...client.Object) {
 	t.Helper()
 	for _, obj := range objs {
@@ -720,6 +722,9 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 		assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel], "owner-name label on %T %s", obj, obj.GetName())
 		assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel], "owner-namespace label on %T %s", obj, obj.GetName())
 		assert.Equal(t, clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T %s", obj, obj.GetName())
+		if clusterName != "" {
+			assert.Empty(t, obj.GetOwnerReferences(), "owner references on %T %s (must be absent outside the legacy central cluster)", obj, obj.GetName())
+		}
 	}
 }
 
