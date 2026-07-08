@@ -119,7 +119,7 @@ func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage st
 		defaultImage:       defaultImage,
 		omRequester:        omHTTPAgentRequester{},
 		otelConfigTemplate: searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
-		prepareSearch:      newPrepareSearch(operatorClusterName),
+		prepareSearch:      newPrepareSearch(operatorClusterName, len(clientsMap) > 0),
 	}
 	if len(clientsMap) == 0 {
 		// Single-cluster and per-cluster-operator installs render everything locally.

@@ -118,7 +118,7 @@ func newMetricsForwarderReconciler(defaultImage string, objects ...client.Object
 		defaultImage:       defaultImage,
 		omRequester:        newStubOMAgentRequester(testGroupID),
 		otelConfigTemplate: searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
-		prepareSearch:      newPrepareSearch(""),
+		prepareSearch:      newPrepareSearch("", false),
 		clientForCluster:   func(string) kubernetesClient.Client { return kc },
 	}
 	return r, fakeClient
@@ -540,6 +540,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) 
 func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) {
 	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "some-cluster"}}
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
@@ -554,6 +555,8 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, testDefaultImage, dep.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "metrics-forwarder", dep.Spec.Template.Spec.Containers[0].Name)
+	require.Len(t, dep.OwnerReferences, 1, "vanilla operator must keep the owner reference on a named single-cluster entry")
+	assert.Equal(t, testSearchName, dep.OwnerReferences[0].Name)
 
 	// Verify ConfigMap was created
 	cm := &corev1.ConfigMap{}
@@ -563,6 +566,8 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 	}, cm)
 	require.NoError(t, err)
 	assert.Contains(t, cm.Data, "config.yaml")
+	require.Len(t, cm.OwnerReferences, 1, "vanilla operator must keep the owner reference on a named single-cluster entry")
+	assert.Equal(t, testSearchName, cm.OwnerReferences[0].Name)
 
 	// Verify status was updated
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)

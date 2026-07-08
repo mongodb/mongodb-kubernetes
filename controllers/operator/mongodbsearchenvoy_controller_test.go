@@ -1681,6 +1681,13 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, central.Get(ctx,
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm))
+	require.Len(t, cm.OwnerReferences, 1, "vanilla operator must keep the owner reference on a named single-cluster entry")
+	assert.Equal(t, "mdb-search", cm.OwnerReferences[0].Name)
+	dep := &appsv1.Deployment{}
+	require.NoError(t, central.Get(ctx,
+		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
+	require.Len(t, dep.OwnerReferences, 1, "vanilla operator must keep the owner reference on a named single-cluster entry")
+	assert.Equal(t, "mdb-search", dep.OwnerReferences[0].Name)
 
 	var lds bytes.Buffer
 	require.NoError(t, json.Compact(&lds, []byte(cm.Data["lds.json"])))

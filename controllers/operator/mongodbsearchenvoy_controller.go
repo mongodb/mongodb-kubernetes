@@ -101,7 +101,7 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		kubeClient:        kubernetesClient.NewClient(c),
 		watch:             watch.NewResourceWatcher(),
 		defaultEnvoyImage: defaultEnvoyImage,
-		prepareSearch:     newPrepareSearch(operatorClusterName),
+		prepareSearch:     newPrepareSearch(operatorClusterName, len(clientsMap) > 0),
 	}
 	if len(clientsMap) == 0 {
 		// Single-cluster and per-cluster-operator installs render everything locally.

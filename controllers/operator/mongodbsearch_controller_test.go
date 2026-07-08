@@ -240,9 +240,11 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 	tests := []struct {
 		name          string
 		withWireproto bool
+		clusters      []searchv1.ClusterSpec
 	}{
 		{name: "grpc only (default)", withWireproto: false},
 		{name: "grpc + wireproto via annotation", withWireproto: true},
+		{name: "named single cluster entry behaves as unnamed", clusters: []searchv1.ClusterSpec{{Name: "some-name"}}},
 	}
 
 	for _, tc := range tests {
@@ -250,6 +252,9 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			ctx := context.Background()
 			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 			search.Spec.LogLevel = "WARN"
+			if tc.clusters != nil {
+				search.Spec.Clusters = tc.clusters
+			}
 			search.Annotations = map[string]string{
 				searchv1.ForceWireprotoAnnotation: strconv.FormatBool(tc.withWireproto),
 			}
@@ -297,6 +302,11 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			sts := &appsv1.StatefulSet{}
 			err = c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), sts)
 			assert.NoError(t, err)
+
+			proxySvc := &corev1.Service{}
+			err = c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(0), proxySvc)
+			assert.NoError(t, err)
+			assertSearchOwnerLabels(t, search, "", sts, svc, proxySvc, cm)
 		})
 	}
 }
@@ -713,7 +723,8 @@ func driveSearchReconcileToRunning(
 // (EnqueueMemberClusterObjectToSearch) and label-based GC depend on these, so a
 // path that creates resources without them passes existence checks but breaks
 // re-enqueue in e2e only. For clusterName != "" it also asserts owner
-// references are absent (Kubernetes GC does not span clusters).
+// references are absent (Kubernetes GC does not span clusters); for
+// clusterName == "" it asserts an owner reference to the CR is present.
 func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clusterName string, objs ...client.Object) {
 	t.Helper()
 	for _, obj := range objs {
@@ -723,7 +734,16 @@ func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clust
 		assert.Equal(t, clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T %s", obj, obj.GetName())
 		if clusterName != "" {
 			assert.Empty(t, obj.GetOwnerReferences(), "owner references on %T %s (must be absent outside the legacy central cluster)", obj, obj.GetName())
+			continue
 		}
+		found := false
+		for _, ref := range obj.GetOwnerReferences() {
+			if ref.Kind == search.GetKind() && ref.Name == search.Name {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "owner reference on %T %s must point at MongoDBSearch %s on the local cluster, got %v", obj, obj.GetName(), search.Name, obj.GetOwnerReferences())
 	}
 }
 

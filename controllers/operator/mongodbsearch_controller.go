@@ -52,7 +52,7 @@ type prepareSearchFunc func(search *searchv1.MongoDBSearch, log *zap.SugaredLogg
 // operator mode narrows spec.clusters[] via LocalizeToCluster, after which the MC
 // validators short-circuit on len(clusters) <= 1 and would silently accept
 // misconfigured MC specs.
-func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
+func newPrepareSearch(operatorClusterName string, hasMemberClusters bool) prepareSearchFunc {
 	validateSpec := func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
 		// A single operator (no operatorClusterName) cannot manage a multi-cluster (>1)
 		// search deployment; per-cluster operators narrow to their own entry below.
@@ -63,6 +63,14 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
 		if vErr := search.ValidateSpec(); vErr != nil {
 			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
 			return true, r, e
+		}
+		// No member clusters and no cluster identity means every write lands on the
+		// local cluster, so blank the in-memory cluster names: named single-cluster
+		// entries then keep owner references (and CR-delete GC) exactly like unnamed ones.
+		if operatorClusterName == "" && !hasMemberClusters {
+			for i := range search.Spec.Clusters {
+				search.Spec.Clusters[i].Name = ""
+			}
 		}
 		return false, reconcile.Result{}, nil
 	}
@@ -111,7 +119,7 @@ func newMongoDBSearchReconciler(
 		watch:                   watch.NewResourceWatcher(),
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
-		prepareSearch:           newPrepareSearch(operatorClusterName),
+		prepareSearch:           newPrepareSearch(operatorClusterName, len(clientsMap) > 0),
 	}
 }
 
