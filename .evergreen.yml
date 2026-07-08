@@ -2293,21 +2293,9 @@ buildvariants:
     # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
     # depends_on with name:"*" creates phantom dependencies for tasks with patchable:false
     allowed_requesters: [ "commit" ]
-    # Only depend on e2e test variants — non-e2e tasks (release, preflight, build)
-    # should not gate the notification. The script also filters internally via
-    # E2E_TASK_PATTERN as a safety net.
     depends_on:
       - name: "*"
-        variant: ".e2e_test_suite"
-        status: "*"
-      - name: "*"
-        variant: ".e2e_smoke_test_suite"
-        status: "*"
-      - name: "*"
-        variant: ".e2e_openshift_test_suite"
-        status: "*"
-      - name: "*"
-        variant: ".e2e_mco_test_suite"
+        variant: ".staging"
         status: "*"
     run_on:
       - ubuntu2404-small
