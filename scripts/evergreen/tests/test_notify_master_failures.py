@@ -251,49 +251,6 @@ class TestGetFailedAndRunningTasks:
         assert len(failed) == 1
         assert failed[0].display_name == "e2e_real_fail"
 
-    @patch("scripts.evergreen.notify_master_failures.get_build_tasks")
-    @patch("scripts.evergreen.notify_master_failures.get_version_info")
-    def test_filters_non_e2e_tasks(self, mock_version, mock_tasks):
-        mock_bv = MagicMock()
-        mock_bv.build_id = "b1"
-        mock_bv.build_variant = "v1"
-        mock_bv.json = {"status": "failed"}
-
-        mock_ver = make_mock_version()
-        mock_ver.version.build_variants_status = [mock_bv]
-        mock_version.return_value = mock_ver
-
-        e2e_task = MagicMock()
-        e2e_task.task_id = "task_e2e"
-        e2e_task.display_name = "e2e_replica_set"
-        e2e_task.status = "failed"
-        e2e_task.status_details = MagicMock(desc="")
-
-        release_task = MagicMock()
-        release_task.task_id = "task_release"
-        release_task.display_name = "release_om_and_agents"
-        release_task.status = "failed"
-        release_task.status_details = MagicMock(desc="")
-
-        preflight_task = MagicMock()
-        preflight_task.task_id = "task_preflight"
-        preflight_task.display_name = "preflight_om_and_agents"
-        preflight_task.status = "failed"
-        preflight_task.status_details = MagicMock(desc="")
-
-        mock_tasks.return_value = [
-            TaskInfo(task=e2e_task, build_variant="v1"),
-            TaskInfo(task=release_task, build_variant="v1"),
-            TaskInfo(task=preflight_task, build_variant="v1"),
-        ]
-        mock_api = MagicMock()
-
-        failed, _ = get_failed_and_running_tasks(mock_api, "v1")
-
-        assert len(failed) == 1
-        assert failed[0].display_name == "e2e_replica_set"
-
-
 class TestSendSlackNotification:
     @patch("scripts.evergreen.notify_master_failures.requests.post")
     def test_success(self, mock_post):

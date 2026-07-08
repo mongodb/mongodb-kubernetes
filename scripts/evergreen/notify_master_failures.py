@@ -51,10 +51,6 @@ NOTIFICATION_TASKS = [
     "notify_flaky_tests_weekly",
 ]
 
-# Only report failures from e2e test tasks. Non-e2e tasks (release, preflight,
-# code snippets, unit tests, etc.) should not trigger failure notifications.
-E2E_TASK_PATTERN = re.compile(r"^e2e_")
-
 # How long to wait for the version to reach a terminal state before proceeding
 # with whatever data is available (seconds). Prevents premature notifications
 # when the elapsed-build-activator fires the task early.
@@ -96,11 +92,6 @@ class TaskInfo:
     def is_running(self) -> bool:
         """Check if task is currently running or pending."""
         return self.task.status in ("started", "dispatched", "undispatched")
-
-    @property
-    def is_e2e(self) -> bool:
-        """Check if this is an e2e test task."""
-        return bool(E2E_TASK_PATTERN.match(self.display_name))
 
 
 @dataclass(frozen=True)
@@ -176,9 +167,6 @@ def get_failed_and_running_tasks(
 ) -> tuple[list[TaskInfo], list[TaskInfo]]:
     """Get failed and running tasks across all build variants for a version.
 
-    Only e2e tasks (matching E2E_TASK_PATTERN) are included in the results.
-    Non-e2e tasks (release, preflight, code snippets, etc.) are filtered out.
-
     Args:
         api: Evergreen API client
         version_id: Version ID to query
@@ -194,8 +182,8 @@ def get_failed_and_running_tasks(
 
     def fetch_build_tasks(build_variant_status: BuildVariantStatus) -> tuple[list[TaskInfo], list[TaskInfo]]:
         tasks = get_build_tasks(api, build_variant_status)
-        failures = [task for task in tasks if task.is_failed and task.display_name not in exclude_tasks and task.is_e2e]
-        pending = [task for task in tasks if task.is_running and task.display_name not in exclude_tasks and task.is_e2e]
+        failures = [task for task in tasks if task.is_failed and task.display_name not in exclude_tasks]
+        pending = [task for task in tasks if task.is_running and task.display_name not in exclude_tasks]
         return failures, pending
 
     with ThreadPoolExecutor(max_workers=10) as executor:
