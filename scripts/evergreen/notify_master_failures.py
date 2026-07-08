@@ -194,16 +194,8 @@ def get_failed_and_running_tasks(
 
     def fetch_build_tasks(build_variant_status: BuildVariantStatus) -> tuple[list[TaskInfo], list[TaskInfo]]:
         tasks = get_build_tasks(api, build_variant_status)
-        failures = [
-            task
-            for task in tasks
-            if task.is_failed and task.display_name not in exclude_tasks and task.is_e2e
-        ]
-        pending = [
-            task
-            for task in tasks
-            if task.is_running and task.display_name not in exclude_tasks and task.is_e2e
-        ]
+        failures = [task for task in tasks if task.is_failed and task.display_name not in exclude_tasks and task.is_e2e]
+        pending = [task for task in tasks if task.is_running and task.display_name not in exclude_tasks and task.is_e2e]
         return failures, pending
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -260,7 +252,9 @@ def format_slack_message(
         header_text = "✅ Master Build Passed"
         button_style = None
         run_prefix = f"Run #{run_number}: " if run_number else ""
-        summary_text = f"{run_prefix}Master build passed for commit {version_info.revision[:8]} by {version_info.author}"
+        summary_text = (
+            f"{run_prefix}Master build passed for commit {version_info.revision[:8]} by {version_info.author}"
+        )
 
     # how to format Slack messages: https://docs.slack.dev/block-kit/
     blocks = [
