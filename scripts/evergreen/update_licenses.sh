@@ -4,7 +4,7 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 go version
-go install github.com/google/go-licenses@v1.6.0
+go install github.com/nammn/go-licenses@ecea048b0ba72268ef36820c59b55c276d9325c0
 
 # Define the root of the repo and the scripts directory
 REPO_DIR=$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")
