@@ -12,11 +12,11 @@ const sample = db.embedded_movies.findOne(
 );
 
 if (!sample || !sample.plot_embedding_voyage_3_large) {
-  print("Warning: No documents with plot_embedding_voyage_3_large found.");
-  quit(0);
+  print("ASSERTION FAILED: no embedded vector found in embedded_movies");
+  quit(1);
 }
 
-db.embedded_movies.aggregate([
+const results = db.embedded_movies.aggregate([
   {
     $vectorSearch: {
       index: "vector_index",
@@ -35,7 +35,10 @@ db.embedded_movies.aggregate([
       score: { $meta: "vectorSearchScore" }
     }
   }
-]);
+]).toArray();
+printjson(results);
+print("Result count: " + results.length);
+if (results.length === 0) { print("ASSERTION FAILED: vector search query returned no documents"); quit(1); }
 MONGOSH
 )
 
