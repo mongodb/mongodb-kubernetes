@@ -477,8 +477,8 @@ def test_insert_migration_data(vm_x509_tester: MongoTester, x509_opts: list[dict
 
 
 @mark.e2e_vm_migration_replicaset_x509
-def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict):
-    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, vm_sts["spec"]["replicas"])
+def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, vm_sts: dict, version_id: str):
+    assert_common_generated_cr_shape(generated_cr_yaml, generated_cr, version_id, vm_sts["spec"]["replicas"])
 
 
 @mark.e2e_vm_migration_replicaset_x509
