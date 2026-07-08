@@ -18,13 +18,11 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: mongodb-kubernetes-operator
         app.kubernetes.io/instance: mongodb-kubernetes-operator
-      annotations:
-        mongodb.com/installation-method: "yaml"
     spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.9.2"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.9.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -32,7 +30,6 @@ spec:
             - -watch-resource=mongodbusers
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
-            - -watch-resource=voyageais
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
@@ -67,8 +64,6 @@ spec:
               value: "168h"
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "10"
-            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
-              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database
@@ -77,16 +72,16 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: "1.9.2"
+              value: "1.9.0"
             - name: DATABASE_VERSION
-              value: "1.9.2"
+              value: "1.9.0"
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: "1.9.2"
+              value: "1.9.0"
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -107,15 +102,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: MCK_INSTALLER
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: mongodb-kubernetes-operator
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:108.0.25.9029-1"
+              value: "quay.io/mongodb/mongodb-agent:108.0.2.8729-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
               value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
@@ -127,12 +118,12 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_9_2
-              value: "quay.io/mongodb/mongodb-kubernetes-database:1.9.2"
-            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_9_2
-              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.9.2"
-            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_9_2
-              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.9.2"
+            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_9_0
+              value: "quay.io/mongodb/mongodb-kubernetes-database:1.9.0"
+            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_9_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.9.0"
+            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_9_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.9.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1
               value: "quay.io/mongodb/mongodb-agent:107.0.12.8669-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1
@@ -179,10 +170,6 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.22.8983-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_23_8997_1
               value: "quay.io/mongodb/mongodb-agent:108.0.23.8997-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_24_9016_1
-              value: "quay.io/mongodb/mongodb-agent:108.0.24.9016-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_25_9029_1
-              value: "quay.io/mongodb/mongodb-agent:108.0.25.9029-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1
               value: "quay.io/mongodb/mongodb-agent:108.0.3.8758-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1
@@ -193,8 +180,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.7.8810-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent:12.0.35.7911-1"
-            - name: RELATED_IMAGE_AGENT_IMAGE_13_54_0_10921_1
-              value: "quay.io/mongodb/mongodb-agent:13.54.0.10921-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_13_52_0_10711_1
+              value: "quay.io/mongodb/mongodb-agent:13.52.0.10711-1"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_26
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:6.0.26"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_6_0_27
@@ -265,10 +252,6 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.22"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_23
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.23"
-            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_24
-              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.24"
-            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_25
-              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.25"
             # since the official server images end with a different suffix we can re-use the same $mongodbImageEnv
             - name: RELATED_IMAGE_MONGODB_IMAGE_4_4_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:4.4.0-ubi8"
@@ -368,24 +351,18 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
-            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_1_70_1
-              value: "quay.io/mongodb/mongodb-search:1.70.1"
+            - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_0_64_0
+              value: "quay.io/mongodb/mongodb-search:0.64.0"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
               value: "envoyproxy/envoy:v1.37-latest"
-            - name: RELATED_IMAGE_MDB_SEARCH_METRICS_FORWARDER_IMAGE
-              value: "otel/opentelemetry-collector-contrib:0.152.0"
             - name: MDB_SEARCH_REPO_URL
               value: "quay.io/mongodb"
             - name: MDB_SEARCH_NAME
               value: "mongodb-search"
             - name: MDB_SEARCH_VERSION
-              value: "1.70.1"
+              value: "0.64.0"
             - name: MDB_ENVOY_IMAGE
               value: "envoyproxy/envoy:v1.37-latest"
-            - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
-              value: "otel/opentelemetry-collector-contrib:0.152.0"
-            - name: MDB_VOYAGEAI_REPO_URL
-              value: "quay.io/mongodb/voyageai"
       volumes:
         - name: webhook-server-dir
           emptyDir: {}

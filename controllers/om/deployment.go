@@ -294,6 +294,7 @@ func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFile
 			mv := map[string]interface{}{
 				"hostname": hostname,
 				"name":     MonitoringAgentDefaultVersion,
+				"logPath":  "/var/log/mongodb-mms-automation/monitoring-stdout",
 			}
 			if tls {
 				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
@@ -1073,7 +1074,7 @@ func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 		}
 
 		if !found {
-			backupVersion = map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion}
+			backupVersion = map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/backup-stdout"}
 			backupVersions = append(backupVersions, backupVersion)
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}

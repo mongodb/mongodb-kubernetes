@@ -73,8 +73,9 @@ def test_mongodb_json_logs_in_stdout(deployed_replica_set: MongoDB):
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if all(k in obj for k in ("t", "s", "c", "ctx", "msg")):
-            mongod_lines.append(obj)
+        inner = json.loads(obj["msg"]) if isinstance(obj.get("msg"), str) else obj
+        if all(k in inner for k in ("t", "s", "c", "ctx", "msg")):
+            mongod_lines.append(inner)
 
     assert len(mongod_lines) > 0, (
         f"Expected at least one mongod JSON log line in stdout for {namespace}/{pod_name}, "
@@ -180,8 +181,9 @@ def test_audit_logs_in_stdout(deployed_replica_set: MongoDB):
             obj = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if "atype" in obj and "ts" in obj:
-            audit_lines.append(obj)
+        inner = json.loads(obj["msg"]) if isinstance(obj.get("msg"), str) else obj
+        if "atype" in inner and "ts" in inner:
+            audit_lines.append(inner)
 
     assert len(audit_lines) > 0, (
         f"Expected at least one mongod audit JSON line (atype/ts) in stdout for "

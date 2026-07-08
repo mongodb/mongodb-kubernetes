@@ -1441,6 +1441,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 			mv := automationconfig.MonitoringVersion{
 				Hostname: hostname,
 				Name:     om.MonitoringAgentDefaultVersion,
+				LogPath:  "/var/log/mongodb-mms-automation/monitoring-stdout",
 			}
 			if tls {
 				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)

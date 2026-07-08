@@ -19,13 +19,13 @@ def parse_json_pod_logs(pod_logs: str) -> list[dict[str, Any]]:
 
 
 def get_agent_logs(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filter for automation agent logs (have 'level' and 'msg' fields)."""
-    return [log for log in logs if "level" in log and "msg" in log]
+    """Filter for automation agent logs by process tag."""
+    return [log for log in logs if log.get("process") == "agent"]
 
 
 def get_mongodb_logs(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Filter for mongod logs (have 'c' component field)."""
-    return [log for log in logs if "c" in log]
+    """Filter for mongod logs by process tag."""
+    return [log for log in logs if log.get("process") == "mongod"]
 
 
 def get_pod_logs(

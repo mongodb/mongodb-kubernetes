@@ -76,12 +76,14 @@ func (ac *AutomationConfig) GetProcessByName(name string) *Process {
 
 type BackupVersion struct {
 	BaseUrl string `json:"baseUrl"`
+	LogPath string `json:"logPath,omitempty"`
 }
 
 type MonitoringVersion struct {
 	Hostname         string            `json:"hostname"`
 	Name             string            `json:"name"`
 	BaseUrl          string            `json:"baseUrl"`
+	LogPath          string            `json:"logPath,omitempty"`
 	AdditionalParams map[string]string `json:"additionalParams,omitempty"`
 }
 

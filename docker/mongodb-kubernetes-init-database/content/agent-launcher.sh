@@ -8,13 +8,13 @@ MDB_STATIC_CONTAINERS_ARCHITECTURE="${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}"
 MMS_HOME=${MMS_HOME:-/mongodb-automation}
 MMS_LOG_DIR=${MMS_LOG_DIR:-/var/log/mongodb-mms-automation}
 
-# mongod logs to ${MMS_LOG_DIR}/mongod-stdout; this symlink resolves to THIS
-# container's stdout pipe. Under ShareProcessNamespace (static arch) PID 1 is the
-# pause container and /proc/1/fd/1 is /dev/null, so point at the launcher's own fd.
-# ponytail: hardcodes MMS_LOG_DIR default; add override handling if a deployment overrides it.
+# mongod logs to ${MMS_LOG_DIR}/mongod-stdout FIFO; a jq reader drains it tagged to stdout.
+# Under ShareProcessNamespace (static arch) PID 1 is the pause container and
+# /proc/1/fd/1 is /dev/null, but FIFOs don't depend on /proc (POSIX pipes).
 # $$ resolves to 1 in non static and in static to launcher pid.
 mkdir -p "${MMS_LOG_DIR}"
-ln -sf "/proc/$$/fd/1" "${MMS_LOG_DIR}/mongod-stdout"
+mkfifo "${MMS_LOG_DIR}/mongod-stdout"
+jq -Rc --arg p mongod '{process:$p,msg:.}' < "${MMS_LOG_DIR}/mongod-stdout" &
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   AGENT_BINARY_PATH="${MMS_HOME}/files/mongodb-mms-automation-agent"
@@ -211,13 +211,17 @@ else
 fi
 
 # Audit log is user-configured. If the user routes audit to a file, tail it to stdout.
-tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT:-${MMS_LOG_DIR}/mongodb-audit.log}" 2>/dev/null &
+tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT:-${MMS_LOG_DIR}/mongodb-audit.log}" 2>/dev/null | jq -Rc --arg p audit '{process:$p,msg:.}' &
 
-# Monitoring and backup modules now log to the agent process stderr (no logFile set),
-# captured by kubectl logs, so no tail needed.
+# Monitoring/backup goroutines are configured via automation config logPath;
+# each writes to its own FIFO, drained tagged to stdout. No log files.
+mkfifo "${MMS_LOG_DIR}/monitoring-stdout"
+jq -Rc --arg p monitoring '{process:$p,msg:.}' < "${MMS_LOG_DIR}/monitoring-stdout" &
+mkfifo "${MMS_LOG_DIR}/backup-stdout"
+jq -Rc --arg p backup '{process:$p,msg:.}' < "${MMS_LOG_DIR}/backup-stdout" &
 
-# Run agent directly to stdout (no file logging, no tailing)
-"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
+# Run agent stderr/stdout through jq for process tagging.
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>&1 | jq -Rc --arg p agent '{process:$p,msg:.}' &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"
