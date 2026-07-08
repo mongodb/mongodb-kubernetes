@@ -221,6 +221,12 @@ spec:
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "{{ .Values.operator.maxConcurrentReconciles }}"
     {{- end }}
+            - name: MDB_OM_JVM_HEAP_PERCENTAGE
+              value: {{ .Values.operator.omJvmHeapPercentage | default 75 | quote }}
+    {{- if .Values.operator.omAutoHeap }}
+            - name: MDB_OM_AUTO_HEAP
+              value: "true"
+    {{- end }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:

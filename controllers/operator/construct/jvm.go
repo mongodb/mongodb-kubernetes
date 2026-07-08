@@ -2,6 +2,8 @@ package construct
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -16,9 +18,8 @@ import (
 )
 
 const (
-	opsManagerPodMemPercentage = 90
-	oneMB                      = 1048576
-	backupDaemonHealthPort     = 8090
+	oneMB                  = 1048576
+	backupDaemonHealthPort = 8090
 )
 
 // setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
@@ -45,31 +46,37 @@ func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, t
 	backupJvmEnvVar := corev1.EnvVar{Name: util.BackupDaemonJvmParamEnvVar}
 
 	omContainer := container.GetByName(containerName, template.Spec.Containers)
-	// calculate xmx from container's memory limit
-	memLimits := omContainer.Resources.Limits.Memory()
-	maxPodMem, err := getPercentOfQuantityAsInt(*memLimits, opsManagerPodMemPercentage)
-	if err != nil {
-		return []corev1.EnvVar{}, xerrors.Errorf("error calculating xmx from pod mem: %w", err)
-	}
 
-	// calculate xms from container's memory request if it is set, otherwise xms=xmx
-	memRequests := omContainer.Resources.Requests.Memory()
-	minPodMem, err := getPercentOfQuantityAsInt(*memRequests, opsManagerPodMemPercentage)
-	if err != nil {
-		return []corev1.EnvVar{}, xerrors.Errorf("error calculating xms from pod mem: %w", err)
-	}
+	if !isOmAutoHeapEnabled() {
+		// calculate xmx from container's memory limit
+		memLimits := omContainer.Resources.Limits.Memory()
+		maxPodMem, err := getPercentOfQuantityAsInt(*memLimits, getOpsManagerPodMemPercentage())
+		if err != nil {
+			return []corev1.EnvVar{}, xerrors.Errorf("error calculating xmx from pod mem: %w", err)
+		}
 
-	// if only one of mem limits/requests is set, use that value for both xmx & xms
-	if minPodMem == 0 {
-		minPodMem = maxPodMem
-	}
-	if maxPodMem == 0 {
-		maxPodMem = minPodMem
-	}
+		// calculate xms from container's memory request if it is set, otherwise xms=xmx
+		memRequests := omContainer.Resources.Requests.Memory()
+		minPodMem, err := getPercentOfQuantityAsInt(*memRequests, getOpsManagerPodMemPercentage())
+		if err != nil {
+			return []corev1.EnvVar{}, xerrors.Errorf("error calculating xms from pod mem: %w", err)
+		}
 
-	memParams := fmt.Sprintf("-Xmx%dm -Xms%dm", maxPodMem, minPodMem)
-	mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, memParams)
-	backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, memParams)
+		// if only one of mem limits/requests is set, use that value for both xmx & xms
+		if minPodMem == 0 {
+			minPodMem = maxPodMem
+		}
+		if maxPodMem == 0 {
+			maxPodMem = minPodMem
+		}
+
+		memParams := fmt.Sprintf("-Xmx%dm -Xms%dm", maxPodMem, minPodMem)
+		mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, memParams)
+		backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, memParams)
+	} else {
+		mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, "")
+		backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, "")
+	}
 
 	// If a debug port is set, add the JVM debug agent to the JVM parameters
 	if debugPort := getDebugPort(omContainer.Ports); debugPort > 0 {
@@ -116,6 +123,22 @@ func getPercentOfQuantityAsInt(q resource.Quantity, percent int) (int, error) {
 	return int(float64(quantityAsInt)*percentage) / oneMB, nil
 }
 
+func getOpsManagerPodMemPercentage() int {
+	val := os.Getenv(util.OmJvmHeapPercentageEnv)
+	if val == "" {
+		return util.DefaultOmJvmHeapPercentage
+	}
+	pct, err := strconv.Atoi(val)
+	if err != nil || pct <= 0 || pct > 100 {
+		return util.DefaultOmJvmHeapPercentage
+	}
+	return pct
+}
+
+func isOmAutoHeapEnabled() bool {
+	return os.Getenv(util.OmAutoHeapEnv) == util.EnvVarTrue
+}
+
 // buildJvmEnvVar returns the string representation of the JVM environment variable
 func buildJvmEnvVar(customParams []string, containerMemParams string) string {
 	jvmParams := strings.Join(customParams, " ")
@@ -129,7 +152,7 @@ func buildJvmEnvVar(customParams []string, containerMemParams string) string {
 		return jvmParams
 	}
 
-	if jvmParams != "" {
+	if jvmParams != "" && containerMemParams != "" {
 		jvmParams += " "
 	}
 

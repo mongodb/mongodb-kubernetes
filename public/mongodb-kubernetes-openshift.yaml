@@ -416,6 +416,8 @@ spec:
               value: 'true'
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "1"
+            - name: MDB_OM_JVM_HEAP_PERCENTAGE
+              value: "75"
             - name: POD_NAME
               valueFrom:
                 fieldRef:

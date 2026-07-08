@@ -263,8 +263,11 @@ const (
 	OmPropertyPrefix                   = "OM_PROP_"
 	MmsJvmParamEnvVar                  = "CUSTOM_JAVA_MMS_UI_OPTS"
 	BackupDaemonJvmParamEnvVar         = "CUSTOM_JAVA_DAEMON_OPTS"
+	OmJvmHeapPercentageEnv             = "MDB_OM_JVM_HEAP_PERCENTAGE"
+	DefaultOmJvmHeapPercentage         = 75
+	OmAutoHeapEnv                      = "MDB_OM_AUTO_HEAP"
+	EnvVarTrue                          = "true"
 	GenKeyPath                         = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion                    = "5.0"
 	AppDBAutomationConfigKey           = "cluster-config.json"
 	AppDBMonitoringAutomationConfigKey = "monitoring-cluster-config.json"
 	DefaultAppDbPasswordKey            = "password"
