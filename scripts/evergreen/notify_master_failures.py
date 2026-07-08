@@ -13,6 +13,7 @@ Environment variables required:
 - EVERGREEN_USER: Evergreen API user
 - EVERGREEN_API_KEY: Evergreen API key
 - SLACK_WEBHOOK_URL: Slack webhook URL for posting messages
+- HONEYCOMB_API_KEY: Honeycomb API key for flakiness lookup (optional)
 - version_id: The Evergreen version ID to check for failures
 
 Usage:
@@ -26,6 +27,7 @@ Options:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,7 +38,7 @@ from evergreen.api import EvergreenApi
 from evergreen.task import Task
 from evergreen.version import BuildVariantStatus, Version
 
-from scripts.evergreen.notify_flaky_tests import get_flaky_tasks
+from scripts.evergreen.notify_flaky_tests import FlakyTask, get_flaky_tasks
 from scripts.python.evergreen_api import get_evergreen_api
 
 # Terminal statuses that indicate a patch/version has completed
@@ -48,6 +50,16 @@ NOTIFICATION_TASKS = [
     "notify_master_build_status",
     "notify_flaky_tests_weekly",
 ]
+
+# Only report failures from e2e test tasks. Non-e2e tasks (release, preflight,
+# code snippets, unit tests, etc.) should not trigger failure notifications.
+E2E_TASK_PATTERN = re.compile(r"^(e2e_|test_)")
+
+# How long to wait for the version to reach a terminal state before proceeding
+# with whatever data is available (seconds). Prevents premature notifications
+# when the elapsed-build-activator fires the task early.
+VERSION_POLL_TIMEOUT = 600
+VERSION_POLL_INTERVAL = 30
 
 # Global counter for API calls
 _api_call_count = 0
@@ -85,6 +97,11 @@ class TaskInfo:
         """Check if task is currently running or pending."""
         return self.task.status in ("started", "dispatched", "undispatched")
 
+    @property
+    def is_e2e(self) -> bool:
+        """Check if this is an e2e test task."""
+        return bool(E2E_TASK_PATTERN.match(self.display_name))
+
 
 @dataclass(frozen=True)
 class VersionInfo:
@@ -118,6 +135,33 @@ def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
     return VersionInfo(version=version)
 
 
+def wait_for_version_completion(api: EvergreenApi, version_id: str) -> VersionInfo:
+    """Poll the version until it reaches a terminal state or timeout.
+
+    The elapsed-build-activator can fire this task before the build finishes.
+    This loop ensures we report the final status, not an intermediate one.
+    """
+    deadline = time.time() + VERSION_POLL_TIMEOUT
+    while True:
+        version_info = get_version_info(api, version_id)
+        if version_info.is_completed:
+            return version_info
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            print(
+                f"Version still '{version_info.status}' after {VERSION_POLL_TIMEOUT}s — "
+                f"proceeding with current data",
+                file=sys.stderr,
+            )
+            return version_info
+        print(
+            f"Version status is '{version_info.status}', waiting {VERSION_POLL_INTERVAL}s "
+            f"for completion ({remaining:.0f}s remaining)...",
+            file=sys.stderr,
+        )
+        time.sleep(VERSION_POLL_INTERVAL)
+
+
 def get_build_tasks(api: EvergreenApi, build_variant_status: BuildVariantStatus) -> list[TaskInfo]:
     """Fetch all tasks for a build from Evergreen API."""
     global _api_call_count
@@ -132,7 +176,9 @@ def get_failed_and_running_tasks(
 ) -> tuple[list[TaskInfo], list[TaskInfo]]:
     """Get failed and running tasks across all build variants for a version.
 
-    Optimized: Uses concurrent requests and skips successful builds.
+    Only e2e tasks (matching E2E_TASK_PATTERN) are included in the results.
+    Non-e2e tasks (release, preflight, code snippets, etc.) are filtered out.
+
     Args:
         api: Evergreen API client
         version_id: Version ID to query
@@ -148,8 +194,16 @@ def get_failed_and_running_tasks(
 
     def fetch_build_tasks(build_variant_status: BuildVariantStatus) -> tuple[list[TaskInfo], list[TaskInfo]]:
         tasks = get_build_tasks(api, build_variant_status)
-        failures = [task for task in tasks if task.is_failed and task.display_name not in exclude_tasks]
-        pending = [task for task in tasks if task.is_running and task.display_name not in exclude_tasks]
+        failures = [
+            task
+            for task in tasks
+            if task.is_failed and task.display_name not in exclude_tasks and task.is_e2e
+        ]
+        pending = [
+            task
+            for task in tasks
+            if task.is_running and task.display_name not in exclude_tasks and task.is_e2e
+        ]
         return failures, pending
 
     with ThreadPoolExecutor(max_workers=10) as executor:
@@ -168,30 +222,31 @@ def get_failed_and_running_tasks(
 MAX_DETAILED_FAILURES = 10
 
 
-def _format_task_name(task: TaskInfo, flaky_map: dict[tuple[str, str], float]) -> str:
+def _format_task_name(task: TaskInfo, flaky_map: dict[tuple[str, str], FlakyTask]) -> str:
     """Format a task display_name, appending flakiness info if known."""
-    flakiness = flaky_map.get((task.display_name, task.build_variant))
-    if flakiness is not None:
-        return f"{task.display_name} *(flaky: {flakiness:.0f}% over 7d)*"
+    flaky = flaky_map.get((task.display_name, task.build_variant))
+    if flaky is not None:
+        return f"{task.display_name} *(flaky: {flaky.flakiness_percent:.0f}% over {flaky.total_runs} runs)*"
     return task.display_name
 
 
 def format_slack_message(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo] | None = None,
-    flaky_map: dict[tuple[str, str], float] | None = None,
+    flaky_map: dict[tuple[str, str], FlakyTask] | None = None,
 ) -> dict[str, object]:
     """Format a Slack message for build status.
 
     Args:
         version_info: Version information
         failed_tasks: List of failed tasks
-        flaky_map: Optional {(task_name, variant): flakiness_percent} from Honeycomb
+        flaky_map: Optional {(task_name, variant): FlakyTask} from Honeycomb
     """
     flaky_map = flaky_map or {}
     evergreen_version_url = f"https://spruce.mongodb.com/version/{version_info.version_id}"
     is_failure = bool(failed_tasks)
     num_failures = len(failed_tasks) if failed_tasks else 0
+    run_number = getattr(version_info, "order", None)
 
     # <@author_id> format works with Slack's GitHub integration
     author_mention = f"<@{version_info.author_id}>" if version_info.author_id else version_info.author
@@ -199,11 +254,13 @@ def format_slack_message(
     if is_failure:
         header_text = "🔴 Master Build Failures"
         button_style = "danger"
-        summary_text = f"Master build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
+        run_prefix = f"Run #{run_number}: " if run_number else ""
+        summary_text = f"{run_prefix}Master build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
     else:
         header_text = "✅ Master Build Passed"
         button_style = None
-        summary_text = f"Master build passed for commit {version_info.revision[:8]} by {version_info.author}"
+        run_prefix = f"Run #{run_number}: " if run_number else ""
+        summary_text = f"{run_prefix}Master build passed for commit {version_info.revision[:8]} by {version_info.author}"
 
     # how to format Slack messages: https://docs.slack.dev/block-kit/
     blocks = [
@@ -211,7 +268,13 @@ def format_slack_message(
         {
             "type": "section",
             "fields": [
+                {"type": "mrkdwn", "text": f"*Run:*\n#{run_number}" if run_number else "*Run:*\n—"},
                 {"type": "mrkdwn", "text": f"*Commit:*\n`{version_info.revision[:8]}`"},
+            ],
+        },
+        {
+            "type": "section",
+            "fields": [
                 {"type": "mrkdwn", "text": f"*Author:*\n{author_mention}"},
             ],
         },
@@ -230,7 +293,7 @@ def format_slack_message(
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"_{flaky_failed} of {num_failures} failed task(s) show flaky behavior in the past 7 days_",
+                        "text": f"_{flaky_failed} of {num_failures} failed task(s) show flaky behavior in the past 7 days (over {min(flaky_map[(t.display_name, t.build_variant)].total_runs for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)}–{max(flaky_map[(t.display_name, t.build_variant)].total_runs for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)} runs)_",
                     },
                 }
             )
@@ -300,7 +363,7 @@ def print_stdout_report(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo],
     running_tasks: list[TaskInfo],
-    flaky_map: dict[tuple[str, str], float] | None = None,
+    flaky_map: dict[tuple[str, str], FlakyTask] | None = None,
 ) -> None:
     """Print a concise report to stdout.
 
@@ -308,24 +371,26 @@ def print_stdout_report(
         version_info: Version information
         failed_tasks: List of failed tasks
         running_tasks: List of running/pending tasks
-        flaky_map: Optional {(task_name, variant): flakiness_percent} from Honeycomb
+        flaky_map: Optional {(task_name, variant): FlakyTask} from Honeycomb
     """
     flaky_map = flaky_map or {}
     status_str = version_info.status.upper()
-    print(f"BUILD {status_str}: {version_info.version_id}")
+    run_number = getattr(version_info, "order", None)
+    run_prefix = f"Run #{run_number}: " if run_number else ""
+    print(f"{run_prefix}BUILD {status_str}: {version_info.version_id}")
     print(f"Commit:  {version_info.revision[:8]} by {version_info.author}")
     print(f"Link:    https://spruce.mongodb.com/version/{version_info.version_id}")
 
-    def print_task_table(tasks: list[TaskInfo], title: str, flaky_map: dict[tuple[str, str], float]) -> None:
+    def print_task_table(tasks: list[TaskInfo], title: str, flaky_map: dict[tuple[str, str], FlakyTask]) -> None:
         print(f"\n{title} ({len(tasks)}):")
         print(f"{'Variant':<45} {'Task':<60}")
         print("-" * 105)
         for task in sorted(tasks, key=lambda t: (t.build_variant, t.display_name)):
             variant = task.build_variant[:44]
             display = task.display_name[:39]
-            flakiness = flaky_map.get((task.display_name, task.build_variant))
-            if flakiness is not None:
-                display = f"{display} (flaky: {flakiness:.0f}% over 7d)"
+            flaky = flaky_map.get((task.display_name, task.build_variant))
+            if flaky is not None:
+                display = f"{display} (flaky: {flaky.flakiness_percent:.0f}% over {flaky.total_runs} runs)"
             print(f"{variant:<45} {display:<60}")
 
     if failed_tasks:
@@ -336,7 +401,6 @@ def print_stdout_report(
 
 
 def main() -> None:
-    global _api_call_count
     start_time = time.time()
 
     parser = argparse.ArgumentParser(description="Notify about master build failures")
@@ -363,14 +427,16 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Wait for the version to reach a terminal state before reporting.
+    # The elapsed-build-activator can fire this task prematurely.
     try:
-        version_info = get_version_info(api, version_id)
+        version_info = wait_for_version_completion(api, version_id)
     except Exception as e:
         print(f"Error fetching version info: {e}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Commit: {version_info.revision[:8]} by {version_info.author}", file=sys.stderr)
-    print(f"Current status: {version_info.status}", file=sys.stderr)
+    print(f"Final status: {version_info.status}", file=sys.stderr)
 
     try:
         failed_tasks, running_tasks = get_failed_and_running_tasks(api, version_id, NOTIFICATION_TASKS)
@@ -379,12 +445,12 @@ def main() -> None:
         sys.exit(1)
 
     # Look up flakiness when there are failures (best-effort, non-fatal).
-    flaky_map: dict[tuple[str, str], float] = {}
+    flaky_map: dict[tuple[str, str], FlakyTask] = {}
     if failed_tasks:
         print("Looking up flakiness for failed tasks...", file=sys.stderr)
         try:
             flaky_tasks_list = get_flaky_tasks()
-            flaky_map = {(t.task_name, t.variant): t.flakiness_percent for t in flaky_tasks_list}
+            flaky_map = {(t.task_name, t.variant): t for t in flaky_tasks_list}
             flaky_matches = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)
             print(f"  {flaky_matches} of {len(failed_tasks)} failed tasks are known-flaky", file=sys.stderr)
         except Exception as e:
@@ -414,7 +480,7 @@ def main() -> None:
                     send_slack_notification(slack_webhook_url, message)
 
     elapsed = time.time() - start_time
-    print(f"\n--- Summary ---", file=sys.stderr)
+    print("\n--- Summary ---", file=sys.stderr)
     print(f"Time: {elapsed:.1f}s | API calls: {_api_call_count}", file=sys.stderr)
 
 
