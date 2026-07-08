@@ -72,7 +72,7 @@ func appdbMongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, init
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && while true; do sleep 3600; done"}),
 		container.WithArgs([]string{""}),
 		containerSecurityContext,
 	)
