@@ -122,6 +122,38 @@ class TestFormatSlackMessage:
         assert "over 2 runs" in text
         assert "over 100 runs" in text
 
+    def test_flakiness_summary_collapses_when_min_equals_max(self):
+        """Summary should show 'over N runs' (no range) when all flaky tasks have same total_runs."""
+        flaky_map = {
+            ("e2e_task_1", "variant_a"): make_flaky_map_entry(50, 47),
+            ("e2e_task_2", "variant_a"): make_flaky_map_entry(25, 47),
+        }
+        version_info = make_mock_version(status="failed")
+        message = format_slack_message(version_info, FEW_TASKS[:2], flaky_map)
+        # Find the flakiness summary block
+        summary_text = ""
+        for block in message["blocks"]:
+            if block["type"] == "section" and "text" in block and "flaky behavior" in block["text"].get("text", ""):
+                summary_text = block["text"]["text"]
+                break
+        assert "over 47 runs" in summary_text
+        assert "–" not in summary_text
+
+    def test_flakiness_summary_shows_range_when_min_ne_max(self):
+        """Summary should show 'over lo–hi runs' range when flaky tasks have different total_runs."""
+        flaky_map = {
+            ("e2e_task_1", "variant_a"): make_flaky_map_entry(50, 18),
+            ("e2e_task_2", "variant_a"): make_flaky_map_entry(25, 47),
+        }
+        version_info = make_mock_version(status="failed")
+        message = format_slack_message(version_info, FEW_TASKS[:2], flaky_map)
+        summary_text = ""
+        for block in message["blocks"]:
+            if block["type"] == "section" and "text" in block and "flaky behavior" in block["text"].get("text", ""):
+                summary_text = block["text"]["text"]
+                break
+        assert "over 18–47 runs" in summary_text
+
 
 class TestPrintStdoutReport:
     def _report(self, failed_tasks=None, running_tasks=None, **kwargs):

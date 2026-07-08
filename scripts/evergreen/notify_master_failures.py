@@ -53,7 +53,7 @@ NOTIFICATION_TASKS = [
 
 # Only report failures from e2e test tasks. Non-e2e tasks (release, preflight,
 # code snippets, unit tests, etc.) should not trigger failure notifications.
-E2E_TASK_PATTERN = re.compile(r"^(e2e_|test_)")
+E2E_TASK_PATTERN = re.compile(r"^e2e_")
 
 # How long to wait for the version to reach a terminal state before proceeding
 # with whatever data is available (seconds). Prevents premature notifications
@@ -282,12 +282,19 @@ def format_slack_message(
     if is_failure and failed_tasks and flaky_map:
         flaky_failed = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)
         if flaky_failed > 0:
+            flaky_run_counts = [
+                flaky_map[(t.display_name, t.build_variant)].total_runs
+                for t in failed_tasks
+                if (t.display_name, t.build_variant) in flaky_map
+            ]
+            lo, hi = min(flaky_run_counts), max(flaky_run_counts)
+            runs_text = f"over {lo} runs" if lo == hi else f"over {lo}–{hi} runs"
             blocks.append(
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"_{flaky_failed} of {num_failures} failed task(s) show flaky behavior in the past 7 days (over {min(flaky_map[(t.display_name, t.build_variant)].total_runs for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)}–{max(flaky_map[(t.display_name, t.build_variant)].total_runs for t in failed_tasks if (t.display_name, t.build_variant) in flaky_map)} runs)_",
+                        "text": f"_{flaky_failed} of {num_failures} failed task(s) show flaky behavior in the past 7 days ({runs_text})_",
                     },
                 }
             )
