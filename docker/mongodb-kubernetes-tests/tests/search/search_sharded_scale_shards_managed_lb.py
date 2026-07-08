@@ -207,8 +207,7 @@ def verify_shard_resources_deleted(namespace: str, mdbs_name: str, shard_name: s
             return False, f"PVC(s) for removed shard still exist: {leftover}"
         return True, f"no PVCs with prefix {pvc_prefix!r} remain"
 
-    # Proxy Service is covered by verify_shard_proxy_service_deleted; here we
-    # add the StatefulSet, headless Service, ConfigMap, TLS Secret, and PVCs.
+    # Proxy Service is covered by verify_shard_proxy_service_deleted.
     for check, label in (
         (sts_gone, f"StatefulSet {sts_name}"),
         (headless_svc_gone, f"headless Service {svc_name}"),
