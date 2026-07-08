@@ -598,8 +598,7 @@ def test_verify_per_cluster_mongot_resources(
       MapMemberClusterObjectToSearch for cross-cluster watch routing; cross-
       cluster owner refs do not GC, so labels are the actual provenance link
     - no per-cluster write site (incl. the operator TLS secret) carries
-      ownerReferences — a ref to the central CR's UID would get the resource
-      garbage-collected by the member cluster (KUBE-154)
+      ownerReferences
     - the mongot ConfigMap on each cluster lists `spec.source.external.hostAndPorts`
       from the seed list (Phase 2 fan-out: top-level external host list is
       rendered into every cluster's mongot CM)
@@ -624,9 +623,7 @@ def test_verify_per_cluster_mongot_resources(
         _assert_search_owner_labels(proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}")
         _assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}")
 
-        # KUBE-154: member-cluster writes carry NO ownerReferences — the central CR's UID
-        # doesn't exist in the member cluster, so a ref would get these resources GC'd.
-        # The operator-managed cert+key Secret is written per member cluster by the same path.
+        # Operator-managed cert+key Secret name from TLSOperatorSecretNamespacedName (mongodbsearch_types.go).
         tls_secret_name = f"{MDBS_RESOURCE_NAME}-search-certificate-key"
         tls_secret = mcc.core_v1_api().read_namespaced_secret(tls_secret_name, namespace)
         for obj, where in (

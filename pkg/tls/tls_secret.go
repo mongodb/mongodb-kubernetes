@@ -32,9 +32,8 @@ type TLSConfigurableResource interface {
 // the concatenated certificate and key from the user-provided Secret.
 // Returns the file name of the concatenated certificate and key
 //
-// Cross-cluster ownership note: Kubernetes garbage collection does not span
-// clusters, so we only set an OwnerReference when writing into the central
-// cluster (clusterName == "").
+// An OwnerReference is set only when writing into the central cluster
+// (clusterName == ""): Kubernetes GC does not span clusters.
 func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource, clusterName string) (string, error) {
 	certKey, err := getPemOrConcatenatedCrtAndKey(ctx, getUpdateCreator, resource.TLSSecretNamespacedName())
 	if err != nil {

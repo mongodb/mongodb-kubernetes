@@ -352,7 +352,7 @@ def test_per_cluster_resources_exist(
         headless_svc = mcc.read_namespaced_service(svc_name, namespace)
         proxy_svc = mcc.read_namespaced_service(proxy_svc_name, namespace)
 
-        # KUBE-154: even though the localized CR exists in this cluster (so a ref
+        # Even though the localized CR exists in this cluster (so a ref
         # WOULD be a valid GC target), the operator must not set ownerReferences on
         # any per-cluster write — lifecycle is owned by the label-based sweep.
         mongot_cm = mcc.read_namespaced_config_map(mongot_cm_name, namespace)

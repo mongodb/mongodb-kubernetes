@@ -712,9 +712,8 @@ func driveSearchReconcileToRunning(
 // namespace + cluster name) on every operator-created object. Watch routing
 // (EnqueueMemberClusterObjectToSearch) and label-based GC depend on these, so a
 // path that creates resources without them passes existence checks but breaks
-// re-enqueue in e2e only. Non-legacy (clusterName != "") resources must also
-// carry NO owner reference: Kubernetes GC does not span clusters, and in the
-// operator-per-cluster mode a ref would resurrect GC coupling the sweep replaced.
+// re-enqueue in e2e only. For clusterName != "" it also asserts owner
+// references are absent (Kubernetes GC does not span clusters).
 func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clusterName string, objs ...client.Object) {
 	t.Helper()
 	for _, obj := range objs {
@@ -952,9 +951,6 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 
 				assertSearchOwnerLabels(t, search, tc.opCluster, sts, cm, svc)
 
-				// The operator-managed ingress TLS secret is written locally with
-				// clusterName != "" — Kubernetes GC does not span clusters, so it
-				// must carry no owner reference back to the MongoDBSearch CR.
 				tlsOperatorSecret := &corev1.Secret{}
 				require.NoError(t, c.Get(ctx, search.TLSOperatorSecretForClusterShard(tc.wantIdx, shard), tlsOperatorSecret),
 					"operator-managed ingress TLS secret for shard %s must exist", shard)
@@ -1204,7 +1200,6 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 		require.NoError(t, mc.Get(ctx,
 			search.ProxyServiceNamespacedNameForCluster(idx), svc),
 			"cluster-level proxy Service missing on %s", clusterName)
-		// Hub-and-spoke member-cluster write: owner labels present, owner refs absent.
 		assertSearchOwnerLabels(t, search, clusterName, svc)
 
 		dep := &appsv1.Deployment{}

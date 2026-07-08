@@ -2669,13 +2669,10 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "")
 	require.NoError(t, err)
 
-	// Central cluster (clusterName == ""): the operator-managed secret keeps its owner ref.
 	centralOperatorSecret, err := fakeClient.GetSecret(t.Context(), (&x509AuthResource{MongoDBSearch: search}).TLSOperatorSecretNamespacedName())
 	require.NoError(t, err)
 	assert.NotEmpty(t, centralOperatorSecret.OwnerReferences, "central cluster's operator-managed x509 secret must carry an owner reference")
 
-	// Member cluster (clusterName != ""): Kubernetes GC does not span clusters, so no owner
-	// reference must be set, or the member cluster's own GC controller deletes the secret.
 	_, _, err = helper.ensureX509ClientCertConfig(t.Context(), fakeClient, "cluster-a")
 	require.NoError(t, err)
 	memberOperatorSecret, err := fakeClient.GetSecret(t.Context(), (&x509AuthResource{MongoDBSearch: search}).TLSOperatorSecretNamespacedName())
@@ -3124,7 +3121,6 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, int32(27028), portMap["mongot-grpc"])
 	assert.Equal(t, int32(8080), portMap["healthcheck"])
 
-	// Legacy single-cluster (clusterName == ""): owner refs stay so CR delete GCs the Service.
 	assert.True(t, slices.ContainsFunc(svc.OwnerReferences, func(ref metav1.OwnerReference) bool {
 		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name
 	}))
@@ -3400,10 +3396,6 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster B client must NOT have cluster A STS")
 
-	// Kubernetes GC does not span clusters: member-cluster resources must carry no
-	// owner reference back to the central MongoDBSearch CR (its UID doesn't exist in
-	// the member cluster's etcd, so the member cluster's own GC controller would
-	// otherwise delete them).
 	assert.Empty(t, stsA.OwnerReferences, "cluster-a STS must not carry an owner reference")
 	assert.Empty(t, stsB.OwnerReferences, "cluster-b STS must not carry an owner reference")
 	assert.Empty(t, cmB.OwnerReferences, "cluster-b mongot ConfigMap must not carry an owner reference")
@@ -3763,9 +3755,6 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		require.NoError(t, err, "STS %s must have been created before the readiness short-circuit fired", exp.name)
 	}
 
-	// The ingress TLS path also runs per unit: the operator-managed cert+key
-	// secret is written to the member cluster and must carry no owner reference
-	// (unit.clusterName is threaded through ensureIngressTlsConfig into EnsureTLSSecret).
 	memberIngressSecret, err := clusterAClient.GetSecret(t.Context(), search.TLSOperatorSecretForClusterShard(0, "sh-0"))
 	require.NoError(t, err)
 	assert.Empty(t, memberIngressSecret.OwnerReferences,
@@ -4258,8 +4247,6 @@ func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
 	assert.False(t, switchedOn("sh-0"))
 	assert.False(t, switchedOn("sh-removed"), "switch entry for a removed shard must be pruned")
 
-	// Legacy single-cluster (clusterName == ""): the operator-managed ingress TLS
-	// secret keeps its owner reference so CR delete GCs it.
 	legacyIngressSecret, err := fakeClient.GetSecret(t.Context(), search.TLSOperatorSecretForClusterShard(0, "sh-0"))
 	require.NoError(t, err)
 	assert.NotEmpty(t, legacyIngressSecret.OwnerReferences,
