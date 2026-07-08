@@ -33,6 +33,7 @@ MIGRATION_DATA_DB = "migration_data"
 MIGRATION_DATA_COLLECTION = "sentinel"
 MIGRATION_DATA_ID = "vm-migration"
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
+MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION = "mongodb.com/migrate-tool-version"
 
 
 def _deploy_vm_statefulset_from_fixture(
@@ -218,6 +219,7 @@ def _assert_trips(mdb_migration: MongoDB, expected_rs_name: str) -> None:
     mdb_migration.update()
     mdb_migration.assert_reaches_phase(Phase.Failed, timeout=300)
     message = mdb_migration.get_status_message()
+    assert message is not None
     assert "voting members" in message
     assert expected_rs_name in message, f"expected {expected_rs_name} to trip the voting limit, got: {message}"
 
@@ -261,6 +263,11 @@ def _first_shard_on_vms(mdb_migration: MongoDB) -> tuple[str, str]:
         if rs_name in vm_rs_names:
             return k8s_name, rs_name
     raise AssertionError("no shard has VM members left, nothing to exercise the voting limit on")
+
+
+def assert_migration_tool_version_annotation(generated_cr: dict, version: str) -> None:
+    assert MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION in generated_cr["metadata"]["annotations"]
+    assert generated_cr["metadata"]["annotations"][MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION] == version
 
 
 def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
