@@ -118,10 +118,9 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_basic
 def test_wait_for_database_resource_ready(mdb: MongoDB):
-    # The search wiring lands on the mongods asynchronously; the resulting
-    # Running->reconciling->Running transition can complete faster than phase polling or
-    # without a visible phase change, so wait for the mongot parameters to appear on every
-    # member rather than trying to catch the transition.
+    # The mongot wiring is applied as an in-memory automation-config override and does not bump
+    # the MongoDB generation, so there is no phase/generation transition to wait on; poll the
+    # mongods for the search parameters directly.
     def mongot_params_wired(m: MongoDB) -> bool:
         if m.get_status_phase() != Phase.Running:
             return False
