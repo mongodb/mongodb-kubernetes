@@ -90,10 +90,6 @@ get_operator_helm_values() {
     config+=("operator.build=-race")
   fi
 
-  if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then
-    config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
-  fi
-
   # change this locally or as changed in variant e2e_operator_race_ubi_with_telemetry which also sends telemetry
   if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-}" != "" ]]; then
     config+=("operator.telemetry.send.baseUrl=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}")
