@@ -108,6 +108,8 @@ deploy_test_app() {
         "--set" "registry=${REGISTRY}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
         "--set" "mdbDefaultImageType=${MDB_DEFAULT_IMAGE_TYPE:-}"
+        "--set" "mdbOperatorTelemetrySendEnabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-'false'}"
+        "--set" "mdbOperatorTelemetryEnabled=${MDB_OPERATOR_TELEMETRY_ENABLED:-'true'}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-cluster.local}"
         "--set" "cognito_user_pool_id=${cognito_user_pool_id}"
         "--set" "cognito_workload_federation_client_id=${cognito_workload_federation_client_id}"
