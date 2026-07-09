@@ -82,6 +82,31 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		assert.Equal(t, []string{"sh-0", "sh-1"}, readState(t, c).RoutingReadyMongotGroups)
 	})
 
+	t.Run("missing uid marker adopts legacy state and stamps current uid", func(t *testing.T) {
+		c := mock.NewEmptyFakeClientBuilder().Build()
+		legacyState, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"legacy-shard"}})
+		require.NoError(t, err)
+		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      stateCMName.Name,
+				Namespace: stateCMName.Namespace,
+				Labels: map[string]string{
+					khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+					khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+				},
+			},
+			Data: map[string]string{searchStateKey: string(legacyState)},
+		}))
+
+		helper := newHelper(c)
+		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
+		assert.Equal(t, []string{"legacy-shard", "sh-0"}, readState(t, c).RoutingReadyMongotGroups)
+
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, c.Get(ctx, stateCMName, cm))
+		assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	})
+
 	t.Run("uid mismatch resets stale state before mutate", func(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		staleState, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stale-shard"}})
@@ -178,33 +203,70 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 	})
 }
 
-func TestReadSearchState_UIDMismatchReturnsFreshState(t *testing.T) {
+func TestReadSearchState_UIDGuardBehavior(t *testing.T) {
 	ctx := context.Background()
 	search := newTestMongoDBSearch("mysearch", mock.TestNamespace)
 	search.UID = "new-search-uid"
 
-	staleStateRaw, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stale-shard"}})
+	storedStateRaw, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stored-shard"}})
 	require.NoError(t, err)
 
-	staleCM := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      SearchStateCMName(search),
-			Namespace: search.Namespace,
-			Labels: map[string]string{
-				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
-				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
-				khandler.MongoDBSearchOwnerUIDLabel:       "old-search-uid",
-			},
+	testCases := []struct {
+		name           string
+		hasUIDLabel    bool
+		recordedUID    string
+		expectedGroups []string
+	}{
+		{
+			name:           "missing uid marker adopts legacy state",
+			hasUIDLabel:    false,
+			expectedGroups: []string{"stored-shard"},
 		},
-		Data: map[string]string{searchStateKey: string(staleStateRaw)},
+		{
+			name:           "uid mismatch returns fresh state",
+			hasUIDLabel:    true,
+			recordedUID:    "old-search-uid",
+			expectedGroups: nil,
+		},
+		{
+			name:           "matching uid keeps stored state",
+			hasUIDLabel:    true,
+			recordedUID:    string(search.UID),
+			expectedGroups: []string{"stored-shard"},
+		},
 	}
 
-	c := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(staleCM).Build())
-	state, err := ReadSearchState(ctx, c, search)
-	require.NoError(t, err)
-	assert.Empty(t, state.RoutingReadyMongotGroups, "stale state must not be carried over to the new Search UID")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			labels := map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			}
+			if tc.hasUIDLabel {
+				labels[khandler.MongoDBSearchOwnerUIDLabel] = tc.recordedUID
+			}
 
-	cm := &corev1.ConfigMap{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: staleCM.Name, Namespace: staleCM.Namespace}, cm))
-	assert.Equal(t, "old-search-uid", cm.Labels[khandler.MongoDBSearchOwnerUIDLabel], "ReadSearchState must stay read-only")
+			stateCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      SearchStateCMName(search),
+					Namespace: search.Namespace,
+					Labels:    labels,
+				},
+				Data: map[string]string{searchStateKey: string(storedStateRaw)},
+			}
+
+			c := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(stateCM).Build())
+			state, err := ReadSearchState(ctx, c, search)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedGroups, state.RoutingReadyMongotGroups)
+
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Name: stateCM.Name, Namespace: stateCM.Namespace}, cm))
+			recordedUID, hasUIDLabel := cm.Labels[khandler.MongoDBSearchOwnerUIDLabel]
+			assert.Equal(t, tc.hasUIDLabel, hasUIDLabel, "ReadSearchState must stay read-only")
+			if tc.hasUIDLabel {
+				assert.Equal(t, tc.recordedUID, recordedUID, "ReadSearchState must stay read-only")
+			}
+		})
+	}
 }

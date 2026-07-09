@@ -58,7 +58,8 @@ func searchStateLabels(search *searchv1.MongoDBSearch) map[string]string {
 }
 
 func searchStateHasCurrentUID(cm *corev1.ConfigMap, search *searchv1.MongoDBSearch) bool {
-	return cm.Labels[khandler.MongoDBSearchOwnerUIDLabel] == string(search.UID)
+	recordedUID, ok := cm.Labels[khandler.MongoDBSearchOwnerUIDLabel]
+	return !ok || recordedUID == string(search.UID)
 }
 
 // ReadSearchState reads the per-CR state ConfigMap, treating NotFound as fresh
@@ -87,9 +88,10 @@ func ReadSearchState(
 // search state ConfigMap: a stale base yields 409 Conflict and the reconcile
 // requeues, instead of silently losing a concurrent write (do NOT replace this
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
-// true when the state changed and must be persisted. If the ConfigMap's
-// search-uid label does not match this CR's UID, state is reset to a fresh
-// incarnation before mutate runs.
+// true when the state changed and must be persisted. If the ConfigMap has an
+// explicit search-uid label that does not match this CR's UID, state is reset
+// to a fresh incarnation before mutate runs. A missing search-uid label is
+// treated as legacy state and adopted.
 func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
 	cmName := SearchStateCMName(search)
 	cm := &corev1.ConfigMap{}

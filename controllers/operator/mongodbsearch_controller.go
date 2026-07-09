@@ -145,6 +145,8 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 			return reconcile.Result{}, nil
 		}
 
+		r.watch.RemoveDependentWatchedResources(request.NamespacedName)
+
 		if sweepErr := r.sweepOwnedResourcesOnSearchNotFound(ctx, request.NamespacedName, log); sweepErr != nil {
 			return reconcile.Result{}, sweepErr
 		}
@@ -200,6 +202,8 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 			// Non-sharded: watch the single source secret
 			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
 			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+			operatorSecretNsName := mdbSearch.TLSOperatorSecretNamespacedName()
+			r.watch.AddWatchedResourceIfNotAdded(operatorSecretNsName.Name, operatorSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
 		}
 	}
 
@@ -287,16 +291,18 @@ func (r *MongoDBSearchReconciler) sweepOwnedResourcesOnSearchNotFound(ctx contex
 	}
 
 	clusters := []struct {
-		name   string
-		client kubernetesClient.Client
+		name         string
+		listReader   client.Reader
+		deleteClient kubernetesClient.Client
 	}{
-		{name: "central", client: r.kubeClient},
+		{name: "central", listReader: r.uncachedReader, deleteClient: r.kubeClient},
 	}
 	for clusterName, memberClient := range r.memberClusterClientsMap {
 		clusters = append(clusters, struct {
-			name   string
-			client kubernetesClient.Client
-		}{name: clusterName, client: memberClient})
+			name         string
+			listReader   client.Reader
+			deleteClient kubernetesClient.Client
+		}{name: clusterName, listReader: memberClient, deleteClient: memberClient})
 	}
 
 	orderedKinds := []struct {
@@ -313,7 +319,7 @@ func (r *MongoDBSearchReconciler) sweepOwnedResourcesOnSearchNotFound(ctx contex
 	var errs error
 	for _, k := range orderedKinds {
 		for _, cluster := range clusters {
-			if err := r.sweepOwnedResourceKind(ctx, nsName, cluster.client, cluster.name, k.kind, k.newList(), searchSelector, log); err != nil {
+			if err := r.sweepOwnedResourceKind(ctx, nsName, cluster.listReader, cluster.deleteClient, cluster.name, k.kind, k.newList(), searchSelector, log); err != nil {
 				errs = errors.Join(errs, err)
 			}
 		}
@@ -324,14 +330,15 @@ func (r *MongoDBSearchReconciler) sweepOwnedResourcesOnSearchNotFound(ctx contex
 func (r *MongoDBSearchReconciler) sweepOwnedResourceKind(
 	ctx context.Context,
 	search types.NamespacedName,
-	c kubernetesClient.Client,
+	listReader client.Reader,
+	deleteClient kubernetesClient.Client,
 	clusterName string,
 	kind string,
 	list client.ObjectList,
 	selector client.MatchingLabels,
 	log *zap.SugaredLogger,
 ) error {
-	if err := c.List(ctx, list, client.InNamespace(search.Namespace), selector); err != nil {
+	if err := listReader.List(ctx, list, client.InNamespace(search.Namespace), selector); err != nil {
 		return xerrors.Errorf("failed listing %ss for deleted MongoDBSearch %s on cluster %q: %w", kind, search, clusterName, err)
 	}
 	items, err := meta.ExtractList(list)
@@ -346,7 +353,7 @@ func (r *MongoDBSearchReconciler) sweepOwnedResourceKind(
 			continue
 		}
 		log.Infof("Deleting %s %s for deleted MongoDBSearch %s on cluster %q", kind, obj.GetName(), search, clusterName)
-		if err := c.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		if err := deleteClient.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			errs = errors.Join(errs, xerrors.Errorf("failed deleting %s %s for deleted MongoDBSearch %s on cluster %q: %w", kind, obj.GetName(), search, clusterName, err))
 		}
 	}

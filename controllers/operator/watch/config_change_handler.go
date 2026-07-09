@@ -22,6 +22,7 @@ type Type string
 const (
 	ConfigMap          Type = "ConfigMap"
 	Secret             Type = "Secret"
+	Deployment         Type = "Deployment"
 	MongoDB            Type = "MongoDB"
 	ClusterMongoDBRole Type = "ClusterMongoDBRole"
 )
@@ -83,12 +84,11 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.TypedRat
 	}
 }
 
-// Seems we don't need to react on config map/secret removal..
+// ConfigMap deletion remains ignored; watched Secret deletion must requeue so
+// operator-managed cert/key regeneration can self-heal.
 func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	switch e.Object.(type) {
 	case *corev1.ConfigMap:
-		return
-	case *corev1.Secret:
 		return
 	}
 

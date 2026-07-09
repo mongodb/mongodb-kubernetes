@@ -28,6 +28,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -1000,7 +1001,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(err))
 }
 
-func TestEnsureConfigMap_SingleCluster_WritesToCentralWithOwnerRef(t *testing.T) {
+func TestEnsureConfigMap_SingleCluster_NoOwnerRef(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 
@@ -1016,9 +1017,7 @@ func TestEnsureConfigMap_SingleCluster_WritesToCentralWithOwnerRef(t *testing.T)
 	require.NoError(t, central.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm))
 
-	// Owner ref present in single-cluster path (central cluster).
-	require.Len(t, cm.OwnerReferences, 1)
-	assert.Equal(t, "mdb-search", cm.OwnerReferences[0].Name)
+	assert.Empty(t, cm.OwnerReferences)
 }
 
 func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
@@ -1160,6 +1159,40 @@ func TestReconcile_DeletionTimestampShortCircuits(t *testing.T) {
 	assert.Nil(t, updated.Status.LoadBalancer)
 }
 
+func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mongo-0:27017"},
+				},
+			},
+			Clusters: []searchv1.ClusterSpec{{
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "lb.example.com"},
+				},
+			}},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+
+	stateCMKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Name:      searchcontroller.SearchStateCMName(search),
+			Namespace: search.Namespace,
+		},
+	}
+	assert.Contains(t, r.watch.GetWatchedResources()[stateCMKey], search.NamespacedName())
+}
+
 func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1193,6 +1226,70 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	err := central.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{})
 	assert.True(t, apierrors.IsNotFound(err))
+}
+
+func TestReconcileForCluster_SingleCluster_RegistersCentralWatchTargets(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
+		},
+	}
+
+	st := r.reconcileForCluster(
+		context.Background(),
+		search,
+		nil,
+		false,
+		nil,
+		clusterWorkItem{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient},
+		nil,
+		zap.S(),
+	)
+	require.True(t, st.IsOK())
+
+	watched := r.watch.GetWatchedResources()
+	searchKey := search.NamespacedName()
+	depKey := watch.Object{
+		ResourceType: watch.Deployment,
+		Resource: types.NamespacedName{
+			Name:      search.LoadBalancerDeploymentNameForCluster(0),
+			Namespace: search.Namespace,
+		},
+	}
+	cmKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Name:      search.LoadBalancerConfigMapNameForCluster(0),
+			Namespace: search.Namespace,
+		},
+	}
+	assert.Contains(t, watched[depKey], searchKey)
+	assert.Contains(t, watched[cmKey], searchKey)
+}
+
+func TestEnsureDeployment_SingleCluster_NoOwnerRef(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
+		},
+	}
+
+	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "", 0, search.GetManagedLBForCluster(""), r.kubeClient, nil, zap.S()))
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, central.Get(context.Background(), types.NamespacedName{
+		Name:      search.LoadBalancerDeploymentNameForCluster(0),
+		Namespace: search.Namespace,
+	}, dep))
+	assert.Empty(t, dep.OwnerReferences)
 }
 
 func TestEnsureDeployment_Replicas(t *testing.T) {

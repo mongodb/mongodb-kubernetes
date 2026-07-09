@@ -229,6 +229,47 @@ func getTopologyState(t *testing.T, c client.Client, search *searchv1.MongoDBSea
 	return state.Clusters[""]
 }
 
+func TestOpenTopologyStateStore_MissingUIDMarkerAdoptsState(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = types.UID("new-search-uid")
+
+	legacyState := searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"": {Replicas: 3},
+	}}
+	stateJSON, err := json.Marshal(legacyState)
+	require.NoError(t, err)
+
+	legacyCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+			Namespace: search.Namespace,
+			Labels:    metricsForwarderLabels(search),
+		},
+		Data: map[string]string{
+			stateKey: string(stateJSON),
+		},
+	}
+
+	r, c := newMetricsForwarderReconciler(testDefaultImage, search, legacyCM)
+	store := r.openTopologyStateStore(search)
+
+	readState, err := store.ReadState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 3, readState.Clusters[""].Replicas)
+
+	readState.Clusters[""] = clusterTopologyState{Replicas: 4}
+	require.NoError(t, store.WriteState(ctx, readState, zap.S()))
+
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{
+		Namespace: search.Namespace,
+		Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+	}, cm))
+	assert.Equal(t, string(search.UID), cm.Data[stateOwnerUIDKey], "write must stamp missing owner UID marker")
+	assert.Equal(t, 4, getTopologyState(t, c, search).Replicas)
+}
+
 func TestOpenTopologyStateStore_StaleUIDResetsState(t *testing.T) {
 	ctx := context.Background()
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
@@ -273,6 +314,37 @@ func TestOpenTopologyStateStore_StaleUIDResetsState(t *testing.T) {
 	assert.Equal(t, search.Namespace, cm.Labels["mongodb.com/search-namespace"])
 }
 
+func TestOpenTopologyStateStore_MatchingUIDKeepsState(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = types.UID("search-uid")
+
+	currentState := searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"": {Replicas: 2},
+	}}
+	stateJSON, err := json.Marshal(currentState)
+	require.NoError(t, err)
+
+	currentCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+			Namespace: search.Namespace,
+			Labels:    metricsForwarderLabels(search),
+		},
+		Data: map[string]string{
+			stateKey:         string(stateJSON),
+			stateOwnerUIDKey: string(search.UID),
+		},
+	}
+
+	r, _ := newMetricsForwarderReconciler(testDefaultImage, search, currentCM)
+	store := r.openTopologyStateStore(search)
+
+	state, err := store.ReadState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, state.Clusters[""].Replicas)
+}
+
 func reconcileMetricsForwarder(t *testing.T, r *MongoDBSearchMetricsForwarderReconciler, namespace, name string) reconcile.Result {
 	t.Helper()
 	result, err := r.Reconcile(context.Background(), reconcile.Request{
@@ -288,6 +360,82 @@ func getMongoDBSearch(t *testing.T, c client.Client, namespace, name string) *se
 	err := c.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, search)
 	require.NoError(t, err)
 	return search
+}
+
+func TestEnsureMetricsForwarderResources_SingleCluster_NoOwnerRef(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage)
+
+	require.NoError(t, r.ensureMetricsForwarderConfigMap(
+		context.Background(),
+		search,
+		[]byte("receivers: {}"),
+		"",
+		0,
+		r.kubeClient,
+		zap.S(),
+	))
+	require.NoError(t, r.ensureMetricsForwarderDeployment(
+		context.Background(),
+		search,
+		[]byte("receivers: {}"),
+		testGroupID,
+		"agent-key-secret",
+		"",
+		"",
+		0,
+		r.kubeClient,
+		zap.S(),
+	))
+
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name:      search.MetricsForwarderConfigMapNameForCluster(0),
+		Namespace: search.Namespace,
+	}, cm))
+	assert.Empty(t, cm.OwnerReferences)
+	assert.Equal(t, search.Name, cm.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, cm.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{
+		Name:      search.MetricsForwarderDeploymentNameForCluster(0),
+		Namespace: search.Namespace,
+	}, dep))
+	assert.Empty(t, dep.OwnerReferences)
+	assert.Equal(t, search.Name, dep.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, dep.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+}
+
+func TestBuildClusterWorkList_TopologyCoverage(t *testing.T) {
+	t.Run("named single-cluster uses index 0 and central client", func(t *testing.T) {
+		central := mock.NewEmptyFakeClientBuilder().Build()
+		r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, nil, "")
+		search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+		search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "kind-e2e-cluster-1"}}
+
+		wl := r.buildClusterWorkList(search)
+		require.Len(t, wl, 1)
+		assert.Equal(t, "kind-e2e-cluster-1", wl[0].ClusterName)
+		assert.Equal(t, 0, wl[0].ClusterIndex)
+		assert.Equal(t, r.kubeClient, wl[0].Client)
+	})
+
+	t.Run("projected operator-per-cluster entry keeps pinned index", func(t *testing.T) {
+		central := mock.NewEmptyFakeClientBuilder().Build()
+		r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, nil, "cluster-b")
+		search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+		search.Spec.Clusters = []searchv1.ClusterSpec{{
+			Name:  "cluster-b",
+			Index: ptr.To(int32(7)),
+		}}
+
+		wl := r.buildClusterWorkList(search)
+		require.Len(t, wl, 1)
+		assert.Equal(t, "cluster-b", wl[0].ClusterName)
+		assert.Equal(t, 7, wl[0].ClusterIndex)
+		assert.Equal(t, r.kubeClient, wl[0].Client)
+	})
 }
 
 // envMap indexes a container's environment variables by name for easy assertion.
@@ -791,6 +939,10 @@ func TestReconcile_DeletionWhileEnabled_WaitsForDeploymentThenDeregistersHosts(t
 	// The Deployment should now be gone (deleted by phase 1).
 	depErr := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: existingDep.Name}, &appsv1.Deployment{})
 	assert.True(t, apierrors.IsNotFound(depErr), "expected Deployment to be deleted after first reconcile")
+	midDeleteSearch := &searchv1.MongoDBSearch{}
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: testSearchName}, midDeleteSearch))
+	require.NotNil(t, midDeleteSearch.DeletionTimestamp)
+	assert.Contains(t, midDeleteSearch.Finalizers, util.SearchMetricsForwarderFinalizer, "finalizer must remain until host cleanup finishes")
 
 	// Second reconcile: Deployment is gone → hosts deregistered and finalizer removed.
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)

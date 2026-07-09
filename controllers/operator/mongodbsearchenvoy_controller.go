@@ -171,6 +171,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
+	r.watch.AddWatchedResourceIfNotAdded(
+		searchcontroller.SearchStateCMName(mdbSearch),
+		mdbSearch.Namespace,
+		watch.ConfigMap,
+		mdbSearch.NamespacedName(),
+	)
 
 	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
@@ -250,6 +256,20 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	log *zap.SugaredLogger,
 ) workflow.Status {
 	clusterName, clusterIndex, c := w.ClusterName, w.ClusterIndex, w.Client
+	if clusterName == "" {
+		r.watch.AddWatchedResourceIfNotAdded(
+			search.LoadBalancerConfigMapNameForCluster(clusterIndex),
+			search.Namespace,
+			watch.ConfigMap,
+			search.NamespacedName(),
+		)
+		r.watch.AddWatchedResourceIfNotAdded(
+			search.LoadBalancerDeploymentNameForCluster(clusterIndex),
+			search.Namespace,
+			watch.Deployment,
+			search.NamespacedName(),
+		)
+	}
 
 	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName, routingReadyMongotGroups)
 	if len(routes) == 0 {
@@ -460,11 +480,6 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 // ensureConfigMap creates or updates the Envoy ConfigMap with three files:
 // bootstrap.json (static), cds.json (dynamic clusters), and lds.json (dynamic listener).
 // Kubernetes ConfigMap updates are atomic (symlink swap), so all files update together.
-//
-// Cross-cluster ownership note: Kubernetes garbage collection does not span
-// clusters, so we only set an OwnerReference when writing into the central
-// cluster (clusterName == ""). Cleanup of member-cluster objects is handled
-// explicitly in deleteEnvoyResources.
 func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, cdsJSON, ldsJSON, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -479,9 +494,6 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 			"bootstrap.json": bootstrapJSON,
 			"cds.json":       cdsJSON,
 			"lds.json":       ldsJSON,
-		}
-		if clusterName == "" {
-			return controllerutil.SetOwnerReference(search, cm, c.Scheme())
 		}
 		return nil
 	})
@@ -507,8 +519,6 @@ func envoyConfigHash(configJSON string) (string, error) {
 // ensureDeployment creates or updates the Envoy Deployment.
 // The config hash is computed from bootstrapJSON only — CDS/LDS changes are
 // hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
-//
-// Cross-cluster ownership note: see ensureConfigMap.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, clusterName string, clusterIndex int, managedLB *searchv1.ManagedLBConfig, c kubernetesClient.Client, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	configHash, err := envoyConfigHash(bootstrapJSON)
 	if err != nil {
@@ -556,10 +566,6 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 			dep.Spec = merge.DeploymentSpecs(dep.Spec, managedLB.Deployment.SpecWrapper.Spec)
 			dep.Labels = merge.StringToStringMap(dep.Labels, managedLB.Deployment.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, managedLB.Deployment.MetadataWrapper.Annotations)
-		}
-
-		if clusterName == "" {
-			return controllerutil.SetOwnerReference(search, dep, c.Scheme())
 		}
 		return nil
 	})
@@ -842,6 +848,12 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 		return err
 	}
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, &watch.ResourcesHandler{ResourceType: watch.Deployment, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
 

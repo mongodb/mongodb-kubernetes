@@ -827,12 +827,16 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 	expectedHeadless := map[string]bool{}
 	expectedSTS := map[string]bool{}
 	expectedConfig := map[string]bool{}
+	expectedShardTLSSecret := map[string]bool{}
 	seenClusters := map[int]bool{}
 	for _, w := range r.buildShardedWorkList(currentShardNames) {
 		expectedProxy[r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		expectedHeadless[r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		expectedSTS[r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
 		expectedConfig[r.mdbSearch.MongotConfigMapForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		if r.mdbSearch.Spec.Security.TLS != nil {
+			expectedShardTLSSecret[r.mdbSearch.TLSOperatorSecretForClusterShard(w.ClusterIndex, w.ShardName).Name] = true
+		}
 		if !seenClusters[w.ClusterIndex] {
 			seenClusters[w.ClusterIndex] = true
 			expectedProxy[r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex).Name] = true
@@ -846,7 +850,8 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 
 	// The mongot StatefulSet is the only StatefulSet we own, so it's scoped by owner
 	// label; proxy and headless Services share a kind but carry distinct component
-	// labels; the mongot ConfigMap carries the mongot component label.
+	// labels; mongot ConfigMap and per-shard operator TLS Secret carry the mongot
+	// component label.
 	sweeps := []struct {
 		newList  func() client.ObjectList
 		selector client.MatchingLabels
@@ -857,6 +862,7 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: proxyServiceComponent}, expectedProxy, "proxy Service"},
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedHeadless, "headless Service"},
 		{func() client.ObjectList { return &corev1.ConfigMapList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedConfig, "ConfigMap"},
+		{func() client.ObjectList { return &corev1.SecretList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedShardTLSSecret, "Secret"},
 	}
 
 	var errs error

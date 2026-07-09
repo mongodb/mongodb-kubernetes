@@ -946,8 +946,6 @@ func mongotHostID(groupID, namespace, podName string) string {
 }
 
 // ensureMetricsForwarderConfigMap creates or updates the metrics forwarder ConfigMap for one cluster.
-// OwnerReference is set only for the central cluster (clusterName == ""); member-cluster objects
-// use labels for cross-cluster GC.
 func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, configYAML []byte, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -959,9 +957,6 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMa
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
 		cm.Labels = metricsForwarderLabelsForCluster(search, clusterName, clusterIndex)
 		cm.Data = map[string]string{metricsForwarderConfigFileName: string(configYAML)}
-		if clusterName == "" {
-			return controllerutil.SetOwnerReference(search, cm, c.Scheme())
-		}
 		return nil
 	})
 	if err != nil {
@@ -972,7 +967,6 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMa
 }
 
 // ensureMetricsForwarderDeployment creates or updates the metrics forwarder Deployment for one cluster.
-// OwnerReference is set only for the central cluster (clusterName == "").
 func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployment(ctx context.Context, search *searchv1.MongoDBSearch, configYAML []byte, groupID, agentKeySecretName, caConfigMapName, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configYAML))
 	labels := metricsForwarderLabelsForCluster(search, clusterName, clusterIndex)
@@ -1011,10 +1005,6 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 			dep.Spec = merge.DeploymentSpecs(dep.Spec, deploymentOverride.SpecWrapper.Spec)
 			dep.Labels = merge.StringToStringMap(dep.Labels, deploymentOverride.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, deploymentOverride.MetadataWrapper.Annotations)
-		}
-
-		if clusterName == "" {
-			return controllerutil.SetOwnerReference(search, dep, c.Scheme())
 		}
 		return nil
 	})

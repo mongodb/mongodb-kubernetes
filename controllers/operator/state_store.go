@@ -84,6 +84,9 @@ func (s *StateStore[S]) read(ctx context.Context) error {
 }
 
 func (s *StateStore[S]) write(ctx context.Context, log *zap.SugaredLogger) error {
+	if s.data == nil {
+		s.data = map[string]string{}
+	}
 	if s.ownerUID != "" {
 		s.data[stateOwnerUIDKey] = s.ownerUID
 	}
@@ -138,7 +141,7 @@ func (s *StateStore[S]) isStaleOwnerUID() bool {
 		return false
 	}
 	recordedUID, ok := s.data[stateOwnerUIDKey]
-	return !ok || recordedUID != s.ownerUID
+	return ok && recordedUID != s.ownerUID
 }
 
 func (s *StateStore[S]) getDataValue(key string, obj any) (bool, error) {

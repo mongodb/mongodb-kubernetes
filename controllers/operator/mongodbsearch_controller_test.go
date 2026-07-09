@@ -26,6 +26,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -187,6 +188,95 @@ func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, reconcile.Result{}, res)
+}
+
+func TestMongoDBSearchReconcile_NotFoundRemovesDependentWatches(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-watch-cleanup", Namespace: mock.TestNamespace}
+	otherSearchKey := types.NamespacedName{Name: "other-search", Namespace: mock.TestNamespace}
+	reconciler, _ := newSearchReconciler(nil, nil)
+
+	sharedSecret := types.NamespacedName{Name: "shared-secret", Namespace: mock.TestNamespace}
+	reconciler.watch.AddWatchedResourceIfNotAdded(sharedSecret.Name, sharedSecret.Namespace, watch.Secret, searchKey)
+	reconciler.watch.AddWatchedResourceIfNotAdded(sharedSecret.Name, sharedSecret.Namespace, watch.Secret, otherSearchKey)
+	reconciler.watch.AddWatchedResourceIfNotAdded("owned-config", mock.TestNamespace, watch.ConfigMap, searchKey)
+
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	for watchedObj, dependents := range reconciler.watch.GetWatchedResources() {
+		assert.NotContains(t, dependents, searchKey, "deleted search must be removed from watcher key %s", watchedObj)
+	}
+	assert.Contains(t, reconciler.watch.GetWatchedResources()[watch.Object{ResourceType: watch.Secret, Resource: sharedSecret}], otherSearchKey)
+}
+
+type staleCentralListClient struct {
+	client.Client
+	sweepListCalls int
+}
+
+func (c *staleCentralListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if isSweepOwnedResourceList(list) {
+		c.sweepListCalls++
+		return nil
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+type trackingListReader struct {
+	client.Reader
+	sweepListCalls int
+}
+
+func (r *trackingListReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if isSweepOwnedResourceList(list) {
+		r.sweepListCalls++
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+func isSweepOwnedResourceList(list client.ObjectList) bool {
+	switch list.(type) {
+	case *appsv1.DeploymentList, *appsv1.StatefulSetList, *corev1.ServiceList, *corev1.ConfigMapList, *corev1.SecretList:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepUsesUncachedReaderForCentralList(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-central-list", Namespace: mock.TestNamespace}
+	ownedDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owned-central-deployment",
+			Namespace: searchKey.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+			},
+		},
+	}
+
+	centralBackingClient := mock.NewEmptyFakeClientBuilder().WithObjects(ownedDeployment).Build()
+	staleCentralClient := &staleCentralListClient{Client: centralBackingClient}
+	uncachedReader := &trackingListReader{Reader: centralBackingClient}
+
+	reconciler := newMongoDBSearchReconciler(
+		staleCentralClient,
+		uncachedReader,
+		searchcontroller.OperatorSearchConfig{},
+		map[string]client.Client{},
+		"",
+	)
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	assert.True(t, apiErrors.IsNotFound(centralBackingClient.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), &appsv1.Deployment{})))
+	assert.Greater(t, uncachedReader.sweepListCalls, 0, "central sweep must list via uncached reader")
+	assert.Equal(t, 0, staleCentralClient.sweepListCalls, "central sweep must not list via cached central client")
 }
 
 func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *testing.T) {
@@ -351,6 +441,9 @@ func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_SingleCluster(t *testing.
 	headlessName := search.SearchServiceNamespacedNameForCluster(0)
 	proxyName := search.ProxyServiceNamespacedNameForCluster(0)
 	cmName := search.MongotConfigConfigMapNameForCluster(0)
+	searchStateCMName := types.NamespacedName{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace}
+	metricsStateCMName := types.NamespacedName{Name: fmt.Sprintf("%s-metrics-forwarder-state", search.Name), Namespace: search.Namespace}
+	operatorTLSSecretName := search.TLSOperatorSecretNamespacedName()
 
 	require.NoError(t, central.Get(ctx, stsName, &appsv1.StatefulSet{}))
 	require.NoError(t, central.Get(ctx, headlessName, &corev1.Service{}))
@@ -367,8 +460,30 @@ func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_SingleCluster(t *testing.
 	ownedSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-owned-secret", Namespace: search.Namespace, Labels: ownerLabels},
 	}
+	ownedSearchStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: searchStateCMName.Name, Namespace: searchStateCMName.Namespace, Labels: ownerLabels},
+	}
+	ownedMetricsStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: metricsStateCMName.Name, Namespace: metricsStateCMName.Namespace, Labels: ownerLabels},
+	}
+	ownedOperatorTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: operatorTLSSecretName.Name, Namespace: operatorTLSSecretName.Namespace, Labels: ownerLabels},
+	}
 	unlabeledDeployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-foreign-unlabeled", Namespace: search.Namespace},
+	}
+	unlabeledTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-foreign-unlabeled-tls", Namespace: search.Namespace},
+	}
+	otherSearchStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.Name + "-other-search-state",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
 	}
 	otherSearchSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -380,7 +495,17 @@ func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_SingleCluster(t *testing.
 			},
 		},
 	}
-	for _, obj := range []client.Object{ownedDeployment, ownedSecret, unlabeledDeployment, otherSearchSecret} {
+	for _, obj := range []client.Object{
+		ownedDeployment,
+		ownedSecret,
+		ownedSearchStateCM,
+		ownedMetricsStateCM,
+		ownedOperatorTLSSecret,
+		unlabeledDeployment,
+		unlabeledTLSSecret,
+		otherSearchStateCM,
+		otherSearchSecret,
+	} {
 		require.NoError(t, central.Create(ctx, obj))
 	}
 
@@ -395,8 +520,13 @@ func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_SingleCluster(t *testing.
 	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, cmName, &corev1.ConfigMap{})))
 	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), &appsv1.Deployment{})))
 	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(ownedSecret), &corev1.Secret{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, searchStateCMName, &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, metricsStateCMName, &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, operatorTLSSecretName, &corev1.Secret{})))
 
 	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unlabeledDeployment), &appsv1.Deployment{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unlabeledTLSSecret), &corev1.Secret{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(otherSearchStateCM), &corev1.ConfigMap{}))
 	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(otherSearchSecret), &corev1.Secret{}))
 }
 
@@ -435,6 +565,54 @@ func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_MultiCluster(t *testing.T
 
 	got := driveSearchReconcileToRunning(ctx, t, reconciler, central, search, 5, eastClient, westClient)
 	require.Equal(t, status.PhaseRunning, got.Status.Phase, "multi-cluster reconcile must create resources before NotFound sweep")
+
+	centralOwnerLabels := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+	}
+	centralOwnedStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      searchcontroller.SearchStateCMName(search),
+			Namespace: search.Namespace,
+			Labels:    centralOwnerLabels,
+		},
+	}
+	centralOwnedMetricsStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+			Namespace: search.Namespace,
+			Labels:    centralOwnerLabels,
+		},
+	}
+	centralOwnedTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.TLSOperatorSecretNamespacedName().Name,
+			Namespace: search.Namespace,
+			Labels:    centralOwnerLabels,
+		},
+	}
+	centralKeepOtherStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.Name + "-central-keep-other-state",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	centralKeepNoLabelTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-central-keep-unlabeled-tls", Namespace: search.Namespace},
+	}
+	for _, obj := range []client.Object{
+		centralOwnedStateCM,
+		centralOwnedMetricsStateCM,
+		centralOwnedTLSSecret,
+		centralKeepOtherStateCM,
+		centralKeepNoLabelTLSSecret,
+	} {
+		require.NoError(t, central.Create(ctx, obj))
+	}
 
 	type clusterCase struct {
 		name        string
@@ -491,6 +669,12 @@ func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_MultiCluster(t *testing.T
 	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
 	require.NoError(t, err)
 	assert.Equal(t, reconcile.Result{}, res)
+
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(centralOwnedStateCM), &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(centralOwnedMetricsStateCM), &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(centralOwnedTLSSecret), &corev1.Secret{})))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(centralKeepOtherStateCM), &corev1.ConfigMap{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(centralKeepNoLabelTLSSecret), &corev1.Secret{}))
 
 	for _, tc := range cases {
 		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.idx), &appsv1.StatefulSet{})))
@@ -888,6 +1072,32 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 
 	require.NoError(t, err, "missing secret must surface as RequeueAfter, not an error")
 	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
+}
+
+func TestMongoDBSearchReconcile_RegistersOperatorTLSSecretWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	reconciler, c := newSearchReconciler(mdbc, search)
+
+	sourceTLS := search.TLSSecretNamespacedName()
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: sourceTLS.Name, Namespace: sourceTLS.Namespace},
+		Data: map[string][]byte{
+			"tls.crt": []byte("dummy"),
+			"tls.key": []byte("dummy"),
+		},
+	}))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	operatorTLS := search.TLSOperatorSecretNamespacedName()
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: operatorTLS}], search.NamespacedName())
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex
