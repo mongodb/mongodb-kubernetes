@@ -1,10 +1,5 @@
 echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
-# Secret names carry the cluster index: the operator mounts a distinct
-# server/client cert per member cluster's Envoy (search-lb-<i>-cert /
-# search-lb-<i>-client-cert). Issue one pair per cluster index on the central
-# cluster (where the CA ClusterIssuer lives); 12_0317 replicates each member's
-# pair to it. The wildcard SAN is valid in any member cluster.
 for i in 0 1; do
   lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${i}-cert"
   lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${i}-client-cert"
@@ -17,8 +12,8 @@ metadata:
   name: ${lb_server_cert}
 spec:
   secretName: ${lb_server_cert}
-  duration: 8760h    # 1 year
-  renewBefore: 720h  # 30 days
+  duration: 8760h
+  renewBefore: 720h
   privateKey:
     algorithm: RSA
     size: 2048
@@ -40,8 +35,8 @@ metadata:
   name: ${lb_client_cert}
 spec:
   secretName: ${lb_client_cert}
-  duration: 8760h    # 1 year
-  renewBefore: 720h  # 30 days
+  duration: 8760h
+  renewBefore: 720h
   privateKey:
     algorithm: RSA
     size: 2048

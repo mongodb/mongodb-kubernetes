@@ -53,3 +53,21 @@ This is an expected limitation for this topology. Scenario 13 (sharded multi-clu
    export MDB_CONNECTION_STRING="${MDB_USER_CONNECTION_STRING}"
    ( cd ../03-search-query-usage && ./test.sh )
    ```
+
+## Execution notes (moved from snippets)
+
+| Snippet | Why it matters |
+|---|---|
+| `12_0045_create_namespaces.sh` | Applies `istio-injection=enabled` to `MDB_NS` in each member cluster so cross-cluster service discovery/routing works for source members. |
+| `12_0100_install_operator.sh` | Requires the `kubectl-mongodb` plugin. If using local kind/minikube kubeconfigs with loopback API endpoints, set `MDB_PLUGIN_KUBECONFIG` to a pod-reachable kubeconfig before `kubectl mongodb multicluster setup`. |
+| `12_0300_internal_create_ops_manager_resources.sh` | Internal/CI helper: creates Ops Manager Secret and ConfigMap only on the central cluster (where the multi-cluster source resource is reconciled). |
+| `12_0301_install_cert_manager.sh` | Installs cert-manager only on cluster 0 (central). Certificates are issued there. |
+| `12_0302a_internal_configure_tls_prerequisites_mongod.sh` | Ensures the CA ConfigMap exists on every member cluster so mongod/tools workloads can validate TLS. |
+| `12_0304_internal_generate_tls_certificates.sh` | Internal/CI helper: source replica-set certificate is issued on cluster 0 and source cert Secret replication is handled by the MongoDB controller. |
+| `12_0310_internal_create_mongodb_mc_rs.sh` | Internal/CI helper: search-related mongod parameters are configured manually for the source; no per-cluster `additionalMongodConfig` exists, so `mongotHost` is shared and points to cluster 0's Envoy. |
+| `12_0316_internal_create_mongodb_users.sh` | Internal/CI helper: users are created from the central cluster context. |
+| `12_0316a_create_mongot_tls_certificates.sh` | Issues the mongot certificate on cluster 0; Search Secrets are not auto-replicated, so `12_0317` handles replication. |
+| `12_0316b_create_lb_tls_certificates.sh` | Issues one Envoy server/client certificate pair per cluster index (`search-lb-<i>-cert`, `search-lb-<i>-client-cert`) on cluster 0. |
+| `12_0317_replicate_search_secrets.sh` | Replicates Search Secrets (mongot cert, per-cluster LB certs, sync password) from cluster 0 to other member clusters; required so member-cluster mongot pods can mount TLS material. |
+| `12_0320_create_mongodb_search_resource.sh` | Uses `source.external.hostAndPorts` for source members and per-cluster managed load balancer hostnames. Also pins mongot resource requests/limits to fit kind test nodes. |
+| `12_0326_internal_verify_envoy_deployment.sh` | Internal/CI check: expects one mongot StatefulSet and one Envoy Deployment per member cluster. |

@@ -34,18 +34,32 @@ for var in "${required_vars[@]}"; do
   [[ -n "${!var:-}" ]] && [[ "${!var}" != "<"* ]] || missing_vars+=("${var}")
 done
 
+has_error=false
 if (( ${#missing_vars[@]} )); then
   echo "ERROR: Missing required environment variables:" >&2
   for m in "${missing_vars[@]}"; do echo "  - ${m}" >&2; done
   echo "Please edit env_variables.sh and set these values before proceeding." >&2
+  has_error=true
+fi
+
+missing_contexts=()
+for ctx in "${K8S_CTX_0:-}" "${K8S_CTX_1:-}"; do
+  if [[ -n "${ctx}" ]] && ! kubectl config get-contexts "${ctx}" &>/dev/null; then
+    missing_contexts+=("${ctx}")
+  fi
+done
+
+if (( ${#missing_contexts[@]} )); then
+  echo "ERROR: Kubernetes context(s) not found:" >&2
+  for ctx in "${missing_contexts[@]}"; do echo "  - ${ctx}" >&2; done
+  echo "Available contexts:" >&2
+  kubectl config get-contexts -o name >&2
+  has_error=true
+fi
+
+if [[ "${has_error}" == "true" ]]; then
+  false
 else
-  for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
-    if ! kubectl config get-contexts "${ctx}" &>/dev/null; then
-      echo "ERROR: Kubernetes context '${ctx}' does not exist." >&2
-      kubectl config get-contexts -o name
-      exit 1
-    fi
-  done
   echo "[ok] All required environment variables are set"
   echo "  Kubernetes contexts: ${K8S_CTX_0}, ${K8S_CTX_1}"
   echo "  Namespace: ${MDB_NS}"

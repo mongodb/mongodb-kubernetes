@@ -1,9 +1,6 @@
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   kubectl create namespace "${MDB_NS}" --context "${ctx}" --dry-run=client -o yaml | \
     kubectl apply --context "${ctx}" -f -
-  # The service mesh provides cross-cluster service discovery and routing:
-  # without sidecar injection the MongoDB members cannot reach each other
-  # across clusters.
   kubectl label namespace "${MDB_NS}" istio-injection=enabled --overwrite --context "${ctx}"
 done
 

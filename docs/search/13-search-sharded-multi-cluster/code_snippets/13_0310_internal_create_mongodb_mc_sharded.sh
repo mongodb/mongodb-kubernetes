@@ -4,17 +4,6 @@ echo "  mongods per shard per cluster: ${MDB_MONGODS_PER_SHARD_PER_CLUSTER}"
 echo "  mongos per cluster: ${MDB_MONGOS_PER_CLUSTER}"
 echo "  Config servers per cluster: ${MDB_CONFIG_SERVERS_PER_CLUSTER}"
 
-# On multi-cluster, the operator does NOT auto-wire mongod/mongos -> mongot:
-# the multi-cluster topology has no search automation, and a multi-cluster
-# MongoDBSearch (spec.clusters > 1) consumes the source as an external
-# deployment. The search setParameters are therefore configured by hand:
-#   - per shard via spec.shardOverrides[].additionalMongodConfig
-#   - for the routers via spec.mongos.additionalMongodConfig
-# Each shard targets its own per-(cluster,shard) Envoy proxy Service; mongos
-# targets the cluster-level Envoy proxy Service. The endpoints below resolve
-# to cluster index 0's Envoy (there is no per-cluster additionalMongodConfig
-# today; cluster 0's proxy Services are reachable from every member cluster
-# over the service mesh).
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDB

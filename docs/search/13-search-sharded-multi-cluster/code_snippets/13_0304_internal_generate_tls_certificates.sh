@@ -1,10 +1,5 @@
 echo "Generating TLS certificates for the MongoDB sharded cluster..."
 
-# Per-component certificates for the source sharded cluster: one per shard,
-# plus the config server and mongos. They are issued only on the central
-# cluster: the MongoDB controller replicates the resulting Secrets to the
-# member clusters automatically. A wildcard SAN covers every per-pod Service
-# FQDN in the namespace.
 for component in "${MDB_SHARD_0_NAME}" "${MDB_SHARD_1_NAME}" "${MDB_SHARD_2_NAME}" \
   "${MDB_RESOURCE_NAME}-config" "${MDB_RESOURCE_NAME}-mongos"; do
   cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${component}-cert"
@@ -16,8 +11,8 @@ metadata:
   name: ${cert_name}
 spec:
   secretName: ${cert_name}
-  duration: 8760h    # 1 year
-  renewBefore: 720h  # 30 days
+  duration: 8760h
+  renewBefore: 720h
   privateKey:
     algorithm: RSA
     size: 2048

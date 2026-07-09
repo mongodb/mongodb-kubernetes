@@ -1,9 +1,5 @@
 echo "Creating TLS certificates for MongoDB Search (mongot) pods..."
 
-# One certificate per (cluster, shard) mongot StatefulSet. All are issued on
-# the central cluster and replicated to the member clusters by 13_0317 (the
-# operator does not auto-replicate Search Secrets). A wildcard SAN covers
-# every per-(cluster,shard) Service and proxy-Service FQDN.
 for ci in 0 1; do
   for shard_name in "${MDB_SHARD_0_NAME}" "${MDB_SHARD_1_NAME}" "${MDB_SHARD_2_NAME}"; do
     cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-${shard_name}-cert"
@@ -15,8 +11,8 @@ metadata:
   name: ${cert_name}
 spec:
   secretName: ${cert_name}
-  duration: 8760h    # 1 year
-  renewBefore: 720h  # 30 days
+  duration: 8760h
+  renewBefore: 720h
   privateKey:
     algorithm: RSA
     size: 2048
