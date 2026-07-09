@@ -11,23 +11,23 @@ from typing import Callable, List, Tuple
 
 import kubernetes
 import pytest
+from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
-from kubetester.kubetester import run_periodically
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from kubernetes.client.rest import ApiException
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
-from tests.common.search.connectivity import wait_for_mongot_pvcs_deleted
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import wait_for_mongot_pvcs_deleted
 from tests.common.search.mc_search_helper import (
     _assert_mongot_host_on_disk,
     assert_mongot_sync_source_hosts,
@@ -675,7 +675,9 @@ def test_delete_search_resources_cleanup_per_cluster(
             timeout=600,
         )
         _wait_for_not_found(
-            lambda n=names["envoy_deployment"]: mcc.apps_v1_api().read_namespaced_deployment(name=n, namespace=namespace),
+            lambda n=names["envoy_deployment"]: mcc.apps_v1_api().read_namespaced_deployment(
+                name=n, namespace=namespace
+            ),
             f"Envoy Deployment {names['envoy_deployment']} in {mcc.cluster_name}",
             timeout=600,
         )

@@ -40,13 +40,12 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
+from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY, wait_for_mongot_pvcs_deleted
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
     EmbeddedMoviesSearchHelper,
     SampleMoviesSearchHelper,
 )
-from tests.common.search.connectivity import wait_for_mongot_pvcs_deleted
 from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
@@ -1336,7 +1335,9 @@ def test_delete_search_resource_cleans_all_member_cluster_artifacts(
             timeout=600,
         )
         _wait_for_not_found(
-            lambda n=names["envoy_deployment"]: mcc.apps_v1_api().read_namespaced_deployment(name=n, namespace=namespace),
+            lambda n=names["envoy_deployment"]: mcc.apps_v1_api().read_namespaced_deployment(
+                name=n, namespace=namespace
+            ),
             f"Envoy Deployment {names['envoy_deployment']} in {mcc.cluster_name}",
             timeout=600,
         )
