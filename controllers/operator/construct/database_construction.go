@@ -740,7 +740,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/mongodb_marker && exec -a mongodb_marker sleep 999999999"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/mongodb_marker && exec -a mongodb_marker tail -f /dev/null"}),
 		configureContainerSecurityContext,
 	)}
 
@@ -749,7 +749,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{""}),
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && exec -a agent-utilities-holder_marker sleep 999999999"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && exec -a agent-utilities-holder_marker tail -f /dev/null"}),
 		configureContainerSecurityContext,
 	)}
 
