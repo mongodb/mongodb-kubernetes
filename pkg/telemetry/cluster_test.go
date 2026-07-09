@@ -157,7 +157,7 @@ func TestGetKubernetesClusterProperty(t *testing.T) {
 	// Run test cases
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			property := getKubernetesClusterProperty(ctx, tt.discoveryClient, tt.uncachedClient)
+			property := getKubernetesClusterProperty(ctx, tt.discoveryClient, tt.uncachedClient, DefaultKubeTimeout)
 
 			assert.Equal(t, tt.expectedClusterID, property.KubernetesClusterID, "Cluster ID mismatch")
 			assert.Equal(t, tt.expectedAPIVersion, property.KubernetesAPIVersion, "API version mismatch")
@@ -223,7 +223,7 @@ func TestGetKubernetesClusterUUID(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithObjects(namespace).Build()
-	uuid := getKubernetesClusterUUID(ctx, fakeClient)
+	uuid := getKubernetesClusterUUID(ctx, fakeClient, DefaultKubeTimeout)
 
 	assert.Equal(t, "fake-uuid", uuid)
 }
