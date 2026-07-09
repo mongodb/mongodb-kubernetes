@@ -2,7 +2,6 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -11,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
@@ -464,28 +462,10 @@ func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, ad
 // Function to collect and return the environment variables to be used in the
 // MongoDB container.
 func collectEnvVars() []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-
-	envVars = append(envVars, corev1.EnvVar{
-		Name:  agentHealthStatusFilePathEnv,
-		Value: "/healthstatus/agent-health-status.json",
-	})
-
-	addEnvVarIfSet := func(name string) {
-		value := os.Getenv(name) // nolint:forbidigo
-		if value != "" {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  name,
-				Value: value,
-			})
-		}
+	return []corev1.EnvVar{
+		{
+			Name:  agentHealthStatusFilePathEnv,
+			Value: "/healthstatus/agent-health-status.json",
+		},
 	}
-
-	addEnvVarIfSet(config.ReadinessProbeLoggerBackups)
-	addEnvVarIfSet(config.ReadinessProbeLoggerMaxSize)
-	addEnvVarIfSet(config.ReadinessProbeLoggerMaxAge)
-	addEnvVarIfSet(config.ReadinessProbeLoggerCompress)
-	addEnvVarIfSet(config.WithAgentFileLogging)
-
-	return envVars
 }
