@@ -11,10 +11,6 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-  source "${PROJECT_DIR}/venv/bin/activate"
-fi
-
 mkdir -p "$(go env GOPATH)/bin"
 
 update_mco_tests() {
