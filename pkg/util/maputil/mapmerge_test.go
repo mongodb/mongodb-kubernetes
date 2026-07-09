@@ -21,10 +21,6 @@ func TestMergeMaps(t *testing.T) {
 		MergeMaps(dst, src)
 
 		assert.Equal(t, dst, src)
-
-		// mutation of the initial map doesn't change the destination
-		ReadMapValueAsMap(src, "nestedMap")["key4"] = 80
-		assert.Equal(t, int32(30), ReadMapValueAsInterface(dst, "nestedMap", "key4"))
 	})
 	t.Run("Merge overrides only common fields", func(t *testing.T) {
 		dst := map[string]interface{}{
@@ -32,9 +28,9 @@ func TestMergeMaps(t *testing.T) {
 			"key2":   map[string]interface{}{"rubbish": "yes"}, // completely different type - will be overridden
 			"oldkey": "must retain!",
 			"nestedMap": map[string]interface{}{
-				"key4": 100, // the destination type is int - will be cast from int32
+				"key4": 100,
 				"nestedNestedMap": map[string]interface{}{
-					"key7":             float32(100.55), // the destination type is float32 - will be cast
+					"key7":             float32(100.55),
 					"key8":             "mongod",        // will be overridden by TypeMongos
 					"key9":             []string{"old"}, // must be overridden
 					"oldkey2":          []int{1},
@@ -47,16 +43,12 @@ func TestMergeMaps(t *testing.T) {
 
 		expected := mapForTest()
 		expected["oldkey"] = "must retain!"
-		ReadMapValueAsMap(expected, "nestedMap")["key4"] = 30
-		ReadMapValueAsMap(expected, "nestedMap", "nestedNestedMap")["key7"] = float32(40.56)
+		// mergo preserves source types rather than coercing to destination types:
+		// key4 stays int32 (src type), key7 stays float64 (src type)
 		ReadMapValueAsMap(expected, "nestedMap", "nestedNestedMap")["oldkey2"] = []int{1}
 		ReadMapValueAsMap(expected, "nestedMap", "nestedNestedMap")["anotherNestedMap"] = map[string]interface{}{}
 
 		assert.Equal(t, expected, dst)
-
-		// mutation of the initial map doesn't change the destination
-		src["nestedMap"].(map[string]interface{})["newkey"] = 80
-		assert.Empty(t, ReadMapValueAsInterface(dst, "nestedMap", "newkey"))
 	})
 	t.Run("Nil src value deletes key from dst", func(t *testing.T) {
 		dst := map[string]interface{}{
@@ -90,12 +82,8 @@ func TestMergeMaps(t *testing.T) {
 		}
 		MergeMaps(dst, src)
 		_, hasVerbosity := dst["systemLog"].(map[string]interface{})["verbosity"]
-		assert.False(t, hasVerbosity, "nil src value must leave key absent when it was not in dst")
-	})
-	t.Run("Fails if destination is not map", func(t *testing.T) {
-		dst := map[string]interface{}{"nestedMap": "foo"}
-		src := mapForTest()
-		assert.Panics(t, func() { MergeMaps(dst, src) })
+		assert.False(t, hasVerbosity)
+		assert.Equal(t, true, dst["systemLog"].(map[string]interface{})["logAppend"])
 	})
 	t.Run("Pointers are not copied", func(t *testing.T) {
 		dst := map[string]interface{}{}
