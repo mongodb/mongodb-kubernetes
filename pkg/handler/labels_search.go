@@ -15,6 +15,7 @@ import (
 const (
 	MongoDBSearchOwnerNameLabel      = "mongodb.com/search-name"
 	MongoDBSearchOwnerNamespaceLabel = "mongodb.com/search-namespace"
+	MongoDBSearchOwnerUIDLabel       = "mongodb.com/search-uid"
 	// MongoDBSearchClusterNameLabel records the owning member cluster on
 	// per-cluster member resources (Envoy Deployment + ConfigMap).
 	MongoDBSearchClusterNameLabel = "mongodb.com/cluster-name"

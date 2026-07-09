@@ -146,7 +146,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 		statefulset.WithNamespace(namespace),
 		statefulset.WithServiceName(svcName),
 		statefulset.WithLabels(labels),
-		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
 		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),

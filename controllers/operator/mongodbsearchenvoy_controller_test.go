@@ -45,6 +45,9 @@ import (
 // behaviour seed this CM before constructing the reconciler.
 func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searchName, ns string, routingReady []string) {
 	t.Helper()
+	search := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: searchName, Namespace: ns}, search))
+
 	state := searchcontroller.SearchDeploymentState{
 		RoutingReadyMongotGroups: routingReady,
 	}
@@ -54,10 +57,16 @@ func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searc
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      searchName + "-search-state",
 			Namespace: ns,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+				khandler.MongoDBSearchOwnerUIDLabel:       string(search.UID),
+			},
 		},
 		Data: map[string]string{stateKey: string(raw)},
 	}
-	require.NoError(t, c.Create(ctx, cm))
+	err = c.Create(ctx, cm)
+	require.NoError(t, err)
 }
 
 func TestBuildReplicaSetRoute(t *testing.T) {
@@ -1122,6 +1131,33 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	require.NotNil(t, patched.Status.LoadBalancer)
 	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase)
 	assert.Contains(t, patched.Status.LoadBalancer.Message, "missing-cluster")
+}
+
+func TestReconcile_DeletionTimestampShortCircuits(t *testing.T) {
+	ctx := context.Background()
+	now := metav1.Now()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "mdb-search",
+			Namespace:         "ns",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"kubernetes"},
+		},
+		Spec: searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{}}},
+	}
+
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, updated))
+	assert.Nil(t, updated.Status.LoadBalancer)
 }
 
 func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {

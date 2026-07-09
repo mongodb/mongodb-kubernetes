@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -17,6 +18,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
@@ -29,7 +31,7 @@ func decodeStateJSON(cm *corev1.ConfigMap, dst interface{}) error {
 }
 
 // The routing-ready switch persists through RV-checked read-modify-writes on the
-// state ConfigMap: creation with owner metadata, monotonic appends, no-op
+// state ConfigMap: creation with search-owner labels, monotonic appends, no-op
 // rewrites, pruning, and 409 Conflict on a stale base instead of a silent lost update.
 func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 	ctx := context.Background()
@@ -52,7 +54,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		return st
 	}
 
-	t.Run("first mark creates the state CM with owner metadata", func(t *testing.T) {
+	t.Run("first mark creates the state CM with search-owner labels", func(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		helper := newHelper(c)
 		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
@@ -61,11 +63,11 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		cm := &corev1.ConfigMap{}
 		require.NoError(t, c.Get(ctx, stateCMName, cm))
 		assert.Equal(t, []string{"sh-0"}, readState(t, c).RoutingReadyMongotGroups)
-		require.Len(t, cm.OwnerReferences, 1)
-		assert.Equal(t, search.UID, cm.OwnerReferences[0].UID)
-		for k, v := range search.GetOwnerLabels() {
+		assert.Empty(t, cm.OwnerReferences)
+		for k, v := range searchOwnerLabels(search, "") {
 			assert.Equal(t, v, cm.Labels[k], "owner label %s", k)
 		}
+		assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
 	})
 
 	t.Run("mark appends to an existing switch", func(t *testing.T) {
@@ -78,6 +80,39 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 
 		require.NoError(t, newHelper(c).markRoutingReady(ctx, "sh-1"))
 		assert.Equal(t, []string{"sh-0", "sh-1"}, readState(t, c).RoutingReadyMongotGroups)
+	})
+
+	t.Run("uid mismatch resets stale state before mutate", func(t *testing.T) {
+		c := mock.NewEmptyFakeClientBuilder().Build()
+		staleState, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stale-shard"}})
+		require.NoError(t, err)
+		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      stateCMName.Name,
+				Namespace: stateCMName.Namespace,
+				Labels: map[string]string{
+					khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+					khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+					khandler.MongoDBSearchOwnerUIDLabel:       "old-search-uid",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind: "MongoDBSearch",
+					Name: search.Name,
+					UID:  types.UID("old-search-uid"),
+				}},
+			},
+			Data: map[string]string{searchStateKey: string(staleState)},
+		}))
+
+		helper := newHelper(c)
+		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
+		assert.Equal(t, []string{"sh-0"}, readState(t, c).RoutingReadyMongotGroups)
+		assert.False(t, switchedOn(helper, "stale-shard"))
+
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, c.Get(ctx, stateCMName, cm))
+		assert.Empty(t, cm.OwnerReferences)
+		assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
 	})
 
 	t.Run("already-on switch is a no-op write", func(t *testing.T) {
@@ -141,4 +176,35 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, apierrors.IsConflict(err), "stale base must surface 409 Conflict, got: %v", err)
 	})
+}
+
+func TestReadSearchState_UIDMismatchReturnsFreshState(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch("mysearch", mock.TestNamespace)
+	search.UID = "new-search-uid"
+
+	staleStateRaw, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stale-shard"}})
+	require.NoError(t, err)
+
+	staleCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      SearchStateCMName(search),
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+				khandler.MongoDBSearchOwnerUIDLabel:       "old-search-uid",
+			},
+		},
+		Data: map[string]string{searchStateKey: string(staleStateRaw)},
+	}
+
+	c := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(staleCM).Build())
+	state, err := ReadSearchState(ctx, c, search)
+	require.NoError(t, err)
+	assert.Empty(t, state.RoutingReadyMongotGroups, "stale state must not be carried over to the new Search UID")
+
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: staleCM.Name, Namespace: staleCM.Namespace}, cm))
+	assert.Equal(t, "old-search-uid", cm.Labels[khandler.MongoDBSearchOwnerUIDLabel], "ReadSearchState must stay read-only")
 }

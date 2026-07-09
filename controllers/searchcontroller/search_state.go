@@ -11,6 +11,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -50,6 +51,16 @@ func searchStateFromCM(cm *corev1.ConfigMap) (*SearchDeploymentState, error) {
 	return state, nil
 }
 
+func searchStateLabels(search *searchv1.MongoDBSearch) map[string]string {
+	labels := searchOwnerLabels(search, "")
+	labels[khandler.MongoDBSearchOwnerUIDLabel] = string(search.UID)
+	return labels
+}
+
+func searchStateHasCurrentUID(cm *corev1.ConfigMap, search *searchv1.MongoDBSearch) bool {
+	return cm.Labels[khandler.MongoDBSearchOwnerUIDLabel] == string(search.UID)
+}
+
 // ReadSearchState reads the per-CR state ConfigMap, treating NotFound as fresh
 // state. Strictly read-only: it never creates or updates the ConfigMap, so it is
 // safe to call from controllers that must not write state (e.g. the Envoy
@@ -66,6 +77,9 @@ func ReadSearchState(
 		}
 		return nil, err
 	}
+	if !searchStateHasCurrentUID(cm, search) {
+		return NewSearchDeploymentState(), nil
+	}
 	return searchStateFromCM(cm)
 }
 
@@ -73,7 +87,9 @@ func ReadSearchState(
 // search state ConfigMap: a stale base yields 409 Conflict and the reconcile
 // requeues, instead of silently losing a concurrent write (do NOT replace this
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
-// true when the state changed and must be persisted.
+// true when the state changed and must be persisted. If the ConfigMap's
+// search-uid label does not match this CR's UID, state is reset to a fresh
+// incarnation before mutate runs.
 func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
 	cmName := SearchStateCMName(search)
 	cm := &corev1.ConfigMap{}
@@ -90,8 +106,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		newCM := configmap.Builder().
 			SetName(cmName).
 			SetNamespace(search.Namespace).
-			SetLabels(search.GetOwnerLabels()).
-			SetOwnerReferences(kube.BaseOwnerReference(search)).
+			SetLabels(searchStateLabels(search)).
 			SetDataField(searchStateKey, string(data)).
 			Build()
 		return state, c.Create(ctx, &newCM)
@@ -99,18 +114,41 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		return nil, err
 	}
 
-	state, err := searchStateFromCM(cm)
-	if err != nil {
-		return nil, err
+	uidMatches := searchStateHasCurrentUID(cm, search)
+	state := NewSearchDeploymentState()
+	if uidMatches {
+		state, err = searchStateFromCM(cm)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if !mutate(state) {
+
+	stateChanged := mutate(state)
+
+	metadataChanged := false
+	if len(cm.OwnerReferences) > 0 {
+		cm.OwnerReferences = nil
+		metadataChanged = true
+	}
+	if cm.Labels == nil {
+		cm.Labels = map[string]string{}
+	}
+	for k, v := range searchStateLabels(search) {
+		if cm.Labels[k] != v {
+			cm.Labels[k] = v
+			metadataChanged = true
+		}
+	}
+
+	if !stateChanged && uidMatches && !metadataChanged {
 		return state, nil
 	}
+
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
 	}
-	if cm.Data == nil {
+	if cm.Data == nil || !uidMatches {
 		cm.Data = map[string]string{}
 	}
 	cm.Data[searchStateKey] = string(data)

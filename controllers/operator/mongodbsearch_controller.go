@@ -2,10 +2,12 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -87,6 +89,7 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
 
 type MongoDBSearchReconciler struct {
 	kubeClient           kubernetesClient.Client
+	uncachedReader       client.Reader
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
@@ -97,6 +100,7 @@ type MongoDBSearchReconciler struct {
 
 func newMongoDBSearchReconciler(
 	kubeClient client.Client,
+	apiReader client.Reader,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
 	memberClustersMap map[string]client.Client,
 	operatorClusterName string,
@@ -106,8 +110,13 @@ func newMongoDBSearchReconciler(
 		clientsMap[k] = kubernetesClient.NewClient(v)
 	}
 
+	if apiReader == nil {
+		apiReader = kubeClient
+	}
+
 	return &MongoDBSearchReconciler{
 		kubeClient:              kubernetesClient.NewClient(kubeClient),
+		uncachedReader:          apiReader,
 		watch:                   watch.NewResourceWatcher(),
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
@@ -121,8 +130,30 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	log.Info("-> MongoDBSearch.Reconcile")
 
 	mdbSearch := &searchv1.MongoDBSearch{}
-	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
-		return result, err
+	if err := r.kubeClient.Get(ctx, request.NamespacedName, mdbSearch); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.Errorf("Failed to query object %s: %s", request.NamespacedName, err)
+			return reconcile.Result{RequeueAfter: 10 * time.Second}, err
+		}
+
+		absent, confirmErr := r.confirmSearchAbsentWithAPIReader(ctx, request.NamespacedName)
+		if confirmErr != nil {
+			return reconcile.Result{}, confirmErr
+		}
+		if !absent {
+			log.Infof("MongoDBSearch %s still exists in uncached reader; skipping NotFound sweep", request.NamespacedName)
+			return reconcile.Result{}, nil
+		}
+
+		if sweepErr := r.sweepOwnedResourcesOnSearchNotFound(ctx, request.NamespacedName, log); sweepErr != nil {
+			return reconcile.Result{}, sweepErr
+		}
+		return reconcile.Result{}, nil
+	}
+
+	if !mdbSearch.DeletionTimestamp.IsZero() {
+		log.Infof("MongoDBSearch %s/%s is deleting; skipping main-controller reconcile", mdbSearch.Namespace, mdbSearch.Name)
+		return reconcile.Result{}, nil
 	}
 
 	// Short-circuit: the disable-reconciliation annotation allows to
@@ -238,6 +269,96 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 	return getSearchSource(ctx, kubeClient, r.watch, search, log)
 }
 
+func (r *MongoDBSearchReconciler) confirmSearchAbsentWithAPIReader(ctx context.Context, nsName types.NamespacedName) (bool, error) {
+	search := &searchv1.MongoDBSearch{}
+	if err := r.uncachedReader.Get(ctx, nsName, search); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, xerrors.Errorf("failed to confirm MongoDBSearch absence for %s via uncached reader: %w", nsName, err)
+	}
+	return false, nil
+}
+
+func (r *MongoDBSearchReconciler) sweepOwnedResourcesOnSearchNotFound(ctx context.Context, nsName types.NamespacedName, log *zap.SugaredLogger) error {
+	searchSelector := client.MatchingLabels{
+		khandler.MongoDBSearchOwnerNameLabel:      nsName.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: nsName.Namespace,
+	}
+
+	clusters := []struct {
+		name   string
+		client kubernetesClient.Client
+	}{
+		{name: "central", client: r.kubeClient},
+	}
+	for clusterName, memberClient := range r.memberClusterClientsMap {
+		clusters = append(clusters, struct {
+			name   string
+			client kubernetesClient.Client
+		}{name: clusterName, client: memberClient})
+	}
+
+	orderedKinds := []struct {
+		kind    string
+		newList func() client.ObjectList
+	}{
+		{kind: "Deployment", newList: func() client.ObjectList { return &appsv1.DeploymentList{} }},
+		{kind: "StatefulSet", newList: func() client.ObjectList { return &appsv1.StatefulSetList{} }},
+		{kind: "Service", newList: func() client.ObjectList { return &corev1.ServiceList{} }},
+		{kind: "ConfigMap", newList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
+		{kind: "Secret", newList: func() client.ObjectList { return &corev1.SecretList{} }},
+	}
+
+	var errs error
+	for _, k := range orderedKinds {
+		for _, cluster := range clusters {
+			if err := r.sweepOwnedResourceKind(ctx, nsName, cluster.client, cluster.name, k.kind, k.newList(), searchSelector, log); err != nil {
+				errs = errors.Join(errs, err)
+			}
+		}
+	}
+	return errs
+}
+
+func (r *MongoDBSearchReconciler) sweepOwnedResourceKind(
+	ctx context.Context,
+	search types.NamespacedName,
+	c kubernetesClient.Client,
+	clusterName string,
+	kind string,
+	list client.ObjectList,
+	selector client.MatchingLabels,
+	log *zap.SugaredLogger,
+) error {
+	if err := c.List(ctx, list, client.InNamespace(search.Namespace), selector); err != nil {
+		return xerrors.Errorf("failed listing %ss for deleted MongoDBSearch %s on cluster %q: %w", kind, search, clusterName, err)
+	}
+	items, err := meta.ExtractList(list)
+	if err != nil {
+		return xerrors.Errorf("failed extracting %s list for deleted MongoDBSearch %s on cluster %q: %w", kind, search, clusterName, err)
+	}
+
+	var errs error
+	for _, item := range items {
+		obj, ok := item.(client.Object)
+		if !ok || !ownsSearchForSweep(search, obj) {
+			continue
+		}
+		log.Infof("Deleting %s %s for deleted MongoDBSearch %s on cluster %q", kind, obj.GetName(), search, clusterName)
+		if err := c.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+			errs = errors.Join(errs, xerrors.Errorf("failed deleting %s %s for deleted MongoDBSearch %s on cluster %q: %w", kind, obj.GetName(), search, clusterName, err))
+		}
+	}
+	return errs
+}
+
+func ownsSearchForSweep(search types.NamespacedName, obj client.Object) bool {
+	labels := obj.GetLabels()
+	return labels[khandler.MongoDBSearchOwnerNameLabel] == search.Name &&
+		labels[khandler.MongoDBSearchOwnerNamespaceLabel] == search.Namespace
+}
+
 // getSearchSource resolves the source database for a MongoDBSearch resource.
 // Shared by both the main search controller and the Envoy controller.
 func getSearchSource(ctx context.Context, kubeClient client.Client, watcher *watch.ResourceWatcher, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
@@ -306,6 +427,7 @@ func AddMongoDBSearchController(
 
 	r := newMongoDBSearchReconciler(
 		mgr.GetClient(),
+		mgr.GetAPIReader(),
 		operatorSearchConfig,
 		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
 		operatorClusterName,
@@ -319,7 +441,6 @@ func AddMongoDBSearchController(
 		return err
 	}
 
-	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
 	centralWatches := []struct {
 		obj     client.Object
 		handler handler.EventHandler
@@ -329,9 +450,6 @@ func AddMongoDBSearchController(
 		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
 		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},
 		{&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}},
-		{&appsv1.StatefulSet{}, ownerHandler},
-		{&corev1.Service{}, ownerHandler},
-		{&corev1.Secret{}, ownerHandler},
 	}
 	for _, w := range centralWatches {
 		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler)); err != nil {

@@ -16,13 +16,14 @@ is exercised opportunistically when the deployed mongot image supports replicati
 import json
 import os
 import re
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import kubernetes
 import pymongo.errors
 import pytest
 import yaml
 from kubernetes.client import CoreV1Api
+from kubernetes.client.rest import ApiException
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
@@ -45,6 +46,7 @@ from tests.common.search.movies_search_helper import (
     EmbeddedMoviesSearchHelper,
     SampleMoviesSearchHelper,
 )
+from tests.common.search.connectivity import wait_for_mongot_pvcs_deleted
 from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
@@ -515,6 +517,55 @@ def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str
     return f"{mdbs_name}-search-lb-{cluster_index}-config"
 
 
+def _operator_managed_tls_secret_name(mdbs_name: str) -> str:
+    return f"{mdbs_name}-search-certificate-key"
+
+
+def _mongot_data_pvc_names(mcc: MultiClusterClient, namespace: str, sts_name: str) -> List[str]:
+    prefix = f"data-{sts_name}-"
+    return [
+        pvc.metadata.name
+        for pvc in mcc.core_v1_api().list_namespaced_persistent_volume_claim(namespace).items
+        if pvc.metadata.name.startswith(prefix)
+    ]
+
+
+def _assert_no_owner_refs(owner_refs: list | None, where: str) -> None:
+    owner_refs = owner_refs or []
+    assert not owner_refs, f"{where} must have no ownerReferences in multi-cluster mode, got {owner_refs}"
+
+
+def _wait_for_not_found(read_fn: Callable[[], object], what: str, timeout: int = 300) -> None:
+    def deleted() -> tuple[bool, str]:
+        try:
+            read_fn()
+            return False, f"{what} still present"
+        except ApiException as exc:
+            if exc.status == 404:
+                return True, f"{what} deleted"
+            raise
+
+    run_periodically(deleted, timeout=timeout, sleep_time=5, msg=f"{what} cleanup")
+
+
+def _wait_for_search_deleted(mdbs: MongoDBSearch, timeout: int = 300) -> None:
+    def deleted() -> tuple[bool, str]:
+        try:
+            mdbs.load()
+            return False, f"MongoDBSearch {mdbs.name} still present"
+        except ApiException as exc:
+            if exc.status == 404:
+                return True, f"MongoDBSearch {mdbs.name} deleted"
+            raise
+
+    run_periodically(
+        deleted,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"MongoDBSearch {mdbs.name} deletion",
+    )
+
+
 def _read_mongod_set_parameter(
     pod_name: str,
     namespace: str,
@@ -758,6 +809,116 @@ def test_verify_per_cluster_envoy_deployment(
         _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_named_single_cluster_shape_no_owner_refs_and_cleanup(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    mdb: MongoDBMulti,
+    ca_configmap: str,
+):
+    target_cluster = member_cluster_clients[0]
+    target_cluster_name = target_cluster.cluster_name
+    target_cluster_index = _idx(target_cluster)
+    named_single_name = f"{MDBS_RESOURCE_NAME}-named-single"
+
+    named_single = MongoDBSearch.from_yaml(
+        yaml_fixture("search-q2-mc-rs-search.yaml"),
+        name=named_single_name,
+        namespace=namespace,
+    )
+    named_single.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    try_load(named_single)
+
+    seeds = [f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names()]
+    named_single["spec"]["source"] = {
+        "username": MONGOT_USER_NAME,
+        "passwordSecretRef": {
+            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+            "key": "password",
+        },
+        "external": {
+            "hostAndPorts": seeds,
+            "tls": {"ca": {"name": ca_configmap}},
+        },
+    }
+    named_single["spec"]["security"] = {
+        "tls": {
+            "certificateKeySecretRef": {
+                "name": search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+            }
+        },
+    }
+    named_single["spec"]["clusters"] = [
+        {
+            "name": target_cluster_name,
+            "index": target_cluster_index,
+            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+            "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: target_cluster_name}]},
+        }
+    ]
+
+    named_single.update()
+    named_single.assert_reaches_phase(Phase.Running, timeout=900)
+
+    named_single.load()
+    assert len(named_single["spec"]["clusters"]) == 1
+    assert named_single["spec"]["clusters"][0]["name"] == target_cluster_name
+
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(named_single_name, target_cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(named_single_name, target_cluster_index)
+    cm_name = search_resource_names.mongot_configmap_name_for_cluster(named_single_name, target_cluster_index)
+    operator_tls_secret = _operator_managed_tls_secret_name(named_single_name)
+
+    sts = target_cluster.read_namespaced_stateful_set(sts_name, namespace)
+    svc = target_cluster.read_namespaced_service(svc_name, namespace)
+    cm = target_cluster.read_namespaced_config_map(cm_name, namespace)
+    tls_secret = target_cluster.core_v1_api().read_namespaced_secret(operator_tls_secret, namespace)
+    _assert_no_owner_refs(sts.metadata.owner_references, f"STS {sts_name} ({target_cluster_name})")
+    _assert_no_owner_refs(svc.metadata.owner_references, f"Service {svc_name} ({target_cluster_name})")
+    _assert_no_owner_refs(cm.metadata.owner_references, f"ConfigMap {cm_name} ({target_cluster_name})")
+    _assert_no_owner_refs(tls_secret.metadata.owner_references, f"Secret {operator_tls_secret} ({target_cluster_name})")
+
+    for other_cluster in member_cluster_clients:
+        if other_cluster.cluster_name == target_cluster_name:
+            continue
+        try:
+            other_cluster.read_namespaced_stateful_set(sts_name, namespace)
+            raise AssertionError(
+                f"[{other_cluster.cluster_name}] unexpectedly found {sts_name}; "
+                f"named single-cluster spec should only materialize resources on {target_cluster_name}"
+            )
+        except ApiException as exc:
+            assert exc.status == 404, f"[{other_cluster.cluster_name}] unexpected error while reading {sts_name}: {exc}"
+
+    pvcs_before = _mongot_data_pvc_names(target_cluster, namespace, sts_name)
+    assert pvcs_before, f"expected at least one mongot data PVC for {sts_name} before delete"
+
+    named_single.delete()
+    _wait_for_search_deleted(named_single, timeout=600)
+    _wait_for_not_found(
+        lambda: target_cluster.read_namespaced_stateful_set(sts_name, namespace),
+        f"STS {sts_name} in {target_cluster_name}",
+        timeout=600,
+    )
+    _wait_for_not_found(
+        lambda: target_cluster.read_namespaced_service(svc_name, namespace),
+        f"Service {svc_name} in {target_cluster_name}",
+        timeout=600,
+    )
+    _wait_for_not_found(
+        lambda: target_cluster.read_namespaced_config_map(cm_name, namespace),
+        f"ConfigMap {cm_name} in {target_cluster_name}",
+        timeout=600,
+    )
+    _wait_for_not_found(
+        lambda: target_cluster.core_v1_api().read_namespaced_secret(operator_tls_secret, namespace),
+        f"operator-managed TLS secret {operator_tls_secret} in {target_cluster_name}",
+        timeout=600,
+    )
+    wait_for_mongot_pvcs_deleted(namespace, sts_name, api_client=target_cluster.api_client, timeout=300)
 
 
 @mark.e2e_search_q2_mc_rs_steady
@@ -1116,3 +1277,77 @@ def test_per_cluster_vector_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $vectorSearch query to succeed",
         )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_delete_search_resource_cleans_all_member_cluster_artifacts(
+    namespace: str,
+    mdbs: MongoDBSearch,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    resource_by_cluster: List[tuple[MultiClusterClient, dict]] = []
+    for mcc in member_cluster_clients:
+        cluster_idx = helper.cluster_index(mcc.cluster_name)
+        names = {
+            "sts": search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
+            "svc": search_resource_names.mongot_service_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
+            "proxy": search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, cluster_idx),
+            "mongot_cm": _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, cluster_idx),
+            "envoy_deployment": _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx),
+            "envoy_cm": _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx),
+            "operator_tls_secret": _operator_managed_tls_secret_name(MDBS_RESOURCE_NAME),
+        }
+
+        mcc.read_namespaced_stateful_set(names["sts"], namespace)
+        mcc.read_namespaced_service(names["svc"], namespace)
+        mcc.read_namespaced_service(names["proxy"], namespace)
+        mcc.read_namespaced_config_map(names["mongot_cm"], namespace)
+        mcc.apps_v1_api().read_namespaced_deployment(name=names["envoy_deployment"], namespace=namespace)
+        mcc.read_namespaced_config_map(names["envoy_cm"], namespace)
+        mcc.core_v1_api().read_namespaced_secret(names["operator_tls_secret"], namespace)
+        pvcs_before = _mongot_data_pvc_names(mcc, namespace, names["sts"])
+        assert pvcs_before, f"expected at least one mongot data PVC for {names['sts']} before delete"
+
+        resource_by_cluster.append((mcc, names))
+
+    mdbs.delete()
+    _wait_for_search_deleted(mdbs, timeout=600)
+
+    for mcc, names in resource_by_cluster:
+        _wait_for_not_found(
+            lambda n=names["sts"]: mcc.read_namespaced_stateful_set(n, namespace),
+            f"STS {names['sts']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        _wait_for_not_found(
+            lambda n=names["svc"]: mcc.read_namespaced_service(n, namespace),
+            f"Service {names['svc']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        _wait_for_not_found(
+            lambda n=names["proxy"]: mcc.read_namespaced_service(n, namespace),
+            f"proxy Service {names['proxy']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        _wait_for_not_found(
+            lambda n=names["mongot_cm"]: mcc.read_namespaced_config_map(n, namespace),
+            f"mongot ConfigMap {names['mongot_cm']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        _wait_for_not_found(
+            lambda n=names["envoy_deployment"]: mcc.apps_v1_api().read_namespaced_deployment(name=n, namespace=namespace),
+            f"Envoy Deployment {names['envoy_deployment']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        _wait_for_not_found(
+            lambda n=names["envoy_cm"]: mcc.read_namespaced_config_map(n, namespace),
+            f"Envoy ConfigMap {names['envoy_cm']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        _wait_for_not_found(
+            lambda n=names["operator_tls_secret"]: mcc.core_v1_api().read_namespaced_secret(n, namespace),
+            f"operator-managed TLS secret {names['operator_tls_secret']} in {mcc.cluster_name}",
+            timeout=600,
+        )
+        wait_for_mongot_pvcs_deleted(namespace, names["sts"], api_client=mcc.api_client, timeout=300)

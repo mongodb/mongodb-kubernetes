@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -186,12 +187,17 @@ func newTestTopologyStateConfigMap(t *testing.T, search *searchv1.MongoDBSearch,
 	state := searchTopologyState{Clusters: map[string]clusterTopologyState{"": clusterState}}
 	stateJSON, err := json.Marshal(state)
 	require.NoError(t, err)
+	data := map[string]string{stateKey: string(stateJSON)}
+	if search.UID != "" {
+		data[stateOwnerUIDKey] = string(search.UID)
+	}
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
 			Namespace: search.Namespace,
+			Labels:    metricsForwarderLabels(search),
 		},
-		Data: map[string]string{stateKey: string(stateJSON)},
+		Data: data,
 	}
 }
 
@@ -221,6 +227,50 @@ func getTopologyState(t *testing.T, c client.Client, search *searchv1.MongoDBSea
 	var state searchTopologyState
 	require.NoError(t, json.Unmarshal([]byte(cm.Data[stateKey]), &state))
 	return state.Clusters[""]
+}
+
+func TestOpenTopologyStateStore_StaleUIDResetsState(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = types.UID("new-search-uid")
+
+	staleState := searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"": {Replicas: 3},
+	}}
+	stateJSON, err := json.Marshal(staleState)
+	require.NoError(t, err)
+
+	staleCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+			Namespace: search.Namespace,
+			Labels:    metricsForwarderLabels(search),
+		},
+		Data: map[string]string{
+			stateKey:         string(stateJSON),
+			stateOwnerUIDKey: "old-search-uid",
+		},
+	}
+
+	r, c := newMetricsForwarderReconciler(testDefaultImage, search, staleCM)
+	store := r.openTopologyStateStore(search)
+
+	_, err = store.ReadState(ctx)
+	require.Error(t, err)
+	assert.True(t, apierrors.IsNotFound(err), "stale owner UID must be treated as reset state")
+
+	freshState := searchTopologyState{Clusters: map[string]clusterTopologyState{"": {Replicas: 1}}}
+	require.NoError(t, store.WriteState(ctx, &freshState, zap.S()))
+
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{
+		Namespace: search.Namespace,
+		Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+	}, cm))
+	assert.Equal(t, string(search.UID), cm.Data[stateOwnerUIDKey])
+	assert.Len(t, cm.OwnerReferences, 0, "topology state ConfigMap must not depend on owner references")
+	assert.Equal(t, search.Name, cm.Labels["mongodb.com/search-name"])
+	assert.Equal(t, search.Namespace, cm.Labels["mongodb.com/search-namespace"])
 }
 
 func reconcileMetricsForwarder(t *testing.T, r *MongoDBSearchMetricsForwarderReconciler, namespace, name string) reconcile.Result {
@@ -368,6 +418,16 @@ func TestMetricsForwarderLabels(t *testing.T) {
 	labels := metricsForwarderLabels(search)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", labels["app"])
 	assert.Equal(t, metricsForwarderLabelName, labels["component"])
+	assert.Equal(t, "my-search", labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	_, hasCluster := labels[khandler.MongoDBSearchClusterNameLabel]
+	assert.False(t, hasCluster, "single-cluster labels must not set cluster-name")
+
+	memberLabels := metricsForwarderLabelsForCluster(search, "us-east", 3)
+	assert.Equal(t, search.MetricsForwarderDeploymentNameForCluster(3), memberLabels["app"])
+	assert.Equal(t, "my-search", memberLabels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", memberLabels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, "us-east", memberLabels[khandler.MongoDBSearchClusterNameLabel])
 
 	podLabels := metricsForwarderPodLabels(search)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", podLabels["app"])

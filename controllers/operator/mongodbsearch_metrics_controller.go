@@ -683,7 +683,11 @@ func (o metricsForwarderStateOwner) GetOwnerLabels() map[string]string {
 }
 
 func (r *MongoDBSearchMetricsForwarderReconciler) openTopologyStateStore(search *searchv1.MongoDBSearch) *StateStore[searchTopologyState] {
-	return NewStateStore[searchTopologyState](metricsForwarderStateOwner{MongoDBSearch: search}, search.GetOwnerReferences(), r.kubeClient)
+	opts := []StateStoreOption{}
+	if search.UID != "" {
+		opts = append(opts, WithStateStoreOwnerUID(string(search.UID)))
+	}
+	return NewStateStore[searchTopologyState](metricsForwarderStateOwner{MongoDBSearch: search}, nil, r.kubeClient, opts...)
 }
 
 // reconcileTopologyState reconciles the topology state for one cluster work item: it detects
@@ -1302,15 +1306,6 @@ func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager
 		return err
 	}
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
-		return err
-	}
-
-	// Central-cluster owned resources (single-cluster path).
-	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, ownerHandler)); err != nil {
-		return err
-	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, ownerHandler)); err != nil {
 		return err
 	}
 
