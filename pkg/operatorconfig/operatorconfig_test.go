@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,25 @@ func TestLoad_AbsentCR(t *testing.T) {
 	// Proxy is a pointer; withDefaults must materialise it and default the policy
 	require.NotNil(t, cfg.Spec.Proxy)
 	assert.Equal(t, operatorv1.ProxyEnvPropagationPolicyNoPropagation, cfg.Spec.Proxy.EnvPropagationPolicy)
+	// Telemetry is a pointer tree; withDefaults must materialise every block and default to Enabled
+	// with the documented frequencies/timeout (opt-out model).
+	require.NotNil(t, cfg.Spec.Telemetry)
+	assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Mode)
+	require.NotNil(t, cfg.Spec.Telemetry.Collection)
+	require.NotNil(t, cfg.Spec.Telemetry.Collection.Frequency)
+	assert.Equal(t, time.Hour, cfg.Spec.Telemetry.Collection.Frequency.Duration)
+	require.NotNil(t, cfg.Spec.Telemetry.Collection.KubeTimeout)
+	assert.Equal(t, 5*time.Minute, cfg.Spec.Telemetry.Collection.KubeTimeout.Duration)
+	require.NotNil(t, cfg.Spec.Telemetry.Collection.Clusters)
+	assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Collection.Clusters.Mode)
+	require.NotNil(t, cfg.Spec.Telemetry.Collection.Deployments)
+	assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Collection.Deployments.Mode)
+	require.NotNil(t, cfg.Spec.Telemetry.Collection.Operators)
+	assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Collection.Operators.Mode)
+	require.NotNil(t, cfg.Spec.Telemetry.Send)
+	assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Send.Mode)
+	require.NotNil(t, cfg.Spec.Telemetry.Send.Frequency)
+	assert.Equal(t, 168*time.Hour, cfg.Spec.Telemetry.Send.Frequency.Duration)
 }
 
 func TestLoad_Proxy(t *testing.T) {
@@ -228,6 +248,79 @@ func TestLoad_MemberClusterRequiredHealthyStreak(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, cfg.Spec.MultiCluster)
 		assert.Equal(t, 7, cfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak)
+	})
+}
+
+func TestLoad_Telemetry(t *testing.T) {
+	t.Run("explicit Disabled master mode is preserved", func(t *testing.T) {
+		cr := &operatorv1.OperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      util.DefaultOperatorConfigName,
+				Namespace: testNamespace,
+			},
+			Spec: operatorv1.OperatorConfigSpec{
+				Telemetry: &operatorv1.TelemetryConfig{
+					Mode: operatorv1.FeatureModeDisabled,
+				},
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(cr).Build()
+
+		cfg, err := Load(context.Background(), c, testNamespace, util.DefaultOperatorConfigName)
+
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Spec.Telemetry)
+		assert.Equal(t, operatorv1.FeatureModeDisabled, cfg.Spec.Telemetry.Mode)
+		// Nested blocks are still materialised and defaulted even when the master switch is off.
+		require.NotNil(t, cfg.Spec.Telemetry.Collection)
+		require.NotNil(t, cfg.Spec.Telemetry.Collection.Frequency)
+		assert.Equal(t, time.Hour, cfg.Spec.Telemetry.Collection.Frequency.Duration)
+		require.NotNil(t, cfg.Spec.Telemetry.Send)
+		assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Send.Mode)
+	})
+
+	t.Run("explicit nested values are preserved and omitted siblings defaulted", func(t *testing.T) {
+		cr := &operatorv1.OperatorConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      util.DefaultOperatorConfigName,
+				Namespace: testNamespace,
+			},
+			Spec: operatorv1.OperatorConfigSpec{
+				Telemetry: &operatorv1.TelemetryConfig{
+					Collection: &operatorv1.TelemetryCollectionConfig{
+						Frequency: &metav1.Duration{Duration: 30 * time.Minute},
+						Clusters: &operatorv1.TelemetryCollectionClustersConfig{
+							Mode: operatorv1.FeatureModeDisabled,
+						},
+					},
+					Send: &operatorv1.TelemetrySendConfig{
+						Mode: operatorv1.FeatureModeDisabled,
+					},
+				},
+			},
+		}
+		c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(cr).Build()
+
+		cfg, err := Load(context.Background(), c, testNamespace, util.DefaultOperatorConfigName)
+
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Spec.Telemetry)
+		// Master switch defaults to Enabled when omitted.
+		assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Mode)
+		// Explicit collection frequency and clusters mode are preserved.
+		assert.Equal(t, 30*time.Minute, cfg.Spec.Telemetry.Collection.Frequency.Duration)
+		assert.Equal(t, operatorv1.FeatureModeDisabled, cfg.Spec.Telemetry.Collection.Clusters.Mode)
+		// Omitted siblings are materialised and defaulted.
+		require.NotNil(t, cfg.Spec.Telemetry.Collection.KubeTimeout)
+		assert.Equal(t, 5*time.Minute, cfg.Spec.Telemetry.Collection.KubeTimeout.Duration)
+		require.NotNil(t, cfg.Spec.Telemetry.Collection.Deployments)
+		assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Collection.Deployments.Mode)
+		require.NotNil(t, cfg.Spec.Telemetry.Collection.Operators)
+		assert.Equal(t, operatorv1.FeatureModeEnabled, cfg.Spec.Telemetry.Collection.Operators.Mode)
+		// Explicit send mode preserved; send frequency defaulted.
+		assert.Equal(t, operatorv1.FeatureModeDisabled, cfg.Spec.Telemetry.Send.Mode)
+		require.NotNil(t, cfg.Spec.Telemetry.Send.Frequency)
+		assert.Equal(t, 168*time.Hour, cfg.Spec.Telemetry.Send.Frequency.Duration)
 	})
 }
 
