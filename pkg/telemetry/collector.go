@@ -4,7 +4,6 @@ import (
 	"context"
 	"runtime"
 	"slices"
-	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -29,7 +28,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
@@ -60,13 +58,14 @@ type LeaderRunnable struct {
 	installerMethod         string
 	configuredOperatorEnv   util.OperatorEnvironment
 	defaultArchitecture     architectures.DefaultArchitecture
+	config                  Config
 }
 
 func (l *LeaderRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage, installerMethod string, operatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) (*LeaderRunnable, error) {
+func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage, installerMethod string, operatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture, config Config) (*LeaderRunnable, error) {
 	atlasClient, err := NewClient(nil)
 	if err != nil {
 		return nil, xerrors.Errorf("Failed creating atlas telemetry client: %w", err)
@@ -81,12 +80,13 @@ func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[
 		databaseNonStaticImage:  databaseNonStaticImage,
 		installerMethod:         installerMethod,
 		defaultArchitecture:     defaultArchitecture,
+		config:                  config,
 	}, nil
 }
 
 func (l *LeaderRunnable) Start(ctx context.Context) error {
 	Logger.Debug("Starting leader-only telemetry goroutine")
-	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.installerMethod, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient, l.configuredOperatorEnv, l.defaultArchitecture)
+	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.installerMethod, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient, l.configuredOperatorEnv, l.defaultArchitecture, l.config)
 
 	return nil
 }
@@ -94,7 +94,7 @@ func (l *LeaderRunnable) Start(ctx context.Context) error {
 type snapshotCollector func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
-func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace, installerMethod string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) {
+func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace, installerMethod string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture, cfg Config) {
 	Logger.Debug("Collecting telemetry!")
 	ctx, span := TRACER.Start(leaderTrace, "RunTelemetry")
 	span.SetAttributes(
@@ -102,13 +102,14 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	)
 	defer span.End()
 
-	intervalStr := env.ReadOrDefault(CollectionFrequency, DefaultCollectionFrequencyStr) // nolint:forbidigo
-	duration, err := time.ParseDuration(intervalStr)
-	if err != nil || duration < time.Minute {
-		Logger.Warn("Failed converting %s to a duration or value is too small (minimum is one minute), using default 1h", CollectionFrequency)
+	// The collection frequency comes pre-validated and defaulted from the OperatorConfig CR.
+	// Guard against a non-positive value as a defensive measure since time.NewTicker panics on <= 0.
+	duration := cfg.CollectionFrequency
+	if duration <= 0 {
+		Logger.Warnf("Telemetry collection frequency is not positive (%s), using default %s", duration, DefaultCollectionFrequency)
 		duration = DefaultCollectionFrequency
 	}
-	Logger.Debugf("%s is set to: %s", CollectionFrequency, duration)
+	Logger.Debugf("Telemetry collection frequency is set to: %s", duration)
 
 	// converting to a smaller interface for better testing and clearer responsibilities
 	cc := map[string]ConfigClient{}
@@ -120,10 +121,10 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	// The functions are not 100% identical, this map takes care of that
 	snapshotCollectors := map[EventType]func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event{
 		Operators: func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, _, _ string) []Event {
-			return collectOperatorSnapshot(ctx, memberClusterMap, operatorClusterMgr, operatorUUID, installerMethod)
+			return collectOperatorSnapshot(ctx, memberClusterMap, operatorClusterMgr, operatorUUID, installerMethod, cfg.KubeTimeout)
 		},
 		Clusters: func(ctx context.Context, cc map[string]ConfigClient, operatorClusterMgr manager.Manager, _, _, _ string) []Event {
-			return collectClustersSnapshot(ctx, cc, operatorClusterMgr)
+			return collectClustersSnapshot(ctx, cc, operatorClusterMgr, cfg.KubeTimeout)
 		},
 		Deployments: func(ctx context.Context, _ map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event {
 			return collectDeploymentsSnapshot(ctx, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage, defaultArchitecture)
@@ -137,7 +138,7 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 		operatorUUID := getOrGenerateOperatorUUID(ctx, operatorClusterMgr.GetClient(), namespace)
 
 		for eventType, f := range snapshotCollectors {
-			collectAndSendSnapshot(ctx, eventType, f, cc, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage, namespace, atlasClient, configuredOperatorEnv)
+			collectAndSendSnapshot(ctx, eventType, f, cc, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage, namespace, atlasClient, configuredOperatorEnv, cfg)
 		}
 	}
 
@@ -157,9 +158,8 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	}
 }
 
-func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapshotCollector, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage, namespace string, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment) {
-	telemetryIsEnabled := ReadBoolWithTrueAsDefault(EventTypeMappingToEnvVar[eventType])
-	if !telemetryIsEnabled {
+func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapshotCollector, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage, namespace string, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment, cfg Config) {
+	if !cfg.collectionEnabled(eventType) {
 		return
 	}
 
@@ -170,13 +170,13 @@ func collectAndSendSnapshot(ctx context.Context, eventType EventType, cf snapsho
 		event.Properties["operatorEnvironment"] = configuredOperatorEnv.String()
 	}
 
-	handleEvents(ctx, atlasClient, events, eventType, namespace, operatorClusterMgr.GetClient())
+	handleEvents(ctx, atlasClient, events, eventType, namespace, operatorClusterMgr.GetClient(), cfg.SendEnabled, cfg.SendFrequency)
 }
 
-func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, installerMethod string) []Event {
+func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, installerMethod string, kubeTimeout time.Duration) []Event {
 	var kubeClusterUUIDList []string
 	uncachedClient := operatorClusterMgr.GetAPIReader()
-	kubeClusterOperatorUUID := getKubernetesClusterUUID(ctx, uncachedClient)
+	kubeClusterOperatorUUID := getKubernetesClusterUUID(ctx, uncachedClient, kubeTimeout)
 
 	// in single cluster we don't fill the memberClusterMap
 	if len(memberClusterMap) == 0 {
@@ -185,7 +185,7 @@ func collectOperatorSnapshot(ctx context.Context, memberClusterMap map[string]Co
 
 	for _, c := range memberClusterMap {
 		uncachedClient := c.GetAPIReader()
-		uid := getKubernetesClusterUUID(ctx, uncachedClient)
+		uid := getKubernetesClusterUUID(ctx, uncachedClient, kubeTimeout)
 		kubeClusterUUIDList = append(kubeClusterUUIDList, uid)
 	}
 
@@ -482,23 +482,18 @@ func getMaxNumberOfClustersSCIsDeployedOn(item mdbv1.MongoDB) int {
 	return numberOfClustersUsed
 }
 
-func ReadBoolWithTrueAsDefault(envVarName string) bool {
-	envVar := env.ReadOrDefault(envVarName, "true") // nolint:forbidigo
-	return strings.TrimSpace(strings.ToLower(envVar)) == "true"
-}
-
-func handleEvents(ctx context.Context, atlasClient *Client, events []Event, eventType EventType, namespace string, operatorClusterClient kubeclient.Client) {
+func handleEvents(ctx context.Context, atlasClient *Client, events []Event, eventType EventType, namespace string, operatorClusterClient kubeclient.Client, sendEnabled bool, sendFrequency time.Duration) {
 	if err := updateTelemetryConfigMapPayload(ctx, operatorClusterClient, events, namespace, OperatorConfigMapTelemetryConfigMapName, eventType); err != nil {
 		Logger.Debugf("Failed to save last collected events: %s. Not sending data", err)
 		return
 	}
 
-	if sendTelemetry := ReadBoolWithTrueAsDefault(SendEnabled); !sendTelemetry {
+	if !sendEnabled {
 		Logger.Debugf("Telemetry deactivated, not sending it for eventType: %s", string(eventType))
 		return
 	}
 
-	isOlder, err := isTimestampOlderThanConfiguredFrequency(ctx, operatorClusterClient, namespace, OperatorConfigMapTelemetryConfigMapName, eventType)
+	isOlder, err := isTimestampOlderThanConfiguredFrequency(ctx, operatorClusterClient, namespace, OperatorConfigMapTelemetryConfigMapName, eventType, sendFrequency)
 	if err != nil {
 		Logger.Debugf("Failed to check for timestamp in configmap; not sending data: %s", err)
 		return
@@ -518,8 +513,8 @@ func handleEvents(ctx context.Context, atlasClient *Client, events []Event, even
 	}
 }
 
-func collectClustersSnapshot(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager) []Event {
-	allClusterDetails := getClusterProperties(ctx, memberClusterMap, operatorClusterMgr)
+func collectClustersSnapshot(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, kubeTimeout time.Duration) []Event {
+	allClusterDetails := getClusterProperties(ctx, memberClusterMap, operatorClusterMgr, kubeTimeout)
 	now := time.Now()
 
 	var events []Event
@@ -533,9 +528,9 @@ func collectClustersSnapshot(ctx context.Context, memberClusterMap map[string]Co
 	return events
 }
 
-func getClusterProperties(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager) []KubernetesClusterUsageSnapshotProperties {
-	operatorMemberClusterProperties := detectClusterInfos(ctx, map[string]ConfigClient{"operator": operatorClusterMgr})
-	memberClustersProperties := detectClusterInfos(ctx, memberClusterMap)
+func getClusterProperties(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, kubeTimeout time.Duration) []KubernetesClusterUsageSnapshotProperties {
+	operatorMemberClusterProperties := detectClusterInfos(ctx, map[string]ConfigClient{"operator": operatorClusterMgr}, kubeTimeout)
+	memberClustersProperties := detectClusterInfos(ctx, memberClusterMap, kubeTimeout)
 
 	uniqueProperties := make(map[string]KubernetesClusterUsageSnapshotProperties)
 	for _, property := range append(operatorMemberClusterProperties, memberClustersProperties...) {

@@ -97,6 +97,8 @@ def test_install_latest_official_operator(
         helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from version fixing appdb hostnames, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
     operator.wait_for_operator_ready()
 

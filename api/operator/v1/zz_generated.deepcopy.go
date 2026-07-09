@@ -348,6 +348,11 @@ func (in *TelemetryCollectionConfig) DeepCopyInto(out *TelemetryCollectionConfig
 		*out = new(metav1.Duration)
 		**out = **in
 	}
+	if in.KubeTimeout != nil {
+		in, out := &in.KubeTimeout, &out.KubeTimeout
+		*out = new(metav1.Duration)
+		**out = **in
+	}
 	if in.Clusters != nil {
 		in, out := &in.Clusters, &out.Clusters
 		*out = new(TelemetryCollectionClustersConfig)
