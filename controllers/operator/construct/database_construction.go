@@ -740,7 +740,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/mongodb_marker && while true; do sleep 3600; done"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/mongodb_marker && exec -a mongodb_marker sleep 999999999"}),
 		configureContainerSecurityContext,
 	)}
 
@@ -749,7 +749,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{""}),
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && while true; do sleep 3600; done"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && exec -a agent-utilities-holder_marker sleep 999999999"}),
 		configureContainerSecurityContext,
 	)}
 
@@ -929,7 +929,7 @@ func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) cor
 		if auditLogMap := maputil.ReadMapValueAsMap(additionalMongodConfig.ToMap(), "auditLog"); auditLogMap != nil {
 			auditLogDestination := maputil.ReadMapValueAsString(auditLogMap, "destination")
 			auditLogFilePath := maputil.ReadMapValueAsString(auditLogMap, "path")
-			if auditLogDestination == "file" && len(auditLogFile) > 0 {
+			if auditLogDestination == "file" && len(auditLogFilePath) > 0 {
 				auditLogFile = auditLogFilePath
 			}
 		}

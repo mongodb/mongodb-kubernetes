@@ -183,6 +183,11 @@ else
     script_log "waiting for mongod_pid being available"
     # shellcheck disable=SC2009
     MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
+    # When using `exec -a mongodb_marker sleep infinity`, also check /proc/1/fd/1
+    # or marker file as fallback
+    if [ -z "${MONGOD_PID}" ] || [ "${MONGOD_PID}" -eq 0 ]; then
+      MONGOD_PID=$(pgrep -f "mongodb_marker" || true)
+    fi
 
     if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
     break
@@ -231,7 +236,11 @@ while true; do
 done &
 
 # Run agent stderr/stdout through jq for process tagging.
-"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>&1 | jq --unbuffered -Rc --arg p agent '{process:$p,msg:.}' &
+# Use process substitution (not a pipe) so $! captures the agent's PID, not jq's.
+# The cleanup() function in agent-launcher-lib.sh sends SIGTERM to $agentPid;
+# with a pipe (agent | jq &) $! would be jq's PID and the agent would never receive SIGTERM,
+# leaving the pod stuck in Terminating until the 600s grace period expires.
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" > >(jq --unbuffered -Rc --arg p agent '{process:$p,msg:.}') 2>&1 &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"

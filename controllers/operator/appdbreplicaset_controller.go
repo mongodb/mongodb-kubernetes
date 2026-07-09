@@ -1175,6 +1175,19 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 
 			}
+			// Propagate logRotate and auditLogRotate to the automation config.
+			// systemLog is always routed to the stdout FIFO; logRotate settings are still respected.
+			systemLog := &automationconfig.SystemLog{
+				Destination: automationconfig.File,
+				Path:        om.MongodStdoutLogPath,
+			}
+			if acType == automation {
+				if opsManager.Spec.AppDB.AutomationAgent.Mongod.HasLoggingConfigured() {
+					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.Mongod.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
+				} else {
+					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
+				}
+			}
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
