@@ -5,7 +5,7 @@ echo "Verifying operator-managed per-cluster mongot and Envoy resources..."
 ci=0
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   mongot_sts="${MDB_SEARCH_RESOURCE_NAME}-search-${ci}"
-  envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-${ci}"
+  envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}"
   proxy_service="${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-proxy-svc"
 
   echo "== cluster ${ci} (${ctx}) =="

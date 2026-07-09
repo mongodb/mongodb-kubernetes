@@ -1,6 +1,7 @@
 echo "Creating Ops Manager connection resources..."
 
-# The MongoDBMultiCluster resource is reconciled from the central cluster, so
+# The multi-cluster MongoDB sharded resource is reconciled from the central
+# cluster, so
 # the Ops Manager resources are only needed there.
 
 # Create the credentials secret with API key

@@ -4,7 +4,7 @@ echo "Verifying operator-managed per-cluster mongot and Envoy resources..."
 # balancer) Deployment must come up in each member cluster.
 ci=0
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
-  envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb-0-${ci}"
+  envoy_deployment="${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}"
 
   echo "== cluster ${ci} (${ctx}) =="
 
