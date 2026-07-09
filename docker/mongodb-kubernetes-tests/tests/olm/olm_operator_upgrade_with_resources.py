@@ -59,6 +59,9 @@ def subscription(namespace: str, catalog_source: CustomObject, operator_installa
     base_env_vars = [
         {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
         {"name": "OPERATOR_ENV", "value": "dev"},
+        # The upgrade starts from the released operator, which still reads telemetry env vars
+        # directly, so keep send disabled here. After the upgrade to the branch build,
+        # apply_operator_config_from_test_env keeps it disabled via the OperatorConfig CR.
         {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
     ]
     # Add registry env vars for patch builds (ECR registries for unreleased images)
