@@ -104,19 +104,6 @@ operator:
     #   name: "mdbpolicy.my-namespace.mongodb.com"
     name: ''
 
-  telemetry:
-    collection:
-      clusters: {}
-      deployments: {}
-      operators: {}
-      # Valid time units are "m", "h". Anything less than one minute defaults to 1h
-      frequency: 1h
-    # Enables sending the collected telemetry to MongoDB
-    send:
-      # 168 hours is one week
-      # Valid time units are "h". Anything less than one hours defaults to 168h
-      frequency: 168h
-
 ## Database
 database:
   name: mongodb-kubernetes-database
