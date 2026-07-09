@@ -19,8 +19,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 )
 
-const stateKey = "state"
-const stateOwnerUIDKey = "ownerUID"
+const (
+	stateKey         = "state"
+	stateOwnerUIDKey = "ownerUID"
+)
 
 type stateStoreOptions struct {
 	ownerUID string
