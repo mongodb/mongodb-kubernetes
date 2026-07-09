@@ -311,7 +311,17 @@ functions:
           - ${workdir}/bin
           - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/check_precommit.sh
+        binary: scripts/evergreen/check_precommit.sh --full
+
+  test_bash:
+    - command: subprocess.exec
+      type: test
+      params:
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}/venv/bin
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/test/bash/run.sh
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
@@ -732,6 +742,11 @@ functions:
         binary: scripts/evergreen/e2e/e2e.sh
 
   e2e_test_perf:
+    # Perf tasks provision and roll many deployments; the 300-deployment task exceeds the
+    # global 2h exec_timeout_secs. Raise the limit for perf tasks only.
+    - command: timeout.update
+      params:
+        exec_timeout_secs: 14400
     - command: subprocess.exec
       type: test
       retry_on_failure: true

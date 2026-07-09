@@ -17,4 +17,12 @@ fi
 # shellcheck disable=SC1090
 source "${context_file}"
 
+# Activate the python venv here so consumer scripts don't each activate it.
+# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
+if [[ -f "${venv_path}/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    source "${venv_path}/bin/activate"
+fi
+
 export PATH="${PROJECT_DIR}/bin:${PATH}"

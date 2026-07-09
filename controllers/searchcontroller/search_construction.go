@@ -60,6 +60,10 @@ const (
 	GrpcKeyPasswordMountPath = "/mongot/grpc-key-password"           // #nosec G101 -- path, not a password
 	TempGrpcKeyPasswordPath  = tempVolumePath + "/grpc-key-password" // #nosec G101 -- path, not a password
 
+	// maxDefaultHeapMB caps the default JVM heap at 30GB, matching Atlas Search sizing guidance:
+	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	maxDefaultHeapMB = 30 * 1024
+
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
@@ -258,6 +262,10 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		memRequest := resourceRequirements.Requests.Memory()
 		halfBytes := memRequest.Value() / 2
 		halfMB := halfBytes / (1024 * 1024)
+		// The same document recommends staying under ~30GB so the JVM keeps compressed object pointers.
+		if halfMB > maxDefaultHeapMB {
+			halfMB = maxDefaultHeapMB
+		}
 		flags = append(flags, fmt.Sprintf("-Xmx%dm", halfMB))
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}

@@ -38,11 +38,17 @@ usage:
 prerequisites:
 	@ scripts/dev/install.sh
 
-precommit:
-	@ source scripts/dev/set_env_context.sh && prek -a
+PREK := $(shell pwd)/bin/prek
 
-precommit-full:
-	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true prek -a
+.PHONY: prek
+prek:
+	@[ -f "$(PREK)" ] || scripts/evergreen/setup_prek.sh
+
+precommit: prek
+	@ scripts/evergreen/check_precommit.sh
+
+precommit-full: prek
+	@ scripts/evergreen/check_precommit.sh --full
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
@@ -256,6 +262,11 @@ test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
 
+# test-bash runs all bats integration tests under scripts/test/bash/.
+# Requires bats-core (brew install bats-core).
+test-bash:
+	@ scripts/test/bash/run.sh $(suite)
+
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
@@ -275,10 +286,10 @@ all-tests: test python-tests helm-tests
 manager: generate fmt vet
 	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
 
-# Build mckctl, the MCK developer-tooling binary (release automation, etc.).
-# Prefer `scripts/mckctl ...` for day-to-day use — it builds-if-stale and execs.
-mckctl:
-	go build -o bin/mckctl ./cmd/mckctl
+# Build mckci, the MCK developer-tooling binary (release automation, etc.).
+# Prefer `scripts/mckci ...` for day-to-day use — it builds-if-stale and execs.
+mckci:
+	go build -o bin/mckci ./ci/cmd/mckci
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
