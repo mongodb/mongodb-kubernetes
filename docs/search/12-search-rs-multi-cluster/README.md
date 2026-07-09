@@ -46,4 +46,10 @@ This is an expected limitation for this topology. Scenario 13 (sharded multi-clu
    - `12_0320_create_mongodb_search_resource.sh` — create the MongoDBSearch resource with `spec.source.external` and per-cluster `loadBalancer.managed`
    - `12_0325_wait_for_search_resource.sh` — wait for the MongoDBSearch resource to reach `Running`
    - `12_0330_show_running_pods.sh` — list pods/Services across both clusters
-4. After `12_0325_wait_for_search_resource.sh` reports `Running`, run the query snippets from scenario 03 (`../03-search-query-usage/`) against your replica set to import data, create search indexes, and run search queries.
+4. After `12_0325_wait_for_search_resource.sh` reports `Running`, set the query-module variables and run scenario 03 (`../03-search-query-usage/`) to import data, create search indexes, and run search queries:
+
+   ```bash
+   export K8S_CTX="${K8S_CTX_0}"
+   export MDB_CONNECTION_STRING="${MDB_USER_CONNECTION_STRING}"
+   ( cd ../03-search-query-usage && ./test.sh )
+   ```

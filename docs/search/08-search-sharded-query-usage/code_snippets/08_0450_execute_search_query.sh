@@ -42,7 +42,10 @@ const results = db.movies.aggregate([
 ]).toArray();
 printjson(results);
 print("Result count: " + results.length);
-if (results.length === 0) { print("ASSERTION FAILED: search query returned no documents"); quit(1); }
+if (results.length === 0) {
+  print("ASSERTION FAILED: search query returned no documents");
+  quit(1);
+}
 MONGOSH
 )
 

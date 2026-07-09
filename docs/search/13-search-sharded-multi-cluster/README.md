@@ -47,4 +47,9 @@ The operator still provisions a per-cluster Envoy and per-(cluster, shard) mongo
    - `13_0320_create_mongodb_search_resource.sh` — create the MongoDBSearch resource with `spec.source.external.shardedCluster` and per-cluster `loadBalancer.managed` (with `externalHostname` and `routerHostname`)
    - `13_0325_wait_for_search_resource.sh` — wait for the MongoDBSearch resource to reach `Running`
    - `13_0330_show_running_pods.sh` — list pods/Services across both clusters
-4. After `13_0325_wait_for_search_resource.sh` reports `Running`, run the query snippets from scenario 08 (`../08-search-sharded-query-usage/`) against your sharded cluster to import data, create search indexes, and run search queries.
+4. After `13_0325_wait_for_search_resource.sh` reports `Running`, set the query-module context and run scenario 08 (`../08-search-sharded-query-usage/`) to import data, create search indexes, and run search queries:
+
+   ```bash
+   export K8S_CTX="${K8S_CTX_0}"
+   ( cd ../08-search-sharded-query-usage && ./test.sh )
+   ```
