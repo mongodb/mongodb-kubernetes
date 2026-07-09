@@ -1,15 +1,5 @@
 echo "Configuring multi-cluster service accounts and roles..."
 
-# The kubectl-mongodb plugin creates the operator's service accounts, roles and
-# the multi-cluster kubeconfig Secret in every member cluster.
-# Install it from https://github.com/mongodb/mongodb-kubernetes/releases
-#
-# The plugin embeds your kubeconfig's API server endpoints into the operator's
-# kubeconfig Secret, and the operator reaches the member clusters through
-# them -- so they must be resolvable from pods. Cloud-provider kubeconfigs
-# are; local kind/minikube kubeconfigs (127.0.0.1 endpoints) are not. Set
-# MDB_PLUGIN_KUBECONFIG to a kubeconfig variant with pod-reachable endpoints
-# in that case.
 KUBECONFIG="${MDB_PLUGIN_KUBECONFIG:-${KUBECONFIG:-${HOME}/.kube/config}}" \
   kubectl mongodb multicluster setup \
   --central-cluster="${K8S_CTX_0}" \

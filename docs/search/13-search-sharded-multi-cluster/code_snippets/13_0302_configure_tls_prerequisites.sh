@@ -20,8 +20,8 @@ spec:
   isCA: true
   commonName: mongodb-ca
   secretName: ${MDB_TLS_CA_SECRET_NAME}
-  duration: 87600h  # 10 years
-  renewBefore: 8760h  # 1 year
+  duration: 87600h
+  renewBefore: 8760h
   privateKey:
     algorithm: ECDSA
     size: 256

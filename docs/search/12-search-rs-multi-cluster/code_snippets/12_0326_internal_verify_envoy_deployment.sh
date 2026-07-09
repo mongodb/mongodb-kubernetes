@@ -1,7 +1,5 @@
 echo "Verifying operator-managed per-cluster mongot and Envoy resources..."
 
-# One mongot StatefulSet and one Envoy (managed load balancer) Deployment must
-# come up in each member cluster.
 ci=0
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   mongot_sts="${MDB_SEARCH_RESOURCE_NAME}-search-${ci}"

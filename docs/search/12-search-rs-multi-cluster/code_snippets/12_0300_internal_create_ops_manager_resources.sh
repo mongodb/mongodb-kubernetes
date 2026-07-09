@@ -1,9 +1,6 @@
 echo "Creating Ops Manager connection resources..."
 
-# The MongoDBMultiCluster resource is reconciled from the central cluster, so
-# the Ops Manager resources are only needed there.
 
-# Create the credentials secret with API key
 kubectl create secret generic om-credentials \
   --from-literal="user=${OPS_MANAGER_API_USER}" \
   --from-literal="publicApiKey=${OPS_MANAGER_API_KEY}" \
@@ -11,7 +8,6 @@ kubectl create secret generic om-credentials \
   --context "${K8S_CTX_0}" \
   --dry-run=client -o yaml | kubectl apply --context "${K8S_CTX_0}" -f -
 
-# Create the project ConfigMap
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: v1
 kind: ConfigMap

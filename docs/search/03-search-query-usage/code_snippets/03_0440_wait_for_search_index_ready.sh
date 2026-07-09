@@ -1,8 +1,9 @@
 max_attempts=30
 sleep_time=10
+max_wait_seconds=$((max_attempts * sleep_time))
 
-echo "Waiting for search indexes to become READY" \
-  "(up to $((max_attempts * sleep_time))s)..."
+echo "Waiting for search indexes to be query-ready " \
+  "(up to ${max_wait_seconds}s)..."
 
 get_index_status() {
   local collection="$1"
@@ -23,30 +24,37 @@ get_index_status() {
 wait_for_index_ready() {
   local collection="$1"
   local index_name="$2"
+  local display_name="$3"
+  local status=""
 
-  echo "Waiting for index '${index_name}' on collection '${collection}'..."
+  echo "Checking ${display_name}..."
   for attempt in $(seq 1 "${max_attempts}"); do
     status="$(get_index_status "${collection}" "${index_name}")"
-    echo "Attempt ${attempt}/${max_attempts}: status='${status}'"
 
     if [[ "${status}" == "READY" ]]; then
-      echo "Index '${index_name}' is READY"
+      echo "Ready: ${display_name}"
       return 0
+    fi
+
+    if (( attempt == 1 || attempt % 3 == 0 || attempt == max_attempts )); then
+      echo "Still building ${display_name} (${attempt}/${max_attempts})..."
     fi
 
     sleep "${sleep_time}"
   done
 
-  echo "ERROR: Index '${index_name}' did not become READY " \
-    "after $((max_attempts * sleep_time)) seconds" >&2
+  echo "ERROR: Timed out waiting for ${display_name} after ${max_wait_seconds}s." >&2
+  echo "Check snippet outputs 03_0444, 03_0445, and 03_0447 for index status." >&2
   return 1
 }
 
-wait_for_index_ready "movies" "default"
-wait_for_index_ready "embedded_movies" "vector_index"
+wait_for_index_ready "movies" "default" "text search index (movies/default)"
+wait_for_index_ready "embedded_movies" "vector_index" \
+  "vector search index (embedded_movies/vector_index)"
 
 if [[ -n "${EMBEDDING_MODEL:-}" ]]; then
-  wait_for_index_ready "movies" "vector_auto_embed_index"
+  wait_for_index_ready "movies" "vector_auto_embed_index" \
+    "auto-embed vector index (movies/vector_auto_embed_index)"
 fi
 
-echo "All required search indexes are READY"
+echo "All required search indexes are ready. Continue to query snippets."

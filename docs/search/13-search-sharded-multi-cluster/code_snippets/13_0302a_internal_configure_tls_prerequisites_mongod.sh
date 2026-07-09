@@ -7,8 +7,6 @@ kubectl get secret "${MDB_TLS_CA_SECRET_NAME}" \
   --context "${K8S_CTX_0}" \
   -o jsonpath='{.data.tls\.crt}' | base64 -d > certs/ca-pem
 
-# The CA ConfigMap must exist in every member cluster so that all mongod
-# members (and the tools pod) can verify the source cluster's TLS certificates.
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   kubectl create configmap "${MDB_TLS_CA_CONFIGMAP}" \
     --from-file=ca-pem=certs/ca-pem \

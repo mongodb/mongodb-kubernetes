@@ -1,7 +1,5 @@
 echo "Creating password secrets for MongoDB users..."
 
-# User resources are reconciled from the central cluster, like the
-# MongoDBMultiCluster resource they reference.
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -30,7 +28,6 @@ EOF
 
 echo "  [ok] Password secrets created"
 
-# Create admin user
 echo "Creating MongoDBUser CRDs..."
 
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
@@ -52,7 +49,6 @@ spec:
 EOF
 echo "  [ok] Admin user CRD created"
 
-# Create regular user for queries
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDBUser
@@ -72,7 +68,6 @@ spec:
 EOF
 echo "  [ok] Application user CRD created"
 
-# Create search sync user with searchCoordinator role
 kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: mongodb.com/v1
 kind: MongoDBUser
@@ -92,7 +87,6 @@ spec:
 EOF
 echo "  [ok] Search sync source user CRD created"
 
-# Wait for users to be ready
 echo "Waiting for admin user to be ready..."
 kubectl wait --context "${K8S_CTX_0}" -n "${MDB_NS}" \
   --for=jsonpath='{.status.phase}'=Updated \

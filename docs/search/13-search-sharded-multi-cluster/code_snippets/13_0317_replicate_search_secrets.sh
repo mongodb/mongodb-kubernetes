@@ -1,10 +1,5 @@
 echo "Replicating Search Secrets to the member clusters..."
 
-# The operator auto-replicates the SOURCE certs to member clusters, but NOT
-# the Search-prefixed Secrets. Copy the per-(cluster,shard) mongot certs, the
-# LB server/client certs, and the search sync user password from the central
-# cluster to each additional member cluster, so mongot pods there can mount
-# their TLS material (otherwise they stay PodInitializing).
 replicate_secret() {
   local name="$1" dst_ctx="$2"
   kubectl --context "${K8S_CTX_0}" -n "${MDB_NS}" get secret "${name}" -o json \
@@ -12,7 +7,6 @@ replicate_secret() {
     | kubectl --context "${dst_ctx}" -n "${MDB_NS}" apply -f -
 }
 
-# Replicate to every member cluster other than the central one (cluster 0).
 dst_clusters=("${K8S_CTX_1}")
 for dst in "${dst_clusters[@]}"; do
   for ci in 0 1; do
@@ -20,10 +14,6 @@ for dst in "${dst_clusters[@]}"; do
       replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-${shard_name}-cert" "${dst}"
     done
   done
-  # The LB server/client certs are per cluster index: each member cluster's
-  # Envoy mounts search-lb-<ci>-cert / -client-cert, so replicate both indices
-  # (0 and 1) to it. The index matching the member (1 for K8S_CTX_1) is the
-  # load-bearing pair; the others are inert (the operator mounts by name).
   for ci in 0 1; do
     replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-cert" "${dst}"
     replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-client-cert" "${dst}"
