@@ -51,10 +51,6 @@ spec:
                   fieldPath: metadata.namespace
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
-            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
-              value: "1h"
-            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
-              value: "168h"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database

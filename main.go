@@ -225,6 +225,20 @@ func run() error {
 
 	propagateProxyEnv := operatorCfg.Spec.Proxy.EnvPropagationPolicy == operatorv1.ProxyEnvPropagationPolicyPropagate
 
+	// Telemetry is configured via OperatorConfig.spec.telemetry. operatorconfig.Load guarantees
+	// Telemetry and its nested blocks are non-nil and defaulted, so the pointers below are safe to
+	// dereference. Absence of any telemetry configuration implies telemetry is enabled (opt-out model).
+	telemetryEnabled := operatorCfg.Spec.Telemetry.Mode == operatorv1.FeatureModeEnabled
+	telemetryConfig := telemetry.Config{
+		CollectionFrequency: operatorCfg.Spec.Telemetry.Collection.Frequency.Duration,
+		KubeTimeout:         operatorCfg.Spec.Telemetry.Collection.KubeTimeout.Duration,
+		CollectClusters:     operatorCfg.Spec.Telemetry.Collection.Clusters.Mode == operatorv1.FeatureModeEnabled,
+		CollectDeployments:  operatorCfg.Spec.Telemetry.Collection.Deployments.Mode == operatorv1.FeatureModeEnabled,
+		CollectOperators:    operatorCfg.Spec.Telemetry.Collection.Operators.Mode == operatorv1.FeatureModeEnabled,
+		SendEnabled:         operatorCfg.Spec.Telemetry.Send.Mode == operatorv1.FeatureModeEnabled,
+		SendFrequency:       operatorCfg.Spec.Telemetry.Send.Frequency.Duration,
+	}
+
 	// The CRDs the operator reconciles are configured via OperatorConfig.spec.watchedResources
 	watchedResources := make([]string, len(operatorCfg.Spec.WatchedResources))
 	for i, r := range operatorCfg.Spec.WatchedResources {
@@ -353,10 +367,10 @@ func run() error {
 		}
 	}
 
-	if telemetry.IsTelemetryActivated() {
+	if telemetryEnabled {
 		log.Info("Running telemetry component!")
 		installerMethod := env.ReadOrDefault(telemetry.InstallerEnvVar, "")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[util.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], installerMethod, getOperatorEnv(), defaultArchitecture)
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[util.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], installerMethod, getOperatorEnv(), defaultArchitecture, telemetryConfig)
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}

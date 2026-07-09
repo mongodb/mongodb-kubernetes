@@ -117,12 +117,6 @@ var AllEventTypes = []EventType{
 	Clusters,
 }
 
-var EventTypeMappingToEnvVar = map[EventType]string{
-	Deployments: "MDB_OPERATOR_TELEMETRY_COLLECTION_DEPLOYMENTS_ENABLED",
-	Clusters:    "MDB_OPERATOR_TELEMETRY_COLLECTION_CLUSTERS_ENABLED",
-	Operators:   "MDB_OPERATOR_TELEMETRY_COLLECTION_OPERATORS_ENABLED",
-}
-
 func (e EventType) GetPayloadKey() string {
 	return fmt.Sprintf("%s%s", LastSendPayloadKey, e)
 }
