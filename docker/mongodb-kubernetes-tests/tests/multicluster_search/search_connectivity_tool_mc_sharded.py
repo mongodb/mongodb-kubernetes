@@ -30,6 +30,7 @@ from tests.common.search.connectivity import (
     FAILURE_TRANSIENT_NETWORK,
     SearchConnectivityTool,
     cluster_tagged_read_preference,
+    wait_for_mongot_pvcs_deleted,
     wait_for_mongot_statefulset_drained,
 )
 from tests.common.search.sharded_search_helper import mc_sharded_search_tester
@@ -190,6 +191,11 @@ class TestSearchConnectivityToolMcSharded:
                     wait_for_mongot_statefulset_drained(
                         sts_name, namespace, api_client=faulted_mcc.api_client, timeout=300
                     )
+                # The operator must converge on the faulted spec too: IsReady() demands
+                # status.replicas == spec.replicas on every mongot STS, so Running here
+                # proves all condemned pods are fully deleted (but says nothing about
+                # the async PVC GC — see the wait_for_mongot_pvcs_deleted in finally).
+                mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
                 healthy_res = tool.oneshot_search(read_preference=cluster_tagged_read_preference(healthy_name))
                 logger.info(f"[{faulted_name} down] tag->{healthy_name} (healthy): {healthy_res}")
@@ -210,10 +216,21 @@ class TestSearchConnectivityToolMcSharded:
                     f"{faulted_res.failure_class} ({faulted_res.error_class}): {faulted_res.error_message}"
                 )
             finally:
+                # Wait out the async PVC GC before restoring replicas (see
+                # wait_for_mongot_pvcs_deleted docstring for the STS-controller race).
+                for sts_name in faulted_stses:
+                    wait_for_mongot_pvcs_deleted(
+                        namespace,
+                        sts_name,
+                        api_client=faulted_mcc.api_client,
+                        timeout=300,
+                    )
                 mdbs.load()
                 mdbs["spec"]["clusters"] = [dict(c) for c in original_clusters]
                 mdbs.update()
-                mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+                # The fresh per-shard replicas must reindex from mongod before they
+                # report Ready, so allow a generous window.
+                mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
                 # re-index the restored cluster's mongots before the next iteration
                 tool.wait_for_sentinel_indexed(timeout=300)
                 logger.info(f"restored cluster {faulted_index} ({faulted_name}) mongots; MDBS Running")
