@@ -9586,6 +9586,15 @@ spec:
                         x-kubernetes-validations:
                         - message: frequency must be at least 1m
                           rule: duration(self) >= duration('1m')
+                      kubeTimeout:
+                        default: 5m
+                        description: |-
+                          KubeTimeout is the timeout for Kubernetes API calls made while collecting telemetry.
+                          Duration using h (hours), m (minutes) and s (seconds) units, e.g. "30s", "5m". Must be at least 1s; defaults to 5m when omitted.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: kubeTimeout must be at least 1s
+                          rule: duration(self) >= duration('1s')
                       operators:
                         description: Operators controls collection of operator-level
                           telemetry.

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 )
@@ -72,6 +74,52 @@ func withDefaults(cfg operatorv1.OperatorConfig) operatorv1.OperatorConfig {
 	}
 	if cfg.Spec.Proxy.EnvPropagationPolicy == "" {
 		cfg.Spec.Proxy.EnvPropagationPolicy = operatorv1.ProxyEnvPropagationPolicyNoPropagation
+	}
+	// Telemetry is a pointer tree, so an omitted block leaves the API server's nested defaults
+	// unapplied. Absence of any telemetry configuration must imply telemetry is enabled (opt-out
+	// model), so ensure every nested block exists and its fields are defaulted to Enabled with the
+	// documented frequencies/timeout.
+	if cfg.Spec.Telemetry == nil {
+		cfg.Spec.Telemetry = &operatorv1.TelemetryConfig{}
+	}
+	if cfg.Spec.Telemetry.Mode == "" {
+		cfg.Spec.Telemetry.Mode = operatorv1.FeatureModeEnabled
+	}
+	if cfg.Spec.Telemetry.Collection == nil {
+		cfg.Spec.Telemetry.Collection = &operatorv1.TelemetryCollectionConfig{}
+	}
+	if cfg.Spec.Telemetry.Collection.Frequency == nil {
+		cfg.Spec.Telemetry.Collection.Frequency = &metav1.Duration{Duration: time.Hour}
+	}
+	if cfg.Spec.Telemetry.Collection.KubeTimeout == nil {
+		cfg.Spec.Telemetry.Collection.KubeTimeout = &metav1.Duration{Duration: 5 * time.Minute}
+	}
+	if cfg.Spec.Telemetry.Collection.Clusters == nil {
+		cfg.Spec.Telemetry.Collection.Clusters = &operatorv1.TelemetryCollectionClustersConfig{}
+	}
+	if cfg.Spec.Telemetry.Collection.Clusters.Mode == "" {
+		cfg.Spec.Telemetry.Collection.Clusters.Mode = operatorv1.FeatureModeEnabled
+	}
+	if cfg.Spec.Telemetry.Collection.Deployments == nil {
+		cfg.Spec.Telemetry.Collection.Deployments = &operatorv1.TelemetryCollectionDeploymentsConfig{}
+	}
+	if cfg.Spec.Telemetry.Collection.Deployments.Mode == "" {
+		cfg.Spec.Telemetry.Collection.Deployments.Mode = operatorv1.FeatureModeEnabled
+	}
+	if cfg.Spec.Telemetry.Collection.Operators == nil {
+		cfg.Spec.Telemetry.Collection.Operators = &operatorv1.TelemetryCollectionOperatorsConfig{}
+	}
+	if cfg.Spec.Telemetry.Collection.Operators.Mode == "" {
+		cfg.Spec.Telemetry.Collection.Operators.Mode = operatorv1.FeatureModeEnabled
+	}
+	if cfg.Spec.Telemetry.Send == nil {
+		cfg.Spec.Telemetry.Send = &operatorv1.TelemetrySendConfig{}
+	}
+	if cfg.Spec.Telemetry.Send.Mode == "" {
+		cfg.Spec.Telemetry.Send.Mode = operatorv1.FeatureModeEnabled
+	}
+	if cfg.Spec.Telemetry.Send.Frequency == nil {
+		cfg.Spec.Telemetry.Send.Frequency = &metav1.Duration{Duration: 168 * time.Hour}
 	}
 	return cfg
 }
