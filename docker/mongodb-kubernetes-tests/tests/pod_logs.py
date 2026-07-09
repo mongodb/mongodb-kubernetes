@@ -28,6 +28,25 @@ def get_mongodb_logs(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [log for log in logs if log.get("process") == "mongod"]
 
 
+def get_audit_logs(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Filter for audit logs by process tag, unwrapping the inner JSON msg payload."""
+    audit = []
+    for log in logs:
+        if log.get("process") != "audit":
+            continue
+        msg = log.get("msg")
+        if isinstance(msg, str):
+            try:
+                inner = json.loads(msg)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(inner, dict):
+                audit.append(inner)
+        elif isinstance(msg, dict):
+            audit.append(msg)
+    return audit
+
+
 def get_pod_logs(
     namespace: str,
     pod_name: str,

@@ -5,7 +5,7 @@ from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_defau
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.pod_logs import get_agent_logs, get_mongodb_logs, get_pod_logs
+from tests.pod_logs import get_agent_logs, get_audit_logs, get_mongodb_logs, get_pod_logs
 
 custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
@@ -191,5 +191,5 @@ def _assert_pod_audit_logs_in_stdout(replica_set: MongoDB):
     for i in range(3):
         pod = f"{replica_set.name}-{i}"
         logs = get_pod_logs(replica_set.namespace, pod, container)
-        audit_lines = [line for line in logs if "atype" in line and "ts" in line]
+        audit_lines = get_audit_logs(logs)
         assert len(audit_lines) > 0, f"{pod}: expected audit log lines in stdout"

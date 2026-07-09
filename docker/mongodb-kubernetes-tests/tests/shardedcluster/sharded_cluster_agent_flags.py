@@ -5,7 +5,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.pod_logs import get_agent_logs, get_mongodb_logs, get_pod_logs
+from tests.pod_logs import get_agent_logs, get_audit_logs, get_mongodb_logs, get_pod_logs
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,
@@ -164,5 +164,5 @@ def _assert_agent_and_mongodb_logs(namespace: str, pod: str, api_client=None):
 
 def _assert_audit_logs(namespace: str, pod: str, api_client=None):
     logs = get_pod_logs(namespace, pod, _container_name(), api_client=api_client)
-    audit_lines = [line for line in logs if "atype" in line and "ts" in line]
+    audit_lines = get_audit_logs(logs)
     assert len(audit_lines) > 0, f"{pod}: expected audit log lines in stdout"
