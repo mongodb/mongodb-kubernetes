@@ -172,7 +172,11 @@ rm -rf logs && mkdir -p logs
 header "wt-ctl create --local-kind --in-place ${TOPOLOGY_FLAG} (context=${CONTEXT})"
 # --in-place: the CI patch diff is uncommitted in this checkout; a fresh git
 # worktree would check out committed history only and miss it.
-scripts/dev/wt-ctl create --local-kind --in-place "${TOPOLOGY_FLAG}" --context "${CONTEXT}" "${WT_NAME}"
+# --cluster-name kind: the e2e contexts hardcode CLUSTER_NAME=kind-kind, so the
+# single-cluster kind cluster must be named `kind` (context kind-kind) or the
+# kubeconfig's pinned current-context dangles. Ignored on --multi-cluster
+# (recreate_kind_clusters.sh names its own clusters).
+scripts/dev/wt-ctl create --local-kind --in-place "${TOPOLOGY_FLAG}" --cluster-name kind --context "${CONTEXT}" "${WT_NAME}"
 
 # Cloud-QA org + API key: standard cloud_qa e2e tasks run setup_cloud_qa (via
 # the `setup_cloud_qa` EVG function) to provision a scoped programmatic key and
