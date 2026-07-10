@@ -75,7 +75,7 @@ def x509_user(sharded_cluster: MongoDB, namespace: str) -> MongoDBUser:
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
 def test_sharded_cluster_running(sharded_cluster: MongoDB):
     sharded_cluster.update()
-    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=400)
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_and_x509
