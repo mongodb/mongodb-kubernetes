@@ -1,6 +1,7 @@
 {
   "images": {
     "operator": {
+      "version-ref": "mongodbOperator",
       "dockerfile-path": "docker/mongodb-kubernetes-operator/Dockerfile",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes",
@@ -51,6 +52,7 @@
       }
     },
     "init-database": {
+      "version-ref": "initDatabaseVersion",
       "dockerfile-path": "docker/mongodb-kubernetes-init-database/Dockerfile",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-database",
@@ -84,6 +86,7 @@
       }
     },
     "init-ops-manager": {
+      "version-ref": "initOpsManagerVersion",
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-init-ops-manager",
@@ -111,6 +114,7 @@
       }
     },
     "database": {
+      "version-ref": "databaseImageVersion",
       "dockerfile-path": "docker/mongodb-kubernetes-database/Dockerfile",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
@@ -259,6 +263,7 @@
       }
     },
     "readiness-probe": {
+      "version-ref": "readinessProbeVersion",
       "dockerfile-path": "docker/mongodb-kubernetes-readinessprobe/Dockerfile",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-readinessprobe",
@@ -288,6 +293,7 @@
       }
     },
     "upgrade-hook": {
+      "version-ref": "versionUpgradeHookVersion",
       "dockerfile-path": "docker/mongodb-kubernetes-upgrade-hook/Dockerfile",
       "patch": {
         "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-operator-version-upgrade-post-start-hook",
