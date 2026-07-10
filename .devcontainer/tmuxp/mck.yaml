@@ -1,0 +1,68 @@
+# tmuxp session for the MCK devcontainer.
+#
+# Loaded automatically when the user attaches to the devcontainer (see
+# .devcontainer/shell-init.sh) or via `scripts/dev/dc_attach.sh`. If a
+# session named 'mck' already exists, tmuxp attaches to it instead of
+# rebuilding it (because the shell-init invocation passes -y).
+#
+# Layout (main-horizontal):
+#
+#     +--------------------------------------------+
+#     |                                            |
+#     |                k9s                         |
+#     |                                            |
+#     +-----------+----------------+---------------+
+#     | operator  | e2e test       | zsh -l        |
+#     | log       | log            |               |
+#     +-----------+----------------+---------------+
+#
+# Both log panes use .devcontainer/scripts/log_follower.sh so they keep
+# showing logs across file truncation, rotation, and not-yet-existence.
+
+session_name: mck
+start_directory: /workspace
+
+windows:
+  - window_name: mck
+    # main-horizontal puts the first pane on top spanning full width
+    # and stacks the remaining panes side-by-side underneath.
+    layout: main-horizontal
+    options:
+      # tmux >= 3.2 accepts a percentage; gives the top (k9s) pane the
+      # bulk of the vertical space.
+      main-pane-height: 70%
+    panes:
+      # All panes (except the dedicated zsh) are wrapped in pane_runner.sh.
+      # Ctrl-C / clean-exit drops the user into an interactive zsh with
+      # the wrapped command pre-loaded into history (Up / !!), instead of
+      # closing the pane. Recover from a crash without rebuilding the
+      # whole tmux session.
+      #
+      # Top pane (k9s). The .devc.kubeconfig variant has its proxy-url
+      # patched to http://gost-proxy:8080 so it routes through the
+      # in-container HTTP-CONNECT tunnel. k9s reloads on disk change,
+      # so context switches inside the container propagate without
+      # restarting this pane.
+      #
+      # Source devenv so NAMESPACE is exported, then launch k9s pinned to
+      # the worktree's namespace and the pods view (otherwise k9s lands
+      # on the welcome screen / empty default namespace).
+      - shell_command:
+          - . /workspace/scripts/dev/devenv 2>/dev/null
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh k9s --kubeconfig /workspace/.generated/current.devc.kubeconfig -n "${NAMESPACE:-default}" -c pods
+      # Bottom-left: operator log (logs/operator.log is the stable
+      # symlink op_run.sh maintains across runs).
+      - shell_command:
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/operator.log operator
+      # Bottom-middle: latest e2e test log (logs/test.log is the
+      # stable symlink e2e_run.sh maintains across runs).
+      - shell_command:
+          - exec /workspace/.devcontainer/scripts/pane_runner.sh /workspace/.devcontainer/scripts/log_follower.sh /workspace/logs/test.log e2e
+      # Bottom-right: an interactive zsh. The shell-init sourced from
+      # .zshrc loads /workspace/.generated/context.env +
+      # context.devc.env (via scripts/dev/devenv / mck-env) and activates
+      # the venv before the prompt appears. Not wrapped — it's already a
+      # shell.
+      - shell_command:
+          - exec zsh -l
+        focus: true

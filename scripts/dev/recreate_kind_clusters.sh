@@ -6,6 +6,7 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
+source scripts/funcs/kind_network
 
 docker_cleanup() {
   echo "Deleting all kind clusters"
@@ -23,23 +24,35 @@ docker_cleanup 2>&1| prepend "docker_cleanup"
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
+# Fresh EVG spawn hosts only have the laptop's copied ~/.docker/config.json,
+# whose ECR token expires in ~12h; log in explicitly so the parallel kind
+# node-image pulls below can reach the ECR mirror.
+scripts/dev/configure_container_auth.sh 2>&1 | prepend "configure_container_auth"
+
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
 cluster_pids=()
-(scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "${KIND_METALLB_RANGE_OPERATOR}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "172.18.255.210-172.18.255.220" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_1}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "172.18.255.220-172.18.255.230" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_2}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
+(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_3}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "kind" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
+(scripts/dev/setup_kind_cluster.sh -n "kind" -l "${KIND_METALLB_RANGE_SINGLE}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
 cluster_pids+=($!)
 
 echo "Waiting for all kind clusters to be created"
 for pid in "${cluster_pids[@]}"; do wait "${pid}" || { echo "Cluster creation PID ${pid} failed" >&2; exit 1; }; done
 
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
+# These exports go to ${KUBECONFIG} (set by set_env_context.sh sourced above).
+# Don't override KUBECONFIG here — downstream helpers (interconnect, istio,
+# csi) re-source set_env_context.sh and re-resolve KUBECONFIG from the
+# baked context env. Leaving exports at the default keeps every helper
+# looking at the same file. The merged kubeconfig is copied to
+# .generated/current.kubeconfig at the end of this script, where
+# evg_host.sh::get-kubeconfig scp's from.
 kind export kubeconfig --name "e2e-operator"
 kind export kubeconfig --name "e2e-cluster-1"
 kind export kubeconfig --name "e2e-cluster-2"
@@ -51,7 +64,7 @@ scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-clu
 
 export VERSION=${VERSION:-1.16.1}
 
-source multi_cluster/tools/download_istio.sh 2>&1 | prepend "download_istio"
+source multi_cluster/tools/download_istio.sh 2>&1 | prepend "download_istio" || true
 
 istio_pids=()
 VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh 2>&1 | prepend "install_istio" &
@@ -77,3 +90,12 @@ csi_driver_deploy kind-kind 2>&1 | prepend "install_csi_driver.sh kind-kind" &
 csi_pids+=($!)
 
 for pid in "${csi_pids[@]}"; do wait "${pid}" || { echo "CSI deploy PID ${pid} failed" >&2; exit 1; }; done
+
+# Make the merged kubeconfig available at the canonical worktree path so
+# evg_host.sh::get-kubeconfig (run from the laptop after this script
+# finishes on the remote) can scp it back.
+mkdir -p .generated
+src_kubeconfig="${KUBECONFIG:-${HOME}/.kube/config}"
+if [ ! "${src_kubeconfig}" -ef .generated/current.kubeconfig ]; then
+  cp -f "${src_kubeconfig}" .generated/current.kubeconfig
+fi

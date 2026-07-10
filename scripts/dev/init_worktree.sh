@@ -56,8 +56,8 @@ else
 fi
 
 # Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
-venv_path="${PROJECT_VENV_PATH:-${worktree_root}/venv}"
 # Recreate on empty/broken venv (no activate script) too; the script is idempotent.
+venv_path="${PROJECT_VENV_PATH:-${worktree_root}/venv}"
 if [[ ! -f "${venv_path}/bin/activate" || ${force} == 1 ]]; then
     echo "init_worktree: recreating python venv"
     (cd "${worktree_root}" && scripts/dev/recreate_python_venv.sh)

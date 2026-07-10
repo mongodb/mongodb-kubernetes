@@ -12,6 +12,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.placeholders import placeholders
 from tests.conftest import update_coredns_hosts
+from tests.kind_network import KIND_LB_SLOT_CLUSTER_1, KIND_LB_SLOT_CLUSTER_2, KIND_LB_SLOT_CLUSTER_3, kind_lb_ip_str
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -158,43 +159,43 @@ def server_certs(
 @mark.e2e_multi_cluster_tls_no_mesh
 def test_update_coredns(cluster_clients: dict[str, kubernetes.client.ApiClient]):
     hosts = [
-        ("172.18.255.211", "test.kind-e2e-cluster-1.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1), "test.kind-e2e-cluster-1.interconnected"),
         (
-            "172.18.255.211",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1),
             "multi-cluster-replica-set-0-0.kind-e2e-cluster-1.interconnected",
         ),
         (
-            "172.18.255.212",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 2),
             "multi-cluster-replica-set-0-1.kind-e2e-cluster-1.interconnected",
         ),
         (
-            "172.18.255.213",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 3),
             "multi-cluster-replica-set-0-2.kind-e2e-cluster-1.interconnected",
         ),
-        ("172.18.255.221", "test.kind-e2e-cluster-2.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 1), "test.kind-e2e-cluster-2.interconnected"),
         (
-            "172.18.255.221",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 1),
             "multi-cluster-replica-set-1-0.kind-e2e-cluster-2.interconnected",
         ),
         (
-            "172.18.255.222",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 2),
             "multi-cluster-replica-set-1-1.kind-e2e-cluster-2.interconnected",
         ),
         (
-            "172.18.255.223",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 3),
             "multi-cluster-replica-set-1-2.kind-e2e-cluster-2.interconnected",
         ),
-        ("172.18.255.231", "test.kind-e2e-cluster-3.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 1), "test.kind-e2e-cluster-3.interconnected"),
         (
-            "172.18.255.231",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 1),
             "multi-cluster-replica-set-2-0.kind-e2e-cluster-3.interconnected",
         ),
         (
-            "172.18.255.232",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 2),
             "multi-cluster-replica-set-2-1.kind-e2e-cluster-3.interconnected",
         ),
         (
-            "172.18.255.233",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 3),
             "multi-cluster-replica-set-2-2.kind-e2e-cluster-3.interconnected",
         ),
     ]

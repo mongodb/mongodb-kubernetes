@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
+#
+# Sourceable helper for scripts that want the per-side env loaded
+# without re-implementing the bootstrap. Prefer sourcing
+# scripts/dev/devenv directly; this is a thin wrapper for the many
+# scripts that source this helper to load the generated context env.
+#
+# Behavior:
+#   - Resolves the worktree root via the script's own location.
+#   - Sources scripts/dev/devenv (which fails loudly if env files
+#     are missing, picks the right side via /.dockerenv, sources
+#     logical .generated/context.env + site .generated/context.<side>.env
+#     with `set -a`, and activates venv if present).
+#   - Does NOT prepend ${PROJECT_DIR}/bin to PATH — that's handled
+#     in the container by /etc/profile.d/mck-bin.sh, and on the host
+#     by the dev's own ~/.zshrc / ~/.bashrc.
 
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-# shellcheck disable=1091
-source scripts/funcs/errors
+_set_env_context_script="$(readlink -f "${BASH_SOURCE[0]}")"
+_set_env_context_dir="$(dirname "${_set_env_context_script}")"
+_set_env_context_root="$(realpath "${_set_env_context_dir}/../..")"
 
-script_name=$(readlink -f "${BASH_SOURCE[0]}")
-script_dir=$(dirname "${script_name}")
-context_file="$(realpath "${script_dir}/../../.generated/context.export.env")"
+# shellcheck disable=SC1091
+. "${_set_env_context_root}/scripts/dev/devenv"
 
-if [[ ! -f ${context_file} ]]; then
-    fatal "File ${context_file} not found! Make sure to follow this guide to get started: https://wiki.corp.mongodb.com/display/MMS/Setting+up+local+development+and+E2E+testing#SettinguplocaldevelopmentandE2Etesting-GettingStartedGuide(VariantSwitching)"
+# Prepend the repo-local bin/ (downloaded kubectl/helm, bin/reset, chart-testing
+# tools) to PATH for the ~40 scripts that source this helper. Interactive shells
+# also get this via the user's rc (host) or
+# /etc/profile.d/mck-bin.sh (container), but non-interactive script invocations
+# don't — so restore it here. Idempotent: skip if already present.
+if [[ -n "${PROJECT_DIR:-}" ]]; then
+  case ":${PATH}:" in
+    *":${PROJECT_DIR}/bin:"*) ;;
+    *) export PATH="${PROJECT_DIR}/bin:${PATH}" ;;
+  esac
 fi
 
-# shellcheck disable=SC1090
-source "${context_file}"
-
-# Activate the python venv here so consumer scripts don't each activate it.
-# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
-venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
-if [[ -f "${venv_path}/bin/activate" ]]; then
-    # shellcheck disable=SC1091
-    source "${venv_path}/bin/activate"
-fi
-
-export PATH="${PROJECT_DIR}/bin:${PATH}"
+unset _set_env_context_script _set_env_context_dir _set_env_context_root

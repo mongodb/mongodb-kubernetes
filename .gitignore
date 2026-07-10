@@ -16,8 +16,15 @@ docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 docker/mongodb-kubernetes-tests/public
 
 my-*
-.vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
 .env
+/.devcontainer/.envs/
+/.devcontainer/compose.generated.yml
+/.devcontainer/compose.user.yml
+/.devcontainer/scripts/*/*.user.sh
 data
 cache
 **/__pycache__
@@ -35,6 +42,11 @@ __debug_bin*
 .generated/
 scripts/dev/contexts/private-context
 scripts/dev/contexts/private-context-*
+
+# On-disk backups bats tests keep beside the originals (they survive a SIGKILL
+# that skips teardown; the next run self-heals them). Ignore so an aborted run
+# never dirties the tree.
+*.bats-bak
 
 # On Evergreen we install uv in the project directory, so make sure it's ignored
 /.uv

@@ -19,6 +19,9 @@ export NAMESPACE="mongodb-test"
 #   Empty for start.
 export EVG_HOST_NAME=""
 
+# The DNS name of the host above. This is only required in the devcontainer and safe to leave empty otherwise.
+export EVG_HOST_ADDRESS=""
+
 # ECR repo used for deploying the images
 # Allowed values:
 # - a full path to the ECR repo

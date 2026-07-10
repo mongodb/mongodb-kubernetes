@@ -3,7 +3,8 @@
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
-# Derive PROJECT_DIR from script location so it works even if the caller didn't export it.
+# Derive PROJECT_DIR from this script's location (scripts/dev/create_worktree.sh)
+# so it works whether or not the caller exported it, matching sibling scripts.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "${script_dir}/../.." && pwd)}"
 export PROJECT_DIR
@@ -78,14 +79,14 @@ if [[ ! -f "${worktree_path}/scripts/dev/contexts/private-context" \
   echo "Initializing worktree in ${worktree_path}..."
   init_flags=()
   [[ ${force} == 1 ]] && init_flags+=(-f)
-  # Guarded expansion: empty array must not trip `set -u` on bash 3.2 (macOS).
+  # Guarded expansion so an empty array doesn't trip `set -u` on bash 3.2 (macOS).
   time "${PROJECT_DIR}/scripts/dev/init_worktree.sh" "${init_flags[@]+"${init_flags[@]}"}" "${worktree_path}" "${PROJECT_DIR}"
 fi
 
 (
   cd "${worktree_path}"
   make switch context="$(cat ".generated/.current_context")"
-  source .generated/context.export.env
+  . scripts/dev/devenv
 )
 
 echo "Worktree $(realpath "${worktree_path}") has been prepared"

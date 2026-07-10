@@ -4,7 +4,6 @@
 # It allows to configure kind clusters and expose remote API servers on a local machine to
 # enable local development while running Kind cluster on EC2 instance.
 # Run "evg_host.sh help" command to see the full usage.
-# See docs/dev/local_e2e_testing.md for a tutorial how to use it.
 
 set -Eeou pipefail
 
@@ -14,34 +13,43 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
 
-if [[ -z "${EVG_HOST_NAME}" ]]; then
-  echo "EVG_HOST_NAME env var is missing"
-  exit 1
-fi
+# Every command in this script talks to a remote EVG host. Non-EVG modes
+# (local-kind, BYOC) don't go through here at all — they touch the kubeconfig
+# via refresh_kubeconfig.sh directly. EVG_HOST_NAME's strict check is
+# deferred to get_host_url() so `help` / no-arg invocation doesn't fail.
 
 get_host_url() {
-  host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
-  if [[ "${host}" == "" ]]; then
-    >&2 echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
-Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
+  if [[ -z "${EVG_HOST_NAME:-}" ]]; then
+    >&2 echo "EVG_HOST_NAME env var is missing (required for command '${cmd}')"
     exit 1
+  fi
+  if [[ -z "${EVG_HOST_ADDRESS:-}" ]]; then
+    host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
+    if [[ "${host}" == "" ]]; then
+      >&2 echo "Cannot find running EVG host with name ${EVG_HOST_NAME}.
+  Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
+      exit 1
+    fi
+  else
+    host="${EVG_HOST_ADDRESS}"
   fi
   echo "ubuntu@${host}"
 }
 
 cmd=${1-""}
 
-if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
-  host_url=$(get_host_url)
-fi
+# Every non-help command needs an EVG host to talk to. Resolve up-front.
+case "${cmd}" in
+  ""|help) ;;
+  *) host_url=$(get_host_url) ;;
+esac
 
-kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
+kubeconfig_path="${PROJECT_DIR}/.generated/current.kubeconfig"
 
 configure() {
   shift || true
   auto_recreate="false"
 
-  # Parse arguments
   while [[ $# -gt 0 ]]; do
     case $1 in
       --auto-recreate)
@@ -66,25 +74,17 @@ configure() {
 
   sync | prepend "sync"
 
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${auto_recreate}"
+  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; . scripts/dev/devenv; scripts/dev/setup_evg_host.sh ${auto_recreate}"
 }
 
 sync() {
-  rsync --verbose --archive --compress --human-readable --recursive --progress \
+  rsync --archive --compress --human-readable --recursive \
   --delete --delete-excluded --max-size=1000000 --prune-empty-dirs \
   -e ssh \
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
   --exclude-from=.rsyncignore \
   ./ "${host_url}:/home/ubuntu/mongodb-kubernetes/"
-
-  rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
-    --max-size=1000000 \
-    -e ssh \
-    ~/.operator-dev/ \
-    "${host_url}:/home/ubuntu/.operator-dev" &
-
-  wait
 }
 
 remote-prepare-local-e2e-run() {
@@ -97,15 +97,49 @@ remote-prepare-local-e2e-run() {
     -e ssh \
     "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
-  scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
+  # Bare base lands at the fixed local base path (NOT ${KUBE_CONFIG_PATH},
+  # a per-side flavor). The bare 127.0.0.1 file is what tunnel
+  # users consume directly; inside the devcontainer the two flavors are
+  # derived by `evg_host.sh get-kubeconfig` / `wt-ctl kubeconfig refresh`.
+  scp "${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig" "${PROJECT_DIR}/.generated/multicluster_kubeconfig" &
 
   wait
 }
 
 get-kubeconfig() {
-  remote_path="${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig"
-  echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
-  scp "${remote_path}" "${kubeconfig_path}"
+  # EVG-host kubeconfig flow: scp the host's current.kubeconfig down to
+  # this worktree, then delegate proxy-url patching + kfp registration to
+  # the host-agnostic refresh_kubeconfig.sh. Local-kind / BYOC modes don't
+  # go through this verb — they invoke refresh_kubeconfig.sh directly.
+  #
+  # Usage: get-kubeconfig [--no-fetch]
+  #   --no-fetch  Skip the scp step. Use when the kubeconfig already lives
+  #               in this filesystem (e.g. inside the devcontainer where
+  #               .generated/ is bind-mounted from the host) and we just
+  #               need to repatch + re-register.
+  shift || true
+  local no_fetch=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-fetch) no_fetch=1; shift ;;
+      *) echo "Unknown argument to get-kubeconfig: $1" >&2; return 1 ;;
+    esac
+  done
+
+  if [[ ${no_fetch} -eq 0 ]]; then
+    # The remote `kind export kubeconfig` writes to ${KUBECONFIG}, which on
+    # the EVG host site-context resolves to
+    # /home/ubuntu/mongodb-kubernetes/.generated/current.kubeconfig
+    # (the canonical per-side kubeconfig path). Scp from that exact path.
+    remote_path="${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/current.kubeconfig"
+    echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
+    mkdir -p "$(dirname "${kubeconfig_path}")"
+    scp "${remote_path}" "${kubeconfig_path}"
+  else
+    echo "Skipping kubeconfig fetch (--no-fetch); using existing ${kubeconfig_path}"
+  fi
+
+  "${PROJECT_DIR}/scripts/dev/wt-ctl" --quiet kubeconfig refresh
 }
 
 recreate-kind-clusters() {
@@ -125,6 +159,13 @@ recreate-kind-cluster() {
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
   # shellcheck disable=SC2088
   ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  # Single-cluster verb: current.kubeconfig holds one context (the multi verb
+  # recreate-kind-clusters builds a multi-context file instead). setup_kind_cluster.sh
+  # runs under root-context on the host, where its `-e` export writes the cluster's
+  # kubeconfig to ~/.kube/${cluster_name}; copy it to the canonical
+  # ~/mongodb-kubernetes/.generated/current.kubeconfig so get-kubeconfig's scp finds it.
+  ssh -T -q "${host_url}" \
+    "mkdir -p ~/mongodb-kubernetes/.generated && cp -f ~/.kube/${cluster_name} ~/mongodb-kubernetes/.generated/current.kubeconfig"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -167,7 +208,7 @@ retry_with_sleep() {
 ssh_to_host() {
   shift 1
   # shellcheck disable=SC2029
-  ssh "$@" "${host_url}"
+  ssh "${host_url}" "$@"
 }
 
 upload-my-ssh-private-key() {
@@ -199,10 +240,10 @@ PREREQUISITES:
 COMMANDS:
   recreate-kind-clusters                all-you-need to configure host and kind clusters; deletes and recreates all kind clusters (for single and multi runs)
   configure [--auto-recreate]           installs on a host: calls sync, switches context, installs necessary software
-  sync                                  rsync of project directory
+  sync                                  rsync of project directory (.git is intentionally not synced)
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
-  get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
+  get-kubeconfig                        copies the remote .generated/current.kubeconfig into this worktree, then patches it per side + registers with kfp
   tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
   cmd [command with args]               execute command as if being on evg host
@@ -215,11 +256,11 @@ case ${cmd} in
 configure) configure "$@" ;;
 recreate-kind-clusters) recreate-kind-clusters "$@" ;;
 recreate-kind-cluster) recreate-kind-cluster "$@" ;;
-get-kubeconfig) get-kubeconfig ;;
+get-kubeconfig) get-kubeconfig "$@" ;;
 remote-prepare-local-e2e-run) remote-prepare-local-e2e-run ;;
 ssh) ssh_to_host "$@" ;;
 tunnel) retry_with_sleep tunnel "$@" ;;
-sync) sync ;;
+sync) shift; sync "$@" ;;
 cmd) cmd "$@" ;;
 upload-my-ssh-private-key) upload-my-ssh-private-key ;;
 help) usage ;;

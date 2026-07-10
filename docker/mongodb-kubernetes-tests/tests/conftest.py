@@ -21,22 +21,35 @@ else:
 
 
 def _load_env_from_local_file_for_development():
-    """Load environment variables from .generated/context.env for local development.
-    Similar to operator's loadEnvFromLocalFileForDevelopment() - only loads if
-    NAMESPACE env var is not already set (i.e., not running in CI/Evergreen).
+    """Load environment variables from .generated/context.{env,<side>.env}
+    for local development. Mirrors the operator's
+    loadEnvFromLocalFileForDevelopment() — only loads if NAMESPACE env var
+    is not already set (i.e. not running in CI/Evergreen).
+
+    Side detection follows the same /.dockerenv rule used by
+    scripts/dev/devenv and main.go's env loader. Files are loaded with
+    override=True so site bytes layer over logical bytes correctly.
     """
-    # Path relative to this file: tests/conftest.py -> ../../../.. -> repo root
-    env_file = Path(__file__).joinpath("..", "..", "..", "..", ".generated", "context.env").resolve()
-
-    if not env_file.exists():
-        return
-
     if os.environ.get("NAMESPACE"):
-        print(f"NAMESPACE already set, skipping loading environment variables from {env_file}")
+        print("NAMESPACE already set, skipping loading environment variables from .generated/")
         return
 
-    load_dotenv(env_file)
-    print(f"Loaded environment variables from file {env_file}")
+    # Path relative to this file: tests/conftest.py -> ../../../.. -> repo root
+    repo_root = Path(__file__).joinpath("..", "..", "..", "..").resolve()
+    side = "devc" if Path("/.dockerenv").exists() else "host"
+
+    env_files = [
+        repo_root / ".generated" / "context.env",
+        repo_root / ".generated" / f"context.{side}.env",
+    ]
+    for env_file in env_files:
+        if not env_file.exists():
+            print(
+                f"WARN: env file {env_file} not found (run 'make switch' on the {side} side); skipping.",
+            )
+            continue
+        load_dotenv(env_file, override=True)
+        print(f"Loaded environment variables from file {env_file}")
 
 
 _load_env_from_local_file_for_development()
@@ -61,7 +74,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import load_proxy_config, running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -86,7 +99,14 @@ from tests.constants import (
 from tests.multicluster import prepare_multi_cluster_namespaces
 
 try:
-    kubernetes.config.load_kube_config()
+    # Merge kubeconfig and honor per-cluster proxy-url (e.g. gost-proxy in devcontainer).
+    # The plain load_kube_config() ignores proxy-url, which breaks API access from inside
+    # the devcontainer where the host-mapped 127.0.0.1:<port> is unreachable directly.
+    _merger = kubernetes.config.kube_config.KubeConfigMerger(kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION)
+    _configuration = kubernetes.client.Configuration()
+    kubernetes.config.load_kube_config_from_dict(_merger.config, client_configuration=_configuration)
+    load_proxy_config(_merger.config, _configuration)
+    kubernetes.client.Configuration.set_default(_configuration)
 except Exception:
     kubernetes.config.load_incluster_config()
 
@@ -1227,11 +1247,12 @@ def _get_client_for_cluster(
         raise ValueError(f"No token found for cluster {cluster_name}")
 
     configuration = kubernetes.client.Configuration()
-    kubernetes.config.load_kube_config(
-        context=cluster_name,
-        config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
-        client_configuration=configuration,
+    merger = kubernetes.config.kube_config.KubeConfigMerger(os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH))
+    load_proxy_config(merger.config, configuration, cluster_name)
+    kubernetes.config.load_kube_config_from_dict(
+        merger.config, context=cluster_name, client_configuration=configuration
     )
+
     configuration.host = CLUSTER_HOST_MAPPING.get(cluster_name, configuration.host)
 
     configuration.verify_ssl = False
