@@ -22,8 +22,6 @@ run ra-10_0160_add_dns_record.sh
 
 run ra-10_0300_ops_manager_create_admin_credentials.sh
 
-run ra-10_0310_pre_pull_appdb_images.sh
-
 run ra-10_0320_ops_manager_no_mesh.sh
 
 run_for_output ra-10_0321_ops_manager_wait_for_pending_state.sh
