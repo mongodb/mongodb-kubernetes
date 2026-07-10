@@ -245,6 +245,26 @@ class DeletePipelineTests(unittest.TestCase):
             self.assertTrue(any("worktree prune" in j for j in joined))
             self.assertNotIn("topic_x", reg.read_text())
 
+    def test_failed_worktree_removal_keeps_net_prefix(self) -> None:
+        # A live worktree must keep its subnet/port; releasing after a failed
+        # `git worktree remove` would let another run reclaim an in-use prefix.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(
+                Path(tmp),
+                with_compose_running=False,
+                with_evg_host=False,
+            )
+            runner.handlers.insert(
+                0,
+                (
+                    lambda argv: "worktree" in argv and "remove" in argv,
+                    lambda _argv: CmdResult(argv=list(_argv), rc=1, stdout="", stderr="locked", duration_s=0.0),
+                ),
+            )
+            reg = self._seed_registry("topic_x")
+            DeleteOrchestrator(runner, self._inputs(repo, target, delete_worktree=True)).run()
+            self.assertIn("topic_x", reg.read_text())
+
     def test_only_om_runs_om_clean(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(

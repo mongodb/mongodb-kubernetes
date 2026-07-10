@@ -1059,10 +1059,14 @@ class DeleteOrchestrator:
         if i.delete_evg:
             self._step_evg_terminate(emit)
         if i.delete_worktree:
-            self._step_worktree_remove(emit)
+            removed = self._step_worktree_remove(emit)
             # Network registry entry is tied to the worktree's net prefix;
-            # release it only when the worktree itself goes away.
-            self._step_prefix_release(emit)
+            # release it only when the worktree is confirmed gone — otherwise a
+            # live worktree keeps its subnet/port while another run reclaims it.
+            if removed:
+                self._step_prefix_release(emit)
+            else:
+                emit("[wt-ctl] network: keeping registry entry (worktree still present)")
         emit("[wt-ctl] delete: done")
 
     # ------------------------------------------------------------------
@@ -1190,7 +1194,9 @@ class DeleteOrchestrator:
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
             emit(f"[wt-ctl] evg: terminate failed (continuing): {exc.render()}")
 
-    def _step_worktree_remove(self, emit: Callable[[str], None]) -> None:
+    def _step_worktree_remove(self, emit: Callable[[str], None]) -> bool:
+        """Return True when the worktree is confirmed gone (removed now or
+        already absent), False when a removal was attempted and failed."""
         wt = self.inputs.worktree_path
         # Move cwd off the worktree we're about to delete — otherwise a later
         # os.getcwd() / subprocess raises FileNotFoundError once the dir vanishes.
@@ -1200,6 +1206,7 @@ class DeleteOrchestrator:
                 os.chdir(wt.parent)
         except (FileNotFoundError, OSError):
             os.chdir(Path.home())
+        removed = True
         if wt.is_dir():
             emit(f"[wt-ctl] worktree: removing {wt}")
             try:
@@ -1216,6 +1223,7 @@ class DeleteOrchestrator:
                 )
             except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
                 emit(f"[wt-ctl] worktree: remove failed (continuing): {exc.render()}")
+                removed = False
         else:
             emit(f"[wt-ctl] worktree: dir {wt} doesn't exist; skipping")
         try:
@@ -1224,6 +1232,7 @@ class DeleteOrchestrator:
             )
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
             emit(f"[wt-ctl] worktree: prune failed (continuing): {exc.render()}")
+        return removed
 
     def _step_prefix_release(self, emit: Callable[[str], None]) -> None:
         emit(f"[wt-ctl] network: releasing registry entry for '{self.inputs.branch_dir}'")
