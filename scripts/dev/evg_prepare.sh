@@ -14,12 +14,14 @@
 #      the four-cluster setup; --skip-recreate to leave kind alone).
 #
 # Usage:
-#   evg_prepare.sh [--multi] [--skip-recreate] [--name NAME]
+#   evg_prepare.sh [--multi] [--skip-recreate] [--name NAME] [--context CTX]
 #   evg_prepare.sh --name dev-myfeature
 #
 # Options:
 #   --name NAME       Display name to spawn / resume. Defaults to the worktree
 #                     basename (after slash-to-underscore conversion).
+#   --context CTX     Context to regenerate. Falls back to
+#                     .generated/.current_context when omitted.
 #   --multi           Recreate the four-cluster multi setup (e2e-operator,
 #                     e2e-cluster-{1,2,3}, kind). Default is single (one
 #                     `kind` cluster).
@@ -38,6 +40,7 @@ usage() {
 multi_cluster=0
 skip_recreate=0
 explicit_name=""
+context_arg=""
 distro=""
 region=""
 while [[ $# -gt 0 ]]; do
@@ -45,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --multi|--multi-cluster) multi_cluster=1; shift ;;
     --skip-recreate)         skip_recreate=1; shift ;;
     --name)                  explicit_name="$2"; shift 2 ;;
+    --context)               context_arg="$2"; shift 2 ;;
     --distro)                distro="$2"; shift 2 ;;
     --region)                region="$2"; shift 2 ;;
     -h|--help)               usage; exit 0 ;;
@@ -76,12 +80,19 @@ mkdir -p "${worktree_root}/.generated"
 echo -n "${evg_host_name}" > "${worktree_root}/.generated/.current-evg-host"
 
 # 3. Re-run make switch so context*.env reflect the new EVG_HOST_NAME / ADDRESS.
+#    Prefer the caller-supplied --context (the orchestrator knows it
+#    authoritatively) over the .generated/.current_context sentinel, which a
+#    concurrent create phase (dc_build's initializeCommand) can transiently
+#    clear. make switch below regenerates .generated regardless.
 current_context_file="${worktree_root}/.generated/.current_context"
-if [[ ! -f "${current_context_file}" ]]; then
-  echo "ERROR: .generated/.current_context not found. Run 'make switch' once before this script." >&2
+if [[ -n "${context_arg}" ]]; then
+  current_context="${context_arg}"
+elif [[ -f "${current_context_file}" ]]; then
+  current_context="$(cat "${current_context_file}")"
+else
+  echo "ERROR: no --context given and .generated/.current_context not found. Run 'make switch' once before this script." >&2
   exit 1
 fi
-current_context="$(cat "${current_context_file}")"
 echo "==> Regenerating context files (context=${current_context})"
 make switch context="${current_context}"
 
