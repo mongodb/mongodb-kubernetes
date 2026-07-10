@@ -184,6 +184,34 @@ class DeletePipelineTests(unittest.TestCase):
             # Net registry untouched when --worktree wasn't selected.
             self.assertIn("topic_x", reg.read_text())
 
+    def test_evg_terminate_recovers_custom_host_name_from_pin(self) -> None:
+        # Host created with --evg-host-name; delete invoked without the flag.
+        # The pin records the real displayName, so termination must still match.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(
+                Path(tmp),
+                with_compose_running=False,
+                with_evg_host=True,
+            )
+            (target / ".generated" / ".current-evg-host").write_text("my-custom-host")
+            runner.handlers.insert(
+                0,
+                (
+                    lambda argv: argv[:3] == ["evergreen", "host", "list"],
+                    lambda _argv: CmdResult(
+                        argv=list(_argv),
+                        rc=0,
+                        stdout=_evg_host_json("my-custom-host", "i-custom"),
+                        stderr="",
+                        duration_s=0.0,
+                    ),
+                ),
+            )
+            self._seed_registry("topic_x")
+            DeleteOrchestrator(runner, self._inputs(repo, target, delete_evg=True)).run()
+            joined = [" ".join(c) for c in runner.calls]
+            self.assertTrue(any("evergreen host terminate --host i-custom" in j for j in joined))
+
     def test_only_devc_runs_compose_down_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, runner = _make_fixture(
