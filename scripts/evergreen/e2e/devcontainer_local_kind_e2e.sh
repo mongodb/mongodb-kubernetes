@@ -41,6 +41,10 @@ for d in /opt/golang/go*/bin; do [[ -d "${d}" ]] && PATH="${d}:${PATH}"; done
 export PATH
 command -v go >/dev/null || { echo "go not on PATH (expected under /opt/golang)"; exit 1; }
 
+# Pin the devcontainer CLI so a new npm release can't break CI without a repo
+# change; bump deliberately.
+DEVCONTAINER_CLI_VERSION="0.87.0"
+
 # The devcontainer CLI needs Node >=18. EVG distros vary wildly (2204 ships
 # v24, 2404 ships v8) and /opt is root-owned, so we pick the newest usable
 # /opt Node and otherwise install a modern one under $HOME. The CLI itself
@@ -63,7 +67,7 @@ fi
 export PATH
 if ! command -v devcontainer >/dev/null; then
   npm config set prefix "${HOME}/.npm-global"
-  npm i -g @devcontainers/cli
+  npm i -g "@devcontainers/cli@${DEVCONTAINER_CLI_VERSION}"
   PATH="${HOME}/.npm-global/bin:${PATH}"; export PATH
 fi
 
