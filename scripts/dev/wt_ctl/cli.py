@@ -861,9 +861,12 @@ def cmd_kubeconfig(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace)
         # Merge the freshly-generated context env files on top of os.environ
         # so callers who invoked us right after `make switch` see the new
         # CLUSTER_NAME / MCK_DEVC_PROXY_PORT / EVG_HOST_PROXY / K8S_FWD_PROXY
-        # values without needing to re-source devenv first.
+        # values without needing to re-source devenv first. Load exactly one
+        # side file (same /.dockerenv detection as devenv) so the devc overlay
+        # never leaks into a host-shell refresh, and vice versa.
         env = dict(os.environ)
-        for name in ("context.env", "context.host.env", "context.devc.env"):
+        side = "devc" if Path("/.dockerenv").exists() else "host"
+        for name in ("context.env", f"context.{side}.env"):
             p = refs.worktree_root / ".generated" / name
             if not p.is_file():
                 continue
