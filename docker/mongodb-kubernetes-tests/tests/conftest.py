@@ -90,6 +90,18 @@ try:
 except Exception:
     kubernetes.config.load_incluster_config()
 
+from urllib3.util.retry import Retry
+
+_K8S_RETRY = Retry(
+    total=3,
+    backoff_factor=1,
+    status_forcelist=[500, 502, 503, 504],
+)
+
+_default_cfg = kubernetes.client.Configuration.get_default_copy()
+_default_cfg.retries = _K8S_RETRY
+kubernetes.client.Configuration.set_default(_default_cfg)
+
 logger = test_logger.get_test_logger(__name__)
 
 
@@ -1224,6 +1236,7 @@ def _get_client_for_cluster(
 
     configuration.verify_ssl = False
     configuration.api_key = {"authorization": f"Bearer {token}"}
+    configuration.retries = _K8S_RETRY
     return kubernetes.client.api_client.ApiClient(configuration=configuration)
 
 
