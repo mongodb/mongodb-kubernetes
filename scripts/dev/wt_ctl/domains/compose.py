@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from ..errors import ExternalCommandFailed
+from ..errors import ToolMissing
 from ..runner import Runner
 from ..state import DevcState
 
@@ -28,7 +28,10 @@ class ComposeDomain:
     # read
     # ------------------------------------------------------------------
     def list_projects(self) -> list[dict]:
-        res = self.runner.run(["docker", "compose", "ls", "--all", "--format", "json"], check=False)
+        try:
+            res = self.runner.run(["docker", "compose", "ls", "--all", "--format", "json"], check=False)
+        except ToolMissing:
+            return []
         if res.rc != 0:
             return []
         try:
@@ -43,10 +46,13 @@ class ComposeDomain:
         # for service detail. We deliberately don't load compose files here:
         # `compose ps -p <project>` works even when compose.generated.yml is
         # absent (e.g. during teardown).
-        res = self.runner.run(
-            ["docker", "compose", "-p", proj, "ps", "--all", "--format", "json"],
-            check=False,
-        )
+        try:
+            res = self.runner.run(
+                ["docker", "compose", "-p", proj, "ps", "--all", "--format", "json"],
+                check=False,
+            )
+        except ToolMissing:
+            return None
         if res.rc != 0:
             return None
         # `docker compose ps --format json` emits ONE json object per line,
