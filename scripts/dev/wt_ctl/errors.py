@@ -79,7 +79,8 @@ class ExternalCommandFailed(WtCtlError):
 
 @dataclass
 class ParallelPhaseFailures(WtCtlError):
-    """Aggregated failures from ``Runner.run_parallel``."""
+    """Aggregated failures from a parallel phase pair (see
+    ``CreateOrchestrator._run_parallel_pair``)."""
 
     failures: dict[str, ExternalCommandFailed] = field(default_factory=dict)
 

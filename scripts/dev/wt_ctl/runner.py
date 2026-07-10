@@ -10,14 +10,12 @@ import os
 import shutil
 import subprocess  # noqa: S404 — the single allowed call site (lint excludes runner.py)
 import sys
-import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from .errors import ExternalCommandFailed, ParallelPhaseFailures, ToolMissing
+from .errors import ExternalCommandFailed, ToolMissing
 
 
 @dataclass
@@ -27,15 +25,6 @@ class CmdResult:
     stdout: str
     stderr: str
     duration_s: float
-
-
-@dataclass
-class Job:
-    name: str
-    argv: list[str]
-    log_path: Optional[Path] = None
-    cwd: Optional[Path] = None
-    env: Optional[dict] = None
 
 
 class Runner:
@@ -252,40 +241,6 @@ class Runner:
         if path is None:
             raise ToolMissing(argv[0])
         os.execvpe(path, argv, merged_env or os.environ.copy())
-
-    def run_parallel(self, jobs: list[Job]) -> dict[str, CmdResult]:
-        """Run jobs concurrently, aggregating failures into
-        ``ParallelPhaseFailures``.
-        """
-        results: dict[str, CmdResult] = {}
-        failures: dict[str, ExternalCommandFailed] = {}
-        lock = threading.Lock()
-
-        def _one(job: Job) -> None:
-            try:
-                if job.log_path is not None:
-                    res = self.run_streaming(
-                        job.argv,
-                        prefix=f"[{job.name}] ",
-                        log_path=job.log_path,
-                        env=job.env,
-                        cwd=job.cwd,
-                    )
-                else:
-                    res = self.run(job.argv, env=job.env, cwd=job.cwd)
-                with lock:
-                    results[job.name] = res
-            except ExternalCommandFailed as failure:
-                with lock:
-                    failures[job.name] = failure
-
-        if not jobs:
-            return results
-        with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
-            list(pool.map(_one, jobs))
-        if failures:
-            raise ParallelPhaseFailures(failures=failures)
-        return results
 
     def have(self, tool: str) -> bool:
         return self._which(tool) is not None
