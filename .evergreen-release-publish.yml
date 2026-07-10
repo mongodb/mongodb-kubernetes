@@ -26,13 +26,23 @@ tasks:
             scripts/mckci release publish group --commit "${revision}"
 
   # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
-  # is not itself a trigger) and deletes "new-X.Y.Z".
+  # is not itself a trigger) and deletes "new-X.Y.Z", then triggers the public
+  # docs-snippet refresh.
   - name: retag_new_release
     commands:
       - func: clone
       - func: push_release_tag
         vars:
           prefix: "new-"
+      - func: compute_release_version
+      - command: subprocess.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - revision
+            - RELEASE_VERSION
+          binary: scripts/dev/trigger_public_docs_snippets.sh
 
 buildvariants:
   - name: release_publish
