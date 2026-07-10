@@ -17,6 +17,10 @@ type PublishInputs struct {
 	// Commit is the SHA of the promoted commit to publish.
 	// If empty, it is resolved from the promoted-latest tag.
 	Commit string
+	// Force allows overwriting the immutable :{version} production tag even if
+	// it already points at a different digest. Without it, such a conflict is
+	// a hard error (image stomping protection).
+	Force bool
 	// DryRun prints what would happen without copying any images.
 	DryRun bool
 }
@@ -26,13 +30,16 @@ type PublishResult struct {
 	Commit      string
 	Version     string
 	AppliedTags []string
+	Warnings    []string
 }
 
-// Publish assumes the staging and production repositories live on the same
-// registry host (the one reg was connected to). The host embedded in
-// StagingImage is only used to strip the repo path; tag listing and copying
-// both target reg's host.
-func Publish(inputs PublishInputs, reg Registry) (PublishResult, error) {
+// Publish retags a promoted staging candidate as :{version} and :latest in
+// the production registry. host is the destination (production) registry
+// host (e.g. "quay.io"); inputs.ProdRepo is a path relative to it, matching
+// Registry.CopyWithTags' own convention. StagingImage, by contrast, is always
+// fully-qualified (may live on a different host, e.g. ECR staging vs quay.io
+// production).
+func Publish(inputs PublishInputs, host string, reg Registry) (PublishResult, error) {
 	if inputs.StagingImage == "" {
 		return PublishResult{}, errors.New("staging-image is required")
 	}
@@ -45,16 +52,40 @@ func Publish(inputs PublishInputs, reg Registry) (PublishResult, error) {
 		return PublishResult{}, err
 	}
 
+	srcRef := fmt.Sprintf("%s:%s", inputs.StagingImage, PromotedTagFor(commit, version))
+	dstVersionRef := fmt.Sprintf("%s/%s:%s", host, inputs.ProdRepo, version)
+
+	// Only the immutable :{version} tag is stomp-checked; :latest is a mutable
+	// pointer that is meant to move on every publish.
+	conflict, upToDate, err := checkStomp(reg, srcRef, dstVersionRef)
+	if err != nil {
+		return PublishResult{}, err
+	}
+	if conflict != "" && !inputs.Force {
+		return PublishResult{}, fmt.Errorf("refusing to publish: %s (use --force to override)", conflict)
+	}
+
+	var warnings []string
+	if upToDate {
+		warnings = append(warnings, fmt.Sprintf("%s already exists at the same digest", dstVersionRef))
+	} else if conflict != "" {
+		warnings = append(warnings, fmt.Sprintf("overwriting due to --force: %s", conflict))
+	}
+
 	tags := []string{version, "latest"}
-	result := PublishResult{Commit: commit, Version: version, AppliedTags: tags}
+	result := PublishResult{Commit: commit, Version: version, AppliedTags: tags, Warnings: warnings}
 
 	if inputs.DryRun {
 		return result, nil
 	}
 
-	srcRef := fmt.Sprintf("%s:%s", inputs.StagingImage, PromotedTagFor(commit, version))
-	if err := reg.CopyWithTags(srcRef, inputs.ProdRepo, tags); err != nil {
+	// Immutable tag first: only once that succeeds do we move :latest, so a
+	// failure never leaves latest ahead of the version it's supposed to point at.
+	if err := reg.CopyWithTags(srcRef, inputs.ProdRepo, []string{version}); err != nil {
 		return PublishResult{}, fmt.Errorf("publish %s: %w", srcRef, err)
+	}
+	if err := reg.CopyWithTags(srcRef, inputs.ProdRepo, []string{"latest"}); err != nil {
+		return PublishResult{}, fmt.Errorf("publish %s (latest): %w", srcRef, err)
 	}
 	return result, nil
 }
@@ -67,7 +98,7 @@ func resolvePromoted(stagingImage, commit string, reg Registry) (string, string,
 
 	if commit == "" {
 		latestRef := fmt.Sprintf("%s:%s", stagingImage, promotedLatestTag())
-		latestDigest, err := reg.GetDigest(latestRef)
+		latestDigest, err := reg.Digest(latestRef)
 		if err != nil {
 			return "", "", fmt.Errorf("resolve promoted-latest: %w", err)
 		}
@@ -75,7 +106,7 @@ func resolvePromoted(stagingImage, commit string, reg Registry) (string, string,
 			if !isPromotedVersionTag(tag) {
 				continue
 			}
-			d, err := reg.GetDigest(fmt.Sprintf("%s:%s", stagingImage, tag))
+			d, err := reg.Digest(fmt.Sprintf("%s:%s", stagingImage, tag))
 			if err != nil {
 				continue
 			}

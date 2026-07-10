@@ -11,27 +11,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
-// insecureConnect is a RegistryConnector for tests, connecting over http.
-func insecureConnect(host string) Registry {
-	return DefaultRegistryConnector("http://" + host)
-}
-
-// assertTagDigest fails the test unless repo:tag exists and matches wantDigest.
-func assertTagDigest(t *testing.T, repo, tag, wantDigest string) {
-	t.Helper()
-	ref, err := name.NewTag(fmt.Sprintf("%s:%s", repo, tag), name.Insecure)
-	if err != nil {
-		t.Fatalf("parse tag %s:%s: %v", repo, tag, err)
-	}
-	desc, err := remote.Get(ref)
-	if err != nil {
-		t.Fatalf("tag %s:%s not found: %v", repo, tag, err)
-	}
-	if desc.Digest.String() != wantDigest {
-		t.Errorf("%s:%s: digest got %q, want %q", repo, tag, desc.Digest, wantDigest)
-	}
-}
-
 func TestPublishGroup(t *testing.T) {
 	// Two separate registries stand in for the real ECR (staging) / quay.io
 	// (production) split: PublishGroup must read promoted candidates from one
@@ -57,7 +36,7 @@ func TestPublishGroup(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: rpStaging, ReleaseRepo: rpProd, Version: "1.0.24"},
 	}
 
-	results, err := PublishGroup(images, "abc1234", false, insecureConnect)
+	results, err := PublishGroup(images, "abc1234", false, false, insecureConnect)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,7 +68,7 @@ func TestPublishGroupHardFailsOnMissingPromotedTag(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: stagingHost + "/staging/mongodb-kubernetes-readinessprobe", ReleaseRepo: prodHost + "/mongodb/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
 	}
 
-	_, err := PublishGroup(images, "abc1234", false, insecureConnect)
+	_, err := PublishGroup(images, "abc1234", false, false, insecureConnect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected hard failure mentioning readiness-probe, got %v", err)
 	}
@@ -97,8 +76,53 @@ func TestPublishGroupHardFailsOnMissingPromotedTag(t *testing.T) {
 
 func TestPublishGroupCommitRequired(t *testing.T) {
 	images := []ReleaseImage{{Name: "operator", StagingRepo: "h/staging/op", ReleaseRepo: "h/op"}}
-	_, err := PublishGroup(images, "", false, insecureConnect)
+	_, err := PublishGroup(images, "", false, false, insecureConnect)
 	if err == nil || !strings.Contains(err.Error(), "commit") {
 		t.Fatalf("expected commit error, got %v", err)
+	}
+}
+
+func TestPublishGroupRefusesAllOnAnyConflict(t *testing.T) {
+	stagingSrv := httptest.NewServer(registry.New())
+	defer stagingSrv.Close()
+	prodSrv := httptest.NewServer(registry.New())
+	defer prodSrv.Close()
+
+	stagingHost := strings.TrimPrefix(stagingSrv.URL, "http://")
+	prodHost := strings.TrimPrefix(prodSrv.URL, "http://")
+
+	opStaging := stagingHost + "/staging/mongodb-kubernetes"
+	opProd := prodHost + "/mongodb/mongodb-kubernetes"
+	rpStaging := stagingHost + "/staging/mongodb-kubernetes-readinessprobe"
+	rpProd := prodHost + "/mongodb/mongodb-kubernetes-readinessprobe"
+
+	pushImage(t, fmt.Sprintf("%s:%s", opStaging, PromotedTagFor("abc1234", "1.9.2")), name.Insecure)
+	pushImage(t, fmt.Sprintf("%s:%s", rpStaging, PromotedTagFor("abc1234", "1.0.24")), name.Insecure)
+
+	// Production already has a DIFFERENT image at readiness-probe's :1.0.24 tag: a stomp.
+	pushImage(t, rpProd+":1.0.24", name.Insecure)
+
+	images := []ReleaseImage{
+		{Name: "operator", StagingRepo: opStaging, ReleaseRepo: opProd, Version: "1.9.2", IsAnchor: true},
+		{Name: "readiness-probe", StagingRepo: rpStaging, ReleaseRepo: rpProd, Version: "1.0.24"},
+	}
+
+	_, err := PublishGroup(images, "abc1234", false, false, insecureConnect)
+	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
+		t.Fatalf("expected conflict error mentioning readiness-probe, got %v", err)
+	}
+
+	// All-or-nothing: operator's production tag must NOT have been written.
+	if _, err := remote.Get(mustTagRef(t, opProd, "1.9.2")); err == nil {
+		t.Error("operator production tag should not exist: group must be refused before any writes")
+	}
+
+	// With --force, the whole group proceeds and overwrites the conflicting tag.
+	results, err := PublishGroup(images, "abc1234", true, false, insecureConnect)
+	if err != nil {
+		t.Fatalf("force: unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("force: results: got %d, want 2", len(results))
 	}
 }

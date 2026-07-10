@@ -34,7 +34,7 @@ func TestPublish(t *testing.T) {
 	reg := DefaultRegistryConnector(srv.URL)
 
 	t.Run("publish with explicit commit", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo}, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -61,7 +61,7 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("publish resolves latest when commit omitted", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, ProdRepo: prodRepo}, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, ProdRepo: prodRepo}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -74,7 +74,7 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("dry-run returns result without copying", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, DryRun: true}, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, DryRun: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -84,14 +84,14 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("staging-image required", func(t *testing.T) {
-		_, err := Publish(PublishInputs{Commit: commit, ProdRepo: prodRepo}, reg)
+		_, err := Publish(PublishInputs{Commit: commit, ProdRepo: prodRepo}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "staging-image") {
 			t.Errorf("expected error containing %q, got %v", "staging-image", err)
 		}
 	})
 
 	t.Run("prod-repo required", func(t *testing.T) {
-		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit}, reg)
+		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "prod-repo") {
 			t.Errorf("expected error containing %q, got %v", "prod-repo", err)
 		}
@@ -102,7 +102,7 @@ func TestPublish(t *testing.T) {
 			StagingImage: stagingBase,
 			Commit:       "0000000000000000000000000000000000000000",
 			ProdRepo:     prodRepo,
-		}, reg)
+		}, host, reg)
 		if err == nil {
 			t.Error("expected error for unknown commit, got nil")
 		}
@@ -124,7 +124,7 @@ func TestPublish(t *testing.T) {
 		pushImage(t, newRef, name.Insecure)
 		tagAs(t, newRef, fmt.Sprintf("%s:%s", multiBase, promotedLatestTag()), name.Insecure)
 
-		result, err := Publish(PublishInputs{StagingImage: multiBase, ProdRepo: prodRepo}, reg)
+		result, err := Publish(PublishInputs{StagingImage: multiBase, ProdRepo: prodRepo}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -142,9 +142,61 @@ func TestPublish(t *testing.T) {
 		orphanBase := fmt.Sprintf("%s/%s", host, "myorg/staging/orphan")
 		pushImage(t, fmt.Sprintf("%s:%s", orphanBase, promotedLatestTag()), name.Insecure)
 
-		_, err := Publish(PublishInputs{StagingImage: orphanBase, ProdRepo: prodRepo}, reg)
+		_, err := Publish(PublishInputs{StagingImage: orphanBase, ProdRepo: prodRepo}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "matches promoted-latest") {
 			t.Errorf("expected 'matches promoted-latest' error, got %v", err)
+		}
+	})
+}
+
+func TestPublishRefusesStompedVersionTag(t *testing.T) {
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+
+	const (
+		stagingRepo = "myorg/staging/stomp"
+		prodRepo    = "myorg/stomp"
+		commit      = "abc1234"
+		version     = "1.9.0"
+	)
+	stagingBase := fmt.Sprintf("%s/%s", host, stagingRepo)
+	srcRef := fmt.Sprintf("%s:%s", stagingBase, PromotedTagFor(commit, version))
+	pushImage(t, srcRef, name.Insecure)
+
+	// Production already has a DIFFERENT image at the immutable :version tag.
+	prodBase := fmt.Sprintf("%s/%s", host, prodRepo)
+	pushImage(t, fmt.Sprintf("%s:%s", prodBase, version), name.Insecure)
+
+	reg := DefaultRegistryConnector(srv.URL)
+
+	t.Run("refused without force", func(t *testing.T) {
+		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo}, host, reg)
+		if err == nil || !strings.Contains(err.Error(), "already exists at a different digest") {
+			t.Fatalf("expected stomp error, got %v", err)
+		}
+	})
+
+	t.Run("proceeds with force", func(t *testing.T) {
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, Force: true}, host, reg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(result.Warnings) == 0 {
+			t.Error("expected a warning when force-overwriting a conflicting tag")
+		}
+		ref, _ := name.NewTag(fmt.Sprintf("%s:%s", prodBase, version), name.Insecure)
+		desc, err := remote.Get(ref)
+		if err != nil {
+			t.Fatalf("get prod tag: %v", err)
+		}
+		srcRefParsed, _ := name.NewTag(srcRef, name.Insecure)
+		srcDesc, err := remote.Get(srcRefParsed)
+		if err != nil {
+			t.Fatalf("get src: %v", err)
+		}
+		if desc.Digest.String() != srcDesc.Digest.String() {
+			t.Errorf("prod tag digest got %q, want %q (forced overwrite)", desc.Digest, srcDesc.Digest)
 		}
 	})
 }
