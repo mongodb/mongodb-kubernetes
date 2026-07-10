@@ -561,25 +561,38 @@ func initializeEnvironment() {
 	printEnvVariables()
 }
 
-// loadEnvFromLocalFileForDevelopment loads .generated/context.operator.env
-// when not running in "prod" env.
+// loadEnvFromLocalFileForDevelopment loads the generated context env files when
+// not running in "prod" env. The operator overlay omits KUBECONFIG/KUBE_CONFIG_PATH
+// (switch_context.sh strips them), so bare `go run`/IDE launches must also load
+// context.<side>.env to recover the generated kubeconfig; context.env supplies the
+// shared base. Side detection matches devenv (/.dockerenv → devc, else host).
 func loadEnvFromLocalFileForDevelopment() {
 	if getOperatorEnv() == util.OperatorEnvironmentProd {
 		return
 	}
 
-	envFile := ".generated/context.operator.env"
-	if _, err := os.Stat(envFile); err != nil {
-		log.Warnf("Env file %s not found (run 'make switch'); skipping.", envFile)
+	operatorEnvFile := ".generated/context.operator.env"
+	if _, err := os.Stat(operatorEnvFile); err != nil {
+		log.Warnf("Env file %s not found (run 'make switch'); skipping.", operatorEnvFile)
 		return
 	}
-	// Load (not Overload): real environment variables win over the generated
-	// file, so ad-hoc overrides (WATCH_NAMESPACE=x go run ./main.go, IDE launch
-	// configs) survive.
-	if err := godotenv.Load(envFile); err != nil {
-		log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
-	} else {
-		log.Infof("Loaded environment variables from file %s", envFile)
+	side := "host"
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		side = "devc"
+	}
+	// Load (not Overload) in precedence order — first file wins per key and real
+	// environment variables win over all files, so operator-specific values and
+	// ad-hoc overrides (WATCH_NAMESPACE=x go run ./main.go, IDE launch configs)
+	// survive while KUBECONFIG falls through from the side file.
+	for _, envFile := range []string{operatorEnvFile, ".generated/context." + side + ".env", ".generated/context.env"} {
+		if _, err := os.Stat(envFile); err != nil {
+			continue
+		}
+		if err := godotenv.Load(envFile); err != nil {
+			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+		} else {
+			log.Infof("Loaded environment variables from file %s", envFile)
+		}
 	}
 }
 
