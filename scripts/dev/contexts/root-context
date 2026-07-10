@@ -60,10 +60,17 @@ if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
   export EVG_HOST_NAME
 
   evg_host_address_file="${PROJECT_DIR}/.generated/.current-evg-host-address"
+  # Stock macOS has no GNU `timeout`; prefer `timeout`, fall back to `gtimeout`
+  # (coreutils), else run the query unbounded rather than fail resolution.
+  # Word-split on use is intentional (empty-array expansion is unsafe on bash 3.2).
+  if command -v timeout >/dev/null 2>&1; then evg_timeout="timeout 5s"
+  elif command -v gtimeout >/dev/null 2>&1; then evg_timeout="gtimeout 5s"
+  else evg_timeout=""; fi
   if command -v evergreen >/dev/null 2>&1; then
     # timeout + </dev/null guards against OIDC device-auth fallback hanging make switch
     # when the cached token has expired and no browser is available (devc).
-    evg_resolved="$(timeout 5s evergreen host list --json </dev/null 2>/dev/null \
+    # shellcheck disable=SC2086  # evg_timeout must word-split into argv (or vanish).
+    evg_resolved="$(${evg_timeout} evergreen host list --json </dev/null 2>/dev/null \
       | jq -r --arg name "${EVG_HOST_NAME}" \
           '[.[] | select(.name == $name and .status == "running")] | first | .host_name // empty' \
           2>/dev/null || true)"
