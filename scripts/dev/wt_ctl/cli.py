@@ -983,13 +983,21 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     branch: str = args.branch
     branch_dir = branch.replace("/", "_")
     main_repo, worktree_path, host_worktree = _resolve_create_paths(runner, refs, branch_dir)
+    in_place = getattr(args, "in_place", False)
     # In-place: operate in the invoking checkout (which holds the CI patch diff)
     # rather than a sibling worktree that would only carry committed history.
     # host_worktree is already the invoking checkout (refs.worktree_root, or
     # main_repo when run outside any worktree); target that, not the primary
     # checkout — the two differ when invoked from a linked worktree.
-    if getattr(args, "in_place", False):
+    if in_place:
         worktree_path = host_worktree
+    # Resume without repeating --in-place: the original run's state lives in the
+    # invoking checkout, not the sibling slot. Locate it there before falling
+    # back to a fresh create so `--resume` recovers an in-place run.
+    if (args.resume or args.restart_from) and not in_place:
+        if orchestrator_state.load(worktree_path) is None and orchestrator_state.load(host_worktree) is not None:
+            worktree_path = host_worktree
+            in_place = True
     inputs = CreateInputs(
         branch=branch,
         branch_dir=branch_dir,
@@ -1008,7 +1016,7 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         region=getattr(args, "region", None),
         local_kind=getattr(args, "local_kind", False),
         cluster_name=getattr(args, "cluster_name", None),
-        in_place=getattr(args, "in_place", False),
+        in_place=in_place,
     )
     # On resume/restart, reload behavioural flags from the prior run's state.json
     # (see CreateInputs.with_persisted_flags); paths stay freshly resolved.
