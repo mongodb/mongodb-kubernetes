@@ -201,6 +201,20 @@ class CreatePipelineTests(unittest.TestCase):
             self.assertRegex(env_text, r"(?m)^MCK_DEVC_NET_Y_VIP=\d+$")
             self.assertRegex(env_text, r"(?m)^MCK_DEVC_PROXY_PORT=\d+$")
 
+    def test_evg_prepare_gets_context_explicitly(self) -> None:
+        # evg_prepare must receive --context so it doesn't depend on the
+        # .generated/.current_context sentinel the concurrent dc_build can clear.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            inputs = _make_inputs(
+                repo, target, branch, branch_dir, context="e2e_multi_cluster_kind", skip_prepare_e2e=True
+            )
+            runner = FakeRunner()
+            CreateOrchestrator(runner, inputs).run()
+            prep = next(c for c in runner.calls if any(a.endswith("evg_prepare.sh") for a in c))
+            self.assertIn("--context", prep)
+            self.assertEqual(prep[prep.index("--context") + 1], "e2e_multi_cluster_kind")
+
     def test_phase_order_is_canonical(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))

@@ -440,6 +440,11 @@ class CreateOrchestrator:
                 "--name",
                 i.resolved_evg_host_name(),
             ]
+            if i.context:
+                # Pass the context explicitly so evg_prepare.sh doesn't depend on
+                # the .generated/.current_context sentinel, which the concurrent
+                # dc_build phase can transiently clear.
+                argv += ["--context", i.context]
             if i.multi_cluster:
                 argv.append("--multi")
             if i.skip_recreate:
