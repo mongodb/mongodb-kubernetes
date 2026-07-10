@@ -53,7 +53,9 @@ def strip_jsonc(raw: str) -> str:
                 continue
             if nxt == "*":
                 end = raw.find("*/", i + 2)
-                i = n if end == -1 else end + 2
+                if end == -1:
+                    raise ValueError("unterminated /* block comment")
+                i = end + 2
                 continue
         out.append(ch)
         i += 1
@@ -67,7 +69,7 @@ def main(argv: list[str]) -> int:
             with open(path, encoding="utf-8") as fp:
                 raw = fp.read()
             json.loads(strip_jsonc(raw))
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, ValueError) as exc:
             print(f"{path}: {exc}", file=sys.stderr)
             rc = 1
         except OSError as exc:
