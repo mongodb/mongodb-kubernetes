@@ -980,11 +980,13 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     branch: str = args.branch
     branch_dir = branch.replace("/", "_")
     main_repo, worktree_path, host_worktree = _resolve_create_paths(runner, refs, branch_dir)
-    # In-place: operate in the current checkout (which holds the CI patch diff)
+    # In-place: operate in the invoking checkout (which holds the CI patch diff)
     # rather than a sibling worktree that would only carry committed history.
+    # host_worktree is already the invoking checkout (refs.worktree_root, or
+    # main_repo when run outside any worktree); target that, not the primary
+    # checkout — the two differ when invoked from a linked worktree.
     if getattr(args, "in_place", False):
-        worktree_path = main_repo
-        host_worktree = main_repo
+        worktree_path = host_worktree
     inputs = CreateInputs(
         branch=branch,
         branch_dir=branch_dir,
