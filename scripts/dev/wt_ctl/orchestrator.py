@@ -1009,6 +1009,7 @@ class DeleteInputs:
     delete_evg: bool = False
     delete_worktree: bool = False
     evg_host_name: Optional[str] = None
+    multi_cluster: bool = False
 
     def resolved_evg_host_name(self) -> str:
         return self.evg_host_name or self.branch_dir
@@ -1022,6 +1023,12 @@ class DeleteInputs:
                 self.delete_worktree,
             ]
         )
+
+
+# Cluster names a local-kind multi-cluster create owns (recreate_kind_clusters.sh:
+# one operator + three members + the single 'kind'). Teardown deletes every one
+# that's present, not just the current-context cluster.
+_MC_LOCAL_KIND_CLUSTERS = ("e2e-operator", "e2e-cluster-1", "e2e-cluster-2", "e2e-cluster-3", "kind")
 
 
 class DeleteOrchestrator:
@@ -1148,22 +1155,33 @@ class DeleteOrchestrator:
                     f"[wt-ctl] evg: kubeconfig current-context={ctx!r} is not a kind cluster (BYOC?); skipping teardown"
                 )
                 return
-            cluster = ctx[len("kind-") :]
             if not self.runner.have("kind"):
                 emit("[wt-ctl] evg: kind CLI not on PATH — skipping local-kind teardown")
                 return
             listing = self.runner.run(["kind", "get", "clusters"], check=False)
-            if listing.rc != 0 or cluster not in (listing.stdout or "").splitlines():
-                emit(f"[wt-ctl] evg: kind cluster '{cluster}' not in `kind get clusters`; skipping (already gone?)")
+            if listing.rc != 0:
+                emit(f"[wt-ctl] evg: `kind get clusters` failed rc={listing.rc} — skipping teardown")
                 return
-            emit(f"[wt-ctl] evg: deleting local kind cluster '{cluster}'")
-            try:
-                self.runner.run_streaming(
-                    ["kind", "delete", "cluster", "--name", cluster],
-                    prefix="[kind-delete] ",
-                )
-            except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
-                emit(f"[wt-ctl] evg: kind delete failed (continuing): {exc.render()}")
+            present = set((listing.stdout or "").splitlines())
+            # MC create owns the whole cluster set; single-cluster owns only the
+            # one the kubeconfig points at.
+            if self.inputs.multi_cluster:
+                wanted = [c for c in _MC_LOCAL_KIND_CLUSTERS if c in present]
+            else:
+                current = ctx[len("kind-") :]
+                wanted = [current] if current in present else []
+            if not wanted:
+                emit("[wt-ctl] evg: no owned kind clusters present; skipping (already gone?)")
+                return
+            for cluster in wanted:
+                emit(f"[wt-ctl] evg: deleting local kind cluster '{cluster}'")
+                try:
+                    self.runner.run_streaming(
+                        ["kind", "delete", "cluster", "--name", cluster],
+                        prefix="[kind-delete] ",
+                    )
+                except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
+                    emit(f"[wt-ctl] evg: kind delete '{cluster}' failed (continuing): {exc.render()}")
             return
 
         if not self.runner.have("evergreen"):

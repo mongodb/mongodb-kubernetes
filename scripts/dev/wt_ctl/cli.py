@@ -1095,6 +1095,11 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     branch_dir = branch.replace("/", "_")
     main_repo, worktree_path, _host = _resolve_create_paths(runner, refs, branch_dir)
 
+    # Recover the create's topology so local-kind teardown deletes every owned
+    # cluster (MC create owns five), not just the current-context one.
+    prior = orchestrator_state.load(worktree_path)
+    multi_cluster = bool(prior.inputs.get("multi_cluster")) if prior is not None and prior.inputs else False
+
     inputs = DeleteInputs(
         branch=branch,
         branch_dir=branch_dir,
@@ -1105,6 +1110,7 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         delete_evg=delete_evg,
         delete_worktree=delete_worktree,
         evg_host_name=args.evg_host_name,
+        multi_cluster=multi_cluster,
     )
     orch = DeleteOrchestrator(runner, inputs)
     orch.run(emit=lambda msg: sys.stderr.write(msg + "\n"))

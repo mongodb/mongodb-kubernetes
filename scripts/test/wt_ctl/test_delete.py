@@ -330,6 +330,36 @@ class DeletePipelineTests(unittest.TestCase):
             ).run()
             joined = [" ".join(c) for c in runner.calls]
             self.assertTrue(any("kind delete cluster --name lk-smoke" in j for j in joined))
+            self.assertFalse(any("--name other-cluster" in j for j in joined))
+
+    def test_local_kind_mc_deletes_all_owned_clusters(self) -> None:
+        # A multi-cluster local-kind create owns five clusters; teardown must
+        # delete every owned one that's present and leave unrelated clusters.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, runner = _make_fixture(Path(tmp), with_compose_running=False, with_evg_host=False)
+            generated = target / ".generated"
+            generated.mkdir(parents=True, exist_ok=True)
+            (generated / "current.kubeconfig").write_text(
+                "apiVersion: v1\nkind: Config\ncurrent-context: kind-e2e-operator\nclusters: []\n"
+            )
+            runner.handlers.insert(
+                0,
+                (
+                    lambda argv: argv[:3] == ["kind", "get", "clusters"],
+                    lambda _argv: CmdResult(
+                        argv=list(_argv),
+                        rc=0,
+                        stdout="e2e-operator\ne2e-cluster-1\ne2e-cluster-2\ne2e-cluster-3\nkind\nunrelated\n",
+                        stderr="",
+                        duration_s=0.0,
+                    ),
+                ),
+            )
+            DeleteOrchestrator(runner, self._inputs(repo, target, delete_evg=True, multi_cluster=True)).run()
+            joined = [" ".join(c) for c in runner.calls]
+            for owned in ("e2e-operator", "e2e-cluster-1", "e2e-cluster-2", "e2e-cluster-3", "kind"):
+                self.assertTrue(any(f"kind delete cluster --name {owned}" in j for j in joined), owned)
+            self.assertFalse(any("--name unrelated" in j for j in joined))
             self.assertFalse(any("evergreen host terminate" in j for j in joined))
 
     def test_byoc_evg_step_skips_when_context_not_kind(self) -> None:
