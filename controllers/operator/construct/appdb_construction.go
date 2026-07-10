@@ -440,6 +440,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
 	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
 	withStaticContainerModification := podtemplatespec.NOOP()
+	shareProcessNs := statefulset.NOOP()
+
 	withInitContainers := !architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture)
 	upgradeInitContainer := podtemplatespec.NOOP()
 	readinessInitContainer := podtemplatespec.NOOP()
@@ -453,9 +455,9 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
 		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
-	}
-	shareProcessNs := func(sts *appsv1.StatefulSet) {
-		sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+		shareProcessNs = func(sts *appsv1.StatefulSet) {
+			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+		}
 	}
 
 	dataVolumeClaim := statefulset.NOOP()
