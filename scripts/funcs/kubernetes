@@ -288,7 +288,22 @@ docker_create_kind_network() {
   # and the Python test fixtures both derive their addresses from the same var.
   # shellcheck source=scripts/funcs/kind_network
   source "$(dirname "${BASH_SOURCE[0]}")/kind_network"
-  docker network create --subnet="${KIND_NETWORK_SUBNET}" kind || true
+  if docker network inspect kind >/dev/null 2>&1; then
+    # A pre-existing 'kind' net with a different subnet silently breaks the
+    # MetalLB ranges derived from KIND_NETWORK_SUBNET — fail loudly instead.
+    local existing
+    existing="$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' kind 2>/dev/null)"
+    case " ${existing} " in
+      *" ${KIND_NETWORK_SUBNET} "*) : ;;
+      *)
+        echo "ERROR: docker network 'kind' exists with subnet(s) '${existing% }' but KIND_NETWORK_SUBNET=${KIND_NETWORK_SUBNET}." >&2
+        echo "       Remove it (docker network rm kind) or align KIND_NETWORK_SUBNET." >&2
+        return 1
+        ;;
+    esac
+  else
+    docker network create --subnet="${KIND_NETWORK_SUBNET}" kind
+  fi
 }
 
 docker_network_connect_to_kind() {
