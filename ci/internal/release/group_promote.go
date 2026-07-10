@@ -22,9 +22,9 @@ type GroupPromoteResult struct {
 //
 // It hard-fails on the first image that cannot be promoted (e.g. its
 // version-tagged source image is missing), so a broken merge build does not
-// silently promote a partial group. clientFor builds a RegistryClient for a
-// registry host; the CLI passes the real one and tests inject a fake/local one.
-func PromoteGroup(images []ReleaseImage, commit string, dryRun bool, clientFor func(host string) *RegistryClient) ([]GroupPromoteResult, error) {
+// silently promote a partial group. connect resolves a Registry for an image's
+// host; the CLI passes DefaultRegistryConnector and tests inject a fake.
+func PromoteGroup(images []ReleaseImage, commit string, dryRun bool, connect RegistryConnector) ([]GroupPromoteResult, error) {
 	if commit == "" {
 		return nil, errors.New("commit is required")
 	}
@@ -36,13 +36,13 @@ func PromoteGroup(images []ReleaseImage, commit string, dryRun bool, clientFor f
 	for _, img := range images {
 		host, path := splitHostRepo(img.StagingRepo)
 		src := fmt.Sprintf("%s:%s", img.StagingRepo, img.Version)
-		tags, err := clientFor(host).Promote(PromoteInputs{
+		tags, err := Promote(PromoteInputs{
 			Image:   src,
 			Commit:  commit,
 			Version: img.Version,
 			Repo:    path,
 			DryRun:  dryRun,
-		})
+		}, connect(host))
 		if err != nil {
 			return nil, fmt.Errorf("promote %s (%s): %w", img.Name, src, err)
 		}
