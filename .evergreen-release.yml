@@ -6,7 +6,8 @@
 #
 # Cleanup once retired:
 # 1. Delete this file; rename .evergreen-release-publish.yml to
-#    .evergreen-release.yml in its place.
+#    .evergreen-release.yml in its place. Also remove redundant "_publish"
+#    suffixes.
 # 2. In .evergreen.yml: remove the "old-*" git_tag_aliases entry, remove the
 #    "deprecated-release" patch alias, remove this file from the include:
 #    block, and update the remaining git_tag_aliases entry/comment to point
