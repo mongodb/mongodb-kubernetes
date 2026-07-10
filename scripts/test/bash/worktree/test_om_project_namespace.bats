@@ -14,6 +14,11 @@ setup() {
     PROJECT_DIR="$(git rev-parse --show-toplevel)"
     cd "${PROJECT_DIR}"
 
+    # root-context suppresses the per-worktree NAMESPACE suffix inside an
+    # evergreen task (EVR_TASK_ID set). These tests exercise that suffix logic,
+    # so scrub EVR_TASK_ID here — the bash -c subshells below inherit this env.
+    unset EVR_TASK_ID
+
     # Stub private-context (a gitignored, credential-bearing file) with a known
     # NAMESPACE. The backup lives BESIDE the original on disk — never in
     # BATS_TEST_TMPDIR, which bats deletes on exit, so a SIGKILL mid-run would
