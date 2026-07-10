@@ -1088,10 +1088,14 @@ class DeleteOrchestrator:
 
     def _step_compose_down(self, emit: Callable[[str], None]) -> None:
         project = project_name_for(self.inputs.worktree_path)
-        ps = self.runner.run(
-            ["docker", "compose", "-p", project, "ps", "--format", "{{.Name}}"],
-            check=False,
-        )
+        try:
+            ps = self.runner.run(
+                ["docker", "compose", "-p", project, "ps", "--format", "{{.Name}}"],
+                check=False,
+            )
+        except ToolMissing:
+            emit("[wt-ctl] compose: docker unavailable — skipping stack teardown")
+            return
         if ps.rc != 0 or not ps.stdout.strip():
             emit(f"[wt-ctl] compose: no running stack for project '{project}'")
             return
