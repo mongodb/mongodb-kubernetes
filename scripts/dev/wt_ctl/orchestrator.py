@@ -1165,6 +1165,11 @@ class DeleteOrchestrator:
         if not self.runner.have("evergreen"):
             emit("[wt-ctl] evg: evergreen CLI not on PATH — skipping termination")
             return
+        # The pin records the actual displayName the host was created with; prefer
+        # it so a host made with --evg-host-name isn't missed (and leaked) when the
+        # delete invocation omits that flag.
+        pinned = evg_pin.read_text().strip()
+        host_name = pinned or self.inputs.resolved_evg_host_name()
         res = self.runner.run(
             ["evergreen", "host", "list", "--mine", "--json"],
             check=False,
@@ -1172,14 +1177,11 @@ class DeleteOrchestrator:
         if res.rc != 0:
             emit(f"[wt-ctl] evg: host list failed rc={res.rc} — skipping termination")
             return
-        host_id = _find_host_id_by_name(
-            res.stdout or "[]",
-            self.inputs.resolved_evg_host_name(),
-        )
+        host_id = _find_host_id_by_name(res.stdout or "[]", host_name)
         if host_id is None:
-            emit(f"[wt-ctl] evg: no running host with displayName " f"'{self.inputs.resolved_evg_host_name()}'")
+            emit(f"[wt-ctl] evg: no running host with displayName '{host_name}'")
             return
-        emit(f"[wt-ctl] evg: terminating " f"'{self.inputs.resolved_evg_host_name()}' (host_id={host_id})")
+        emit(f"[wt-ctl] evg: terminating '{host_name}' (host_id={host_id})")
         try:
             self.runner.run_streaming(
                 ["evergreen", "host", "terminate", "--host", host_id],
