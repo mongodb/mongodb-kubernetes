@@ -25,7 +25,9 @@ type PromoteInputs struct {
 	DryRun  bool
 }
 
-func promote(inputs PromoteInputs, t Transport) ([]string, error) {
+// Promote copies the source image to promoted-{commit}-{version} and
+// promoted-latest in the target repo, using reg to talk to the registry.
+func Promote(inputs PromoteInputs, reg Registry) ([]string, error) {
 	if inputs.Image == "" {
 		return nil, errors.New("image is required")
 	}
@@ -46,7 +48,7 @@ func promote(inputs PromoteInputs, t Transport) ([]string, error) {
 	if inputs.DryRun {
 		return tags, nil
 	}
-	if err := t.CopyWithTags(inputs.Image, inputs.Repo, tags); err != nil {
+	if err := reg.CopyWithTags(inputs.Image, inputs.Repo, tags); err != nil {
 		return nil, fmt.Errorf("promote %s: %w", inputs.Image, err)
 	}
 	return tags, nil

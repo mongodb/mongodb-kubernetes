@@ -86,10 +86,7 @@ func runGroupPromote(cmd *cobra.Command, buildInfo, releaseJSON, commit string, 
 	if err != nil {
 		return err
 	}
-	clientFor := func(host string) *release.RegistryClient {
-		return release.NewRegistryClient("https://" + host)
-	}
-	results, err := release.PromoteGroup(images, commit, dryRun, clientFor)
+	results, err := release.PromoteGroup(images, commit, dryRun, release.DefaultRegistryConnector)
 	if err != nil {
 		return err
 	}
@@ -108,14 +105,13 @@ func runGroupPromote(cmd *cobra.Command, buildInfo, releaseJSON, commit string, 
 }
 
 func runSinglePromote(cmd *cobra.Command, image, commit, version, registryURL, repo string, dryRun bool) error {
-	client := release.NewRegistryClient(registryURL)
-	tags, err := client.Promote(release.PromoteInputs{
+	tags, err := release.Promote(release.PromoteInputs{
 		Image:   image,
 		Commit:  commit,
 		Version: version,
 		Repo:    repo,
 		DryRun:  dryRun,
-	})
+	}, release.DefaultRegistryConnector(registryURL))
 	if err != nil {
 		return err
 	}
