@@ -7,6 +7,7 @@ source scripts/funcs/checks
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/evergreen/e2e/dump_diagnostic_information.sh
+source scripts/evergreen/e2e/diagnostics.sh
 source scripts/evergreen/e2e/lib.sh
 source scripts/dev/set_env_context.sh
 
@@ -26,24 +27,6 @@ run_e2e_mco_tests() {
   set -e
 
   return ${test_results}
-}
-
-dump_cluster_information() {
-  # Dump information from all clusters.
-  # TODO: ensure cluster name is included in log files so there is no overwriting of cross cluster files.
-  # shellcheck disable=SC2154
-  if [[ "${KUBE_ENVIRONMENT_NAME:-}" = "multi" ]]; then
-    echo "Dumping diagnostics for context ${CENTRAL_CLUSTER}"
-    dump_all "${CENTRAL_CLUSTER}" || true
-
-    for member_cluster in ${MEMBER_CLUSTERS}; do
-      echo "Dumping diagnostics for context ${member_cluster}"
-      dump_all "${member_cluster}" || true
-    done
-  else
-    # Dump all the information we can from this namespace
-    dump_all "$(kubectl config current-context)" || true
-  fi
 }
 
 cleanup_openshift_cluster(){
@@ -185,32 +168,13 @@ fi
 
 dump_cluster_information
 
-# Generate comprehensive test summary (fail silently if script fails)
-generate_test_summary() {
-  echo "Generating test summary..."
-
-  # Determine test status
-  local test_status="FAILED"
-  if [[ "${TEST_RESULTS}" -eq 0 ]]; then
-    test_status="PASSED"
-  fi
-
-  # Run the test summary generator (fail silently to not break the pipeline)
-  # The output file name starts with '!' to appear at top of file list in Evergreen
-  if python3 scripts/evergreen/e2e/test_summary/generate_test_summary.py \
-    logs \
-    --output "logs/!test-summary.html" \
-    --test-name "${task_name:-${TEST_NAME:-unknown}}" \
-    --variant "${build_variant:-unknown}" \
-    --status "${test_status}" 2>&1 | tee logs/summary_generation.log; then
-    echo "✅ Test summary generated: logs/!test-summary.html"
-  else
-    echo "⚠️  Warning: Failed to generate test summary (continuing anyway)"
-  fi
-}
-
-# Generate test summary (will fail silently if there's an error)
-generate_test_summary || true
+# Generate test summary (fails silently so it never breaks the pipeline).
+e2e_test_status="FAILED"
+[[ "${TEST_RESULTS}" -eq 0 ]] && e2e_test_status="PASSED"
+generate_test_summary \
+  "${e2e_test_status}" \
+  "${task_name:-${TEST_NAME:-unknown}}" \
+  "${build_variant:-unknown}" || true
 
 # We only have static clusters in OpenShift; otherwise, there's no need to mark and clean them up here.
 if [[ "${KUBE_ENVIRONMENT_NAME}" == *openshift* ]]; then

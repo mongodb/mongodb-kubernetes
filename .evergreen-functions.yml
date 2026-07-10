@@ -323,6 +323,16 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/test/bash/run.sh
 
+  test_bash:
+    - command: subprocess.exec
+      type: test
+      params:
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}/venv/bin
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/test/bash/run.sh
+
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
     - *python_venv
@@ -654,7 +664,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          source .generated/context.export.env
+          source scripts/dev/set_env_context.sh
           scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete_all
 
   # Updates current expansions with variables from release.json file.
@@ -741,6 +751,30 @@ functions:
           - ${workdir}/bin
         binary: scripts/evergreen/e2e/e2e.sh
 
+  # e2e_devcontainer_local_kind runs an e2e marker via the wt-ctl --local-kind
+  # flow on the task host: kind on the host, operator as `go run`, tests as
+  # pytest, all inside the devcontainer. No images are built — everything
+  # resolves to :latest ECR tags — so tasks using this function carry no
+  # build_*_image dependencies. The pytest marker comes from the e2e_marker
+  # task var (falling back to task_name).
+  e2e_devcontainer_local_kind:
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        # Forward the full e2e expansion set (workdir, cloud-qa/cognito/aws
+        # creds, build_variant, …). wt-ctl re-runs `make switch`, which sources
+        # evg-private-context (copied to private-context by setup_context) and
+        # references these under `set -u`.
+        <<: *e2e_include_expansions_in_env
+        add_to_path:
+          - ${workdir}/bin
+        env:
+          RUNNING_IN_EVG: "true"
+          e2e_marker: ${e2e_marker}
+          e2e_context: ${e2e_context}
+        binary: scripts/evergreen/e2e/devcontainer_local_kind_e2e.sh
+
   e2e_test_perf:
     # Perf tasks provision and roll many deployments; the 300-deployment task exceeds the
     # global 2h exec_timeout_secs. Raise the limit for perf tasks only.
@@ -788,7 +822,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          source .generated/context.export.env
+          source scripts/dev/set_env_context.sh
           make helm-tests
 
   test_python_unit:
@@ -824,7 +858,7 @@ functions:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         script: |
-          source .generated/context.export.env
+          source scripts/dev/set_env_context.sh
           scripts/dev/run_python.sh scripts/evergreen/e2e/performance/create_variants.py ${variant} ${size}> evergreen_tasks.json
           echo "tasks to run:"
           cat evergreen_tasks.json

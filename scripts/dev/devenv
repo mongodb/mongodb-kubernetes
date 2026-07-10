@@ -1,0 +1,121 @@
+# scripts/dev/devenv — sourceable bootstrap for the per-side env.
+#
+# Usage (interactive shell):
+#   . scripts/dev/devenv
+#
+# Loads .generated/context.env (logical, side-agnostic) and
+# .generated/context.<side>.env (site, current side only) with allexport
+# (`set -a`) so every KEY=VALUE is exported into the calling shell.
+# Activates the venv if present.
+#
+# Fails loudly if either file is missing — first thing devs should do
+# on a fresh worktree is `make switch`. After switch, re-source.
+#
+# Both EVG-CI runners (side=host, no /.dockerenv) and laptop host/devc
+# shells go through the same code path: switch_context.sh writes the
+# per-side file uniformly.
+#
+# This file is sourceable, not executable. Do not add a shebang or
+# `set -Eeou` — it would change behavior in the calling shell.
+
+# shellcheck disable=SC2317  # `exit 1` after `return 1` is the
+# sourced-or-executed dual-form fallback; shellcheck can't see that.
+
+# Resolve worktree root via PWD or git, so this script works whether the
+# caller cd'd into the worktree or not.
+__mck_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+if [[ ! -d "${__mck_root}/.generated" ]]; then
+    echo "ERROR: .generated/ not found relative to $(pwd)." >&2
+    echo "       Are you in a worktree? Run 'cd <worktree>' first." >&2
+    unset __mck_root
+    return 1 2>/dev/null || exit 1
+fi
+
+__mck_side=$([[ -f /.dockerenv ]] && echo devc || echo host)
+
+if [[ ! -f "${__mck_root}/.generated/context.env" ]]; then
+    echo "ERROR: ${__mck_root}/.generated/context.env not found." >&2
+    echo "       Run 'make switch' first to generate it, then re-source." >&2
+    unset __mck_root __mck_side
+    return 1 2>/dev/null || exit 1
+fi
+
+if [[ ! -f "${__mck_root}/.generated/context.${__mck_side}.env" ]]; then
+    echo "ERROR: ${__mck_root}/.generated/context.${__mck_side}.env not found." >&2
+    echo "       You're on the ${__mck_side} side; run 'make switch' here to" >&2
+    echo "       generate it, then re-source." >&2
+    if [[ "${__mck_side}" == "devc" ]]; then
+        echo "       (If on-create just ran, wait a moment and re-source.)" >&2
+    fi
+    unset __mck_root __mck_side
+    return 1 2>/dev/null || exit 1
+fi
+
+# Staleness check: .generated/context.env and .generated/context.<side>.env
+# are deterministic outputs of the scripts under scripts/dev/contexts/ and
+# the logical inputs (EVG_HOST_NAME, MCK_DEVC_NET_PREFIX, K8S_FWD_PROXY,
+# LOCAL_OPERATOR) at the time switch_context.sh last ran. If any file under
+# scripts/dev/contexts/ is newer than either generated file, the generated
+# values may no longer reflect what the current context scripts would produce.
+#
+# Default: WARN ONLY. Sourcing devenv is a hot path (~40 scripts source
+# set_env_context.sh, some in parallel make targets / background jobs); we
+# must not silently mutate the user's kubectl context or race on regenerating
+# .generated/* just because a pull touched contexts/. The developer runs
+# `make switch` when convenient.
+#
+# Opt in to automatic regeneration with MCK_DEVENV_AUTO_SWITCH=true (or =1);
+# in that mode we pass MCK_SWITCH_NO_KUBECTL=1 so switch_context.sh only
+# rewrites the env files and does NOT touch kubectl current-context/namespace.
+# We pre-load context.env first so the logical inputs reach switch_context.sh.
+if [[ -s "${__mck_root}/.generated/.current_context" ]]; then
+    __mck_stale=$(find "${__mck_root}/scripts/dev/contexts" -type f \
+        \( -newer "${__mck_root}/.generated/context.env" \
+        -o -newer "${__mck_root}/.generated/context.${__mck_side}.env" \) \
+        -print -quit 2>/dev/null)
+    if [[ -n "${__mck_stale}" ]]; then
+        if [[ "${MCK_DEVENV_AUTO_SWITCH:-}" == "true" || "${MCK_DEVENV_AUTO_SWITCH:-}" == "1" ]]; then
+            echo "devenv: scripts/dev/contexts/ is newer than .generated/context.{env,${__mck_side}.env};" >&2
+            echo "        MCK_DEVENV_AUTO_SWITCH set — regenerating via switch_context.sh ($(cat "${__mck_root}/.generated/.current_context"))..." >&2
+            set -a
+            # shellcheck disable=SC1090,SC1091
+            . "${__mck_root}/.generated/context.env"
+            set +a
+            if ! ( cd "${__mck_root}" && MCK_SWITCH_NO_KUBECTL=1 scripts/dev/switch_context.sh \
+                   "$(cat "${__mck_root}/.generated/.current_context")" >&2 ); then
+                echo "ERROR: switch_context.sh regeneration failed." >&2
+                unset __mck_root __mck_side __mck_stale
+                return 1 2>/dev/null || exit 1
+            fi
+        else
+            echo "devenv: scripts/dev/contexts/ is newer than .generated/context.{env,${__mck_side}.env}." >&2
+            echo "        Run 'make switch' when convenient to regenerate (or set MCK_DEVENV_AUTO_SWITCH=true)." >&2
+        fi
+    fi
+    unset __mck_stale
+fi
+
+set -a
+# shellcheck disable=SC1090,SC1091
+. "${__mck_root}/.generated/context.env"
+# shellcheck disable=SC1090,SC1091
+. "${__mck_root}/.generated/context.${__mck_side}.env"
+set +a
+
+# Status echoes go to stderr so callers that capture stdout via $(...) — e.g.
+# `chart_info=$(scripts/dev/run_python.sh oci_chart_info.py ...)` followed by
+# `jq` — get clean output instead of devenv chatter mixed with their data.
+if [[ -f "${__mck_root}/.generated/.current_context" ]]; then
+    echo "Current context: $(cat "${__mck_root}/.generated/.current_context")" >&2
+fi
+
+# Per-worktree venv by default; PROJECT_VENV_PATH opts into a shared one.
+__mck_venv="${PROJECT_VENV_PATH:-${__mck_root}/venv}"
+if [[ -f "${__mck_venv}/bin/activate" ]]; then
+    type deactivate &>/dev/null && deactivate
+    # shellcheck disable=SC1091
+    . "${__mck_venv}/bin/activate"
+    echo "Activated venv ($(python --version 2>&1)): $(command -v python)" >&2
+fi
+
+unset __mck_root __mck_side __mck_venv

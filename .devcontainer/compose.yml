@@ -1,0 +1,183 @@
+x-k8s-proxy-config:
+  # proxy_address = 172.X.Y_BASE.10. Defaults map to stack index 0
+  # (X=16, Y_BASE=0) for ad-hoc invocations without the wt-ctl registry;
+  # in normal use, wt-ctl writes the four MCK_DEVC_NET_* vars into
+  # .devcontainer/.env so these defaults are never read.
+  proxy_address: &proxy_address 172.${MCK_DEVC_NET_X:-16}.${MCK_DEVC_NET_Y_BASE:-0}.10
+
+services:
+  devcontainer:
+    build: .
+
+    environment:
+      K8S_FWD_PROXY: *proxy_address
+      EVG_HOST_PROXY: "http://gost-proxy:8080"
+      GOTOOLCHAIN: local
+      # Forward the per-worktree network prefix so root-context (sourced inside
+      # the container during `make switch`) can derive a per-worktree NAMESPACE
+      # (ls-${MCK_DEVC_NET_PREFIX}). That makes cloud-qa OM project names
+      # (which everything downstream composes from ${NAMESPACE}) unique per
+      # worktree, so parallel worktrees don't delete each other's OM projects.
+      MCK_DEVC_NET_PREFIX: ${MCK_DEVC_NET_PREFIX:-0}
+
+      # The Python `evg` CLI (mck-dev plugin) reads oauth.token_file_path from
+      # ~/.evergreen.yml *literally* (no $HOME/~ expansion). That file is shared
+      # with the host, where the path must resolve under the macOS $HOME — so it
+      # points at /Users/<user>/.kanopy. Override it here so the same token
+      # resolves at the devc user's $HOME. Set in the environment block (not
+      # shell-init) so non-interactive script invocations inherit it too.
+      EVERGREEN_TOKEN_FILE: /home/vscode/.kanopy/token-oidclogin.json
+
+    volumes:
+      # Workspace
+      - ..:/workspace:cached
+
+      # Unique per devcontainer instance to avoid conflicts
+      - venv:/workspace/venv
+      # Override the bin directory so Linux-specific kubebuilder tools stay inside the container
+      - bin:/workspace/bin
+
+      # Named volumes for persistent caches, shared across all devcontainer instances
+      - gomodcache:/go/pkg/mod
+      - gocache:/home/vscode/.cache/go-build
+      - uvcache:/home/vscode/.cache/uv
+      - helmcache:/home/vscode/.cache/helm
+
+      # Evergreen auth. The token lives in ~/.kanopy (rw, shared so one refresh
+      # flow serves both sides). The config yaml is mounted READ-ONLY: the
+      # kanopy-backed Go CLI persists an absolute, $HOME-expanded
+      # oauth.token_file_path back into it, so a write from inside the container
+      # (where $HOME=/home/vscode) would poison this single host-shared file and
+      # break the host's evg CLI. Read-only keeps oauth.token_file_path pinned to
+      # the host path; the Python evg CLI reads it literally but EVERGREEN_TOKEN_FILE
+      # (above) overrides the path for the container.
+      - ${HOME}/.evergreen.yml:/home/vscode/.evergreen.yml:ro
+      - ${HOME}/.kanopy:/home/vscode/.kanopy:cached
+
+      # ~/.claude is intentionally NOT shared: an in-container marketplace
+      # registration rewrites the host's known_marketplaces.json installLocation
+      # to a /home/vscode path and breaks the marketplace on the host.
+      # - ${HOME}/.claude:/home/vscode/.claude:cached
+
+      # Share the SSH agent socket for evg-host-proxy to use
+      - ssh-auth-sock:/ssh-agent
+
+    extra_hosts:
+      # Ensure host.docker.internal resolves on Linux Docker
+      - "host.docker.internal:host-gateway"
+
+    depends_on:
+      - k8s-proxy
+    networks:
+      - devcontainer
+    dns:
+      - *proxy_address
+      - 127.0.0.11
+
+    command: sleep infinity
+  k8s-proxy:
+    # Pinned by digest: this image gets NET_ADMIN and receives the kubeconfig
+    # PATCH, so a mutable :latest is an unreviewed-code-with-credentials risk.
+    image: ghcr.io/fealebenpae/kube-forwarding-proxy:latest@sha256:91341cba1d41a374082d50552cc4ddacdd126ca8fa46a083ab8065776ecdbe8f
+    cap_add:
+      - NET_ADMIN
+    environment:
+      # Bind DNS to the container's assigned IP on devcontainer.
+      # VIPs (172.X.1.x where X = MCK_DEVC_NET_PREFIX) are also added to that interface.
+      INTERFACE: *proxy_address
+      VIP_CIDR: 172.${MCK_DEVC_NET_X:-16}.${MCK_DEVC_NET_Y_VIP:-1}.0/24
+      DNS_LISTEN: :53
+      HTTP_LISTEN: :80
+      CLUSTER_DOMAIN: svc.cluster.local
+      LOG_LEVEL: info
+    command: ["--dns"]
+    networks:
+      devcontainer:
+        ipv4_address: *proxy_address
+
+  # Create a SSH port-forwarding SOCKS proxy
+  evg-host-proxy:
+    build:
+      context: .
+      dockerfile: autossh.Dockerfile
+    environment:
+      SSH_AUTH_SOCK: /ssh-agent/socket
+    networks:
+      - devcontainer
+    restart: unless-stopped
+    volumes:
+      # Auto-resolved EVG_HOST_ADDRESS lives in .generated/ (written by
+      # root-context whenever switch_context runs). Sidecar reads it directly.
+      - ../.generated:/generated:ro
+      - ssh-auth-sock:/ssh-agent
+      # Use ${HOME} (consistent with the other host mounts, and reliably
+      # expanded by compose unlike a bare ~). initialize.sh touches this file
+      # first so Docker doesn't materialize it as a root-owned directory.
+      - ${HOME}/.ssh/known_hosts:/etc/ssh/ssh_known_hosts:ro
+    command: |
+      bash -c '
+        set -Eeo pipefail
+        echo "evg-host-proxy: starting..."
+        # EVG_HOST_ADDRESS may be passed via compose env (e.g. compose.user.yml
+        # override). Otherwise fall back to the auto-resolved cache file.
+        # ($$ escapes the dollar so compose passes the variable name through to bash.)
+        if [ -z "$$EVG_HOST_ADDRESS" ] && [ -s /generated/.current-evg-host-address ]; then
+          EVG_HOST_ADDRESS=$$(cat /generated/.current-evg-host-address)
+        fi
+        if [ -z "$$EVG_HOST_ADDRESS" ]; then
+          # Local-kind mode: no EVG host pinned. kubectl from the devc bypasses
+          # the SOCKS5 chain entirely (devc kubeconfig points at
+          # host.docker.internal directly). Idle so the compose stack still
+          # comes up healthy; gost-proxy keeps trying to reach us, which is
+          # harmless when nothing forwards through it.
+          echo "evg-host-proxy: no EVG_HOST_ADDRESS (local-kind mode); idling."
+          exec tail -f /dev/null
+        fi
+        echo "evg-host-proxy: waiting for ssh-agent socket at $$SSH_AUTH_SOCK..."
+        until [ -S "$$SSH_AUTH_SOCK" ]; do sleep 1; done
+        echo "evg-host-proxy: ssh-agent ready; starting autossh to ubuntu@$$EVG_HOST_ADDRESS"
+        exec autossh -M 0 -N \
+          -o "ServerAliveInterval 30" \
+          -o "ServerAliveCountMax 3" \
+          -D 0.0.0.0:1080 \
+          ubuntu@$$EVG_HOST_ADDRESS
+      '
+
+  # Translate the SOCKS proxy from evg-host-proxy into an HTTP proxy because go-client doesn't support SPDY over SOCKS.
+  gost-proxy:
+    # Pinned by digest: gost forwards all kubectl traffic through the SOCKS
+    # chain, so freeze the version rather than tracking :latest.
+    image: gogost/gost:latest@sha256:68b97ddda9f8bda460eb0eaa4004d1b8821ee54636c94230837e851c1c14f795
+    depends_on:
+      - evg-host-proxy
+    networks:
+      - devcontainer
+    ports:
+      - "127.0.0.1:${MCK_DEVC_PROXY_PORT:-8000}:8080"
+    command: ["-L", "http://:8080", "-F", "socks5://evg-host-proxy:1080"]
+
+# Volumes with an explicit name are shared globally, otherwise they are prefixed with the project name generated for this compose stack
+volumes:
+  ssh-auth-sock:
+  venv:
+  bin:
+  gomodcache:
+    name: mck-devcontainer-gomodcache
+  gocache:
+    name: mck-devcontainer-gocache
+  uvcache:
+    name: mck-devcontainer-uvcache
+  helmcache:
+    name: mck-devcontainer-helmcache
+
+# Set up a custom network to carve out an address space for k8s-proxy to allocate virtual IPs in
+networks:
+  devcontainer:
+    driver: bridge
+    ipam:
+      config:
+        # Per-stack /23 carved out of 172.16.0.0/12. ip_range is the
+        # bottom /24 (where containers actually bind); the other /24
+        # (Y_VIP) is reserved for k8s-proxy VIPs.
+        - subnet: 172.${MCK_DEVC_NET_X:-16}.${MCK_DEVC_NET_Y_BASE:-0}.0/23
+          ip_range: 172.${MCK_DEVC_NET_X:-16}.${MCK_DEVC_NET_Y_BASE:-0}.0/24

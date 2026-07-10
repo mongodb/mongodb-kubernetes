@@ -561,19 +561,25 @@ func initializeEnvironment() {
 	printEnvVariables()
 }
 
-// loadEnvFromLocalFileForDevelopment loads env vars from .generated/context.operator.env if not running in "prod" env
+// loadEnvFromLocalFileForDevelopment loads .generated/context.operator.env
+// when not running in "prod" env.
 func loadEnvFromLocalFileForDevelopment() {
 	if getOperatorEnv() == util.OperatorEnvironmentProd {
 		return
 	}
 
 	envFile := ".generated/context.operator.env"
-	if _, err := os.Stat(envFile); err == nil {
-		if err := godotenv.Load(envFile); err != nil {
-			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
-		} else {
-			log.Infof("Loaded environment variables from file %s", envFile)
-		}
+	if _, err := os.Stat(envFile); err != nil {
+		log.Warnf("Env file %s not found (run 'make switch'); skipping.", envFile)
+		return
+	}
+	// Load (not Overload): real environment variables win over the generated
+	// file, so ad-hoc overrides (WATCH_NAMESPACE=x go run ./main.go, IDE launch
+	// configs) survive.
+	if err := godotenv.Load(envFile); err != nil {
+		log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
+	} else {
+		log.Infof("Loaded environment variables from file %s", envFile)
 	}
 }
 

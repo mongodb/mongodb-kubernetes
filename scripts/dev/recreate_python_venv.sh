@@ -61,9 +61,20 @@ ensure_required_python() {
 
 cd "${PROJECT_DIR}"
 if [[ -d "${venv_path}" ]]; then
-    echo "Removing existing venv at ${venv_path}..." >&2
-    rm -rf "${venv_path}"
-    echo "Existing venv removed" >&2
+    # Only wipe a directory that already holds a venv (or is empty) so a
+    # misconfigured PROJECT_VENV_PATH can't rm -rf unrelated files.
+    if [[ -f "${venv_path}/bin/activate" || -z "$(ls -A "${venv_path}")" ]]; then
+        echo "Removing existing venv at ${venv_path}..." >&2
+        # venv_path can be a mounted volume (the devcontainer mounts one at
+        # /workspace/venv) whose mountpoint can't be unlinked ("Device or
+        # resource busy"). Clear its contents (dotfiles included) instead so
+        # recreation works whether venv_path is a plain directory or a mount.
+        find "${venv_path}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        echo "Existing venv removed" >&2
+    else
+        echo "Refusing to clear ${venv_path}: not a venv (no bin/activate)" >&2
+        exit 1
+    fi
 else
     echo "No existing venv found" >&2
 fi

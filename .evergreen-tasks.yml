@@ -1467,6 +1467,49 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  # On-host devcontainer variants: each drives an e2e marker through wt-ctl
+  # --local-kind (kind + operator + pytest on the task host, no built images).
+  # e2e_marker + e2e_context fully parametrize the run — the runner derives
+  # topology and cloud_qa vs OM-in-cluster from the context itself. clone runs in
+  # the task group's setup_group; diagnostics are archived by teardown_task's
+  # upload_e2e_logs, exactly as for a normal e2e task.
+
+  # Search — multi-cluster replica set (cloud_qa).
+  - name: e2e_devc_search_connectivity_tool_mc_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_devcontainer_local_kind"
+        vars:
+          e2e_marker: e2e_search_connectivity_tool_mc_rs
+          e2e_context: e2e_multi_cluster_kind
+
+  # Search — single-cluster replica set (cloud_qa).
+  - name: e2e_devc_search_connectivity_tool_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_devcontainer_local_kind"
+        vars:
+          e2e_marker: e2e_search_connectivity_tool
+          e2e_context: e2e_mdb_kind_ubi_cloudqa
+
+  # OM8 — single-cluster (Ops Manager deployed in-cluster, no cloud_qa).
+  - name: e2e_devc_om8_ops_manager_pod_spec
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_devcontainer_local_kind"
+        vars:
+          e2e_marker: e2e_om_ops_manager_pod_spec
+          e2e_context: e2e_om80_kind_ubi
+
+  # OM8 — multi-cluster AppDB (Ops Manager deployed in-cluster, no cloud_qa).
+  - name: e2e_devc_om8_multi_cluster_om_appdb
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_devcontainer_local_kind"
+        vars:
+          e2e_marker: e2e_multi_cluster_om_appdb_no_mesh
+          e2e_context: e2e_multi_cluster_om_appdb
+
   - name: e2e_search_connectivity_tool_mc_sharded
     tags: [ "patch-run" ]
     commands:
