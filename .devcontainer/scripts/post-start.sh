@@ -23,14 +23,11 @@ else
 fi
 
 # VS Code automatically forwards the host's ssh-agent socket and sets
-# SSH_AUTH_SOCK; the bare `devcontainer` CLI does not. If the var is unset we
-# simply skip the fan-out — the autossh sidecar will fail until the agent is
-# mounted explicitly via compose.user.yml, but the rest of the stack is fine.
-if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
-    echo "SSH_AUTH_SOCK is not set; skipping ssh-agent fan-out"
-    exit 0
-fi
-
+# SSH_AUTH_SOCK; the bare `devcontainer` CLI does not. When it's unset we skip
+# only the ssh-agent fan-out (the autossh sidecar stays down until the agent
+# is mounted via compose.user.yml) and still run host kfp registration below —
+# agentless / local-kind devc modes need it after every proxy restart.
+if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
 echo "SSH_AUTH_SOCK: ${SSH_AUTH_SOCK}"
 
 # The mounted host ssh-agent socket (Docker Desktop's
@@ -88,6 +85,9 @@ screen -dmS ssh-agent-proxy bash -c '
         sleep 1
     done
 '
+else
+    echo "SSH_AUTH_SOCK is not set; skipping ssh-agent fan-out"
+fi
 
 # Best-effort registration with the host kube-forwarding-proxy. Routed through
 # wt-ctl so the cluster/context/user names get suffixed with the worktree's
