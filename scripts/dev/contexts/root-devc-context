@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#
+# Devcontainer / EVG-host worktree overrides. Sourced from root-context after
+# private-context, so PROJECT_DIR / NAMESPACE / CLUSTER_NAME are already set.
+# Every block is a no-op outside a wt-ctl worktree (no .devcontainer/.env,
+# no .generated EVG-host sentinels), so non-devc flows source it harmlessly.
+
+# Devcontainer worktrees: pull MCK_DEVC_* (network prefix + derived octets and
+# proxy port) from .devcontainer/.env when not already in env. The file only
+# exists in worktrees set up by wt-ctl; non-devc flows skip this whole block.
+if [[ -f "${PROJECT_DIR}/.devcontainer/.env" ]]; then
+  while IFS= read -r devc_env_line; do
+    case "${devc_env_line}" in
+      MCK_DEVC_*=*)
+        devc_env_key="${devc_env_line%%=*}"
+        [[ -z "${!devc_env_key:-}" ]] && export "${devc_env_line?}"
+        ;;
+    esac
+  done < "${PROJECT_DIR}/.devcontainer/.env"
+  unset devc_env_line devc_env_key
+fi
+
+# Per-worktree namespace suffix. Only applied when running parallel devc
+# stacks (MCK_DEVC_NET_PREFIX set) and not inside an evergreen task; keeps
+# cloud-qa OM project names from colliding across worktrees. Idempotent.
+if [[ -z "${EVR_TASK_ID:-}" && -n "${MCK_DEVC_NET_PREFIX:-}" && -n "${NAMESPACE:-}" \
+      && "${NAMESPACE}" != *"-${MCK_DEVC_NET_PREFIX}" ]]; then
+  if [[ -n "${WATCH_NAMESPACE:-}" && "${WATCH_NAMESPACE}" == "${NAMESPACE}" ]]; then
+    export WATCH_NAMESPACE="${WATCH_NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+  fi
+  export NAMESPACE="${NAMESPACE}-${MCK_DEVC_NET_PREFIX}"
+fi
+
+# Devc-only: align CLUSTER_NAME with the kubeconfig's current-context so
+# kubectl matches the cluster wt-ctl actually prepared. EVG-host mode (next
+# block) overrides this. Other flows keep CLUSTER_NAME from
+# private-context unchanged.
+if [[ -n "${MCK_DEVC_NET_PREFIX:-}" \
+      && ! -f "${PROJECT_DIR}/.generated/.current-evg-host" \
+      && -f "${PROJECT_DIR}/.generated/current.kubeconfig" ]]; then
+  kc_ctx=$(yq '."current-context"' "${PROJECT_DIR}/.generated/current.kubeconfig" 2>/dev/null || echo "")
+  if [[ -n "${kc_ctx}" && "${kc_ctx}" != "null" ]]; then
+    export CLUSTER_NAME="${kc_ctx}"
+    export EVG_HOST_NAME=""
+  fi
+  unset kc_ctx
+fi
+
+# EVG-host worktree: resolve and cache the running host's address. The
+# evg-host-proxy sidecar reads the cache file (it has no evergreen CLI).
+if [[ -f "${PROJECT_DIR}/.generated/.current-evg-host" ]]; then
+  EVG_HOST_NAME="$(cat "${PROJECT_DIR}/.generated/.current-evg-host")"
+  export EVG_HOST_NAME
+
+  evg_host_address_file="${PROJECT_DIR}/.generated/.current-evg-host-address"
+  # Stock macOS has no GNU `timeout`; prefer `timeout`, fall back to `gtimeout`
+  # (coreutils), else run the query unbounded rather than fail resolution.
+  # Word-split on use is intentional (empty-array expansion is unsafe on bash 3.2).
+  if command -v timeout >/dev/null 2>&1; then evg_timeout="timeout 5s"
+  elif command -v gtimeout >/dev/null 2>&1; then evg_timeout="gtimeout 5s"
+  else evg_timeout=""; fi
+  if command -v evergreen >/dev/null 2>&1; then
+    # timeout + </dev/null guards against OIDC device-auth fallback hanging make switch
+    # when the cached token has expired and no browser is available (devc).
+    # shellcheck disable=SC2086  # evg_timeout must word-split into argv (or vanish).
+    evg_resolved="$(${evg_timeout} evergreen host list --json </dev/null 2>/dev/null \
+      | jq -r --arg name "${EVG_HOST_NAME}" \
+          '[.[] | select(.name == $name and .status == "running")] | first | .host_name // empty' \
+          2>/dev/null || true)"
+    if [[ -n "${evg_resolved}" ]]; then
+      echo "${evg_resolved}" > "${evg_host_address_file}"
+    fi
+  fi
+  if [[ -s "${evg_host_address_file}" ]]; then
+    EVG_HOST_ADDRESS="$(cat "${evg_host_address_file}")"
+    export EVG_HOST_ADDRESS
+  fi
+fi
