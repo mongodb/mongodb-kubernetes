@@ -2,28 +2,18 @@
 #
 # wt-ctl — unified worktree + devcontainer control plane.
 #
-# Thin shim that locates the wt_ctl python package in this repo, sets
-# PYTHONPATH so ``import wt_ctl`` works regardless of cwd, and execs
-# ``python3 -m wt_ctl "$@"``. See ``docs/dev/wt-ctl-plan.md``.
-#
-# Prefers the worktree's venv python so deps installed there (pyyaml for
-# kubeconfig parsing, etc.) are available. Falls back to system python3
-# when the venv isn't built yet (very early worktree_init phase).
+# Thin shim: load the worktree env via set_env_context (activates the venv and
+# prepends bin/ to PATH), put the wt_ctl package on PYTHONPATH so ``import
+# wt_ctl`` resolves regardless of cwd, then exec ``python3 -m wt_ctl``. wt-ctl
+# always runs from a worktree that worktree_init has already prepared, so the
+# env files and venv are present. See ``docs/dev/wt-ctl-plan.md``.
 #
 set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-pkg_parent="${script_dir}"  # wt_ctl/ lives at scripts/dev/wt_ctl
-repo_root="$(cd "${script_dir}/../.." && pwd)"
 
-if [[ -n "${PYTHONPATH:-}" ]]; then
-  PYTHONPATH="${pkg_parent}:${PYTHONPATH}"
-else
-  PYTHONPATH="${pkg_parent}"
-fi
-export PYTHONPATH
+# shellcheck source=set_env_context.sh
+source "${script_dir}/set_env_context.sh"
 
-if [[ -x "${repo_root}/venv/bin/python" ]]; then
-  exec "${repo_root}/venv/bin/python" -m wt_ctl "$@"
-fi
+export PYTHONPATH="${script_dir}${PYTHONPATH:+:${PYTHONPATH}}"
 exec python3 -m wt_ctl "$@"
