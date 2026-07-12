@@ -92,8 +92,8 @@ export MDB_MONGOT_REPLICAS_PER_CLUSTER=1
 ENVOY_PROXY_PORT="27028"
 export ENVOY_PROXY_PORT
 
-# Cluster 0's Envoy proxy Service (operator-derived, do not change). All mongod
-# members route search traffic here -- see 12_0310_internal_create_mongodb_mc_rs.sh.
+# Cluster 0's Envoy proxy Service (operator-derived, do not change). Configure
+# every source mongod to use this value for the Search server parameters.
 export MDB_PROXY_HOST_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 
 # Per-pod Service host:port of the replica set members supplied by you.

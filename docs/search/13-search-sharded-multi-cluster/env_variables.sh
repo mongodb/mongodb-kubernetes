@@ -101,10 +101,9 @@ export MDB_MONGOT_REPLICAS_PER_CLUSTER=1
 ENVOY_PROXY_PORT="27028"
 export ENVOY_PROXY_PORT
 
-# Cluster 0's Envoy proxy Services (operator-derived, do not change). mongos
-# routes search traffic through the cluster-level proxy Service; each shard's
-# mongods route through their per-shard proxy Service -- all on cluster 0,
-# see 13_0310_internal_create_mongodb_mc_sharded.sh.
+# Cluster 0's Envoy proxy Services (operator-derived, do not change). Configure
+# mongos with the cluster-level value and each shard's mongods with that shard's
+# value for the Search server parameters.
 export MDB_PROXY_HOST_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 export MDB_PROXY_HOST_SHARD_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_SHARD_0_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 export MDB_PROXY_HOST_SHARD_1="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_SHARD_1_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"

@@ -1,73 +1,89 @@
-# MongoDB Search with External Multi-Cluster Sharded MongoDB + Managed Envoy LB
+# Multi-cluster MongoDB Search with a sharded cluster
 
-Deploy **MongoDB Search** against your **existing multi-cluster sharded MongoDB cluster** using the operator's **managed Envoy load balancer** across two Kubernetes clusters.
+This scenario deploys a multi-cluster `MongoDBSearch` resource for an existing
+Ops Manager-managed sharded cluster. The shell snippets do not create or
+reconfigure the source MongoDB deployment.
 
 ## Prerequisites
 
-**You must already have a running MongoDB sharded cluster** whose mongos routers and shard members are reachable from both Kubernetes clusters over the service mesh (e.g. a multi-primary Istio mesh). Set the host endpoints in `env_variables.sh` before running any snippet.
+- A MongoDB 8.2 or later sharded cluster managed by Ops Manager, with `mongos`
+  and shard members reachable from both Kubernetes clusters.
+- Two Kubernetes contexts connected by a service mesh that provides
+  cross-cluster Service DNS and connectivity.
+- `kubectl`, Helm, the `kubectl-mongodb` plugin, `jq`, and cert-manager.
+- A `search-sync-source` user on the source deployment with the
+  `searchCoordinator` role. Set `MDB_SEARCH_SYNC_USER_PASSWORD` to that user's
+  password.
+- A cert-manager `ClusterIssuer` named by `MDB_TLS_CA_ISSUER` on the central
+  cluster. It must issue certificates trusted by the source MongoDB deployment.
+- A ConfigMap named by `MDB_TLS_CA_CONFIGMAP` in `MDB_NS` on both clusters. It
+  must contain the source deployment's CA certificate under the `ca-pem` and
+  `ca.crt` keys.
 
-The `internal_*` snippets exist only to simulate that external cluster for CI purposes. If you are following these steps against your own MongoDB deployment, skip all `internal_*` snippets.
+## Configure the source deployment in Ops Manager
 
-## Overview
+The source `mongos` and shard `mongod` processes must route Search traffic to
+cluster 0's managed proxies.
 
-This scenario covers the case where the MongoDB source is external to the operator — for example, running on VMs, a separate Kubernetes cluster, or a self-hosted deployment. The operator deploys a **MongoDBSearch** resource with `spec.source.external.shardedCluster`, provisions one mongot StatefulSet per (cluster, shard), and manages a per-cluster Envoy proxy (with a per-shard route) in every member cluster.
-
-### Traffic Flow
-
-```
-mongos (cl 0 + cl 1) ───────────→ Envoy cluster-level (cl 0) ─→ cl 0 mongots (all shards)
-shard 0 mongod (cl 0 + cl 1) ───→ Envoy shard 0 (cl 0) ───────→ mongot shard 0 (cl 0)
-shard 1 mongod (cl 0 + cl 1) ───→ Envoy shard 1 (cl 0) ───────→ mongot shard 1 (cl 0)
-shard 2 mongod (cl 0 + cl 1) ───→ Envoy shard 2 (cl 0) ───────→ mongot shard 2 (cl 0)
-```
-
-### Search routing limitation
-
-The source `MongoDB` CR uses `topology: MultiCluster` (not the `MongoDBMultiCluster` kind, which is only used for replica sets — see scenario 12), and it has no per-cluster `additionalMongodConfig`. Shard search routing is instead set per shard via `shardOverrides[].additionalMongodConfig`. So every shard's mongods — in **both** clusters — get the same `mongotHost`: cluster 0's per-shard Envoy proxy. mongos routers likewise point at cluster 0's cluster-level proxy via `spec.mongos.additionalMongodConfig`. Each cluster's Envoy fronts only that cluster's own mongots.
-
-The operator still provisions a per-cluster Envoy and per-(cluster, shard) mongot StatefulSets in cluster 1, but no mongod or mongos `mongotHost` targets them today, so shard mongods in cluster 1 route search traffic cross-cluster over the mesh to cluster 0. This is the same per-cluster limitation as scenario 12 (replica set); the sharded difference is per-shard routing granularity, not per-cluster locality.
-
-## Quick Start
-
-1. Edit `env_variables.sh` and set:
-   - `K8S_CTX_0`, `K8S_CTX_1` — your two cluster contexts (cluster 0 is also the central/operator cluster)
-   - `MDB_MONGOS_HOST_0`, `MDB_MONGOS_HOST_1` — your mongos router host:port entries
-   - `MDB_SHARD_0_HOST_CL0`, `MDB_SHARD_0_HOST_CL1`, `MDB_SHARD_1_HOST_CL0`, `MDB_SHARD_1_HOST_CL1`, `MDB_SHARD_2_HOST_CL0`, `MDB_SHARD_2_HOST_CL1` — your per-shard per-cluster mongod host:port entries
-   - Ops Manager / Cloud Manager credentials
-2. Source the file: `source env_variables.sh`
-3. Run each snippet under `code_snippets/` in numbered order, skipping `internal_*` steps (those only simulate the external sharded cluster for CI):
-   - `13_0040_validate_env.sh` — validate required environment variables and cluster contexts
-   - `13_0045_create_namespaces.sh` — create `MDB_NS` in both member clusters
-   - `13_0100_install_operator.sh` — run `kubectl mongodb multicluster setup` and install the operator in multi-cluster mode
-   - `13_0301_install_cert_manager.sh` — install cert-manager on the central cluster
-   - `13_0302_configure_tls_prerequisites.sh` — create the self-signed bootstrap issuer, CA certificate, and CA issuer
-   - `13_0316a_create_mongot_tls_certificates.sh` — issue one mongot TLS certificate per (cluster, shard)
-   - `13_0316b_create_lb_tls_certificates.sh` — issue the per-cluster Envoy server/client certificate pairs
-   - `13_0317_replicate_search_secrets.sh` — copy the per-(cluster, shard) mongot certs, per-cluster LB certs, and search sync user password from the central cluster to every other member cluster (the operator does not replicate these)
-   - `13_0320_create_mongodb_search_resource.sh` — create the MongoDBSearch resource with `spec.source.external.shardedCluster` and per-cluster `loadBalancer.managed` (with `externalHostname` and `routerHostname`)
-   - `13_0325_wait_for_search_resource.sh` — wait for the MongoDBSearch resource to reach `Running`
-   - `13_0330_show_running_pods.sh` — list pods/Services across both clusters
-4. After `13_0325_wait_for_search_resource.sh` reports `Running`, set the query-module context and run scenario 08 (`../08-search-sharded-query-usage/`) to import data, create search indexes, and run search queries:
+1. Edit `env_variables.sh`, then load and validate it:
 
    ```bash
-   export K8S_CTX="${K8S_CTX_0}"
-   ( cd ../08-search-sharded-query-usage && ./test.sh )
+   source env_variables.sh
+   bash code_snippets/13_0040_validate_env.sh
    ```
 
-## Execution notes (moved from snippets)
+2. In Ops Manager, open **Deployment > Processes** and click **Modify** for
+   each process listed below.
+3. Under **Advanced Configuration Options**, click **Add Option**, select
+   `setParameter`, and add `mongotHost` and
+   `searchIndexManagementHostAndPort` with these values:
 
-| Snippet | Why it matters |
-|---|---|
-| `13_0045_create_namespaces.sh` | Applies `istio-injection=enabled` to `MDB_NS` in each member cluster so cross-cluster service discovery/routing works for source members. |
-| `13_0100_install_operator.sh` | Requires the `kubectl-mongodb` plugin. If using local kind/minikube kubeconfigs with loopback API endpoints, set `MDB_PLUGIN_KUBECONFIG` to a pod-reachable kubeconfig before `kubectl mongodb multicluster setup`. |
-| `13_0300_internal_create_ops_manager_resources.sh` | Internal/CI helper: creates Ops Manager Secret and ConfigMap only on the central cluster (where the multi-cluster source resource is reconciled). |
-| `13_0301_install_cert_manager.sh` | Installs cert-manager only on cluster 0 (central). Certificates are issued there. |
-| `13_0302a_internal_configure_tls_prerequisites_mongod.sh` | Ensures the CA ConfigMap exists on every member cluster so mongod/tools workloads can validate TLS. |
-| `13_0304_internal_generate_tls_certificates.sh` | Internal/CI helper: source sharded-cluster cert Secrets are issued on cluster 0 and source cert Secret replication is handled by the MongoDB controller. |
-| `13_0310_internal_create_mongodb_mc_sharded.sh` | Internal/CI helper: search-related setParameters are configured manually (`shardOverrides` and `mongos.additionalMongodConfig`); routing still points to cluster 0 proxies due lack of per-cluster config. |
-| `13_0316_internal_create_mongodb_users.sh` | Internal/CI helper: users are created from the central cluster context. |
-| `13_0316a_create_mongot_tls_certificates.sh` | Issues per-(cluster,shard) mongot certificates on cluster 0; Search Secrets are not auto-replicated, so `13_0317` handles replication. |
-| `13_0316b_create_lb_tls_certificates.sh` | Issues one Envoy server/client certificate pair per cluster index (`search-lb-<i>-cert`, `search-lb-<i>-client-cert`) on cluster 0. |
-| `13_0317_replicate_search_secrets.sh` | Replicates Search Secrets (per-(cluster,shard) mongot certs, LB certs, sync password) from cluster 0 to other member clusters; required so member-cluster mongot pods can mount TLS material. |
-| `13_0320_create_mongodb_search_resource.sh` | Uses `source.external.shardedCluster` (mongos + per-shard host lists), per-cluster managed load balancers (`externalHostname` and `routerHostname`), and pins mongot resources to fit kind test nodes. |
-| `13_0326_internal_verify_envoy_deployment.sh` | Internal/CI check: expects one Envoy Deployment per cluster and one mongot StatefulSet per (cluster, shard). |
+   | Process | Value for both parameters |
+   |---------|---------------------------|
+   | Every `mongos` | `${MDB_PROXY_HOST_0}` |
+   | Every shard 0 `mongod` | `${MDB_PROXY_HOST_SHARD_0}` |
+   | Every shard 1 `mongod` | `${MDB_PROXY_HOST_SHARD_1}` |
+   | Every shard 2 `mongod` | `${MDB_PROXY_HOST_SHARD_2}` |
+
+   Enter the expanded values from `env_variables.sh`, not the variable names.
+4. Click **Save**, review the changes, and deploy the updated configuration.
+   Do not add these Search parameters to config server processes.
+
+Ops Manager applies `setParameter` startup options to the processes it manages.
+See [Advanced Options for MongoDB Deployments](https://www.mongodb.com/docs/ops-manager/current/reference/deployment-advanced-options/).
+
+Processes use cluster 0's proxies because the source deployment has one shared
+value per process role. Processes in cluster 1 therefore send Search traffic
+across the service mesh to cluster 0.
+
+## Deploy MongoDB Search
+
+Run only the customer steps listed below:
+
+```bash
+bash code_snippets/13_0045_create_namespaces.sh
+bash code_snippets/13_0100_install_operator.sh
+bash code_snippets/13_0301_install_cert_manager.sh
+bash code_snippets/13_0316_create_search_sync_secret.sh
+bash code_snippets/13_0316a_create_mongot_tls_certificates.sh
+bash code_snippets/13_0316b_create_lb_tls_certificates.sh
+bash code_snippets/13_0317_replicate_search_secrets.sh
+bash code_snippets/13_0320_create_mongodb_search_resource.sh
+bash code_snippets/13_0325_wait_for_search_resource.sh
+bash code_snippets/13_0330_show_running_pods.sh
+```
+
+The password Secret is created on cluster 0 and then replicated with the TLS
+Secrets to cluster 1. The `MongoDBSearch` resource uses the `mongos` and shard
+hostnames from `env_variables.sh`.
+
+## Run Search queries
+
+Use the shared sharded-cluster query snippets; a separate multi-cluster query
+is not required because applications connect through `mongos` normally.
+
+```bash
+export K8S_CTX="${K8S_CTX_0}"
+
+( cd ../08-search-sharded-query-usage && ./test.sh )
+```

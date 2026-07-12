@@ -39,7 +39,7 @@ run 12_0300_internal_create_ops_manager_resources.sh
 # ============================================================================
 
 run_for_output 12_0301_install_cert_manager.sh
-run 12_0302_configure_tls_prerequisites.sh
+run 12_0302_internal_configure_tls_prerequisites.sh
 run 12_0302a_internal_configure_tls_prerequisites_mongod.sh
 run 12_0304_internal_generate_tls_certificates.sh
 
@@ -53,6 +53,7 @@ run_for_output 12_0315_internal_wait_for_rs.sh
 
 # Create users AFTER the cluster is ready (MongoDBUser CRDs reference it)
 run 12_0316_internal_create_mongodb_users.sh
+run 12_0316_create_search_sync_secret.sh
 
 # ============================================================================
 # MONGODB SEARCH WITH PER-CLUSTER MANAGED ENVOY LB

@@ -9,7 +9,16 @@ Run this query module after one of these infrastructure modules:
 - [`11-search-rs-mongod-managed-lb`](../11-search-rs-mongod-managed-lb/)
 - [`12-search-rs-multi-cluster`](../12-search-rs-multi-cluster/) (**multi-cluster**)
 
-## Multi-cluster handoff (Scenario 12)
+## Environment handoff
+
+Scenario 11 exports separate admin and user connection strings. Map its user
+connection string to the shared query module's variable:
+
+```bash
+export MDB_CONNECTION_STRING="${MDB_USER_CONNECTION_STRING}"
+
+( cd ../03-search-query-usage && ./test.sh )
+```
 
 After scenario 12 reports `MongoDBSearch` in `Running`, run this module from the central cluster context:
 
