@@ -932,11 +932,14 @@ task_groups:
     teardown_task_can_fail_task: true
     teardown_task:
       - func: upload_e2e_logs
+    # No-mesh MC OM (e2e_devc_om8_multi_cluster_om_appdb) is deliberately
+    # excluded: this flow runs the operator locally via `go run`, whose Docker
+    # embedded DNS (127.0.0.11) can't resolve the external nginx-ext-svc-*
+    # interconnect the no-mesh topology relies on, so that test can't pass here.
     tasks:
       - e2e_devc_search_connectivity_tool_rs
       - e2e_devc_search_connectivity_tool_mc_rs
       - e2e_devc_om8_ops_manager_pod_spec
-      - e2e_devc_om8_multi_cluster_om_appdb
 
   # Same as e2e_mdb_kind_search_task_group but for om80 variants.
   # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
