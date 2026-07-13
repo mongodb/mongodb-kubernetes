@@ -13,12 +13,6 @@ const (
 	appdbAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 	appdbAutomationAgentOptions         = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 
-	// Readiness probe logger env var names — from MCO's pkg/readiness/config.
-	appdbReadinessProbeLoggerBackups  = "READINESS_PROBE_LOGGER_BACKUPS"
-	appdbReadinessProbeLoggerMaxSize  = "READINESS_PROBE_LOGGER_MAX_SIZE"
-	appdbReadinessProbeLoggerMaxAge   = "READINESS_PROBE_LOGGER_MAX_AGE"
-	appdbReadinessProbeLoggerCompress = "READINESS_PROBE_LOGGER_COMPRESS"
-	appdbWithAgentFileLogging         = "MDB_WITH_AGENT_FILE_LOGGING"
 	appdbAgentHealthStatusFilePathEnv = "AGENT_STATUS_FILEPATH"
 )
 
