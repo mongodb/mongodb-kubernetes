@@ -2,7 +2,6 @@ package construct
 
 import (
 	"fmt"
-	"os"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -241,28 +240,10 @@ func appdbMongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMoun
 
 // appdbCollectEnvVars collects and returns the environment variables to be used in the MongoDB container.
 func appdbCollectEnvVars() []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-
-	envVars = append(envVars, corev1.EnvVar{
-		Name:  appdbAgentHealthStatusFilePathEnv,
-		Value: "/healthstatus/agent-health-status.json",
-	})
-
-	addEnvVarIfSet := func(name string) {
-		value := os.Getenv(name) // nolint:forbidigo
-		if value != "" {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  name,
-				Value: value,
-			})
-		}
+	return []corev1.EnvVar{
+		{
+			Name:  appdbAgentHealthStatusFilePathEnv,
+			Value: "/healthstatus/agent-health-status.json",
+		},
 	}
-
-	addEnvVarIfSet(appdbReadinessProbeLoggerBackups)
-	addEnvVarIfSet(appdbReadinessProbeLoggerMaxSize)
-	addEnvVarIfSet(appdbReadinessProbeLoggerMaxAge)
-	addEnvVarIfSet(appdbReadinessProbeLoggerCompress)
-	addEnvVarIfSet(appdbWithAgentFileLogging)
-
-	return envVars
 }
