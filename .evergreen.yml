@@ -1930,7 +1930,7 @@ buildvariants:
   # :latest ECR tags, so nothing is built for this variant.
   - name: e2e_mck_devcontainer_local_kind
     display_name: e2e_mck_devcontainer_local_kind
-    tags: [ "e2e_test_suite", "cloudqa" ]
+    tags: [ "pr_patch_e2e", "e2e_test_suite", "cloudqa" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-large
