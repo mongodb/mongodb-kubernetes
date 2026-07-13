@@ -51,6 +51,6 @@ cd docs/search/08-search-sharded-query-usage
 2. `08_0420_import_sample_data.sh` — import sample data and shard collections.
 3. `08_0430_create_search_index.sh` — create text search index.
 4. `08_0435_create_vector_search_index.sh` — create vector index.
-5. `08_0440_wait_for_search_indexes.sh` — wait for index readiness.
+5. `08_0440_list_search_indexes.sh` — check that both indexes report `READY`.
 6. `08_0450_execute_search_query.sh` — run text query example.
 7. `08_0455_execute_vector_search_query.sh` — run vector query example.
