@@ -4,10 +4,12 @@ on:
     branches:
       - master
       - release-*
+      - v*
   pull_request:
     branches:
       - master
       - release-*
+      - v*
 
 jobs:
   preview_release_notes:
@@ -39,8 +41,10 @@ jobs:
           RELEASE_INITIAL_VERSION: ${{ env.RELEASE_INITIAL_VERSION }}
       - name: Add disclaimer to release notes preview for Pull Requests
         if: github.event_name == 'pull_request'
+        env:
+          TARGET_BASE_REF: ${{ github.base_ref }}
         run: |
-          echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current master branch)_\n" > release_notes_tmp.md
+          echo -e "_:warning: (this preview might not be accurate if the PR is not rebased on current $TARGET_BASE_REF branch)_\n" > release_notes_tmp.md
           cat release_notes_preview.md >> release_notes_tmp.md
           mv -f release_notes_tmp.md release_notes_preview.md
       - name: Summarize results
