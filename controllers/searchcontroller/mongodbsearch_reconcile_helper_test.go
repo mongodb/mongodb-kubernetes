@@ -3928,8 +3928,17 @@ func clusterStatusByIndex(t *testing.T, statuses []searchv1.ClusterStatus, idx i
 	return searchv1.ClusterStatus{}
 }
 
+func readyDeploymentStatus(desired int32) appsv1.DeploymentStatus {
+	return appsv1.DeploymentStatus{
+		ReadyReplicas:      desired,
+		UpdatedReplicas:    desired,
+		Replicas:           desired,
+		ObservedGeneration: 0,
+	}
+}
+
 // markEnvoyDeploymentReady creates the managed Envoy Deployment for a cluster in a
-// ready state, simulating what the envoy controller would have written.
+// fully-rolled-out ready state, simulating what the envoy controller would have written.
 func markEnvoyDeploymentReady(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int) {
 	t.Helper()
 	dep := &appsv1.Deployment{
@@ -3938,14 +3947,14 @@ func markEnvoyDeploymentReady(t *testing.T, c kubernetesClient.Client, search *s
 			Namespace: search.Namespace,
 		},
 		Spec:   appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
-		Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
+		Status: readyDeploymentStatus(1),
 	}
 	require.NoError(t, c.Create(t.Context(), dep))
 }
 
 // markMetricsForwarderDeploymentReady creates the metrics-forwarder Deployment for a
-// cluster in a ready state, simulating what the metrics-forwarder controller would
-// have written.
+// cluster in a fully-rolled-out ready state, simulating what the metrics-forwarder
+// controller would have written.
 func markMetricsForwarderDeploymentReady(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int) {
 	t.Helper()
 	dep := &appsv1.Deployment{
@@ -3954,7 +3963,7 @@ func markMetricsForwarderDeploymentReady(t *testing.T, c kubernetesClient.Client
 			Namespace: search.Namespace,
 		},
 		Spec:   appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
-		Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
+		Status: readyDeploymentStatus(1),
 	}
 	require.NoError(t, c.Create(t.Context(), dep))
 }
@@ -4076,6 +4085,46 @@ func TestReconcileShardedMC_PerClusterMetricsForwarderDisabled(t *testing.T) {
 		require.Empty(t, cs.MetricsForwarder, "cluster %d metricsForwarder must be empty when disabled", idx)
 		require.Empty(t, cs.MetricsForwarderMessage, "cluster %d metrics-forwarder message must be empty when disabled", idx)
 	}
+}
+
+func TestReconcileShardedMC_PerClusterLoadBalancerMidRollout(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	_ = helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+
+	// cluster-a: Envoy fully rolled out (ready). cluster-b: mid-rollout — enough ready
+	// pods to satisfy a naive check, but they are the old generation.
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	depB := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       fx.search.LoadBalancerDeploymentNameForCluster(1),
+			Namespace:  fx.search.Namespace,
+			Generation: 2, // spec advanced to gen 2
+		},
+		Spec: appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
+		Status: appsv1.DeploymentStatus{
+			ReadyReplicas:      1, // 1 ready pod, but it is the OLD ReplicaSet:
+			UpdatedReplicas:    0, // no pods on the new spec yet
+			Replicas:           1,
+			ObservedGeneration: 1, // controller has not observed gen 2 yet
+		},
+	}
+	require.NoError(t, fx.members["cluster-b"].Create(t.Context(), depB))
+
+	st := helper.reconcile(t.Context(), zap.S())
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+
+	csA := clusterStatusByIndex(t, statuses, 0)
+	require.Equal(t, status.PhaseRunning, csA.LoadBalancer, "cluster 0 Envoy fully rolled out → Running")
+
+	csB := clusterStatusByIndex(t, statuses, 1)
+	require.Equal(t, status.PhasePending, csB.LoadBalancer,
+		"cluster 1 Envoy mid-rollout (ready pods are old generation) → must be Pending, not Running")
+	require.NotEmpty(t, csB.LoadBalancerMessage, "mid-rollout should carry a message explaining why")
 }
 
 // TestReconcileShardedMC_PerClusterStatusWorstOfShards verifies that when one shard

@@ -876,34 +876,36 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 // envoy controller may not have created it yet.
 func (r *MongoDBSearchReconcileHelper) envoyDeploymentStatus(ctx context.Context, clusterIndex int, unitClient kubernetesClient.Client) workflow.Status {
 	name := r.mdbSearch.LoadBalancerDeploymentNameForCluster(clusterIndex)
-	dep := &appsv1.Deployment{}
-	if err := unitClient.Get(ctx, kube.ObjectKey(r.mdbSearch.Namespace, name), dep); err != nil {
-		if apierrors.IsNotFound(err) {
-			return workflow.Pending("Load balancer deployment %s not yet created", name)
-		}
-		return workflow.Failed(xerrors.Errorf("reading load balancer deployment %s: %w", name, err))
-	}
-	desired := ptr.Deref(dep.Spec.Replicas, 1)
-	if dep.Status.ReadyReplicas < desired {
-		return workflow.Pending("Load balancer deployment %s not ready: %d/%d replicas ready", name, dep.Status.ReadyReplicas, desired)
-	}
-	return workflow.OK()
+	return r.deploymentReadiness(ctx, unitClient, name, "Load balancer")
 }
 
 // metricsForwarderDeploymentStatus reports the readiness of one cluster's Ops Manager
 // metrics-forwarder Deployment.
 func (r *MongoDBSearchReconcileHelper) metricsForwarderDeploymentStatus(ctx context.Context, clusterIndex int, unitClient kubernetesClient.Client) workflow.Status {
 	name := r.mdbSearch.MetricsForwarderDeploymentNameForCluster(clusterIndex)
+	return r.deploymentReadiness(ctx, unitClient, name, "Metrics forwarder")
+}
+
+// deploymentReadiness reports whether a Deployment has fully rolled out its current spec.
+// A plain ReadyReplicas check is insufficient because during a rolling update ReadyReplicas can equal
+// the desired count while the ready pods still belong to the OLD ReplicaSet.
+func (r *MongoDBSearchReconcileHelper) deploymentReadiness(ctx context.Context, unitClient kubernetesClient.Client, name, kind string) workflow.Status {
 	dep := &appsv1.Deployment{}
 	if err := unitClient.Get(ctx, kube.ObjectKey(r.mdbSearch.Namespace, name), dep); err != nil {
 		if apierrors.IsNotFound(err) {
-			return workflow.Pending("Metrics forwarder deployment %s not yet created", name)
+			return workflow.Pending("%s deployment %s not yet created", kind, name)
 		}
-		return workflow.Failed(xerrors.Errorf("reading metrics forwarder deployment %s: %w", name, err))
+		return workflow.Failed(xerrors.Errorf("reading %s deployment %s: %w", strings.ToLower(kind), name, err))
 	}
 	desired := ptr.Deref(dep.Spec.Replicas, 1)
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return workflow.Pending("%s deployment %s rollout in progress: waiting for generation %d to be observed (observed %d)", kind, name, dep.Generation, dep.Status.ObservedGeneration)
+	}
+	if dep.Status.UpdatedReplicas < desired {
+		return workflow.Pending("%s deployment %s rollout in progress: %d/%d updated replicas", kind, name, dep.Status.UpdatedReplicas, desired)
+	}
 	if dep.Status.ReadyReplicas < desired {
-		return workflow.Pending("Metrics forwarder deployment %s not ready: %d/%d replicas ready", name, dep.Status.ReadyReplicas, desired)
+		return workflow.Pending("%s deployment %s not ready: %d/%d replicas ready", kind, name, dep.Status.ReadyReplicas, desired)
 	}
 	return workflow.OK()
 }
