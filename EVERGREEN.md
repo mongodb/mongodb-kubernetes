@@ -3,7 +3,8 @@
 Each variant needs to be tagged with one or more tags referencing related build scenario:
  - pr_patch: for patches created by GitHub PRs
  - staging: for builds triggered when merging to master or release branch
- - release: for builds triggered on git tags
+ - deprecated-release: legacy release process (rebuilds/retests everything), triggered by "old-X.Y.Z" git tags. To be removed soon — see .evergreen-release.yml.
+ - release-publish: new release process (publish-only, no rebuild/retest), triggered by "new-X.Y.Z" git tags. See .evergreen-release-publish.yml.
 
 For variants that are **only** triggered manually (patch) or by PCT we should use "manual_patch" tag.
 Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
@@ -36,10 +37,20 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y
 evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
 ```
 
-### Release scenario:
+### Legacy release scenario (deprecated, to be removed soon):
+
+Rebuilds and retests every image before publishing. Triggered normally by pushing an "old-X.Y.Z" git tag; the command below runs the same variants via patch. See .evergreen-release.yml.
 
 ```shell
-evergreen patch -p mongodb-kubernetes -a release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
+evergreen patch -p mongodb-kubernetes -a deprecated-release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
+```
+
+### New release-publish scenario:
+
+Publishes already-promoted images straight to production — no rebuild, no retest. Triggered normally by pushing a "new-X.Y.Z" git tag; the command below runs the same variants via patch. See .evergreen-release-publish.yml.
+
+```shell
+evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
 
 ### Release-style preflight only (no image push, no Pyxis submit)

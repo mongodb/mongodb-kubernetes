@@ -77,7 +77,12 @@ export BUILD_ID="${build_id:-"unknown"}"
 export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
 export VERSION_ID="${version_id:-"unknown"}"
-export GIT_TAG="${triggered_by_git_tag:-}"
+# Strip the "old-"/"new-" release-trigger-tag prefix "new-" or "old-"
+# everything downstream expects GIT_TAG as "X.Y.Z" version
+GIT_TAG="${triggered_by_git_tag:-}"
+GIT_TAG="${GIT_TAG#old-}"
+GIT_TAG="${GIT_TAG#new-}"
+export GIT_TAG
 
 # var used in pipeline.py to determine if we're running on EVG host
 # used to discern between local pipeline image build and the build in pipeline

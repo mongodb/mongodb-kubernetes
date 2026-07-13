@@ -20,6 +20,7 @@ include:
   - filename: .evergreen-mco.yml
   - filename: .evergreen-snippets.yml
   - filename: .evergreen-release.yml
+  - filename: .evergreen-release-publish.yml
 
 variables:
   # NOTE: This is a denylist to prevent missing changes that shoudl trigger e2e.
@@ -245,8 +246,11 @@ patch_aliases:
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
     task: ".*"
-  - alias: "release"
-    variant_tags: [ "release" ]
+  - alias: "deprecated-release"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  - alias: "release-publish"
+    variant_tags: [ "release-publish" ]
     task: ".*"
   - alias: "preflight_release_test"
     description: "Release-style preflight only (no image release, no Pyxis submit); patch-only. See EVERGREEN.md."
@@ -284,10 +288,19 @@ github_checks_aliases:
   - variant: ".*"
     task: ".*"
 
-# Triggered on git tag
+# Triggered on git tag. The plain "X.Y.Z" shape is intentionally NOT a trigger:
+# it's applied by the release pipelines themselves as the final, human-facing
+# tag once their trigger tag's pipeline succeeds, and must not re-trigger anything.
 git_tag_aliases:
-  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release" ]
+  # Legacy process (deprecated, still supported): rebuilds and retests images
+  # before publishing. See .evergreen-release.yml.
+  - git_tag: "^old-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  # New process: publishes the already-promoted images for the given commit
+  # without rebuilding or retesting. See .evergreen-release-publish.yml.
+  - git_tag: "^new-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "release-publish" ]
     task: ".*"
 
 tasks:
