@@ -1,7 +1,7 @@
 echo "Creating TLS certificates for MongoDB Search (mongot) pods..."
 
 for ci in 0 1; do
-  for shard_name in "${MDB_SHARD_0_NAME}" "${MDB_SHARD_1_NAME}" "${MDB_SHARD_2_NAME}"; do
+  for shard_name in "${MDB_EXTERNAL_SHARD_0_NAME}" "${MDB_EXTERNAL_SHARD_1_NAME}" "${MDB_EXTERNAL_SHARD_2_NAME}"; do
     cert_name="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-${shard_name}-cert"
     echo "  Creating certificate: ${cert_name}"
     kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
@@ -31,7 +31,7 @@ done
 
 echo "Waiting for mongot certificates to be ready..."
 for ci in 0 1; do
-  for shard_name in "${MDB_SHARD_0_NAME}" "${MDB_SHARD_1_NAME}" "${MDB_SHARD_2_NAME}"; do
+  for shard_name in "${MDB_EXTERNAL_SHARD_0_NAME}" "${MDB_EXTERNAL_SHARD_1_NAME}" "${MDB_EXTERNAL_SHARD_2_NAME}"; do
     kubectl wait --for=condition=Ready \
       certificate/"${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-${shard_name}-cert" \
       -n "${MDB_NS}" \

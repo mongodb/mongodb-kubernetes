@@ -22,6 +22,8 @@ trap dump_logs EXIT
 # Phase 1: Infrastructure (scenario 13 — multi-cluster sharded + managed LB)
 test_dir="./docs/search/13-search-sharded-multi-cluster"
 source "${test_dir}/env_variables.sh"
+# shellcheck disable=SC1091
+source "${test_dir}/env_variables_internal.sh"
 echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 # shellcheck disable=SC1090
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
@@ -53,7 +55,7 @@ ${test_dir}/test.sh
 # Invoke via 'bash -e' rather than the run/run_for_output framework: its skip-log
 # is keyed on snippet name, so a second run() of the same snippet would no-op.
 for ci in 0 1; do
-  mongos_var="MDB_MONGOS_HOST_${ci}"
+  mongos_var="MDB_EXTERNAL_MONGOS_HOST_${ci}"
   mongos="${!mongos_var}"
   export MDB_USER_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${mongos}/?directConnection=true&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
   echo "Phase 3: verifying search from cluster ${ci} mongos (${mongos})"

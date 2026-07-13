@@ -32,6 +32,10 @@ proxy.
    bash code_snippets/12_0040_validate_env.sh
    ```
 
+   `MDB_EXTERNAL_CLUSTER_NAME` defaults to `mdb-mc-rs`. Change it to the
+   existing replica-set name, and set each `MDB_EXTERNAL_HOST_*` value to an
+   endpoint that the Kubernetes clusters can reach.
+
 2. In Ops Manager, open **Deployment > Processes** and click **Modify** for
    each `mongod` in the replica set.
 3. Under **Advanced Configuration Options**, click **Add Option**, select
@@ -76,11 +80,12 @@ hostnames from `env_variables.sh`.
 ## Run Search queries
 
 Use the shared replica-set query snippets; a separate multi-cluster query is
-not required because applications connect to MongoDB normally.
+not required because applications connect to MongoDB normally. Set
+the optional `MDB_CONNECTION_STRING` in `env_variables.sh` to a user that can
+restore data and has `readWrite` access to `sample_mflix`, including permission
+to create and manage Search indexes.
 
 ```bash
 export K8S_CTX="${K8S_CTX_0}"
-export MDB_CONNECTION_STRING="${MDB_USER_CONNECTION_STRING}"
-
 ( cd ../03-search-query-usage && ./test.sh )
 ```

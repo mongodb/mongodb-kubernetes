@@ -32,6 +32,10 @@ cluster 0's managed proxies.
    bash code_snippets/13_0040_validate_env.sh
    ```
 
+   `MDB_EXTERNAL_CLUSTER_NAME` defaults to `mdb-mc-sh`. Change it to the
+   existing deployment name. Also set the existing shard names and every
+   `MDB_EXTERNAL_*_HOST_*` endpoint to match the source deployment.
+
 2. In Ops Manager, open **Deployment > Processes** and click **Modify** for
    each process listed below.
 3. Under **Advanced Configuration Options**, click **Add Option**, select
@@ -80,7 +84,14 @@ hostnames from `env_variables.sh`.
 ## Run Search queries
 
 Use the shared sharded-cluster query snippets; a separate multi-cluster query
-is not required because applications connect through `mongos` normally.
+is not required because applications connect through `mongos` normally. Set
+both optional connection strings in `env_variables.sh` before running the query
+snippets:
+
+- `MDB_ADMIN_CONNECTION_STRING` must be authorized to restore data, enable
+  sharding, create indexes, and shard collections in `sample_mflix`.
+- `MDB_USER_CONNECTION_STRING` must have `readWrite` access to `sample_mflix`,
+  including permission to create and manage Search indexes.
 
 ```bash
 export K8S_CTX="${K8S_CTX_0}"

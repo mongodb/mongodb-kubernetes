@@ -10,14 +10,14 @@ spec:
   source:
     username: search-sync-source
     passwordSecretRef:
-      name: ${MDB_RESOURCE_NAME}-search-sync-source-password
+      name: ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password
       key: password
     external:
       hostAndPorts:
-        - "${MDB_RS_HOST_0_0}"
-        - "${MDB_RS_HOST_0_1}"
-        - "${MDB_RS_HOST_1_0}"
-        - "${MDB_RS_HOST_1_1}"
+        - "${MDB_EXTERNAL_HOST_0_0}"
+        - "${MDB_EXTERNAL_HOST_0_1}"
+        - "${MDB_EXTERNAL_HOST_1_0}"
+        - "${MDB_EXTERNAL_HOST_1_1}"
       tls:
         ca:
           name: ${MDB_TLS_CA_CONFIGMAP}

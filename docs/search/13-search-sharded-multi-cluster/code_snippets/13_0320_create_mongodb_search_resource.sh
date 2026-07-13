@@ -10,27 +10,27 @@ spec:
   source:
     username: search-sync-source
     passwordSecretRef:
-      name: ${MDB_RESOURCE_NAME}-search-sync-source-password
+      name: ${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password
       key: password
     external:
       shardedCluster:
         router:
           hosts:
-            - "${MDB_MONGOS_HOST_0}"
-            - "${MDB_MONGOS_HOST_1}"
+            - "${MDB_EXTERNAL_MONGOS_HOST_0}"
+            - "${MDB_EXTERNAL_MONGOS_HOST_1}"
         shards:
-          - shardName: ${MDB_SHARD_0_NAME}
+          - shardName: ${MDB_EXTERNAL_SHARD_0_NAME}
             hosts:
-              - "${MDB_SHARD_0_HOST_CL0}"
-              - "${MDB_SHARD_0_HOST_CL1}"
-          - shardName: ${MDB_SHARD_1_NAME}
+              - "${MDB_EXTERNAL_SHARD_0_HOST_CL0}"
+              - "${MDB_EXTERNAL_SHARD_0_HOST_CL1}"
+          - shardName: ${MDB_EXTERNAL_SHARD_1_NAME}
             hosts:
-              - "${MDB_SHARD_1_HOST_CL0}"
-              - "${MDB_SHARD_1_HOST_CL1}"
-          - shardName: ${MDB_SHARD_2_NAME}
+              - "${MDB_EXTERNAL_SHARD_1_HOST_CL0}"
+              - "${MDB_EXTERNAL_SHARD_1_HOST_CL1}"
+          - shardName: ${MDB_EXTERNAL_SHARD_2_NAME}
             hosts:
-              - "${MDB_SHARD_2_HOST_CL0}"
-              - "${MDB_SHARD_2_HOST_CL1}"
+              - "${MDB_EXTERNAL_SHARD_2_HOST_CL0}"
+              - "${MDB_EXTERNAL_SHARD_2_HOST_CL1}"
       tls:
         ca:
           name: ${MDB_TLS_CA_CONFIGMAP}

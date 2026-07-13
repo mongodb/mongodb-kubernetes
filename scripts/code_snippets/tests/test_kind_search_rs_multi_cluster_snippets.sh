@@ -22,6 +22,8 @@ trap dump_logs EXIT
 # Phase 1: Infrastructure (scenario 12 — multi-cluster RS + managed LB)
 test_dir="./docs/search/12-search-rs-multi-cluster"
 source "${test_dir}/env_variables.sh"
+# shellcheck disable=SC1091
+source "${test_dir}/env_variables_internal.sh"
 echo "Sourcing env variables for ${CODE_SNIPPETS_FLAVOR} flavor"
 # shellcheck disable=SC1090
 test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh"
@@ -41,9 +43,6 @@ test -f "${test_dir}/env_variables_${CODE_SNIPPETS_FLAVOR}.sh" && source "${test
 # the tools pod and the CA ConfigMap live.
 export K8S_CTX="${K8S_CTX_0}"
 
-# Connection string uses the operator-managed per-pod Service names
-export MDB_CONNECTION_STRING="${MDB_USER_CONNECTION_STRING}"
-
 ${test_dir}/test.sh
 
 # Phase 3: per-cluster query verification — prove each member cluster serves
@@ -55,7 +54,7 @@ ${test_dir}/test.sh
 # Invoke via 'bash -e' rather than the run/run_for_output framework: its skip-log
 # is keyed on snippet name, so a second run() of the same snippet would no-op.
 for ci in 0 1; do
-  host_var="MDB_RS_HOST_${ci}_0"
+  host_var="MDB_EXTERNAL_HOST_${ci}_0"
   member="${!host_var}"
   export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${member}/?directConnection=true&readPreference=secondaryPreferred&tls=true&tlsCAFile=/tls/ca.crt&authSource=admin&authMechanism=SCRAM-SHA-256"
   echo "Phase 3: verifying search from cluster ${ci} (${member})"

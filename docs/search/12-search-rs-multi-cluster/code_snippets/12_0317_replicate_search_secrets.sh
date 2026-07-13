@@ -7,15 +7,9 @@ replicate_secret() {
     | kubectl --context "${dst_ctx}" -n "${MDB_NS}" apply -f -
 }
 
-dst_clusters=("${K8S_CTX_1}")
-dst_indexes=(1)
-for n in "${!dst_clusters[@]}"; do
-  dst="${dst_clusters[${n}]}"
-  idx="${dst_indexes[${n}]}"
-  replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-cert" "${dst}"
-  replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${idx}-cert" "${dst}"
-  replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${idx}-client-cert" "${dst}"
-  replicate_secret "${MDB_RESOURCE_NAME}-search-sync-source-password" "${dst}"
-done
+replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-cert" "${K8S_CTX_1}"
+replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-1-cert" "${K8S_CTX_1}"
+replicate_secret "${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-1-client-cert" "${K8S_CTX_1}"
+replicate_secret "${MDB_SEARCH_RESOURCE_NAME}-search-sync-source-password" "${K8S_CTX_1}"
 
 echo "[ok] Search Secrets replicated to member clusters"
