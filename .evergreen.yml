@@ -549,6 +549,14 @@ tasks:
         vars:
           image_name: database
 
+  - name: build_monarch_injector_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: pipeline
+        vars:
+          image_name: monarch-injector
+
   - name: build_readiness_probe_image
     commands:
       - func: clone
@@ -1344,6 +1352,7 @@ task_groups:
       - e2e_om_ops_manager_backup_tls
       - e2e_om_ops_manager_backup_s3_tls
       - e2e_om_ops_manager_backup_restore_minio
+      - e2e_replica_set_monarch
       - e2e_om_ops_manager_backup_tls_custom_ca
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_backup_sharded_cluster
@@ -2063,6 +2072,7 @@ buildvariants:
       - name: build_init_database_image_ubi
       - name: build_database_image_ubi
       - name: build_agent_images_ubi
+      - name: build_monarch_injector_image
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
       - name: build_kubectl_mongodb_plugin

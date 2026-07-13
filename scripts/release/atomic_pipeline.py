@@ -5,6 +5,7 @@ and where to fetch and calculate parameters."""
 import datetime
 import json
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
@@ -41,6 +42,7 @@ def build_image(
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
     build_path: str = ".",
+    labels: Dict[str, str] = None,
 ):
     """
     Build an image, sign (optionally) it, then tag and push to all repositories in the registry list.
@@ -87,15 +89,19 @@ def build_image(
         path=build_path,
         args=build_args,
         platforms=build_configuration.platforms,
+        labels=labels or {},
     )
 
     if build_configuration.sign:
-        logger.info("Logging in MongoDB Artifactory for Garasign image")
-        mongodb_artifactory_login()
-        logger.info("Signing image")
-        for registry in registries:
-            sign_image(registry, build_configuration.version)
-            verify_signature(registry, build_configuration.version)
+        if not os.environ.get("ARTIFACTORY_PASSWORD"):
+            logger.warning("Skipping image signing - ARTIFACTORY_PASSWORD not set (local dev build)")
+        else:
+            logger.info("Logging in MongoDB Artifactory for Garasign image")
+            mongodb_artifactory_login()
+            logger.info("Signing image")
+            for registry in registries:
+                sign_image(registry, build_configuration.version)
+                verify_signature(registry, build_configuration.version)
 
 
 def build_meko_tests_image(build_configuration: ImageBuildConfiguration):
@@ -212,6 +218,16 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_om_image(build_configuration: ImageBuildConfiguration):
+    """
+    Builds the Ops Manager image.
+
+    Local dev: set OPS_MANAGER_PATH to build from source using Bazel.
+    """
+    om_path = os.getenv("OPS_MANAGER_PATH")
+    if om_path:
+        _build_om_from_source(build_configuration, om_path)
+        return
+
     om_version = build_configuration.version
 
     om_download_url = os.environ.get("om_download_url", "")
@@ -227,6 +243,65 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
         build_configuration=build_configuration,
         build_args=args,
     )
+
+
+def _build_om_from_source(
+    build_configuration: ImageBuildConfiguration,
+    om_path: str,
+):
+    """Build Ops Manager from local source using Bazel."""
+    import subprocess
+
+    if not (
+        os.path.isfile(os.path.join(om_path, "WORKSPACE")) or os.path.isfile(os.path.join(om_path, "MODULE.bazel"))
+    ):
+        raise ValueError(f"Invalid ops-manager path: {om_path} (no WORKSPACE or MODULE.bazel file)")
+
+    logger.info(f"Building Ops Manager from source: {om_path}")
+
+    # Get source commit for labeling
+    try:
+        result = subprocess.run(["git", "-C", om_path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+        source_commit = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        source_commit = "unknown"
+
+    # Build tarball with Bazel
+    logger.info("Running Bazel build...")
+    subprocess.run(
+        ["./bazelisk", "build", "//server:package", "--build_env=tarball"],
+        cwd=om_path,
+        check=True,
+    )
+
+    # Copy tarball to project root for Docker build context
+    tarball_src = os.path.join(om_path, "bazel-bin/server/package.tar.gz")
+    tarball_dst = "package.tar.gz"
+    shutil.copy(tarball_src, tarball_dst)
+
+    # Disable signing for source builds (requires CI credentials)
+    build_configuration_copy = copy(build_configuration)
+    build_configuration_copy.sign = False
+
+    try:
+        args = {
+            "version": build_configuration_copy.version,
+            "om_download_url": "local",
+        }
+        labels = {
+            "com.mongodb.source.commit": source_commit,
+            "com.mongodb.source.path": om_path,
+            "com.mongodb.build.timestamp": datetime.datetime.now().isoformat(),
+        }
+        build_image(
+            build_configuration=build_configuration_copy,
+            build_args=args,
+            labels=labels,
+        )
+    finally:
+        # Clean up tarball
+        if os.path.exists(tarball_dst):
+            os.remove(tarball_dst)
 
 
 def build_init_database_image(build_configuration: ImageBuildConfiguration):
@@ -251,6 +326,19 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     )
 
 
+def build_monarch_injector_image(build_configuration: ImageBuildConfiguration):
+    """
+    Builds the Monarch oplog-injector image.
+
+    The binary URLs are hardcoded in the Dockerfile — same binaries used by automation
+    and OM for testing. To update the monarch version, change the URLs there.
+    """
+    build_image(
+        build_configuration=build_configuration,
+        build_path="docker/monarch-injector",
+    )
+
+
 def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used for readiness probe.
@@ -272,7 +360,15 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_agent(build_configuration: ImageBuildConfiguration):
-    """Build the agent image(s). Validation happens in pipeline.py."""
+    """Build the agent image(s). Validation happens in pipeline.py.
+
+    Local dev: set AGENT_PATH to build from mms-automation source.
+    """
+    agent_path = os.getenv("AGENT_PATH")
+    if agent_path:
+        _build_agent_from_source(build_configuration, agent_path)
+        return
+
     version = build_configuration.version
 
     if version == "all":
@@ -371,6 +467,84 @@ def queue_exception_handling(tasks_queue):
         raise Exception(
             f"Exception(s) found when processing Agent images. \nSee also previous logs for more info\nFailing the build"
         )
+
+
+def _build_agent_from_source(
+    build_configuration: ImageBuildConfiguration,
+    agent_path: str,
+):
+    """Build agent from mms-automation source.
+
+    Uses scripts/dev/agent/Dockerfile which builds the agent binary from source
+    and layers it on top of a base agent image.
+    """
+    import subprocess
+
+    if not os.path.isdir(os.path.join(agent_path, "go_planner")):
+        raise ValueError(f"Invalid mms-automation path: {agent_path} (no go_planner directory)")
+
+    if len(build_configuration.platforms) != 1:
+        raise ValueError(
+            "Local agent builds support only a single platform. "
+            "Use --platform to specify one (e.g. --platform linux/amd64)."
+        )
+
+    logger.info(f"Building agent from source: {agent_path}")
+
+    # Get GitHub token for private dependencies
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if not github_token:
+        try:
+            result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
+            github_token = result.stdout.strip()
+            os.environ["GITHUB_TOKEN"] = github_token
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            raise ValueError("GITHUB_TOKEN not set and gh CLI not available")
+
+    platform = build_configuration.platforms[0]
+    tags = [f"{reg}:{build_configuration.version}" for reg in build_configuration.registries]
+
+    logger.info(f"Building agent image for {platform}...")
+    logger.info(f"Tags: {tags}")
+
+    # Get source commit for labeling
+    try:
+        result = subprocess.run(
+            ["git", "-C", agent_path, "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        )
+        source_commit = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        source_commit = "unknown"
+
+    # Build with docker directly to support --secret flag
+    cmd = [
+        "docker",
+        "build",
+        "--platform",
+        platform,
+        "--build-arg",
+        f"CACHE_BUST={int(datetime.datetime.now().timestamp())}",
+        "--secret",
+        "id=github_token,env=GITHUB_TOKEN",
+        "--label",
+        f"com.mongodb.source.commit={source_commit}",
+        "--label",
+        f"com.mongodb.source.path={agent_path}",
+        "--label",
+        f"com.mongodb.build.timestamp={datetime.datetime.now().isoformat()}",
+        "-f",
+        "scripts/dev/agent/Dockerfile",
+    ]
+    for tag in tags:
+        cmd.extend(["-t", tag])
+    cmd.append(agent_path)
+
+    subprocess.run(cmd, check=True)
+
+    # Push all tags
+    for tag in tags:
+        logger.info(f"Pushing {tag}...")
+        subprocess.run(["docker", "push", tag], check=True)
 
 
 def load_release_file() -> Dict:

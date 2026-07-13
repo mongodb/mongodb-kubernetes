@@ -224,6 +224,10 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	err = kubeClient.AppsV1().Deployments(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
 	collectError(err, "failed to delete deployments")
 
+	// Delete all jobs
+	err = kubeClient.BatchV1().Jobs(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
+	collectError(err, "failed to delete deployments")
+
 	// Delete all services
 	services, err := kubeClient.CoreV1().Services(namespace).List(ctx, v1.ListOptions{})
 	collectError(err, "failed to list services")

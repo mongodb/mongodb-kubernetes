@@ -203,6 +203,25 @@ repos:
         args: ["--profile", "black"]
         priority: 6
 
+  - repo: local
+    hooks:
+      - id: shellcheck-fix
+        name: shellcheck (auto-fix)
+        entry: bash -c 'shellcheck --format=diff "$@" | patch -p1' --
+        language: system
+        stages: [manual]
+        exclude: |
+          (?x)^(
+            vendor/.*|
+            scripts/dev/contexts/private-context.*
+          )
+        files: |
+          (?x)(
+            \.sh$|
+            ^scripts/dev/contexts/[^/]+$|
+            ^scripts/funcs/[^/]+$
+          )
+
   - repo: https://github.com/koalaman/shellcheck-precommit
     rev: v0.10.0
     hooks:

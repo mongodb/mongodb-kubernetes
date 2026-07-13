@@ -272,6 +272,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_monarch
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_config_map
     tags: [ "patch-run" ]
     commands:

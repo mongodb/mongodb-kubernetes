@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
+	corev1 "k8s.io/api/core/v1"
+
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -725,6 +727,219 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 			result := validationFunc(dbSpec)
 
 			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestMongoDB_MonarchConfigRequired(t *testing.T) {
+	tests := []struct {
+		name        string
+		monarch     *MonarchSpec
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "No monarch spec",
+			monarch:     nil,
+			expectError: false,
+		},
+		{
+			name: "Missing image",
+			monarch: &MonarchSpec{
+				Role: MonarchRoleActive,
+				S3: MonarchS3Config{
+					Bucket:               "bucket",
+					Region:               "us-east-1",
+					CredentialsSecretRef: corev1.LocalObjectReference{Name: "creds"},
+				},
+			},
+			expectError: true,
+			errorMsg:    "spec.monarch.image is required",
+		},
+		{
+			name: "Missing bucket",
+			monarch: &MonarchSpec{
+				Role:  MonarchRoleActive,
+				Image: "quay.io/mongodb/monarch:0.1.1",
+				S3: MonarchS3Config{
+					Region: "us-east-1",
+				},
+			},
+			expectError: true,
+			errorMsg:    "spec.monarch.s3.bucket is required",
+		},
+		{
+			name: "Missing region",
+			monarch: &MonarchSpec{
+				Role:  MonarchRoleActive,
+				Image: "quay.io/mongodb/monarch:0.1.1",
+				S3: MonarchS3Config{
+					Bucket: "bucket",
+				},
+			},
+			expectError: true,
+			errorMsg:    "spec.monarch.s3.region is required",
+		},
+		{
+			name: "Valid active config",
+			monarch: &MonarchSpec{
+				Role:  MonarchRoleActive,
+				Image: "quay.io/mongodb/monarch:0.1.1",
+				S3: MonarchS3Config{
+					Bucket:               "bucket",
+					Region:               "us-east-1",
+					CredentialsSecretRef: corev1.LocalObjectReference{Name: "creds"},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "Valid standby config",
+			monarch: &MonarchSpec{
+				Role:  MonarchRoleStandby,
+				Image: "quay.io/mongodb/monarch:0.1.1",
+				S3: MonarchS3Config{
+					Bucket:               "bucket",
+					Region:               "us-east-1",
+					CredentialsSecretRef: corev1.LocalObjectReference{Name: "creds"},
+				},
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := MongoDbSpec{Monarch: tt.monarch}
+			result := monarchConfigRequired(spec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Equal(t, tt.errorMsg, result.Msg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestMongoDB_MonarchRoleNoDemotion(t *testing.T) {
+	tests := []struct {
+		name        string
+		oldRole     MonarchRole
+		newRole     MonarchRole
+		oldMonarch  bool // false means oldObj.Monarch is nil
+		newMonarch  bool // false means newObj.Monarch is nil
+		expectError bool
+	}{
+		{name: "active → standby is rejected", oldRole: MonarchRoleActive, newRole: MonarchRoleStandby, oldMonarch: true, newMonarch: true, expectError: true},
+		{name: "standby → active is allowed (failover)", oldRole: MonarchRoleStandby, newRole: MonarchRoleActive, oldMonarch: true, newMonarch: true, expectError: false},
+		{name: "active → active no-op is allowed", oldRole: MonarchRoleActive, newRole: MonarchRoleActive, oldMonarch: true, newMonarch: true, expectError: false},
+		{name: "standby → standby no-op is allowed", oldRole: MonarchRoleStandby, newRole: MonarchRoleStandby, oldMonarch: true, newMonarch: true, expectError: false},
+		{name: "no Monarch on old (initial creation) is allowed", oldRole: "", newRole: MonarchRoleStandby, oldMonarch: false, newMonarch: true, expectError: false},
+		{name: "Monarch removed from new is allowed", oldRole: MonarchRoleActive, newRole: "", oldMonarch: true, newMonarch: false, expectError: false},
+	}
+
+	build := func(role MonarchRole, present bool) MongoDbSpec {
+		if !present {
+			return MongoDbSpec{}
+		}
+		return MongoDbSpec{Monarch: &MonarchSpec{Role: role, Image: "img", S3: MonarchS3Config{Bucket: "b", Region: "r", CredentialsSecretRef: corev1.LocalObjectReference{Name: "s"}}}}
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldSpec := build(tt.oldRole, tt.oldMonarch)
+			newSpec := build(tt.newRole, tt.newMonarch)
+			result := monarchRoleNoDemotion(newSpec, oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, "active")
+				assert.Contains(t, result.Msg, "standby")
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestMonarchRequiresMinMongoDBVersion(t *testing.T) {
+	tests := []struct {
+		name        string
+		monarch     bool
+		version     string
+		expectError bool
+	}{
+		{name: "no monarch — any version ok", monarch: false, version: "7.0.0", expectError: false},
+		{name: "no monarch — empty version ok", monarch: false, version: "", expectError: false},
+		{name: "8.0.16 ok", monarch: true, version: "8.0.16", expectError: false},
+		{name: "8.0.20 ok", monarch: true, version: "8.0.20", expectError: false},
+		{name: "9.0.0 ok", monarch: true, version: "9.0.0", expectError: false},
+		{name: "8.0.15 rejected", monarch: true, version: "8.0.15", expectError: true},
+		{name: "7.0.0 rejected", monarch: true, version: "7.0.0", expectError: true},
+		{name: "empty version with monarch rejected", monarch: true, version: "", expectError: true},
+		{name: "non-semver rejected", monarch: true, version: "not-a-version", expectError: true},
+	}
+
+	build := func(version string, monarch bool) MongoDbSpec {
+		spec := MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: version}}
+		if monarch {
+			spec.Monarch = &MonarchSpec{Role: MonarchRoleStandby, Image: "img", S3: MonarchS3Config{Bucket: "b", Region: "r", CredentialsSecretRef: corev1.LocalObjectReference{Name: "s"}}}
+		}
+		return spec
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := monarchRequiresMinMongoDBVersion(build(tt.version, tt.monarch))
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level, "expected error, got: %+v", result)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestMonarchRequiresScramAuth(t *testing.T) {
+	tests := []struct {
+		name        string
+		monarch     bool
+		authEnabled bool
+		modes       []AuthMode
+		expectError bool
+	}{
+		{name: "no monarch — any auth ok", monarch: false, authEnabled: true, modes: []AuthMode{"X509"}, expectError: false},
+		{name: "monarch + auth disabled ok", monarch: true, authEnabled: false, modes: []AuthMode{"X509"}, expectError: false},
+		{name: "monarch + no security ok", monarch: true, authEnabled: false, modes: nil, expectError: false},
+		{name: "monarch + SCRAM-SHA-256 ok", monarch: true, authEnabled: true, modes: []AuthMode{"SCRAM-SHA-256"}, expectError: false},
+		{name: "monarch + SCRAM ok", monarch: true, authEnabled: true, modes: []AuthMode{"SCRAM"}, expectError: false},
+		{name: "monarch + SCRAM-SHA-1 ok", monarch: true, authEnabled: true, modes: []AuthMode{"SCRAM-SHA-1"}, expectError: false},
+		{name: "monarch + X509 rejected", monarch: true, authEnabled: true, modes: []AuthMode{"X509"}, expectError: true},
+		{name: "monarch + LDAP rejected", monarch: true, authEnabled: true, modes: []AuthMode{"LDAP"}, expectError: true},
+		{name: "monarch + OIDC rejected", monarch: true, authEnabled: true, modes: []AuthMode{"OIDC"}, expectError: true},
+		{name: "monarch + SCRAM+X509 rejected", monarch: true, authEnabled: true, modes: []AuthMode{"SCRAM-SHA-256", "X509"}, expectError: true},
+	}
+
+	build := func(modes []AuthMode, monarch, authEnabled bool) MongoDbSpec {
+		spec := MongoDbSpec{
+			DbCommonSpec: DbCommonSpec{
+				Security: &Security{Authentication: &Authentication{Enabled: authEnabled, Modes: modes}},
+			},
+		}
+		if monarch {
+			spec.Monarch = &MonarchSpec{Role: MonarchRoleStandby, Image: "img", S3: MonarchS3Config{Bucket: "b", Region: "r", CredentialsSecretRef: corev1.LocalObjectReference{Name: "s"}}}
+		}
+		return spec
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := monarchRequiresScramAuth(build(tt.modes, tt.monarch, tt.authEnabled))
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level, "expected error, got: %+v", result)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
 		})
 	}
 }

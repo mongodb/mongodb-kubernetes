@@ -2,6 +2,11 @@
 line-length = 120
 target-version = ['py313']
 include = '\.pyi?$'
+extend-exclude = '''
+/(
+  \.worktrees
+)/
+'''
 
 [tool.isort]
 profile = "black"

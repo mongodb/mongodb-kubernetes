@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blang/semver"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/strings/slices"
@@ -468,6 +469,111 @@ func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
 	return v1.ValidationResult{}
 }
 
+// monarchConfigRequired validates that Monarch spec has required configuration.
+func monarchConfigRequired(m MongoDbSpec) v1.ValidationResult {
+	if m.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	if m.Monarch.Image == "" {
+		return v1.ValidationError("spec.monarch.image is required")
+	}
+	if m.Monarch.S3.Bucket == "" {
+		return v1.ValidationError("spec.monarch.s3.bucket is required")
+	}
+	if m.Monarch.S3.Region == "" {
+		return v1.ValidationError("spec.monarch.s3.region is required")
+	}
+	if m.Monarch.S3.CredentialsSecretRef.Name == "" {
+		return v1.ValidationError("spec.monarch.s3.credentialsSecretRef.name is required")
+	}
+	return v1.ValidationSuccess()
+}
+
+// monarchMinMongoDBVersion is the minimum mongod version Monarch supports.
+// SERVER-110899 introduced the readBackupFile privilege that OM's shipperRole
+// depends on; earlier versions reject createRole with
+// `(BadValue) Unknown action type in privilege set: 'readBackupFile'`.
+const monarchMinMongoDBVersion = "8.0.16"
+
+// monarchRequiresMinMongoDBVersion rejects spec.version < 8.0.16 when spec.monarch
+// is set. See monarchMinMongoDBVersion for the SERVER ticket. Empty spec.version
+// is also rejected because Monarch requires an explicit mongod version pin.
+func monarchRequiresMinMongoDBVersion(m MongoDbSpec) v1.ValidationResult {
+	if m.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	if m.Version == "" {
+		return v1.ValidationError(
+			"spec.version must be set when spec.monarch is enabled (Monarch requires mongod >= %s)",
+			monarchMinMongoDBVersion)
+	}
+	current, err := semver.Make(m.Version)
+	if err != nil {
+		return v1.ValidationError("spec.version %q is not a valid semver: %s", m.Version, err)
+	}
+	minVer, err := semver.Make(monarchMinMongoDBVersion)
+	if err != nil {
+		// Should never happen — constant is hard-coded valid.
+		return v1.ValidationError("internal error parsing monarchMinMongoDBVersion: %s", err)
+	}
+	if current.LT(minVer) {
+		return v1.ValidationError(
+			"spec.version %q is below the minimum supported mongod version for Monarch (%s). "+
+				"Monarch requires the readBackupFile privilege introduced in SERVER-110899.",
+			m.Version, monarchMinMongoDBVersion)
+	}
+	return v1.ValidationSuccess()
+}
+
+// monarchRequiresScramAuth rejects non-SCRAM auth modes when spec.monarch is set.
+// Per the EA Standby Clusters playbook §2 Known Limitations: "Only SCRAM auth is
+// supported on mongod". X509/LDAP/OIDC/MONGODB-CR are explicitly unsupported.
+func monarchRequiresScramAuth(m MongoDbSpec) v1.ValidationResult {
+	if m.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	if m.Security == nil || m.Security.Authentication == nil || !m.Security.Authentication.Enabled {
+		return v1.ValidationSuccess()
+	}
+	var disallowed []string
+	for _, mode := range m.Security.Authentication.Modes {
+		switch string(mode) {
+		case util.SCRAM, util.SCRAMSHA256, util.SCRAMSHA1:
+			// SCRAM-SHA-1 is allowed; OM treats it as SCRAM family.
+		default:
+			disallowed = append(disallowed, string(mode))
+		}
+	}
+	if len(disallowed) > 0 {
+		return v1.ValidationError(
+			"spec.security.authentication.modes contains unsupported modes for Monarch: %v. "+
+				"Only SCRAM is supported (per EA Standby Clusters playbook).",
+			disallowed)
+	}
+	return v1.ValidationSuccess()
+}
+
+// monarchRoleNoDemotion rejects active → standby flips. The operator does not
+// support graceful demotion of a previously-active cluster (no reverse-sync, no
+// drain handoff). To remove an active cluster, delete the MongoDB CR — K8s GC
+// then tears down the StatefulSet, agent, and shipper Deployment via OwnerRefs.
+//
+// standby → active is the supported failover path: the operator writes
+// PromoteStandby to S3 (same as the EA CLI runbook) and provisions the shipper.
+// Initial creation (oldObj nil) is allowed for any role; only updates are restricted.
+func monarchRoleNoDemotion(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if newObj.Monarch == nil || oldObj.Monarch == nil {
+		return v1.ValidationSuccess()
+	}
+	if oldObj.Monarch.Role == MonarchRoleActive && newObj.Monarch.Role == MonarchRoleStandby {
+		return v1.ValidationError(
+			"spec.monarch.role cannot be changed from 'active' to 'standby'. " +
+				"Active → standby demotion is not supported in this release. " +
+				"To remove this cluster, delete the MongoDB resource.")
+	}
+	return v1.ValidationSuccess()
+}
+
 func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// The below validators apply to all MongoDB resource (but not MongoDBMulti), regardless of the value of the
 	// Topology field
@@ -476,12 +582,16 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
+		monarchConfigRequired,
+		monarchRequiresMinMongoDBVersion,
+		monarchRequiresScramAuth,
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
+		monarchRoleNoDemotion,
 	}
 
 	var validationResults []v1.ValidationResult

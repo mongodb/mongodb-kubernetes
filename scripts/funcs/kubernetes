@@ -173,21 +173,25 @@ EOF
   echo "Creating/updating pull secret from docker configured file"
   if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
       create_pull_secret "${CENTRAL_CLUSTER}" "${NAMESPACE}" "${secret_name}" &
-      for member_cluster in ${MEMBER_CLUSTERS}; do
-        for ns in ${WATCH_NAMESPACE//,/ }; do
-          create_pull_secret "${member_cluster}" "${ns}" "${secret_name}" &
+      if [[ "${WATCH_NAMESPACE}" != "*" ]]; then
+        for member_cluster in ${MEMBER_CLUSTERS}; do
+          for ns in ${WATCH_NAMESPACE//,/ }; do
+            create_pull_secret "${member_cluster}" "${ns}" "${secret_name}" &
+          done
         done
-      done
+      fi
       wait
   else
     current_ctx=$(kubectl config current-context)
     create_pull_secret "${current_ctx}" "${NAMESPACE}" "${secret_name}" &
-    for ns in ${WATCH_NAMESPACE//,/ }; do
-      if [[ "${ns}" == "${NAMESPACE}" ]]; then
-        continue
-      fi
-      create_pull_secret "${current_ctx}" "${ns}" "${secret_name}" &
-    done
+    if [[ "${WATCH_NAMESPACE}" != "*" ]]; then
+      for ns in ${WATCH_NAMESPACE//,/ }; do
+        if [[ "${ns}" == "${NAMESPACE}" ]]; then
+          continue
+        fi
+        create_pull_secret "${current_ctx}" "${ns}" "${secret_name}" &
+      done
+    fi
     wait
   fi
 }
