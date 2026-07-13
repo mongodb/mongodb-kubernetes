@@ -53,7 +53,8 @@ cd docs/search/03-search-query-usage
 2. `03_0420_import_movies_mflix_database.sh` — import sample data.
 3. `03_0430_create_search_index.sh` — create text search index.
 4. `03_0435_create_vector_search_index.sh` — create vector index.
-5. `03_0440_list_search_indexes.sh` — check that all indexes report `READY`.
-6. `03_0450_execute_search_query.sh` / `03_0455_execute_vector_search_query.sh` / `03_0456_execute_auto_embed_vector_search_query.sh` — run query examples.
+5. `03_0440_wait_for_search_index_ready.sh` — wait for index readiness.
+6. `03_0444_list_search_indexes.sh` / `03_0445_list_vector_search_indexes.sh` / `03_0447_list_auto_embed_vector_search_indexes.sh` — inspect index status.
+7. `03_0450_execute_search_query.sh` / `03_0455_execute_vector_search_query.sh` / `03_0456_execute_auto_embed_vector_search_query.sh` — run query examples.
 
-Auto-embed snippets (`03_0437`, `03_0456`) run only when `EMBEDDING_MODEL` is set.
+Auto-embed snippets (`03_0437`, `03_0447`, `03_0456`) run only when `EMBEDDING_MODEL` is set.
