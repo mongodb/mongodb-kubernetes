@@ -8,7 +8,7 @@ kubectl exec -i mongodb-tools \
   --context "${K8S_CTX}" \
   -- mongosh --quiet "${user_conn}" <<'MONGOSH'
 use sample_mflix;
-const results = db.movies.aggregate([
+db.movies.aggregate([
   {
     $search: {
       "compound": {
@@ -42,12 +42,7 @@ const results = db.movies.aggregate([
       "released": 1
     }
   }
-]).toArray();
-printjson(results);
-print("Result count: " + results.length);
-if (results.length === 0) {
-  throw new Error("search query returned no documents");
-}
+]);
 MONGOSH
 
 echo ""

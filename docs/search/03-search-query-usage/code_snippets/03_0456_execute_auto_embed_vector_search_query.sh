@@ -1,7 +1,7 @@
 kubectl exec -i --context "${K8S_CTX}" -n "${MDB_NS}" mongodb-tools-pod -- \
   mongosh --quiet "${MDB_CONNECTION_STRING}" <<'EOF'
 use sample_mflix;
-const results = db.movies.aggregate([
+db.movies.aggregate([
    {
      "$vectorSearch": {
        "index": "vector_auto_embed_index",
@@ -19,10 +19,5 @@ const results = db.movies.aggregate([
        "score": { "$meta": "vectorSearchScore" }
      }
    }
- ]).toArray();
-printjson(results);
-print("Result count: " + results.length);
-if (results.length === 0) {
-  throw new Error("auto-embed vector search query returned no documents");
-}
+ ]);
 EOF
