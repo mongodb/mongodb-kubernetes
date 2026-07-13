@@ -1,7 +1,8 @@
 import argparse
 import os
+import re
 from functools import partial
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 from opentelemetry import context, trace
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -93,6 +94,20 @@ def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
     get_builder_function_for_image_name()[image_name](build_configuration)
 
 
+_BACKPORT_BRANCH_RE = re.compile(r"^v(\d+)$")
+
+
+def branch_latest_tag_for(branch_name: str) -> Optional[str]:
+    """
+    The "latest" tag equivalent for a backport branch, e.g. "v1" -> "latest-v1".
+    Master has no branch_latest_tag: it uses the plain "latest" tag instead.
+    Returns None for master and any untracked/non-backport branch.
+    """
+    if _BACKPORT_BRANCH_RE.match(branch_name or ""):
+        return f"latest-{branch_name}"
+    return None
+
+
 def image_build_config_from_args(args) -> ImageBuildConfiguration:
     image = args.image
 
@@ -109,11 +124,10 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
     version = args.version
     dockerfile_path = image_build_info.dockerfile_path
     builder = get_image_builder_from_arg(image_build_info.builder)
-    latest_tag = (
-        image_build_info.latest_tag
-        and os.environ.get("requester", "") == "commit"
-        and os.environ.get("branch_name") == "master"
-    )
+    branch_name = os.environ.get("branch_name")
+    is_mainline_commit = image_build_info.latest_tag and os.environ.get("requester", "") == "commit"
+    latest_tag = is_mainline_commit and branch_name == "master"
+    branch_latest_tag = branch_latest_tag_for(branch_name) if is_mainline_commit else None
     olm_tag = image_build_info.olm_tag
     if args.registry:
         registries = [args.registry]
@@ -160,6 +174,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         scenario=build_scenario,
         version=version,
         latest_tag=latest_tag,
+        branch_latest_tag=branch_latest_tag,
         olm_tag=olm_tag,
         registries=registries,
         dockerfile_path=dockerfile_path,

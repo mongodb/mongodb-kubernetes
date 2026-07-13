@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Slack notification script for master build failures.
+Slack notification script for master or backporting-branch build failures.
 
 This script queries the Evergreen API to find failed tasks in a build version
 and sends a Slack notification to #k8s-enterprise-builds with failure details
@@ -231,17 +231,20 @@ def format_slack_message(
     # <@author_id> format works with Slack's GitHub integration
     author_mention = f"<@{version_info.author_id}>" if version_info.author_id else version_info.author
 
+    branch = getattr(version_info, "branch", None) or "master"
+    branch_label = "Master" if branch == "master" else branch
+
     if is_failure:
-        header_text = "🔴 Master Build Failures"
+        header_text = f"🔴 {branch_label} Build Failures"
         button_style = "danger"
         run_prefix = f"Run #{run_number}: " if run_number else ""
-        summary_text = f"{run_prefix}Master build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
+        summary_text = f"{run_prefix}{branch_label} build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
     else:
-        header_text = "✅ Master Build Passed"
+        header_text = f"✅ {branch_label} Build Passed"
         button_style = None
         run_prefix = f"Run #{run_number}: " if run_number else ""
         summary_text = (
-            f"{run_prefix}Master build passed for commit {version_info.revision[:8]} by {version_info.author}"
+            f"{run_prefix}{branch_label} build passed for commit {version_info.revision[:8]} by {version_info.author}"
         )
 
     # how to format Slack messages: https://docs.slack.dev/block-kit/
@@ -392,7 +395,7 @@ def print_stdout_report(
 def main() -> None:
     start_time = time.time()
 
-    parser = argparse.ArgumentParser(description="Notify about master build failures")
+    parser = argparse.ArgumentParser(description="Notify about master or backporting-branch build failures")
     parser.add_argument("--dry-run", action="store_true", help="Print Slack JSON payload (for debugging)")
     parser.add_argument("--version-id", help="Evergreen version ID (overrides env var)")
     args = parser.parse_args()

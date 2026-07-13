@@ -25,6 +25,9 @@ class ImageBuildConfiguration:
     parallel_factor: int = 0
     architecture_suffix: bool = False
     agent_tools_version: Optional[str] = None  # Explicit tools version for agent builds
+    # Extra "latest" tag for backport branches (e.g. "latest-v1"), mirroring
+    # latest_tag which only ever applies on master.
+    branch_latest_tag: Optional[str] = None
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE
