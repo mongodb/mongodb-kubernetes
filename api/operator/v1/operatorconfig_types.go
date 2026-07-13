@@ -190,58 +190,6 @@ type TelemetryConfig struct {
 	Send *TelemetrySendConfig `json:"send,omitempty"`
 }
 
-// ReadinessProbeLogConfig configures log rotation for the community operator's readiness probe binary.
-type ReadinessProbeLogConfig struct {
-	// FilePath is the file path for readiness probe log output.
-	// +optional
-	// +kubebuilder:default="/var/log/mongodb-mms-automation/readiness.log"
-	FilePath string `json:"filePath,omitempty"`
-
-	// FileOutput controls whether readiness probe logs are written to the file
-	// in addition to stdout.
-	// +optional
-	// +kubebuilder:default=Enabled
-	FileOutput FeatureMode `json:"fileOutput,omitempty"`
-
-	// FileBackups is the number of rotated log files to retain.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=5
-	FileBackups int `json:"fileBackups,omitempty"`
-
-	// FileCompression controls whether retained log files are gzip-compressed.
-	// +optional
-	// +kubebuilder:default=Disabled
-	FileCompression FeatureMode `json:"fileCompression,omitempty"`
-
-	// FileMaxSize is the maximum size in megabytes of a single log file before rotation.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default=100
-	FileMaxSize int `json:"fileMaxSize,omitempty"`
-
-	// FileMaxAge is the maximum age in days for rotated log files before deletion.
-	// 0 means retain indefinitely.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=0
-	FileMaxAge int `json:"fileMaxAge,omitempty"`
-}
-
-// ReadinessProbeConfig configures the community operator's readiness probe binary.
-type ReadinessProbeConfig struct {
-	// Log configures log rotation for the community readiness probe binary.
-	// +optional
-	Log *ReadinessProbeLogConfig `json:"log,omitempty"`
-}
-
-// CommunityConfig contains configuration specific to the community operator and its managed resources.
-type CommunityConfig struct {
-	// ReadinessProbe configures the community operator's readiness probe binary.
-	// +optional
-	ReadinessProbe *ReadinessProbeConfig `json:"readinessProbe,omitempty"`
-}
-
 // OperatorConfigSpec defines the desired state of OperatorConfig.
 type OperatorConfigSpec struct {
 	// WatchedResources controls which CRDs the operator actively reconciles.
@@ -279,10 +227,6 @@ type OperatorConfigSpec struct {
 	// Absence of this block implies telemetry is enabled.
 	// +optional
 	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
-
-	// Community contains configuration specific to community operator resources.
-	// +optional
-	Community *CommunityConfig `json:"community,omitempty"`
 }
 
 // OperatorConfig configures the behaviour of the MCK operator instance deployed in the same namespace.
