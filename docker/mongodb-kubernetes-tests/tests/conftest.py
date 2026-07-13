@@ -1326,13 +1326,11 @@ def get_cluster_clients() -> dict[str, kubernetes.client.api_client.ApiClient]:
             LEGACY_CENTRAL_CLUSTER_NAME: kubernetes.client.ApiClient(),
         }
 
-    member_clusters = [
-        _read_multi_cluster_config_value("member_cluster_1"),
-        _read_multi_cluster_config_value("member_cluster_2"),
-    ]
-
-    if len(get_member_cluster_names()) == 3:
-        member_clusters.append(_read_multi_cluster_config_value("member_cluster_3"))
+    # Read member_cluster_1..N (N = number of MEMBER_CLUSTERS); generalised from the
+    # former hard-coded 2/3 cases so 4-cluster real-infra runs (om-mdb-az1, mdb-az2,
+    # search-az1, search-az2) resolve too.
+    num_members = len(get_member_cluster_names())
+    member_clusters = [_read_multi_cluster_config_value(f"member_cluster_{i}") for i in range(1, num_members + 1)]
     return get_clients_for_clusters(member_clusters)
 
 
