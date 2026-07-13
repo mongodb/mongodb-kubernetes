@@ -265,10 +265,8 @@ type ClusterSpec struct {
 	// Persistence configures this cluster's mongot persistent volume. Defaults to 10GB if unset.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
-	// NodeAffinity constrains which nodes this cluster's mongot pods are eligible to be
-	// scheduled on, based on node labels. It is set verbatim on the mongot pod template's
-	// spec.affinity.nodeAffinity. A spec.clusters[].statefulSet override of nodeAffinity,
-	// applied at the end of the reconcile loop, takes precedence over this field.
+	// NodeAffinity can be used to configure mongot pod's node affinity or pod's spec.affinity.nodeAffinity field.
+	// A spec.clusters[].statefulSet override of nodeAffinity, takes precedence over this field.
 	// +optional
 	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
 	// StatefulSetConfiguration is applied to this cluster's mongot StatefulSet at the end of the
