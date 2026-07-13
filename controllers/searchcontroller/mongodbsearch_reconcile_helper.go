@@ -539,19 +539,14 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		unitClient         kubernetesClient.Client
 		expectedGeneration int64
 	}
-	// reconcileErrs aggregates per-unit failures so that one failing member
-	// cluster does not block the others. Returned once, after all units ran.
-	// Surfacing skips and per-cluster failures in status is KUBE-159.
+	// reconcileErrs aggregates intermittent per-unit failures (e.g. an unreachable
+	// cluster) so one failing cluster does not block the others, returned once after
+	// all units ran.
+	// TODO(KUBE-159): surface per-cluster failures in status.
 	var reconcileErrs error
 	applied := make([]unitApplyResult, 0, len(plan.units))
 	for _, unit := range plan.units {
 		unitLog := log.With(unit.logFields...)
-
-		// Skip units whose cluster has no client configured in the operator.
-		if _, err := r.clientForCluster(unit.clusterName); err != nil {
-			unitLog.Warnf("Skipping unit for cluster %q: %s", unit.clusterName, err)
-			continue
-		}
 
 		mutatedSts, unitClient, err := r.applyReconcileUnit(ctx, unitLog, plan, unit, mods)
 		if err != nil {
@@ -575,8 +570,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 		clusterClient, err := r.clientForCluster(res.clusterName)
 		if err != nil {
-			log.Warnf("Skipping cluster-level resources for cluster %q: %s", res.clusterName, err)
-			continue
+			return workflow.Failed(err)
 		}
 		if err := r.ensureSearchService(ctx, log, clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)); err != nil {
 			log.Warnf("Failed to ensure cluster-level proxy service on cluster %q: %s", res.clusterName, err)
@@ -587,10 +581,8 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	plan.cleanup(ctx, log)
 
-	// Mark routing-ready shards across ALL units (a one-way switch persisted in the
-	// state CM) before the worst-of readiness return: one not-ready or failing unit
-	// must not block the others, so per-unit errors are aggregated instead of
-	// failing fast.
+	// Mark routing-ready shards across ALL units before the worst-of readiness
+	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
 			reconcileErrs = multierror.Append(reconcileErrs, err)

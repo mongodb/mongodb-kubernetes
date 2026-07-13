@@ -4431,9 +4431,9 @@ func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
 	})
 }
 
-// newMCReplicaSetHelper builds an RS MC helper with spec.clusters cluster-a and
-// cluster-b and the given member clients. External RS source, no TLS, so there
-// is no sharded preflight and reconcile goes straight to the unit loop.
+// newMCReplicaSetHelper builds an RS MC helper over cluster-a and cluster-b with
+// the given member clients. External RS source and no TLS, so reconcile skips the
+// sharded preflight and goes straight to the unit loop.
 func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central kubernetesClient.Client) *MongoDBSearchReconcileHelper {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
 	mdb.Spec.Clusters = []searchv1.ClusterSpec{
@@ -4461,22 +4461,23 @@ func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central k
 }
 
 // A cluster referenced in spec.clusters but missing from the operator's member
-// clients is skipped: the other clusters still reconcile and the reconcile does
-// not fail because of the missing client.
-func TestReconcileRSMC_MissingClientSkipsUnit(t *testing.T) {
+// clients fails the reconcile, naming the unmanaged cluster, without blocking the
+// well-configured clusters from reconciling.
+func TestReconcileRSMC_MissingClientFailsReconcile(t *testing.T) {
 	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA}, central)
 
 	st := helper.reconcile(t.Context(), zap.S())
-	assert.NotContains(t, MessageFromStatus(st), "no Kubernetes client registered",
-		"missing client must be skipped, not returned as an error")
+	require.False(t, st.IsOK())
+	assert.Contains(t, MessageFromStatus(st), "no Kubernetes client registered",
+		"a spec cluster with no configured client must fail the reconcile")
 
-	// cluster-a's unit was applied.
+	// cluster-a still reconciled despite cluster-b having no client.
 	require.NoError(t, clusterA.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{}))
 
-	// cluster-b's unit was neither applied elsewhere nor leaked to central.
+	// cluster-b's unit was not leaked onto the central client.
 	err := central.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{})
 	assert.True(t, apierrors.IsNotFound(err), "cluster-b STS must NOT be created on the central client")
