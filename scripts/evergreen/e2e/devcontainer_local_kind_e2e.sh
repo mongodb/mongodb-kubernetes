@@ -82,6 +82,24 @@ if [[ -z "${OVERRIDE_VERSION_ID:-}" ]]; then
   export DATABASE_VERSION=latest INIT_DATABASE_VERSION=latest INIT_OPS_MANAGER_VERSION=latest
 fi
 
+# These pins must also reach the container: wt-ctl runs make switch inside the
+# devcontainer, which re-sources evg-private-context. With no pin, its staging
+# branch defaults OPERATOR_VERSION to `git rev-parse --short=8 HEAD` (and
+# root-context cascades that onto INIT_DATABASE_VERSION), so pods try to pull
+# staging/...:<commit-sha> — an image this variant never builds
+# (ImagePullBackOff). The container only inherits vars written into
+# compose.user.yml, so collect the ones to forward here.
+DEVC_ENV_FORWARD=(
+  "BUILD_SCENARIO=${BUILD_SCENARIO:-}"
+  "OVERRIDE_VERSION_ID=${OVERRIDE_VERSION_ID:-}"
+  "OPERATOR_VERSION=${OPERATOR_VERSION:-}"
+  "READINESS_PROBE_VERSION=${READINESS_PROBE_VERSION:-}"
+  "VERSION_UPGRADE_HOOK_VERSION=${VERSION_UPGRADE_HOOK_VERSION:-}"
+  "DATABASE_VERSION=${DATABASE_VERSION:-}"
+  "INIT_DATABASE_VERSION=${INIT_DATABASE_VERSION:-}"
+  "INIT_OPS_MANAGER_VERSION=${INIT_OPS_MANAGER_VERSION:-}"
+)
+
 # A bare EVG task host has no kind/kubectl/helm; setup_evg_host.sh installs
 # them (and raises inotify/file limits kind needs). Idempotent to re-run.
 command -v kind >/dev/null || { header "setup_evg_host.sh (kind/kubectl/helm)"; scripts/dev/setup_evg_host.sh; }
@@ -158,13 +176,24 @@ fi
 # EVG host's outbound to sum.golang.org (the checksum DB) is blocked, so go's
 # module verification fails ("open /go/pkg/sumdb/.../latest: no such file").
 # Disabling the sumdb skips that verification (fine for throwaway CI).
-cat >.devcontainer/compose.user.yml <<YAML
+{
+  cat <<YAML
 services:
   devcontainer:
     environment:
       EVR_TASK_ID: "${EVR_TASK_ID:-}"
       GOSUMDB: "off"
 YAML
+  # Forward the image-version pins so the container's make switch keeps them
+  # (evg-private-context/root-context respect a pre-set value via `${var:-…}`)
+  # instead of falling back to the commit-sha staging tag. Skip empties so an
+  # unset pin still uses the context defaults.
+  for kv in "${DEVC_ENV_FORWARD[@]}"; do
+    v="${kv#*=}"
+    [[ -z "${v}" ]] && continue
+    printf '      %s: "%s"\n' "${kv%%=*}" "${v}"
+  done
+} >.devcontainer/compose.user.yml
 
 # Fresh artifact dir per task: under --in-place the worktree root is this
 # checkout, so wt-ctl phase logs, test logs and gathered diagnostics all land in
