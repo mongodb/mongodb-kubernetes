@@ -123,6 +123,11 @@ class MongoDBSearch(MongoDB, CustomObject):
         clusters = self["spec"].get("clusters", []) or []
         return [c.get("index", i) for i, c in enumerate(clusters)]
 
+    def _spec_cluster_pairs(self) -> list[tuple[str, int]]:
+        """The (name, index) pairs from spec.clusters[], index defaulting to positional."""
+        clusters = self["spec"].get("clusters", []) or []
+        return [(c.get("name", ""), c.get("index", i)) for i, c in enumerate(clusters)]
+
     def assert_cluster_statuses(
         self,
         expected_count: Optional[int] = None,
@@ -130,23 +135,30 @@ class MongoDBSearch(MongoDB, CustomObject):
         expect_metrics_forwarder: Optional[bool] = None,
     ):
         """Assert status.clusters is well-formed for a healthy (Running) deployment:
-        one entry per spec.clusters[] (unique, matching index pins), each with search
-        Running. loadBalancer is Running iff managed LB (else absent). metricsForwarder:
-        None (default) skips the check; True requires Running, False requires absent.
+        one entry per spec.clusters[] with the exact (name, index) pairs matching spec,
+        each with search Running. loadBalancer is Running iff managed LB (else absent).
+        metricsForwarder: None (default) skips the check; True requires Running, False
+        requires absent. expected_count, when given, is an extra count assertion.
         """
         self.load()
         statuses = self.get_cluster_statuses()
-        spec_indexes = self._spec_cluster_indexes()
+        spec_cluster_name_index_pairs = self._spec_cluster_pairs()
 
-        want_count = expected_count if expected_count is not None else len(spec_indexes)
-        assert len(statuses) == want_count, f"expected {want_count} clusters entries, got {len(statuses)}: {statuses}"
+        assert len(statuses) == len(
+            spec_cluster_name_index_pairs
+        ), f"expected {len(spec_cluster_name_index_pairs)} clusters entries (one per spec.clusters[]), got {len(statuses)}: {statuses}"
+        if expected_count is not None:
+            assert (
+                len(statuses) == expected_count
+            ), f"expected {expected_count} clusters entries, got {len(statuses)}: {statuses}"
 
         got_indexes = [cs.get("index") for cs in statuses]
         assert len(set(got_indexes)) == len(got_indexes), f"duplicate index in status.clusters: {got_indexes}"
-        if expected_count is None:
-            assert sorted(got_indexes) == sorted(
-                spec_indexes
-            ), f"status.clusters indexes {sorted(got_indexes)} != spec.clusters indexes {sorted(spec_indexes)}"
+
+        got_pairs = [(cs.get("name", ""), cs.get("index")) for cs in statuses]
+        assert sorted(got_pairs) == sorted(
+            spec_cluster_name_index_pairs
+        ), f"status.clusters (name, index) pairs {sorted(got_pairs)} != spec.clusters {sorted(spec_cluster_name_index_pairs)}"
 
         managed_lb = expect_managed_lb if expect_managed_lb is not None else self.is_lb_mode_managed()
 

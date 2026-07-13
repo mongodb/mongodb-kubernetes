@@ -1174,19 +1174,16 @@ def _delete_mongot_pods_for_cluster(
 
 
 def _set_envoy_memory_request(mdbs: MongoDBSearch, list_pos: int, memory: str | None) -> None:
-    """Set (memory != None) or clear the managed Envoy resourceRequirements.requests.memory
-    for spec.clusters[list_pos].
-
-    We need this to set unreasonable memeory request to simulate the faulty envoy deployment to test the search status.
+    """Set (memory != None) or clear the managed Envoy memory request for spec.clusters[list_pos]
+    to simulate a faulty envoy deployment. Keeps the default RollingUpdate strategy so the test
+    exercises the production rollout case (old pod Ready while the new one is unschedulable).
     """
     mdbs.load()
     managed = mdbs["spec"]["clusters"][list_pos]["loadBalancer"]["managed"]
     if memory is None:
         managed.pop("resourceRequirements", None)
-        managed.pop("deployment", None)
     else:
         managed["resourceRequirements"] = {"requests": {"memory": memory}}
-        managed["deployment"] = {"spec": {"strategy": {"type": "Recreate"}}}
     mdbs.update()
 
 
