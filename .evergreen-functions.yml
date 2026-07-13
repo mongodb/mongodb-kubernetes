@@ -913,6 +913,49 @@ functions:
           unzip -u macos-notary.zip
           chmod 755 ./linux_amd64/macnotary
 
+  # Strips the "old-"/"new-" trigger-tag prefix (see .evergreen.yml
+  # git_tag_aliases) and publishes the bare version as the RELEASE_VERSION
+  # expansion, for tasks that need the real version rather than the literal
+  # trigger tag. A no-op (identity) for any other triggered_by_git_tag shape.
+  compute_release_version:
+    - command: shell.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        shell: bash
+        script: |
+          set -e
+          VERSION="${triggered_by_git_tag}"
+          VERSION="${VERSION#old-}"
+          VERSION="${VERSION#new-}"
+          echo "RELEASE_VERSION: ${VERSION}" > release_version_expansion.yaml
+    - command: expansions.update
+      params:
+        file: src/github.com/mongodb/mongodb-kubernetes/release_version_expansion.yaml
+
+  # Finalizes a tag-triggered release: strips the trigger-tag prefix (${prefix},
+  # e.g. "old-" or "new-"), pushes the bare "X.Y.Z" tag at the triggering commit,
+  # deletes the trigger tag, and flips the matching GH release from draft to
+  # published. Runs only after the whole release pipeline (build+test, or
+  # publish-only) has already succeeded, so "X.Y.Z" never points at a release
+  # that isn't actually ready — and since "X.Y.Z" itself is not a
+  # git_tag_aliases trigger, pushing it here does not re-run anything.
+  push_release_tag:
+    - command: github.generate_token
+      params:
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - GH_TOKEN
+          - triggered_by_git_tag
+          - revision
+        env:
+          GH_TOKEN: ${GH_TOKEN}
+        binary: scripts/evergreen/push_release_tag.sh ${prefix}
+
   create_chart_release_pr:
     - command: github.generate_token
       params:
@@ -928,7 +971,7 @@ functions:
           - OPERATOR_VERSION
         env:
           GH_TOKEN: ${GH_TOKEN}
-        binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*triggered_by_git_tag}
+        binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*RELEASE_VERSION}
 
   add_releaseinfo_to_github_assets:
     - command: github.generate_token
@@ -942,7 +985,7 @@ functions:
           - OPERATOR_VERSION
         env:
           GH_TOKEN: ${GH_TOKEN}
-        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
+        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*RELEASE_VERSION}
 
   release_kubectl_mongodb_plugin:
     - command: github.generate_token

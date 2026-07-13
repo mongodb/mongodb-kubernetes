@@ -1,0 +1,53 @@
+# New release process, triggered by tags shaped "new-X.Y.Z" (see .evergreen.yml
+# git_tag_aliases). Unlike the legacy process (.evergreen-release.yml, deprecated),
+# this does not rebuild or retest anything: it publishes the images already
+# promoted for the tagged commit (via the mainline mckci_release_promote task)
+# straight to production.
+include:
+  - filename: .evergreen-functions.yml
+
+tasks:
+  - name: mckci_release_publish_group
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - command: shell.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          script: |
+            scripts/mckci release publish group --commit "${revision}"
+
+  # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
+  # is not itself a trigger) and deletes "new-X.Y.Z".
+  - name: retag_new_release
+    commands:
+      - func: clone
+      - func: push_release_tag
+        vars:
+          prefix: "new-"
+
+buildvariants:
+  - name: release_publish
+    display_name: release_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: mckci_release_publish_group
+
+  # Not tagged "release-publish" itself (it depends on that tag succeeding,
+  # which would otherwise create a self-dependency).
+  - name: retag_new_release
+    display_name: retag_new_release
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: ".release-publish"
+        status: "success"
+    tasks:
+      - name: retag_new_release

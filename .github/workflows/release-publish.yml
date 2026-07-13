@@ -1,19 +1,19 @@
-# DEPRECATED: legacy release process (rebuilds and retests every image before
-# publishing). Kept running alongside the new publish-only process
-# (release-publish.yml) until the new process fully replaces it.
+# New release process: publishes the images already promoted for the given
+# commit (via the mainline mckci_release_promote task) without rebuilding or
+# retesting anything.
 #
-# Pushes an "old-X.Y.Z" tag, which Evergreen's git_tag_aliases (.evergreen.yml)
-# routes to the legacy pipeline (.evergreen-release.yml). That pipeline's own
-# retag_legacy_release task pushes the final "X.Y.Z" tag and flips this
-# workflow's draft GH release to published once everything succeeds — this
-# workflow does not do that itself, since it can't wait on Evergreen.
-name: Release MCK version (legacy, deprecated)
+# Pushes a "new-X.Y.Z" tag, which Evergreen's git_tag_aliases (.evergreen.yml)
+# routes to the publish-only pipeline (.evergreen-release-publish.yml). That
+# pipeline's own retag_new_release task pushes the final "X.Y.Z" tag and flips
+# this workflow's draft GH release to published once the publish succeeds —
+# this workflow does not do that itself, since it can't wait on Evergreen.
+name: Release MCK version (publish-only)
 
 on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'SHA of the commit to release'
+        description: 'SHA of the already-promoted commit to publish'
         type: string
         required: true
       version:
@@ -66,8 +66,8 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a "old-$VERSION" -m "Release of MCK $VERSION" $COMMIT_SHA
-          git push origin "old-$VERSION"
+          git tag -a "new-$VERSION" -m "Release of MCK $VERSION" $COMMIT_SHA
+          git push origin "new-$VERSION"
         env:
           VERSION: ${{ github.event.inputs.version }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}

@@ -1,3 +1,8 @@
+# DEPRECATED: this is the legacy release process (rebuilds and retests every
+# image before publishing), triggered by tags shaped "old-X.Y.Z". It is kept
+# running alongside the new publish-only process (.evergreen-release-publish.yml,
+# triggered by "new-X.Y.Z") until the new process fully replaces it. Do not
+# add new functionality here — add it to the new process instead.
 include:
   - filename: .evergreen-functions.yml
 
@@ -106,6 +111,7 @@ tasks:
   - name: add_releaseinfo_to_github_assets
     commands:
       - func: clone
+      - func: compute_release_version
       - func: python_venv
       - func: add_releaseinfo_to_github_assets
 
@@ -113,8 +119,18 @@ tasks:
     tags: [ "helm_chart_release_pr" ]
     commands:
       - func: clone
+      - func: compute_release_version
       - func: python_venv
       - func: create_chart_release_pr
+
+  # Runs after every task in a "release"-tagged variant succeeds: pushes the
+  # final "X.Y.Z" tag (which is not itself a trigger) and deletes "old-X.Y.Z".
+  - name: retag_legacy_release
+    commands:
+      - func: clone
+      - func: push_release_tag
+        vars:
+          prefix: "old-"
 
   - name: release_chart_to_oci_registry
     tags: [ "release_chart_to_oci_registry" ]
@@ -434,3 +450,17 @@ buildvariants:
         patch_optional: true
     tasks:
       - name: release_chart_to_oci_registry
+
+  # Not tagged "release" itself (it depends on every "release"-tagged variant
+  # succeeding, which would otherwise create a self-dependency).
+  - name: retag_legacy_release
+    display_name: retag_legacy_release
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: ".release"
+        status: "success"
+    tasks:
+      - name: retag_legacy_release
