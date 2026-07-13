@@ -21,6 +21,7 @@ fi
 version="${1#go}"
 branch="auto/bump-go-${version}"
 title="Bump Go version to ${version}"
+base_branch="${branch_name:-$(git rev-parse --abbrev-ref HEAD)}"
 
 if [[ "${TEST_BUMP_DRY_RUN:-}" == "1" ]]; then
   printf 'create-go-bump-pr: dry-run: would open PR "%s" from branch %s\n' "${title}" "${branch}"
@@ -61,5 +62,5 @@ bumps immediately (past Go's N-1 support window).
 - [ ] Review propagated version in Dockerfiles, `.tool-versions`, and secondary `go.mod` files
 EOF
   )" \
-  --base master \
+  --base "${base_branch}" \
   --head "${branch}"
