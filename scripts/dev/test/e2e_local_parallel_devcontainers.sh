@@ -45,13 +45,22 @@ done
 run_one() {
   local tag=$1 context=$2 marker=$3; shift 3
   set -o pipefail
+  # Per-env TMPDIR: the devcontainer CLI stages features + compose fragments
+  # under $TMPDIR/devcontainercli/, and concurrent `devcontainer up` runs on one
+  # host clobber that shared tree (ENOENT on aws-cli_0/devcontainer-feature.json,
+  # or `docker compose up` failing on a vanished -f fragment). Isolate it per env.
+  local envtmp; envtmp="$(mktemp -d "${TMPDIR:-/tmp}/devc-par-${tag}.XXXXXX")"
+  export TMPDIR="${envtmp}"
+  local rc=0
   {
     "${WT_CTL}" --color never create "$(branch_of "${tag}")" --context "${context}" "$@" --force \
       && ( cd "$(worktree_of "${tag}")" \
              && "${WT_CTL}" --color never attach -- scripts/dev/e2e_run.sh "${marker}" )
   } 2>&1 \
     | tee "${LOG_DIR}/${tag}.log" \
-    | sed -u "s/^/[${tag}] /"
+    | sed -u "s/^/[${tag}] /" || rc=$?
+  rm -rf "${envtmp}" || true
+  return "${rc}"
 }
 
 pids=(); tags=()
