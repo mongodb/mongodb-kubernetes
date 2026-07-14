@@ -96,8 +96,11 @@ func (c *ResourcesHandler) doMap(ctx context.Context, obj client.Object, q workq
 }
 
 func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if c.MapFunc == nil {
-		return
+	switch e.Object.(type) {
+	case *corev1.ConfigMap, *corev1.Secret:
+		if c.MapFunc == nil {
+			return
+		}
 	}
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
 	c.doMap(ctx, e.Object, q)

@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
@@ -101,6 +102,13 @@ func TestResourcesHandlerDelete(t *testing.T) {
 			resource:  Secret,
 			tracked:   true,
 			wantQueue: 0,
+		},
+		{
+			name:      "tracked MongoDB delete routes without map function",
+			obj:       &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: "ns"}},
+			resource:  MongoDB,
+			tracked:   true,
+			wantQueue: 1,
 		},
 		{
 			name:      "Search handler routes tracked ConfigMap delete",

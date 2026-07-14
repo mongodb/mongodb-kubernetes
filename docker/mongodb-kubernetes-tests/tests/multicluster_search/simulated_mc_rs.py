@@ -11,10 +11,12 @@ from typing import List, Tuple
 
 import kubernetes
 import pytest
+from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -81,6 +83,7 @@ MONGOT_REPLICAS_PER_CLUSTER = 3
 SEARCH_INDEX_READY_TIMEOUT = 300
 # mongot may still be in INITIAL_SYNC briefly after the index reports READY.
 SEARCH_QUERY_RETRY_TIMEOUT = 90
+SEARCH_CONTROLLER_NAME = "mongodbsearch-controller"
 
 # create_issuer_ca writes a ConfigMap (keys ca-pem/ca.crt/mms-ca.crt) consumed as the CA by
 # both MongoDBMulti.spec.security.tls.ca and MongoDBSearch source.external.tls.ca — never a Secret.
@@ -88,6 +91,59 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 # Must match the operator's cert-secret convention `{certsSecretPrefix}-{name}-cert`
 # (see certsSecretPrefix below); otherwise the operator can't find the TLS bundle.
 SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
+
+
+def _search_controller_metric(metrics: str, metric_name: str) -> float | None:
+    values = []
+    for line in metrics.splitlines():
+        if line.startswith(f"{metric_name}{{") and f'controller="{SEARCH_CONTROLLER_NAME}"' in line:
+            values.append(float(line.rsplit(" ", 1)[-1]))
+    return sum(values) if values else None
+
+
+def _wait_for_search_controller_idle(operator: Operator, reconcile_total_gt: float, timeout: int = 180) -> float:
+    observed_reconcile_total = 0.0
+
+    def controller_idle() -> tuple[bool, str]:
+        nonlocal observed_reconcile_total
+        pods = operator.list_operator_pods()
+        if len(pods) != 1 or not pods[0].metadata.name:
+            return False, f"expected one operator pod, found {len(pods)}"
+
+        try:
+            metrics = kubernetes.client.CoreV1Api(
+                api_client=operator.api_client
+            ).connect_get_namespaced_pod_proxy_with_path(
+                f"{pods[0].metadata.name}:8080",
+                operator.namespace,
+                "metrics",
+                _request_timeout=10,
+            )
+        except ApiException as exc:
+            if exc.status in {500, 502, 503, 504}:
+                return False, f"operator metrics unavailable: HTTP {exc.status}"
+            raise
+
+        reconcile_total = _search_controller_metric(metrics, "controller_runtime_reconcile_total")
+        active_workers = _search_controller_metric(metrics, "controller_runtime_active_workers")
+        workqueue_depth = _search_controller_metric(metrics, "workqueue_depth")
+        if reconcile_total is None or active_workers is None or workqueue_depth is None:
+            return False, "MongoDBSearch controller metrics are not registered"
+
+        observed_reconcile_total = reconcile_total
+        idle = reconcile_total > reconcile_total_gt and active_workers == 0 and workqueue_depth == 0
+        return (
+            idle,
+            f"reconciles={reconcile_total}, active_workers={active_workers}, workqueue_depth={workqueue_depth}",
+        )
+
+    run_periodically(
+        controller_idle,
+        timeout=timeout,
+        sleep_time=2,
+        msg=f"{SEARCH_CONTROLLER_NAME} to reconcile and become idle",
+    )
+    return observed_reconcile_total
 
 
 @fixture(scope="module")
@@ -582,7 +638,9 @@ def test_recreate_local_search_resources_and_restart_operator(
         timeout=300,
     )
 
-    Operator(namespace=namespace, name=SIMULATED_OPERATOR_NAME, api_client=mcc.api_client).restart_operator_deployment()
+    simulated_operator = Operator(namespace=namespace, name=SIMULATED_OPERATOR_NAME, api_client=mcc.api_client)
+    simulated_operator.restart_operator_deployment()
+    reconcile_total = _wait_for_search_controller_idle(simulated_operator, reconcile_total_gt=0)
     post_restart_cm_uid = core.read_namespaced_config_map(mongot_cm_name, namespace).metadata.uid
     core.delete_namespaced_config_map(mongot_cm_name, namespace)
     wait_for_resource_recreated(
@@ -590,6 +648,7 @@ def test_recreate_local_search_resources_and_restart_operator(
         post_restart_cm_uid,
         f"mongot ConfigMap after operator restart in {mcc.cluster_name}",
     )
+    _wait_for_search_controller_idle(simulated_operator, reconcile_total_gt=reconcile_total)
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
     assert_workload_ready_in_cluster(
         mcc,
