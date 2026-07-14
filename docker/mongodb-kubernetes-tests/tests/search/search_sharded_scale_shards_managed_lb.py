@@ -121,11 +121,6 @@ def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str
     operator_tls_secret_name = f"{mdbs_name}-search-0-{shard_name}-certificate-key"
     core_v1.read_namespaced_secret(source_tls_secret_name, namespace)
     core_v1.read_namespaced_secret(operator_tls_secret_name, namespace)
-    logger.info(
-        "Source TLS Secret %s and operator-managed copy %s exist",
-        source_tls_secret_name,
-        operator_tls_secret_name,
-    )
 
 
 def verify_shard_proxy_service_deleted(namespace: str, mdbs_name: str, shard_name: str):
