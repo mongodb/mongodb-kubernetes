@@ -311,7 +311,17 @@ functions:
           - ${workdir}/bin
           - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/check_precommit.sh
+        binary: scripts/evergreen/check_precommit.sh --full
+
+  test_bash:
+    - command: subprocess.exec
+      type: test
+      params:
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}/venv/bin
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/test/bash/run.sh
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
@@ -594,7 +604,7 @@ functions:
           - --image
           - mongodb-enterprise-server
           - --submit
-          - ${preflight_submit}
+          - "false"
 
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
@@ -972,5 +982,6 @@ functions:
           - EVERGREEN_USER
           - EVERGREEN_API_KEY
           - SLACK_WEBHOOK_URL
+          - HONEYCOMB_API_KEY
           - version_id
         binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py

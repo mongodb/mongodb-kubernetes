@@ -228,8 +228,8 @@ repos:
       # staticcheck) see the full codebase and pre-existing violations are not silently skipped.
       - id: golangci-lint-full
         args: [--timeout=10m]
-        language_version: 1.26.4
+        language_version: 1.26.5
         priority: 6
       - id: golangci-lint-fmt
-        language_version: 1.26.4
+        language_version: 1.26.5
         priority: 6

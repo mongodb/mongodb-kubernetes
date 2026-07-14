@@ -86,6 +86,22 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			userProvidedMemory: "8Gi",
 			expectedJVMFlags:   `--jvm-flags "-Xmx4096m -Xms4096m"`,
 		},
+		{
+			name:               "60Gi memory - half is exactly the 30GB cap",
+			userProvidedMemory: "60Gi",
+			expectedJVMFlags:   `--jvm-flags "-Xmx30720m -Xms30720m"`,
+		},
+		{
+			name:               "128Gi memory - auto heap capped at 30GB",
+			userProvidedMemory: "128Gi",
+			expectedJVMFlags:   `--jvm-flags "-Xmx30720m -Xms30720m"`,
+		},
+		{
+			name:                 "128Gi memory with user heap flags above the cap - not capped",
+			userProvidedJVMFlags: []string{"-Xmx64g", "-Xms64g"},
+			userProvidedMemory:   "128Gi",
+			expectedJVMFlags:     `--jvm-flags "-Xmx64g -Xms64g"`,
+		},
 		// Custom memory + user JVM flags combined
 		{
 			name:                 "8Gi memory with non-heap user flags - auto heap from custom memory",

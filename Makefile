@@ -45,10 +45,10 @@ prek:
 	@[ -f "$(PREK)" ] || scripts/evergreen/setup_prek.sh
 
 precommit: prek
-	@ source scripts/dev/set_env_context.sh && prek -a
+	@ scripts/evergreen/check_precommit.sh
 
 precommit-full: prek
-	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true prek -a
+	@ scripts/evergreen/check_precommit.sh --full
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
@@ -261,6 +261,11 @@ generate-ssdlc-report:
 test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
+
+# test-bash runs all bats integration tests under scripts/test/bash/.
+# Requires bats-core (brew install bats-core).
+test-bash:
+	@ scripts/test/bash/run.sh $(suite)
 
 # helm-tests will run helm chart unit tests
 helm-tests:
