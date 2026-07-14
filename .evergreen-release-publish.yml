@@ -28,6 +28,23 @@ tasks:
         vars:
           prefix: "new-"
 
+  # Fires the public docs-snippet refresh once the release is actually public (after
+  # retag_new_release, not the earlier promote/publish steps). Not a release gate: nothing depends
+  # on its result. Master only, and the check is against ${revision} not branch_name - see
+  # scripts/dev/trigger_public_docs_snippets.sh for why, and how to trigger a backport refresh by hand.
+  - name: trigger_public_docs_snippets
+    commands:
+      - func: clone
+      - func: compute_release_version
+      - command: shell.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - revision
+            - RELEASE_VERSION
+          script: |
+            ./scripts/dev/trigger_public_docs_snippets.sh
+
 buildvariants:
   - name: release_publish
     display_name: release_publish
@@ -51,3 +68,18 @@ buildvariants:
         status: "success"
     tasks:
       - name: retag_new_release
+
+  # Depends on retag_new_release itself (not just ".release-publish"), since that's the task that
+  # confirms the release is actually public - see the comment on the trigger_public_docs_snippets
+  # task above.
+  - name: trigger_public_docs_snippets
+    display_name: trigger_public_docs_snippets
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: retag_new_release
+        variant: retag_new_release
+        status: "success"
+    tasks:
+      - name: trigger_public_docs_snippets
