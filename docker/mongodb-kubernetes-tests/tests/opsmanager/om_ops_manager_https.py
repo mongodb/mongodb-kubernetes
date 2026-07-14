@@ -35,9 +35,6 @@ def ops_manager(
 ) -> MongoDBOpsManager:
     om: MongoDBOpsManager = MongoDBOpsManager.from_yaml(_fixture("om_https_enabled.yaml"), namespace=namespace)
 
-    if try_load(om):
-        return om
-
     om.set_version(custom_version)
     om.set_appdb_version(custom_appdb_version)
     om.allow_mdb_rc_versions()
@@ -45,6 +42,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(om)
 
+    try_load(om)
     return om
 
 
@@ -87,8 +85,10 @@ def test_om_created_no_tls(ops_manager: MongoDBOpsManager):
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    assert ops_manager.om_status().get_url().startswith("http://")
-    assert ops_manager.om_status().get_url().endswith(":8080")
+    om_url = ops_manager.om_status().get_url()
+    assert om_url is not None
+    assert om_url.startswith("http://")
+    assert om_url.endswith(":8080")
 
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -153,7 +153,7 @@ def test_enable_https_on_opsmanager(
     # probably need to be done above and if only test replicaset1 since that one already has tls setup or test below
     #  custom ca setup
     # only run this test if om > 6.0.18
-    if custom_version >= "6.0.18":
+    if custom_version is not None and custom_version >= "6.0.18":
         print("verifying download signature for OM!")
         ops_manager["spec"]["configuration"]["mms.featureFlag.automation.verifyDownloads"] = "enabled"
 
@@ -161,8 +161,10 @@ def test_enable_https_on_opsmanager(
 
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    assert ops_manager.om_status().get_url().startswith("https://")
-    assert ops_manager.om_status().get_url().endswith(":8443")
+    om_url = ops_manager.om_status().get_url()
+    assert om_url is not None
+    assert om_url.startswith("https://")
+    assert om_url.endswith(":8443")
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -203,8 +205,10 @@ def test_change_om_certificate_and_wait_for_running(ops_manager: MongoDBOpsManag
     rotate_cert(namespace, certificate_name="prefix-om-with-https-cert")
     ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=600)
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
-    assert ops_manager.om_status().get_url().startswith("https://")
-    assert ops_manager.om_status().get_url().endswith(":8443")
+    om_url = ops_manager.om_status().get_url()
+    assert om_url is not None
+    assert om_url.startswith("https://")
+    assert om_url.endswith(":8443")
 
 
 @mark.e2e_om_ops_manager_https_enabled
@@ -219,8 +223,10 @@ def test_change_om_certificate_with_sts_restarting(ops_manager: MongoDBOpsManage
     ops_manager.trigger_om_sts_restart()
     rotate_cert(namespace, certificate_name="prefix-om-with-https-cert")
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    assert ops_manager.om_status().get_url().startswith("https://")
-    assert ops_manager.om_status().get_url().endswith(":8443")
+    om_url = ops_manager.om_status().get_url()
+    assert om_url is not None
+    assert om_url.startswith("https://")
+    assert om_url.endswith(":8443")
 
 
 @mark.e2e_om_ops_manager_https_enabled

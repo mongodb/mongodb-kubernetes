@@ -6,14 +6,43 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 )
+
+// fakeServiceClient is a minimal in-test fake that satisfies GetUpdateCreator
+// and exposes GetService directly for assertions, without importing any package
+// that would create a cycle through pkg/kube/service.
+type fakeServiceClient struct {
+	services map[types.NamespacedName]corev1.Service
+}
+
+func newFakeServiceClient() *fakeServiceClient {
+	return &fakeServiceClient{services: map[types.NamespacedName]corev1.Service{}}
+}
+
+func (f *fakeServiceClient) GetService(_ context.Context, key types.NamespacedName) (corev1.Service, error) {
+	svc, ok := f.services[key]
+	if !ok {
+		return corev1.Service{}, apiErrors.NewNotFound(schema.GroupResource{Resource: "services"}, key.Name)
+	}
+	return svc, nil
+}
+
+func (f *fakeServiceClient) CreateService(_ context.Context, svc corev1.Service) error {
+	f.services[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}] = svc
+	return nil
+}
+
+func (f *fakeServiceClient) UpdateService(_ context.Context, svc corev1.Service) error {
+	f.services[types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}] = svc
+	return nil
+}
 
 func TestService_merge0(t *testing.T) {
 	dst := corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"}}
@@ -59,7 +88,7 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 		NodePort:   40040,
 	}
 
-	fakeClient, _ := mock.NewDefaultFakeClient()
+	fakeClient := newFakeServiceClient()
 	existingService := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
 		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{port1, port2}},

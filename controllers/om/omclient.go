@@ -19,13 +19,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/utils/ptr"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -179,9 +179,10 @@ type OMContext struct {
 }
 
 type HTTPOmConnection struct {
-	context *OMContext
-	once    sync.Once
-	client  *api.Client
+	context    *OMContext
+	once       sync.Once
+	client     *api.Client
+	clientOpts []func(*api.Client) error // Additional options for the HTTP client (e.g., for testing)
 }
 
 func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
@@ -280,6 +281,15 @@ var _ Connection = &HTTPOmConnection{}
 func NewOpsManagerConnection(context *OMContext) Connection {
 	return &HTTPOmConnection{
 		context: context,
+	}
+}
+
+// NewOpsManagerConnectionWithOptions creates a connection with custom HTTP client options.
+// This is useful for testing to configure retry behavior.
+func NewOpsManagerConnectionWithOptions(context *OMContext, clientOpts ...func(*api.Client) error) Connection {
+	return &HTTPOmConnection{
+		context:    context,
+		clientOpts: clientOpts,
 	}
 }
 
@@ -1063,6 +1073,9 @@ func (oc *HTTPOmConnection) getHTTPClient() (*api.Client, error) {
 			zap.S().Debug("Enabling OM_DEBUG_HTTP mode")
 			opts = append(opts, api.OptionDebug)
 		}
+
+		// Add any custom client options (e.g., for testing)
+		opts = append(opts, oc.clientOpts...)
 
 		oc.client, err = api.NewHTTPClient(opts...)
 	})

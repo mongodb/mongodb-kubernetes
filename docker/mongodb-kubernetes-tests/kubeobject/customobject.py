@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Self
 
 import yaml
 from kubernetes import client
@@ -43,6 +43,7 @@ class CustomObject:
                 version=version,
                 api_client=api_client,
             )
+            assert crd is not None, "Could not find CRD matching the given parameters"
             self.kind = crd.spec.names.kind
             self.plural = crd.spec.names.plural
             self.group = crd.spec.group
@@ -71,7 +72,7 @@ class CustomObject:
         self.auto_reload_period = timedelta(seconds=2)
 
         # Last time this object was updated
-        self.last_update: datetime = None
+        self.last_update: Optional[datetime] = None
 
         # Sets the API used for this particular type of object
         self.api = client.CustomObjectsApi(api_client=api_client)
@@ -82,10 +83,9 @@ class CustomObject:
                 "kind": self.kind,
                 "apiVersion": "/".join(filter(None, [group, version])),
                 "spec": {},
-                "status": {},
             }
 
-    def load(self) -> CustomObject:
+    def load(self) -> Self:
         """Loads this object from the API."""
 
         obj = self.api.get_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
@@ -96,16 +96,19 @@ class CustomObject:
         self._register_updated()
         return self
 
-    def create(self) -> CustomObject:
+    def create(self, dry_run: str = None) -> CustomObject:
         """Creates this object in Kubernetes."""
+        kwargs = {"field_validation": "Strict"}
+        if dry_run:
+            kwargs["dry_run"] = dry_run
         obj = self.api.create_namespaced_custom_object(
-            self.group, self.version, self.namespace, self.plural, self.backing_obj
+            self.group, self.version, self.namespace, self.plural, self.backing_obj, **kwargs
         )
 
-        self.backing_obj = obj
-        self.bound = True
-
-        self._register_updated()
+        if not dry_run:
+            self.backing_obj = obj
+            self.bound = True
+            self._register_updated()
         return self
 
     def update(self) -> CustomObject:
@@ -121,6 +124,7 @@ class CustomObject:
             self.plural,
             self.name,
             self.backing_obj,
+            field_validation="Strict",
         )
         self.backing_obj = obj
 
@@ -201,7 +205,7 @@ class CustomObject:
 
     @classmethod
     def define(
-        cls: CustomObject,
+        cls,
         name: str,
         kind: Optional[str] = None,
         plural: Optional[str] = None,
@@ -283,7 +287,7 @@ def get_crd_names(
     group: Optional[str] = None,
     version: Optional[str] = None,
     api_client: Optional[client.ApiClient] = None,
-) -> Optional[Dict]:
+) -> Optional[Any]:
     """Gets the CRD entry that matches all the parameters passed."""
     api = client.ApiextensionsV1Api(api_client=api_client)
 
@@ -311,6 +315,8 @@ def get_crd_names(
 
         if found:
             return crd
+
+    return None
 
 
 def create_or_update(resource: CustomObject) -> CustomObject:

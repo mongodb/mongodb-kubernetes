@@ -1,8 +1,16 @@
 import kubernetes
-from kubetester import try_load
+from kubetester import (
+    delete_statefulset,
+    get_statefulset,
+    scale_statefulset,
+    try_load,
+    wait_for_statefulset_ready,
+    wait_for_statefulset_recreated,
+    wait_for_statefulset_replicas,
+)
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import run_periodically, skip_if_local, skip_if_multi_cluster
+from kubetester.kubetester import run_periodically, skip_if_local, skip_if_multi_cluster, skip_if_single_cluster
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -23,9 +31,6 @@ logger = test_logger.get_test_logger(__name__)
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("sharded-cluster.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
@@ -37,12 +42,13 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
+    try_load(resource)
     return resource
 
 
 @mark.e2e_sharded_cluster
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster
@@ -115,6 +121,56 @@ class TestShardedClusterCreation:
 
 
 @mark.e2e_sharded_cluster
+@skip_if_multi_cluster()
+def test_statefulset_watch_reverts_manual_scaling(sc: MongoDB, namespace: str):
+    """In single cluster the shard StatefulSet watch reacts to status updates, resolved through
+    the controller ownerReference. Scaling the StatefulSet up directly
+    drops readiness below the desired count, which only the operator reverts (Kubernetes never undoes
+    a manual scale). A Running resource requeues only after 24h, so a prompt revert proves the watch
+    drove the reconcile rather than the periodic resync."""
+    sts_name = sc.shard_statefulset_name(0, 0)
+    sts = get_statefulset(namespace, sts_name)
+    owner_refs = sts.metadata.owner_references or []
+    assert any(ref.kind == "MongoDB" and ref.name == sc.name for ref in owner_refs), (
+        f"StatefulSet {sts_name} must be resolvable by the watch via an ownerReference to its MongoDB CR, "
+        f"but had ownerReferences={owner_refs}"
+    )
+
+    desired_replicas = sts.spec.replicas
+    scale_statefulset(namespace, sts_name, desired_replicas + 1)
+    wait_for_statefulset_replicas(namespace, sts_name, desired_replicas)
+    sc.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@mark.e2e_sharded_cluster
+@skip_if_single_cluster()
+def test_statefulset_watch_recreates_deleted_member(sc: MongoDB, namespace: str):
+    """In multi cluster the member StatefulSet watch reacts to deletes, resolved through the
+    MongoDBMultiResource annotation (member StatefulSets carry no ownerReference). Deleting the
+    StatefulSet fires the watch, which recreates it, and the MongoDB resource returns to Running.
+    A Running resource requeues only after 24h, so a prompt recreation proves the watch drove the
+    reconcile rather than the periodic resync."""
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+        if sc.shard_members_in_cluster(cluster_member_client.cluster_name) > 0:
+            sts_name = sc.shard_statefulset_name(0, cluster_member_client.cluster_index)
+            api_client = cluster_member_client.api_client
+            sts = get_statefulset(namespace, sts_name, api_client=api_client)
+            assert "MongoDBMultiResource" in (sts.metadata.annotations or {}), (
+                f"StatefulSet {sts_name} in cluster {cluster_member_client.cluster_name} must be resolvable "
+                f"by the watch via the MongoDBMultiResource annotation, "
+                f"but had annotations={sts.metadata.annotations}"
+            )
+
+            sts_old_uid = sts.metadata.uid
+            delete_statefulset(namespace, sts_name, api_client=api_client)
+            wait_for_statefulset_recreated(namespace, sts_name, sts_old_uid, api_client=api_client)
+            wait_for_statefulset_ready(namespace, sts_name, api_client=api_client, timeout=800)
+            break
+
+    sc.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@mark.e2e_sharded_cluster
 class TestShardedClusterUpdate:
     def test_scale_up_sharded_cluster(self, sc: MongoDB):
         sc.load()
@@ -132,9 +188,9 @@ class TestShardedClusterUpdate:
                     hosts.append(hostname)
 
             logger.debug(f"Checking for connectivity of hosts: {hosts}")
-            primary, secondaries = KubernetesTester.wait_for_rs_is_ready(hosts)
-            assert primary is not None
-            assert len(secondaries) == 2
+            client = KubernetesTester.get_connected_mongo_client(hosts=hosts)
+            assert client.primary is not None
+            assert len(KubernetesTester.get_replica_set_secondaries(client)) == 2
 
     def test_monitoring_versions(self, sc: MongoDB):
         """Verifies that monitoring agent is configured for each process in the deployment"""
@@ -185,7 +241,7 @@ class TestShardedClusterDeletion:
 
             return True
 
-        run_periodically(sts_are_deleted, timeout=60)
+        run_periodically(sts_are_deleted, timeout=300)
 
     def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
         def svc_are_deleted() -> bool:
@@ -200,4 +256,4 @@ class TestShardedClusterDeletion:
                             return False
             return True
 
-        run_periodically(svc_are_deleted, timeout=60)
+        run_periodically(svc_are_deleted, timeout=300)

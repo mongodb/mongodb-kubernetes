@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import kubernetes
 import pytest
 from kubeobject import CustomObject
@@ -19,8 +21,8 @@ from tests.olm.olm_test_commons import (
     get_current_operator_version,
     get_latest_released_operator_version,
     get_operator_group_resource,
+    get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
-    increment_patch_version,
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
@@ -42,11 +44,10 @@ from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_
 @fixture
 def catalog_source(namespace: str, version_id: str):
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     get_operator_group_resource(namespace, namespace).update()
     catalog_source_resource = get_catalog_source_resource(
-        namespace, get_catalog_image(f"{incremented_operator_version}-{version_id}")
+        namespace, get_catalog_image(f"{current_operator_version}-{version_id}")
     )
     catalog_source_resource.update()
 
@@ -54,8 +55,21 @@ def catalog_source(namespace: str, version_id: str):
 
 
 @fixture
-def subscription(namespace: str, catalog_source: CustomObject):
+def subscription(namespace: str, catalog_source: CustomObject, operator_installation_config: dict[str, str]):
     static_value = get_default_architecture()
+    base_env_vars = [
+        {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
+        {"name": "OPERATOR_ENV", "value": "dev"},
+        {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+        {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
+    ]
+    # Add registry env vars for patch builds (ECR registries for unreleased images)
+    # MCK-to-MCK upgrades use non-suffixed agent versions that exist in ECR
+    registry_env_vars = get_registry_env_vars_for_subscription(
+        operator_installation_config, include_agent_registry=True
+    )
+    all_env_vars = base_env_vars + registry_env_vars
+
     return get_subscription_custom_object(
         OPERATOR_NAME,
         namespace,
@@ -67,14 +81,7 @@ def subscription(namespace: str, catalog_source: CustomObject):
             "installPlanApproval": "Automatic",
             # In certified OpenShift bundles we have this enabled, so the operator is not defining security context (it's managed globally by OpenShift).
             # In Kind this will result in empty security contexts and problems deployments with filesystem permissions.
-            "config": {
-                "env": [
-                    {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
-                    {"name": "OPERATOR_ENV", "value": "dev"},
-                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
-                    {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
-                ]
-            },
+            "config": {"env": all_env_vars},
         },
     )
 
@@ -109,7 +116,7 @@ def ops_manager(namespace: str) -> MongoDBOpsManager:
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, "my-s3-secret", namespace)
     yield from create_s3_bucket(aws_s3_client, "test-bucket-s3")
 
@@ -193,7 +200,7 @@ def mdb_sharded(
         },
     }
     resource.configure_backup(mode="disabled")
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -208,7 +215,8 @@ def oplog_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoD
         name="my-mongodb-oplog",
     ).configure(ops_manager, "oplog")
     resource.set_version(custom_mdb_version)
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -219,7 +227,8 @@ def s3_replica_set(ops_manager, namespace, custom_mdb_version: str) -> MongoDB:
         name="my-mongodb-s3",
     ).configure(ops_manager, "s3metadata")
     resource.set_version(custom_mdb_version)
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -230,7 +239,8 @@ def blockstore_replica_set(ops_manager, namespace, custom_mdb_version: str) -> M
         name="my-mongodb-blockstore",
     ).configure(ops_manager, "blockstore")
     resource.set_version(custom_mdb_version)
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -266,7 +276,8 @@ def create_secret_and_user(
     resource["spec"]["mongodbResourceRef"]["name"] = replica_set_name
     resource["spec"]["passwordSecretKeyRef"]["name"] = secret_name
     create_or_update_secret(namespace, secret_name, {"password": password})
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -279,6 +290,12 @@ def test_resources_created(
     oplog_user: MongoDBUser,
 ):
     """Creates mongodb databases all at once"""
+    oplog_replica_set.update()
+    s3_replica_set.update()
+    blockstore_replica_set.update()
+    mdb_sharded.update()
+    blockstore_user.update()
+    oplog_user.update()
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.assert_reaches_phase(Phase.Running)
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
@@ -341,7 +358,6 @@ def test_operator_upgrade_to_fast(
     subscription: CustomObject,
 ):
     current_operator_version = get_current_operator_version()
-    incremented_operator_version = increment_patch_version(current_operator_version)
 
     # It is very likely that OLM will be doing a series of status updates during this time.
     # It's better to employ a retry mechanism and spin here for a while before failing.
@@ -359,7 +375,7 @@ def test_operator_upgrade_to_fast(
 
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
-    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{incremented_operator_version}")
+    wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources

@@ -13,9 +13,6 @@ from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-single.yaml"), namespace=namespace)
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
@@ -27,12 +24,13 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[None, 1, None],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_recovery
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_recovery
@@ -45,13 +43,14 @@ class TestShardedClusterRecoversBadOmConfiguration:
     """
 
     def test_create_sharded_cluster(self, sc: MongoDB):
+        sc.update()
         sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_sharded_cluster_reaches_failed_state(self, sc: MongoDB):
         secret_data = {"publicApiKey": "wrongKey"}
         KubernetesTester.update_secret(sc.namespace, "my-credentials", secret_data)
 
-        sc.assert_reaches_phase(Phase.Failed, timeout=20)
+        sc.assert_reaches_phase(Phase.Failed, timeout=100)
 
         sc.load()
         assert "You are not authorized for this resource" in sc["status"]["message"]

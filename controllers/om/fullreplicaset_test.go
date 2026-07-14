@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
-	ac "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	ac "github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 func TestDetermineNextProcessIdStartingPoint(t *testing.T) {
@@ -61,10 +61,11 @@ func TestDetermineNextProcessIdStartingPoint(t *testing.T) {
 
 func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 	tests := []struct {
-		name          string
-		processes     []Process
-		memberOptions []ac.MemberOptions
-		expected      ReplicaSetWithProcesses
+		name               string
+		processes          []Process
+		memberOptions      []ac.MemberOptions
+		existingProcessIds map[string]int
+		expected           ReplicaSetWithProcesses
 	}{
 		{
 			name: "Same number of processes and member options",
@@ -216,11 +217,65 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 				Processes: []Process{},
 			},
 		},
+		{
+			name: "Existing process ids are preserved and new processes get incrementing ids",
+			processes: []Process{
+				{
+					"name": "p-0",
+				},
+				{
+					"name": "p-1",
+				},
+				{
+					"name": "p-2",
+				},
+			},
+			memberOptions: []ac.MemberOptions{
+				{
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1.3"),
+				},
+				{
+					Votes:    ptr.To(0),
+					Priority: ptr.To("0.7"),
+				},
+				{
+					Votes:    ptr.To(1),
+					Priority: ptr.To("1.0"),
+				},
+			},
+			// simulates e.g. switching the OpsManager project: p-0 and p-1 already existed
+			// (e.g. with ids from a previous project) and must keep their ids, while the new
+			// process p-2 must get a fresh, non-overlapping id.
+			existingProcessIds: map[string]int{
+				"p-0": 5,
+				"p-1": 7,
+			},
+			expected: ReplicaSetWithProcesses{
+				Rs: ReplicaSet{
+					"_id": "mdb-multi", "members": []ReplicaSetMember{
+						{"_id": "5", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": "7", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
+						{"_id": "8", "host": "p-2", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+					},
+					"protocolVersion": "1",
+				},
+				Processes: []Process{
+					{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-2", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "5.0.5"), tt.processes, tt.memberOptions, map[string]int{}, nil)
+			existingProcessIds := tt.existingProcessIds
+			if existingProcessIds == nil {
+				existingProcessIds = map[string]int{}
+			}
+			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "5.0.5"), tt.processes, tt.memberOptions, existingProcessIds, nil)
 			assert.Equal(t, tt.expected, actual)
 		})
 	}

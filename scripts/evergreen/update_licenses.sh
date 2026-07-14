@@ -3,7 +3,8 @@
 set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
-go install github.com/google/go-licenses@v1.6.0
+go version
+go install github.com/nammn/go-licenses/v2@e31cc8503e393f00683c7f1a1272e4ae4e31256f
 
 # Define the root of the repo and the scripts directory
 REPO_DIR=$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")
@@ -20,18 +21,27 @@ process_licenses() {
         return 1
     fi
 
-    PATH=$(go env GOPATH)/bin:${PATH} GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv 2> licenses_stderr  || true
+    # Let Go find the real path of the toolchain specified by go.mod
+    REAL_GOROOT=$(GOTOOLCHAIN=auto go env GOROOT)
+    # Run the command with TOOLCHAIN'S bin folder at the front of the PATH
+    # This ensures that when go-licenses calls 'go', it gets the one in go.mod
+    PATH="${REAL_GOROOT}/bin:$(go env GOPATH)/bin:${PATH}" \
+    GOTOOLCHAIN=local GOROOT="${REAL_GOROOT}" \
+    GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" \
+    "$(go env GOPATH)"/bin/go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
 
     # Filter and sort the licenses report
-    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | sort > LICENSE-THIRD-PARTY || true
+    # Use LC_ALL=C to ensure consistent ASCII sorting across macOS and Linux
+    # LC_ALL overrides all locale settings including LC_COLLATE, which is necessary
+    # for macOS compatibility (macOS sort ignores LC_COLLATE without LC_ALL)
+    grep -v 10gen licenses_full.csv | grep -v "github.com/mongodb" | grep -v "^golang.org" | LC_ALL=C sort > LICENSE-THIRD-PARTY || true
 
     # Return to the repo root directory
     cd "${REPO_DIR}" || exit
 }
 
-process_licenses "${REPO_DIR}" &
-process_licenses "${REPO_DIR}/cmd/kubectl-mongodb" &
-
-wait
+process_licenses "${REPO_DIR}"
+process_licenses "${REPO_DIR}/cmd/kubectl-mongodb"
+process_licenses "${REPO_DIR}/mongodb-community-operator/cmd/readiness"
 
 echo "License processing complete for all modules."

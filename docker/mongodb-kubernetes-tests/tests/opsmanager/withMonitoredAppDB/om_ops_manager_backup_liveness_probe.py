@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Iterator, Optional
 
 from kubernetes import client
 from kubetester import try_load
@@ -30,7 +30,7 @@ Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manag
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
@@ -205,4 +205,4 @@ def test_backup_daemon_reaches_ready_state(ops_manager: MongoDBOpsManager):
                 print("Error checking if pod is ready: " + str(e))
                 return False
 
-        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=300)
+        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=900)

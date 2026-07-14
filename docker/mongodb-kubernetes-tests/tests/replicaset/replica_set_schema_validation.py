@@ -98,7 +98,7 @@ class TestReplicaSetInvalidWithOpsAndCloudManager(KubernetesTester):
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "must validate one and only one schema",
+            "exception": "either spec.cloudManager or spec.opsManager can be set",
         },
     }
 
@@ -121,7 +121,7 @@ class TestReplicaSetInvalidWithProjectAndCloudManager(KubernetesTester):
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "must validate one and only one schema",
+            "exception": "either spec.cloudManager or spec.opsManager can be set",
         },
     }
 
@@ -146,7 +146,7 @@ class TestReplicaSetInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "must validate one and only one schema",
+            "exception": "either spec.cloudManager or spec.opsManager can be set",
         },
     }
 

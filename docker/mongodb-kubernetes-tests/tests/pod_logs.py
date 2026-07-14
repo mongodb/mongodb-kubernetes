@@ -1,12 +1,12 @@
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import kubernetes
 from kubetester.kubetester import KubernetesTester, is_default_architecture_static
 
 
-def parse_json_pod_logs(pod_logs: str) -> list[dict[str, any]]:
+def parse_json_pod_logs(pod_logs: str) -> list[dict[str, Any]]:
     """Parses pod logs returned asa string and returns list of lines parsed from structured json."""
     lines = pod_logs.strip().split("\n")
     log_lines = []
@@ -25,13 +25,13 @@ def get_structured_json_pod_logs(
     namespace: str,
     pod_name: str,
     container_name: str,
-    api_client: kubernetes.client.ApiClient,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> dict[str, list[str]]:
     """Read logs from pod_name and groups the lines by logType."""
     pod_logs_str = KubernetesTester.read_pod_logs(namespace, pod_name, container_name, api_client=api_client)
     log_lines = parse_json_pod_logs(pod_logs_str)
 
-    log_contents_by_type = {}
+    log_contents_by_type: dict[str, list[str]] = {}
 
     for log_line in log_lines:
         if "logType" not in log_line or "contents" not in log_line:
@@ -82,8 +82,8 @@ def assert_log_types_in_structured_json_pod_log(
 
     pod_logs = get_structured_json_pod_logs(namespace, pod_name, container_name, api_client=api_client)
 
-    unwanted_log_types = pod_logs.keys() - expected_log_types
-    missing_log_types = expected_log_types - pod_logs.keys()
+    unwanted_log_types = set(pod_logs.keys()) - (expected_log_types or set())
+    missing_log_types = (expected_log_types or set()) - set(pod_logs.keys())
     assert len(unwanted_log_types) == 0, f"pod {namespace}/{pod_name} contains unwanted log types: {unwanted_log_types}"
     assert (
         len(missing_log_types) == 0

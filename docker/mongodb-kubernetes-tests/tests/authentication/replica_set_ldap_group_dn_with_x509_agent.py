@@ -4,12 +4,8 @@ from datetime import datetime, timezone
 
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, find_fixture, kubetester
-from kubetester.certs import (
-    ISSUER_CA_NAME,
-    create_x509_agent_tls_certs,
-    create_x509_mongodb_tls_certs,
-)
+from kubetester import create_secret, find_fixture, kubetester, try_load
+from kubetester.certs import ISSUER_CA_NAME, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, generic_user
@@ -62,7 +58,8 @@ def replica_set(
         "mode": "X509",
         "automationLdapGroupDN": f"cn=mms-automation-agent,ou={namespace},o=cluster.local-agent,dc=example,dc=org",
     }
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -76,7 +73,8 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
         password=ldap_mongodb_user.password,
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @fixture(scope="module")
@@ -86,11 +84,13 @@ def server_certs(issuer: str, namespace: str):
 
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
 def test_replica_set(replica_set: MongoDB, ldap_mongodb_x509_agent_user: LDAPUser, namespace: str):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_ldap_group_dn_with_x509_agent
 def test_ldap_user_mongodb_reaches_updated_phase(ldap_user_mongodb: MongoDBUser):
+    ldap_user_mongodb.update()
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated, timeout=150)
 
 

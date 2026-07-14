@@ -268,7 +268,7 @@ def configure():
 
     env_file = os.getenv(ENV_FILE)
     base_url = os.getenv(BASE_URL)
-    with open(env_file, "w") as fd:
+    with open(env_file, "w") as fd:  # lgtm[py/clear-text-storage-sensitive-data]
         fd.write("export OM_BASE_URL={}\n".format(base_url))
         fd.write("export OM_USER={}\n".format(public))
         fd.write("export OM_API_KEY={}\n".format(private))
@@ -333,7 +333,7 @@ def clean_unused_keys(org_id: str):
     - currently used by the script (USER_OWNER env variable)
     - containing "EVG" or "NOT_DELETE" in their description
     """
-    keys, newer_keys = get_keys_older_than(org_id, minutes_interval=70)
+    keys, newer_keys = get_keys_older_than(org_id, minutes_interval=140)
     print(f"found {len(keys)} keys for potential removal")
     deleted_keys = []
     kept_keys = []
@@ -362,7 +362,7 @@ def keep_the_key(key: Dict) -> bool:
 
 def clean_unused_projects(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    projects, newer_projects = get_projects_older_than(org_id, minutes_interval=70)
+    projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
     deleted_projects = []
     kept_projects = []

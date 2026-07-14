@@ -71,6 +71,7 @@ const (
 
 	// EnvVarDebug is used to decide whether we want to start the agent in debug mode
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
+	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
@@ -89,6 +90,7 @@ const (
 	BackupDaemonContainerName      = "mongodb-backup-daemon"
 	DatabaseContainerName          = "mongodb-enterprise-database"
 	AgentContainerName             = "mongodb-agent"
+	MongodbContainerName           = "mongod"
 	AgentContainerUtilitiesName    = "mongodb-agent-operator-utilities"
 	InitOpsManagerContainerName    = "mongodb-kubernetes-init-ops-manager"
 	PvcNameData                    = "data"
@@ -181,10 +183,12 @@ const (
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
 	// new variable to be printed at operator start.
+	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
+	MongodbImageEnv   = "MONGODB_IMAGE"
+
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerVersion            = "INIT_OPS_MANAGER_VERSION"
-	InitAppdbImageUrlEnv             = "INIT_APPDB_IMAGE_REPOSITORY"
 	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
@@ -192,19 +196,44 @@ const (
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
+	OperatorClusterNameEnv           = "OPERATOR_CLUSTER_NAME"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
+	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
 	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
 	CurrentNamespace                 = "NAMESPACE"
 	OperatorNameEnv                  = "OPERATOR_NAME"
 	WatchNamespace                   = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
 	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
+	AgentImageUrlEnv                 = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageUrlDefault             = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv                    = "AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
+	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
 
 	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
+
+	// This default for the healthy streak is also configured in the values.yaml file.
+	// It should always be consistent with the default in the helm chart. Always change both.
+	DefaultRequiredHealthyStreak = 5
+	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
+
+	// Search environment variables
+	SearchRepoURLEnv         = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv            = "MDB_SEARCH_NAME"
+	SearchVersionEnv         = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
+	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
+	// SearchEnableMultiClusterEnv lets a single operator reconcile a MongoDBSearch with
+	// more than one spec.clusters entry; defaults to false (block on) when unset, so an
+	// accidentally-set or zero-value bool fails safe to blocking.
+	SearchEnableMultiClusterEnv = "MDB_SEARCH_ENABLE_MULTI_CLUSTER"
+
+	// VoyageAI environment variables
+	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -220,6 +249,7 @@ const (
 	OpsManagerDefaultPortHTTPS         = 8443
 	DefaultBackupDisableWaitSeconds    = "3"
 	DefaultBackupDisableWaitRetries    = "30" // 30 * 3 = 90 seconds, should be ok for backup job to terminate
+	DefaultBackupStartDelaySeconds     = 60   // 60 seconds delay to avoid race condition between OM topology discovery and backup enablement
 	DefaultPodTerminationPeriodSeconds = 600  // 10 min. Keep this in sync with 'cleanup()' function in agent-launcher-lib.sh
 	DefaultK8sCacheRefreshTimeSeconds  = 2
 	OpsManagerMonitorAppDBDefault      = true
@@ -240,6 +270,9 @@ const (
 	DefaultAppDbPasswordKey            = "password"
 	AppDbConnectionStringKey           = "connectionString"
 	AppDbProjectIdKey                  = "projectId"
+	// Immutable backups were introduced in 8.0.19
+	// This variable is used for validating the OM version when an s3 store with object lock is configured
+	MinimumVersionImmutableBackup = "8.0.19"
 
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"
@@ -284,6 +317,7 @@ const (
 	// Annotation keys used by the operator
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
+	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
@@ -310,13 +344,13 @@ const (
 
 	RetryTimeSec = 10
 
-	DeprecatedImageAppdbUbiUrl = "mongodb-enterprise-appdb-database-ubi"
-
-	OfficialEnterpriseServerImageUrl = "mongodb-enterprise-server"
+	OfficialEnterpriseServerImageName = "mongodb-enterprise-server"
 
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
+
+	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 )
 
 type OperatorEnvironment string
@@ -339,6 +373,8 @@ const (
 var OperatorVersion string
 
 var LogAutomationConfigDiff string
+
+var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
 
 func ShouldLogAutomationConfigDiff() bool {
 	return strings.EqualFold(LogAutomationConfigDiff, "true")

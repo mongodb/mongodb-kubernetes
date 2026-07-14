@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -15,16 +16,16 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -69,6 +70,72 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
 	assert.Equal(t, user.Spec.Database, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user))
+	assert.Equal(t, om.TestGroupID, user.Status.ProjectId)
+}
+
+// Not making this (DeepCopy) a method of type AutomationConfig because I want to be
+// explicit that this method is just for test code.
+func DeepCopy(original *om.AutomationConfig) (*om.AutomationConfig, error) {
+	if original == nil {
+		return nil, nil
+	}
+
+	b, err := json.Marshal(original)
+	if err != nil {
+		return nil, err
+	}
+
+	var newAC om.AutomationConfig
+	err = json.Unmarshal(b, &newAC)
+	if err != nil {
+		return nil, err
+	}
+	return &newAC, nil
+}
+
+func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, omConnectionFactory := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// initialize resources required for the tests
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	actual, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	okReconcileResult, _ := workflow.OK().ReconcileResult()
+
+	assert.Nil(t, err, "there should be no error on successful reconciliation")
+	assert.Equal(t, okReconcileResult, actual, "there should be a successful reconciliation if the password is a valid reference")
+
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	// since underlying implmentation of ReadAutomationConfig just has reference to automation config
+	// it's better to deep copy this version of AC so that it can be used to compare later.
+	originalAC, err := DeepCopy(ac)
+	assert.Nil(t, err)
+
+	// the automation config should have been updated during reconciliation
+	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
+
+	_, createdUser := ac.Auth.GetUser("my-user", "admin")
+	assert.Equal(t, user.Spec.Username, createdUser.Username)
+	assert.Equal(t, user.Spec.Database, createdUser.Database)
+	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
+
+	// reconcile the same user again and make sure the automation config is not updated, if the user's password is not changed
+	// we don't generate scram creds and because of that we wouldn't see changes in automatino config
+	reconcileResult, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	assert.Nil(t, err)
+	assert.Equal(t, okReconcileResult, reconcileResult)
+
+	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
+	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*originalAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
 }
 
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
@@ -406,6 +473,83 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 	assert.Contains(t, user.GetFinalizers(), util.UserFinalizer)
 }
 
+func TestConnectionStringSecret_UsesSpecDb_AsAuthSource(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connectionString := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, connectionString, "authSource=mydb", "authSource should be set to spec.db, not hardcoded 'admin'")
+	assert.NotContains(t, connectionString, "authSource=admin")
+}
+
+func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableX509().SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	assert.Equal(t,
+		"mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
+			"my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
+			"my-rs-2.my-rs-svc.my-namespace.svc.cluster.local:27017"+
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+		string(secret.Data["connectionString.standard"]))
+
+	assert.Equal(t,
+		"mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local"+
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+		string(secret.Data["connectionString.standardSrv"]))
+}
+
+func TestConnectionStringSecret_ScramSHA1_UsesSpecDb_AsAuthSource(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha1Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().
+		EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{util.SCRAMSHA1, util.MONGODBCR}).
+		AgentAuthMode("MONGODB-CR").
+		SetName("my-rs").
+		Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	for _, key := range []string{"connectionString.standard", "connectionString.standardSrv"} {
+		cs := string(secret.Data[key])
+		assert.Contains(t, cs, "authSource=mydb", "authSource should be spec.db for SCRAM-SHA-1 (%s)", key)
+		assert.NotContains(t, cs, "authSource=admin", "authSource must not be hardcoded for SCRAM-SHA-1 (%s)", key)
+	}
+}
+
 func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T) {
 	// Define the details of the member clusters for the sharded cluster setup
 	memberClusters := test.NewMemberClusters(
@@ -444,7 +588,7 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
 
-	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 
 	_ = kubeClient.Create(ctx, cluster)
 
@@ -462,7 +606,7 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 	connectionString := string(secret.Data["connectionString.standard"])
 	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
 		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
-		"/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
 	assert.Equal(t, expectedConnectionString, connectionString)
 }
 
@@ -500,6 +644,53 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 
 	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user)
 	assert.True(t, apiErrors.IsNotFound(err), "the user should not exist")
+}
+
+func TestConnectionStringSecret_HasControllerRef_AfterReconciliation(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	connectionStringSecret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), connectionStringSecret)
+	require.NoError(t, err)
+
+	ownerRef := metav1.GetControllerOf(connectionStringSecret)
+	require.NotNil(t, ownerRef, "connection string secret should have a controller owner reference pointing to the MongoDBUser")
+	assert.Equal(t, user.Name, ownerRef.Name)
+	assert.Equal(t, "MongoDBUser", ownerRef.Kind)
+}
+
+func TestConnectionStringSecret_NotExplicitlyDeleted_OnUserDeletion(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	_ = client.Delete(ctx, user)
+
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	// The central cluster connection string secret must still exist after preDeletionCleanup.
+	// It carries a controller owner reference to the MongoDBUser and is removed by Kubernetes GC
+	// once the MongoDBUser is deleted. The controller must not delete it explicitly.
+	connectionStringSecret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), connectionStringSecret)
+	assert.NoError(t, err, "central cluster connection string secret should not be explicitly deleted in preDeletionCleanup")
 }
 
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
@@ -579,13 +770,13 @@ func createMongoDBForUserWithAuth(ctx context.Context, client client.Client, use
 func defaultUserReconciler(ctx context.Context, user *userv1.MongoDBUser) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(user)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, omConnectionFactory
+	return newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay), kubeClient, omConnectionFactory
 }
 
 func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(user)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		_ = connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)

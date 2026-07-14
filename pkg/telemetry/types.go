@@ -22,6 +22,7 @@ type OperatorUsageSnapshotProperties struct {
 	OperatorType         OperatorType `json:"operatorType"`         // MEKO, MCK, MCO (here meko)
 	OperatorArchitecture string       `json:"operatorArchitecture"` // Architecture of the operator binary (amd64, arm64, s390x, ppc64le)
 	OperatorOS           string       `json:"operatorOS"`           // Operating system of the operator binary (linux, darwin, windows)
+	OperatorInstaller    string       `json:"operatorInstaller"`    // Installation method of the operator (helm, olm, yaml, unknown)
 }
 
 func (p OperatorUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
@@ -70,6 +71,22 @@ func (u DeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, e
 	}
 
 	return properties, nil
+}
+
+type SearchDeploymentUsageSnapshotProperties struct {
+	DeploymentUsageSnapshotProperties `json:",inline"`
+	IsAutoEmbeddingEnabled            bool `json:"isAutoEmbeddingEnabled"`
+}
+
+func (u SearchDeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, error) {
+	baseProperties, err := u.DeploymentUsageSnapshotProperties.ConvertToFlatMap()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse properties: %w", err)
+	}
+
+	baseProperties["isAutoEmbeddingEnabled"] = u.IsAutoEmbeddingEnabled
+
+	return baseProperties, nil
 }
 
 type Event struct {

@@ -19,9 +19,10 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/name: {{ .Values.operator.name }}
         app.kubernetes.io/instance: {{ .Values.operator.name }}
+      annotations:
+        mongodb.com/installation-method: {{ .Values.operator.installationMethod | default "helm" | quote }}
 {{- if .Values.operator.vaultSecretBackend }}
   {{- if .Values.operator.vaultSecretBackend.enabled }}
-      annotations:
         vault.hashicorp.com/agent-inject: "true"
         vault.hashicorp.com/role: "mongodbenterprise"
         {{- if .Values.operator.vaultSecretBackend.tlsSecretRef }}
@@ -61,8 +62,10 @@ spec:
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           {{- end }}
-          {{- if .Values.multiCluster.clusters }}
           volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: webhook-server-dir
+          {{- if .Values.multiCluster.clusters }}
             - mountPath: /etc/config/kubeconfig
               name: kube-config-volume
           {{- end }}
@@ -151,18 +154,20 @@ spec:
             - name: CLUSTER_CLIENT_TIMEOUT
               value: "{{ .Values.multiCluster.clusterClientTimeout }}"
     {{- end }}
+    {{- if .Values.multiCluster.memberClusterRequiredHealthyStreak }}
+            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
+              value: "{{ .Values.multiCluster.memberClusterRequiredHealthyStreak }}"
+    {{- end }}
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}
     {{- $agentImageRepository := "MDB_AGENT_IMAGE_REPOSITORY" -}}
     {{- $initOpsManagerImageRepositoryEnv := "INIT_OPS_MANAGER_IMAGE_REPOSITORY" -}}
-    {{- $initAppDbImageRepositoryEnv := "INIT_APPDB_IMAGE_REPOSITORY" -}}
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
     {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
     {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
     {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
-    {{- $initAppDbVersion := print .Values.initAppDb.version (.Values.build | default "") -}}
     {{- $agentVersion := .Values.agent.version }}
             - name: IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
@@ -182,11 +187,6 @@ spec:
               value: {{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}
             - name: INIT_OPS_MANAGER_VERSION
               value: {{ $initOpsManagerVersion | quote }}
-            # AppDB
-            - name: {{ $initAppDbImageRepositoryEnv }}
-              value: {{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}
-            - name: INIT_APPDB_VERSION
-              value: {{ $initAppDbVersion | quote }}
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: {{ .Values.registry.pullPolicy }}
             - name: {{ $agentImageEnv }}
@@ -197,12 +197,6 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
-            - name: MDB_IMAGE_TYPE
-              {{- if eq .Values.operator.mdbDefaultArchitecture "static" }}
-              value: "ubi9"
-              {{- else }}
-              value: {{ .Values.mongodb.imageType }}
-              {{- end }}
     {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
             - name: MDB_APPDB_ASSUME_OLD_FORMAT
               value: 'true'
@@ -219,6 +213,10 @@ spec:
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
     {{- end }}
+    {{- if .Values.operator.webhook.name }}
+            - name: MDB_WEBHOOK_NAME
+              value: {{ .Values.operator.webhook.name | quote }}
+    {{- end }}
     {{- if .Values.operator.maxConcurrentReconciles }}
             - name: MDB_MAX_CONCURRENT_RECONCILES
               value: "{{ .Values.operator.maxConcurrentReconciles }}"
@@ -227,8 +225,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: MCK_INSTALLER
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['mongodb.com/installation-method']
             - name: OPERATOR_NAME
               value: {{ .Values.operator.name }}
+    {{- if .Values.operator.clusterIdentity.clusterName }}
+            - name: OPERATOR_CLUSTER_NAME
+              value: {{ .Values.operator.clusterIdentity.clusterName | quote }}
+    {{- end }}
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
               value: "{{ .Values.community.registry.agent }}/{{ .Values.community.agent.name }}:{{ .Values.community.agent.version }}"
@@ -250,8 +256,6 @@ spec:
               value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
             - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
-            - name: RELATED_IMAGE_{{ $initAppDbImageRepositoryEnv }}_{{ $initAppDbVersion | replace "." "_" | replace "-" "_" }}
-              value: "{{ .Values.registry.initAppDb }}/{{ .Values.initAppDb.name }}:{{ $initAppDbVersion }}"
       {{- range $version := .Values.relatedImages.agent }}
             - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
@@ -268,6 +272,10 @@ spec:
       {{- if .Values.search }}
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_{{ .Values.search.version | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.search.repo }}/{{ .Values.search.name }}:{{ $.Values.search.version }}"
+            - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
+              value: "{{ .Values.search.envoyImage }}"
+            - name: RELATED_IMAGE_MDB_SEARCH_METRICS_FORWARDER_IMAGE
+              value: "{{ .Values.search.metricsForwarderImage }}"
       {{- end }}
     {{- end }}
     {{- if .Values.search }}
@@ -277,6 +285,18 @@ spec:
               value: "{{ .Values.search.name }}"
             - name: MDB_SEARCH_VERSION
               value: "{{ .Values.search.version }}"
+            - name: MDB_ENVOY_IMAGE
+              value: "{{ .Values.search.envoyImage }}"
+            - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
+              value: "{{ .Values.search.metricsForwarderImage }}"
+      {{- if and (hasKey .Values.search "enableMultiCluster") (ne (printf "%v" .Values.search.enableMultiCluster) "false") }}
+            - name: MDB_SEARCH_ENABLE_MULTI_CLUSTER
+              value: "{{ .Values.search.enableMultiCluster }}"
+      {{- end }}
+    {{- end }}
+    {{- if .Values.voyageai }}
+            - name: MDB_VOYAGEAI_REPO_URL
+              value: "{{ .Values.voyageai.repo }}"
     {{- end }}
     {{- if .Values.customEnvVars }}
       {{- range split "&" .Values.customEnvVars }}
@@ -284,13 +304,15 @@ spec:
               value: '{{ (splitn "=" 2 .)._1 }}'
       {{- end }}
     {{- end }}
-{{- if .Values.multiCluster.clusters }}
       volumes:
+        - name: webhook-server-dir
+          emptyDir: {}
+        {{- if .Values.multiCluster.clusters }}
         - name: kube-config-volume
           secret:
             defaultMode: 420
             secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
-{{- end }}
+        {{- end }}
 
 {{- with .Values.operator }}
   {{- with .nodeSelector }}

@@ -1,16 +1,14 @@
 import tempfile
+from typing import Dict
 
 import pytest
+from kubetester import read_secret, try_load
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import (
-    create_agent_tls_certs,
-    create_mongodb_tls_certs,
-    create_x509_user_cert,
-)
+from kubetester.certs import create_agent_tls_certs, create_mongodb_tls_certs, create_x509_user_cert
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import ReplicaSetTester
+from kubetester.mongotester import MongoTester, ReplicaSetTester, with_x509
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 
@@ -31,15 +29,15 @@ def server_certs(issuer: str, namespace: str) -> str:
 @pytest.fixture(scope="module")
 def replica_set(namespace, agent_certs, server_certs, issuer_ca_configmap):
     _ = server_certs
-    res = MongoDB.from_yaml(_fixture("test-x509-rs.yaml"), namespace=namespace)
-    res["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
-
-    return res.create()
+    resource = MongoDB.from_yaml(_fixture("test-x509-rs.yaml"), namespace=namespace)
+    resource["spec"]["security"]["tls"]["ca"] = issuer_ca_configmap
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_tls_x509_user_connectivity
@@ -47,7 +45,7 @@ class TestReplicaSetWithTLSCreation(KubernetesTester):
     def test_users_wanted_is_correct(self, replica_set, namespace):
         """At this stage we should have 2 members in the usersWanted list,
         monitoring-agent and backup-agent."""
-
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
         automation_config = KubernetesTester.get_automation_config()
@@ -110,3 +108,37 @@ class TestX509CorrectlyConfigured(KubernetesTester):
 
         assert "OU" in names
         assert "CN=mms-automation-agent" in user
+
+
+@pytest.mark.e2e_tls_x509_user_connectivity
+def test_x509_connection_string_secret_has_external_authsource(namespace: str):
+    # Secret name: {resource}-{user-object-name}-external  ($external strips the $)
+    secret_name = f"{MDB_RESOURCE}-test-x509-user-external"
+    secret: Dict[str, str] = read_secret(namespace, secret_name)
+
+    assert "connectionString.standard" in secret
+    assert "connectionString.standardSrv" in secret
+    assert "authSource=$external" in secret["connectionString.standard"]
+    assert "authSource=$external" in secret["connectionString.standardSrv"]
+
+
+@pytest.mark.e2e_tls_x509_user_connectivity
+def test_x509_connection_string_secret_can_connect(namespace: str, issuer: str, ca_path: str):
+    secret_name = f"{MDB_RESOURCE}-test-x509-user-external"
+    secret: Dict[str, str] = read_secret(namespace, secret_name)
+    cert_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
+    try:
+        create_x509_user_cert(issuer, namespace, path=cert_file.name)
+        x509_opts = with_x509(cert_file.name, ca_path)
+        MongoTester(
+            secret["connectionString.standard"],
+            use_ssl=True,
+            ca_path=ca_path,
+        ).assert_connectivity(opts=[x509_opts])
+        MongoTester(
+            secret["connectionString.standardSrv"],
+            use_ssl=True,
+            ca_path=ca_path,
+        ).assert_connectivity(opts=[x509_opts])
+    finally:
+        cert_file.close()

@@ -1,0 +1,26 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBSearch
+metadata:
+  name: mdb-rs
+spec:
+  logLevel: DEBUG
+  source:
+    mongodbResourceRef:
+      name: mdb-rs
+  security:
+    tls:
+      certsSecretPrefix: certs
+  clusters:
+    - # Cap mongot at 1 CPU so a multi-replica search deployment + RS + envoy
+      # fit on a single-host kind cluster without CPU starvation. Operator
+      # default is 2 CPU / 4Gi memory.
+      replicas: 2
+      loadBalancer:
+        managed: {}
+      resourceRequirements:
+        requests:
+          cpu: "500m"
+          memory: "2Gi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"

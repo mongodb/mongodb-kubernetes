@@ -9,8 +9,8 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 // GetResource populates the provided runtime.Object with some additional error handling

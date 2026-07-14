@@ -5,12 +5,12 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
@@ -26,10 +26,12 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			AgentConfig:                   &mdbm.Spec.Agent,
 			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
 			Labels:                        mdbm.GetOwnerLabels(),
+			OwnerReference:                nil,
 			MultiClusterMode:              true,
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
+			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
 			opt(&opts)
@@ -64,20 +66,8 @@ func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(options *construc
 	}
 }
 
-func WithAnnotations(resourceName string) func(options *construct.DatabaseStatefulSetOptions) {
-	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.Annotations = statefulSetAnnotations(resourceName)
-	}
-}
-
 func statefulSetName(mdbmName string, clusterNum int) string {
 	return fmt.Sprintf("%s-%d", mdbmName, clusterNum)
-}
-
-func statefulSetAnnotations(mdbmName string) map[string]string {
-	return map[string]string{
-		handler.MongoDBMultiResourceAnnotation: mdbmName,
-	}
 }
 
 func PodLabel(mdbmName string) map[string]string {

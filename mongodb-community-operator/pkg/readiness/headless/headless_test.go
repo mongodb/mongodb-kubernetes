@@ -19,7 +19,11 @@ func TestPerformCheckHeadlessMode(t *testing.T) {
 	ctx := context.Background()
 	c := testConfig()
 
-	c.ClientSet = fake.NewSimpleClientset(testdata.TestPod(c.Namespace, c.Hostname), testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 11))
+	c.ClientSet = fake.NewClientset(
+		testdata.TestPod(c.Namespace, c.Hostname),
+		testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 11),
+	)
+
 	status := health.Status{
 		MmsStatus: map[string]health.MmsDirectorStatus{c.Hostname: {
 			LastGoalStateClusterConfigVersion: 10,

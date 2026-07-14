@@ -1,6 +1,9 @@
 package stringutil
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // Ref is a convenience function which returns
 // a reference to the provided string
@@ -82,6 +85,15 @@ func Remove(slice []string, s string) (result []string) {
 		result = append(result, item)
 	}
 	return result
+}
+
+// EncodeUserinfoComponent percent-encodes a username or password for use in a
+// MongoDB connection string. Space is encoded as %20 (not +) so that pymongo's
+// unquote_plus and the Go driver both decode it correctly, and + is encoded as
+// %2B so pymongo does not decode it as a space.
+// https://github.com/mongodb/mongo-python-driver/blob/master/pymongo/uri_parser_shared.py#L146
+func EncodeUserinfoComponent(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
 // UpperCaseFirstChar ensures the message first char is uppercased.

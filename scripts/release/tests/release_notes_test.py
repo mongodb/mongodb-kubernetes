@@ -1,9 +1,6 @@
 from git import Repo
 
-from scripts.release.constants import (
-    DEFAULT_CHANGELOG_PATH,
-    DEFAULT_RELEASE_INITIAL_VERSION,
-)
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH, DEFAULT_RELEASE_INITIAL_VERSION
 from scripts.release.release_notes import generate_release_notes
 
 

@@ -1,22 +1,13 @@
 import kubernetes
 from kubetester import try_load
-from kubetester.certs import (
-    SetPropertiesMultiCluster,
-    generate_cert,
-    get_agent_x509_subject,
-    get_mongodb_x509_subject,
-)
+from kubetester.certs import SetPropertiesMultiCluster, generate_cert, get_agent_x509_subject, get_mongodb_x509_subject
 from kubetester.certs_mongodb_multi import create_multi_cluster_tls_certs
 from kubetester.kubetester import fixture as _fixture
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_clients,
-    get_member_cluster_names,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_clients, get_member_cluster_names
 from tests.multicluster.conftest import cluster_spec_list
 
 MDB_RESOURCE = "sharded-cluster-custom-certs"
@@ -98,9 +89,6 @@ def sharded_cluster(
         namespace=namespace,
     )
     mdb.api = kubernetes.client.CustomObjectsApi(get_central_cluster_client())
-    if try_load(mdb):
-        return mdb
-
     mdb["spec"]["security"] = {
         "authentication": {
             "enabled": True,
@@ -127,12 +115,13 @@ def sharded_cluster(
 
     mdb.set_architecture_annotation()
 
+    try_load(mdb)
     return mdb
 
 
 @mark.e2e_multi_cluster_sharded_tls
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_sharded_tls

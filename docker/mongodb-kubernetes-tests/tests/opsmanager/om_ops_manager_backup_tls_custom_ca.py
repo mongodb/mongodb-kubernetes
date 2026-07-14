@@ -2,6 +2,7 @@ import os
 import time
 from typing import Optional
 
+from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
@@ -10,17 +11,8 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    default_external_domain,
-    external_domain_fqdns,
-    is_multi_cluster,
-    update_coredns_hosts,
-)
-from tests.opsmanager.om_ops_manager_backup import (
-    BLOCKSTORE_RS_NAME,
-    OPLOG_RS_NAME,
-    S3_SECRET_NAME,
-)
+from tests.conftest import default_external_domain, external_domain_fqdns, is_multi_cluster, update_coredns_hosts
+from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME, S3_SECRET_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
@@ -125,7 +117,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -140,7 +132,7 @@ def oplog_replica_set(
     ).configure(ops_manager, "oplog")
     resource.configure_custom_tls(issuer_ca_configmap, oplog_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -156,7 +148,7 @@ def blockstore_replica_set(
     resource.configure_custom_tls(issuer_ca_configmap, blockstore_certs_secret)
     resource.set_version(ensure_ent_version(custom_mdb_version))
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -183,6 +175,7 @@ def test_update_coredns():
 @mark.e2e_om_ops_manager_backup_tls_custom_ca
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -215,7 +208,9 @@ class TestOpsManagerCreation:
         time.sleep(10)
 
     def test_backing_dbs_created(self, blockstore_replica_set: MongoDB, oplog_replica_set: MongoDB):
+        oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
+        blockstore_replica_set.update()
         blockstore_replica_set.assert_reaches_phase(Phase.Running)
 
     def test_oplog_running(self, oplog_replica_set: MongoDB, ca_path: str):
@@ -253,7 +248,7 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_version))
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, first_project_certs)
-        resource.update()
+        try_load(resource)
         return resource
 
     @fixture(scope="class")
@@ -273,7 +268,7 @@ class TestBackupForMongodb:
         resource.set_version(ensure_ent_version(custom_mdb_prev_version))
         resource.configure_backup(mode="enabled")
         resource.configure_custom_tls(issuer_ca_configmap, second_project_certs)
-        resource.update()
+        try_load(resource)
         return resource
 
     @fixture(scope="class")
@@ -297,12 +292,15 @@ class TestBackupForMongodb:
         resource["spec"]["members"] = 3
         resource["spec"]["externalAccess"] = {}
         resource["spec"]["externalAccess"]["externalDomain"] = default_external_domain()
-        resource.update()
+        try_load(resource)
         return resource
 
     def test_mdbs_created(self, mdb_latest: MongoDB, mdb_prev: MongoDB, mdb_external_domain: MongoDB):
+        mdb_latest.update()
         mdb_latest.assert_reaches_phase(Phase.Running)
+        mdb_prev.update()
         mdb_prev.assert_reaches_phase(Phase.Running)
+        mdb_external_domain.update()
         mdb_external_domain.assert_reaches_phase(Phase.Running)
 
     def test_mdbs_backed_up(self, ops_manager: MongoDBOpsManager):

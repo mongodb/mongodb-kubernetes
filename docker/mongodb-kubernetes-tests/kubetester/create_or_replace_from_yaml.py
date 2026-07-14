@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from os import path
 
 import yaml
@@ -10,7 +11,7 @@ from kubernetes.utils.create_from_yaml import create_from_yaml_single_item
 
 """
 This is a modification of 'create_from_yaml.py' from python kubernetes client library
-It allows to mimic the 'kubectl apply' operation on yaml file. It performs either create or 
+It allows to mimic the 'kubectl apply' operation on yaml file. It performs either create or
 patch on each individual object.
 """
 
@@ -53,7 +54,7 @@ def create_or_replace_from_yaml_single_item(k8s_client, yml_object, namespace="d
             pass
 
 
-def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **kwargs):
+def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", timeout=300, **kwargs):
     k8s_api = get_k8s_api(k8s_client, yml_object)
     kind = get_kind(yml_object)
     # Decide which namespace we are going to put the object in,
@@ -62,16 +63,24 @@ def patch_from_yaml_single_item(k8s_client, yml_object, namespace="default", **k
         namespace = yml_object["metadata"]["namespace"]
     name = yml_object["metadata"]["name"]
 
-    method = "patch"
     if kind == "custom_resource_definition":
-        # fetching the old CRD to make the replace working (has conflict resolution based on 'resourceVersion')
-        # TODO this is prone to race conditions - we need to either loop or use patch with json merge
-        # see https://github.com/helm/helm/pull/6092/files#diff-a483d6c0863082c3df21f4aad513afe2R663
-        resource = client.ApiextensionsV1Api().read_custom_resource_definition(name)
+        deadline = time.time() + timeout
+        last_error = None
+        while time.time() < deadline:
+            resource = client.ApiextensionsV1Api().read_custom_resource_definition(name)
+            yml_object["metadata"]["resourceVersion"] = resource.metadata.resource_version
+            try:
+                k8s_api.replace_custom_resource_definition(body=yml_object, name=name, **kwargs)
+                return
+            except client.rest.ApiException as e:
+                if e.status == 409:
+                    last_error = e
+                    time.sleep(1)
+                    continue
+                raise
+        raise Exception(f"Failed to replace CRD {name} after 300s: {last_error}")
 
-        yml_object["metadata"]["resourceVersion"] = resource.metadata.resource_version
-        method = "replace"
-
+    method = "patch"
     namespaced = hasattr(k8s_api, "{}_namespaced_{}".format("create", kind))
     url_path = get_url_path(namespaced, method)
 

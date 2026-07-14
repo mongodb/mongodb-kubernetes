@@ -1,6 +1,6 @@
 from typing import Optional
 
-from kubetester import get_default_storage_class
+from kubetester import get_default_storage_class, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -23,7 +23,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -36,32 +36,42 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
     resource.set_version(custom_mdb_version)
     resource["spec"]["members"] = 2
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @mark.e2e_om_localmode_multiple_pv
 class TestOpsManagerCreation:
     def test_ops_manager_ready(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1000)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_volume_mounts(self, ops_manager: MongoDBOpsManager):
         statefulset = ops_manager.read_statefulset()
 
-        # pod template has volume mount request
-        assert ("/mongodb-ops-manager/mongodb-releases", "mongodb-versions") in (
+        volume_mounts = [
             (mount.mount_path, mount.name) for mount in statefulset.spec.template.spec.containers[0].volume_mounts
-        )
+        ]
+
+        # pod template has volume mount request for mongodb-releases
+        assert ("/mongodb-ops-manager/mongodb-releases", "mongodb-versions") in volume_mounts
+
+        # pod template has volume mount request for /tmp (CLOUDP-339918)
+        assert ("/tmp", "om-tmp") in volume_mounts
 
     def test_pvcs(self, ops_manager: MongoDBOpsManager):
         for api_client, pod in ops_manager.read_om_pods():
             claims = [volume for volume in pod.spec.volumes if getattr(volume, "persistent_volume_claim")]
-            assert len(claims) == 1
+            assert len(claims) == 2
 
+            # Create a dict for easier lookup
+            claims_by_name = {claim.name: claim for claim in claims}
+
+            # Check mongodb-versions PVC
             KubernetesTester.check_single_pvc(
                 namespace=ops_manager.namespace,
-                volume=claims[0],
+                volume=claims_by_name["mongodb-versions"],
                 expected_name="mongodb-versions",
                 expected_claim_name="mongodb-versions-{}".format(pod.metadata.name),
                 expected_size="20G",
@@ -69,9 +79,21 @@ class TestOpsManagerCreation:
                 api_client=api_client,
             )
 
+            # Check om-tmp PVC (CLOUDP-339918)
+            KubernetesTester.check_single_pvc(
+                namespace=ops_manager.namespace,
+                volume=claims_by_name["om-tmp"],
+                expected_name="om-tmp",
+                expected_claim_name="om-tmp-{}".format(pod.metadata.name),
+                expected_size="5Gi",
+                storage_class=get_default_storage_class(),
+                api_client=api_client,
+            )
+
     def test_replica_set_reaches_failed_phase(self, replica_set: MongoDB):
         # CLOUDP-61573 - we don't get the validation error on automation config submission if the OM has no
         # distros for local mode - so just wait until the agents don't reach goal state
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Failed, timeout=300)
 
     def test_add_mongodb_distros(self, ops_manager: MongoDBOpsManager, custom_mdb_version: str):

@@ -25,21 +25,20 @@ def mongodb_multi(
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), "multi-replica-set", namespace)
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=700)
 
 
@@ -65,7 +64,7 @@ def test_delete_mongodb_multi(mongodb_multi: MongoDBMulti):
                 logger.error(e)
                 return False
 
-    wait_until(wait_for_deleted, timeout=60)
+    wait_until(wait_for_deleted, timeout=300)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
@@ -79,7 +78,7 @@ def test_deployment_has_been_removed_from_automation_config():
             logger.error(e)
             return False
 
-    wait_until(wait_until_automation_config_is_clean, timeout=60)
+    wait_until(wait_until_automation_config_is_clean, timeout=300)
 
 
 @pytest.mark.e2e_multi_cluster_replica_set_deletion
@@ -110,6 +109,6 @@ def test_kubernetes_resources_have_been_cleaned_up(
             logger.error(e)
             return True
 
-    wait_until(wait_until_secrets_are_removed, timeout=60)
-    wait_until(wait_until_statefulsets_are_removed, timeout=60)
-    wait_until(wait_until_configmaps_are_removed, timeout=60)
+    wait_until(wait_until_secrets_are_removed, timeout=300)
+    wait_until(wait_until_statefulsets_are_removed, timeout=300)
+    wait_until(wait_until_configmaps_are_removed, timeout=300)

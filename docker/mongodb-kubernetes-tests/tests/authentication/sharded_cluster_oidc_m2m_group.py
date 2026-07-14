@@ -9,10 +9,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
 from kubetester.phase import Phase
 from pytest import fixture
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_mongos_service_names
 
 MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 
@@ -20,11 +17,9 @@ MDB_RESOURCE = "oidc-sharded-cluster-replica-set"
 @fixture(scope="module")
 def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("oidc/sharded-cluster-replica-set.yaml"), namespace=namespace)
-    if try_load(resource):
-        return resource
 
     oidc_provider_configs = resource.get_oidc_provider_configs()
-
+    assert oidc_provider_configs
     oidc_provider_configs[0]["clientId"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["audience"] = oidc.get_cognito_workload_client_id()
     oidc_provider_configs[0]["issuerURI"] = oidc.get_cognito_workload_url()
@@ -39,17 +34,19 @@ def sharded_cluster(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_sharded_cluster_oidc_m2m_group
 class TestCreateOIDCShardedCluster(KubernetesTester):
 
     def test_create_sharded_cluster(self, sharded_cluster: MongoDB):
+        sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=800)
 
     def test_assert_connectivity(self, sharded_cluster: MongoDB):
-        service_names = None
+        service_names: list[str] | None = None
         if is_multi_cluster():
             service_names = get_mongos_service_names(sharded_cluster)
         tester = sharded_cluster.tester(service_names=service_names)

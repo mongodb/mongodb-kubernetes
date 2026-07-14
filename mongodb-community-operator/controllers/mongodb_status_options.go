@@ -5,9 +5,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/apierrors"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/apierrors"
 )
 
 // severity indicates the severity level

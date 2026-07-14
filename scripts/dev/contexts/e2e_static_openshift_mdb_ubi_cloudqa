@@ -22,3 +22,9 @@ export OPENSHIFT_URL="${openshift_url}"
 # shellcheck disable=SC2154
 export OPENSHIFT_TOKEN="${openshift_token}"
 export MDB_DEFAULT_ARCHITECTURE=static
+
+# Enable parallel test execution on shared OpenShift cluster.
+# The webhook (ValidatingWebhookConfiguration) is cluster-scoped, so each test needs a unique name.
+if [[ -n "${NAMESPACE:-}" ]]; then
+  export MDB_WEBHOOK_NAME="mdbpolicy.${NAMESPACE}.mongodb.com"
+fi

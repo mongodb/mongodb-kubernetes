@@ -41,3 +41,83 @@ evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -
 ```shell
 evergreen patch -p mongodb-kubernetes -a release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
+
+### Release-style preflight only (no image push, no Pyxis submit)
+
+Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run **`release_images`** (nothing is built/pushed) and sets **`preflight_submit: false`** (check only).
+
+You must pass versions for tags that **already exist on Quay** (typically match **`release.json`** on your branch: **`mongodbOperator`**, readiness hook versions, etc.).
+
+```shell
+evergreen patch -p mongodb-kubernetes -a preflight_release_test \
+  -d "Test release preflight only" -f -y -u --path .evergreen.yml \
+  --param BUILD_SCENARIO=release \
+  --param OPERATOR_VERSION=1.8.0
+```
+
+Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
+
+## E2E Test Path Filtering on PRs
+
+Evergreen uses two levels of file-based filtering on PRs:
+
+- **Project-level `ignore:`** (top of `.evergreen.yml`): files that never trigger any build (e.g. `*.md`, `.github/**`, `changelog/**`). Add entries here for files that are purely non-functional.
+- **Variant-level `paths:`** (`production_code_paths` anchor in `.evergreen.yml`): controls which variants run. E2e variants use a denylist (`**` minus `ci/**` and the release config) so they skip CI-only changes but run for everything else.
+
+If your PR only touches ignored files, Evergreen sends a synthetic green status with no builds. If it touches non-ignored files that don't match the e2e `paths:`, static/lint variants still run but e2e is skipped.
+
+To trigger e2e manually on a PR:
+
+```shell
+evergreen patch -p mongodb-kubernetes -a pr_patch_e2e -d "Manual e2e run" -f -y -u
+```
+
+To add a new file type that should never trigger any build, add it to `ignore:` in `.evergreen.yml`. To make it skip e2e but still run lint/static, add a negation to `production_code_paths` instead.
+
+## Manual Variant Aliases
+
+Some CI variants are excluded from automatic PR runs to save compute time. These variants only run automatically on master commits but can be triggered manually when needed.
+
+### Available Aliases
+
+| Alias | Description | Runs on PRs | Variants Included |
+|-------|-------------|-------------|-------------------|
+| `static` | Static container variants | Yes | `e2e_static_mdb_kind_ubi_cloudqa`, `e2e_static_multi_cluster_*`, etc. |
+| `om7` | Ops Manager 7.0 variants | **No** | `e2e_om70_kind_ubi`, `e2e_static_om70_kind_ubi`, `build_om70_images` |
+| `race` | Race detector variant | **No** | `e2e_operator_race_ubi_with_telemetry` |
+
+### Usage
+
+Run these aliases when your PR changes might affect the excluded variants:
+
+```shell
+# Run OM7 variants (static and non-static)
+evergreen patch --alias om7
+
+# Run race detector variant
+evergreen patch --alias race
+
+# Run all static container variants (convenience alias, already runs on PRs)
+evergreen patch --alias static
+```
+
+### When to Use
+
+- **om7**: Changes affecting Ops Manager 7.0 compatibility
+- **race**: Changes to concurrent code, goroutines, or shared state
+
+## Quarantined Tests
+
+E2e tests blocked on a known issue outside our control (e.g. an upstream regression) are
+tagged `quarantined` and set `patchable: false` in `.evergreen-tasks.yml`. This means they
+never run in PR or manual patches, but **do** run automatically on every master merge commit,
+so a known failure still correctly marks that commit as not releasable — quarantining never
+silently hides a failure from the release gate.
+
+List quarantined tests: `grep -B1 'tags:.*"quarantined"' .evergreen-tasks.yml` (or filter by
+tag `quarantined` in the Evergreen UI). Each test file has a comment linking the tracking
+ticket.
+
+Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
+check whether the upstream issue is fixed is to look at the task's result on master, or
+temporarily flip `patchable: true` in a throwaway branch.

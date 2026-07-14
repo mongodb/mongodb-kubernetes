@@ -107,7 +107,6 @@ def install_operator(
         central_cluster_client,
         member_cluster_clients,
         {
-            "operator.deployment_name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
@@ -190,7 +189,7 @@ def test_delete_cluster_role_and_binding(
 
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_deploy_operator(install_operator: Operator):
-    install_operator.assert_is_running()
+    install_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
@@ -308,15 +307,15 @@ def test_delete_database_statefulsets_in_failed_cluster(
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_mongodb_multi_nsa_enters_failed_stated(mongodb_multi_a: MongoDBMulti):
+def test_mongodb_multi_nsa_is_stable(mongodb_multi_a: MongoDBMulti):
     mongodb_multi_a.load()
-    mongodb_multi_a.assert_reaches_phase(Phase.Failed, timeout=100)
+    mongodb_multi_a.assert_reaches_phase(Phase.Running, timeout=100)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
-def test_mongodb_multi_nsb_enters_failed_stated(mongodb_multi_b: MongoDBMulti):
+def test_mongodb_multi_nsb_is_stable(mongodb_multi_b: MongoDBMulti):
     mongodb_multi_b.load()
-    mongodb_multi_b.assert_reaches_phase(Phase.Failed, timeout=100)
+    mongodb_multi_b.assert_reaches_phase(Phase.Running, timeout=100)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
@@ -334,8 +333,7 @@ def test_recover_operator_remove_cluster(
         namespace=namespace,
         api_client=central_cluster_client,
     )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

@@ -4,7 +4,14 @@ import kubernetes
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import delete_statefulset, get_statefulset, wait_until
+from kubetester import (
+    delete_statefulset,
+    get_statefulset,
+    try_load,
+    wait_for_statefulset_ready,
+    wait_for_statefulset_recreated,
+    wait_until,
+)
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -12,11 +19,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import (
-    assert_log_rotation_process,
-    member_cluster_clients,
-    setup_log_rotate_for_agents,
-)
+from tests.conftest import assert_log_rotation_process, member_cluster_clients, setup_log_rotate_for_agents
 from tests.multicluster.conftest import cluster_spec_list
 
 MONGODB_PORT = 30000
@@ -52,7 +55,7 @@ def mongodb_multi(
 
     resource.set_architecture_annotation()
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -68,11 +71,12 @@ def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: st
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=2000)
 
 
@@ -103,6 +107,26 @@ def test_statefulset_is_created_across_multiple_clusters(
         return False
 
     wait_until(statefulsets_are_ready, timeout=600)
+
+
+@pytest.mark.e2e_multi_cluster_replica_set
+def test_statefulsets_multi_cluster_identity(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Regression test: multi-cluster StatefulSets must carry no ownerReferences.
+
+    A cross-cluster ownerReference points to a CR that does not exist in the member cluster.
+    The Kubernetes GC treats the StatefulSet as an orphan and deletes it immediately, causing
+    an infinite create-delete reconciliation loop. Cleanup on CR deletion is handled through
+    explicit label-based deletion instead."""
+    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+    for cluster_name, sts in statefulsets.items():
+        owner_refs = sts.metadata.owner_references
+        assert not owner_refs, (
+            f"StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no "
+            f"ownerReferences in multi-cluster mode, but got: {owner_refs}"
+        )
 
 
 @pytest.mark.e2e_multi_cluster_replica_set
@@ -206,18 +230,8 @@ def test_delete_member_cluster_sts(
         name=sts_name,
         api_client=api_client,
     )
-
-    def check_if_sts_was_recreated() -> bool:
-        try:
-            sts = get_statefulset(namespace, sts_name, api_client)
-            return sts.metadata.uid != sts_old.metadata.uid
-        except ApiException as e:
-            if e.status == 404:
-                return False
-            else:
-                raise e
-
-    wait_until(check_if_sts_was_recreated, timeout=120)
+    wait_for_statefulset_recreated(namespace, sts_name, sts_old.metadata.uid, api_client=api_client)
+    wait_for_statefulset_ready(namespace, sts_name, api_client=api_client, timeout=800)
 
     # the operator should reconcile and recreate the statefulset
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)

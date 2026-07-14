@@ -1,9 +1,6 @@
 import json
 from typing import Dict, List
 
-DEFAULT_SUPPORTED_OPERATOR_VERSIONS = 3
-LATEST_OPERATOR_VERSION = 1
-
 
 def get_release() -> Dict[str, str]:
     return json.load(open("release.json"))

@@ -52,7 +52,7 @@ class Operator(object):
         # The Operator will be installed from the following repo, so adding it first
         helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path, operator_version)
+        helm_chart_path, operator_version = helm_chart_path_and_version(helm_chart_path or "", operator_version or "")
 
         if helm_args is None:
             helm_args = {}
@@ -79,8 +79,8 @@ class Operator(object):
         This is equal to helm template...| kubectl apply -"""
         yaml_file = helm_template(self.helm_arguments, helm_chart_path=self.helm_chart_path)
         create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
-        self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready()
+        self.wait_for_operator_ready()
+        self.wait_for_operator_webhook_ready()
 
         return self
 
@@ -90,15 +90,15 @@ class Operator(object):
             custom_operator_version = self.operator_version
 
         helm_install(
-            self.name,
+            self.name or "",
             self.namespace,
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
             helm_options=self.helm_options,
             custom_operator_version=custom_operator_version,
         )
-        self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready()
+        self.wait_for_operator_ready()
+        self.wait_for_operator_webhook_ready()
 
         return self
 
@@ -110,7 +110,7 @@ class Operator(object):
             custom_operator_version = self.operator_version
 
         helm_upgrade(
-            self.name,
+            self.name or "",
             self.namespace,
             self.helm_arguments,
             helm_chart_path=self.helm_chart_path,
@@ -118,8 +118,8 @@ class Operator(object):
             custom_operator_version=custom_operator_version,
             apply_crds_first=apply_crds_first,
         )
-        self._wait_for_operator_ready()
-        self._wait_operator_webhook_is_ready(multi_cluster=multi_cluster)
+        self.wait_for_operator_ready()
+        self.wait_for_operator_webhook_ready(multi_cluster=multi_cluster)
 
         return self
 
@@ -145,10 +145,7 @@ class Operator(object):
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
-    def assert_is_running(self):
-        self._wait_for_operator_ready()
-
-    def _wait_for_operator_ready(self, retries: int = 60):
+    def wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
 
         # we don't want to wait for the operator if the operator is running locally and not in a pod
@@ -177,64 +174,8 @@ class Operator(object):
 
         raise Exception(f"Operator hasn't started in specified time after {retries} retries.")
 
-    def _wait_operator_webhook_is_ready(self, retries: int = 10, multi_cluster: bool = False):
-
-        # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
-        from tests.conftest import get_cluster_domain, local_operator
-
-        if local_operator():
-            return
-
-        # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
-        # so we skip this extra check for multi-cluster
-        from tests.conftest import get_central_cluster_name, get_test_pod_cluster_name
-
-        if multi_cluster and get_central_cluster_name() != get_test_pod_cluster_name():
-            logger.info(
-                f"Skipping waiting for the webhook as we cannot call the webhook endpoint from a test_pod_cluster ({get_test_pod_cluster_name()}) "
-                f"to central cluster ({get_central_cluster_name()}); sleeping for 10s instead"
-            )
-            # We need to sleep here otherwise the function returns too early and we create a race condition in tests
-            time.sleep(10)
-            return
-
-        webhook_services = client.CoreV1Api().list_namespaced_service(self.namespace)
-        logger.debug("Listing webhook services...")
-        for svc in webhook_services.items:
-            if "webhook" in svc.metadata.name:
-                logger.debug(
-                    f"Service: {svc.metadata.name}, ClusterIP: {svc.spec.cluster_ip}, Ports: {svc.spec.ports}, Selector: {svc.spec.selector}"
-                )
-
-        logger.debug("_wait_operator_webhook_is_ready")
-        validation_endpoint = "validate-mongodb-com-v1-mongodb"
-        webhook_endpoint = "https://operator-webhook.{}.svc.{}/{}".format(
-            self.namespace, get_cluster_domain(), validation_endpoint
-        )
-        headers = {"Content-Type": "application/json"}
-        logger.debug(f"Webhook_endpoint: {webhook_endpoint}")
-        retry_count = retries + 1
-        while retry_count > 0:
-            retry_count -= 1
-            logger.debug("Waiting for operator/webhook to be functional")
-            try:
-                response = requests.post(webhook_endpoint, headers=headers, verify=False, timeout=2)
-            except Exception as e:
-                logger.warning(e)
-                time.sleep(2)
-                continue
-
-            try:
-                # Let's assume that if we get a json response, then the webhook
-                # is already in place.
-                response.json()
-            except Exception:
-                logger.warning("Didn't get a json response from webhook")
-            else:
-                return
-            time.sleep(2)
-
-        raise Exception("Operator webhook didn't start after {} retries".format(retries))
+    def wait_for_operator_webhook_ready(self, retries: int = 10, multi_cluster: bool = False):
+        return wait_for_webhook(namespace=self.namespace, retries=retries, multi_cluster=multi_cluster)
 
     def print_diagnostics(self):
         logger.info("Operator Deployment: ")
@@ -245,9 +186,6 @@ class Operator(object):
             logger.info("Operator pods: %d", len(pods))
             logger.info("Operator spec: %s", pods[0].spec)
             logger.info("Operator status: %s", pods[0].status)
-
-    def wait_for_webhook(self, retries=5, delay=5):
-        return wait_for_webhook(namespace=self.namespace, retries=retries, delay=delay)
 
     def disable_webhook(self):
         webhook_api = client.AdmissionregistrationV1Api()
@@ -282,7 +220,7 @@ class Operator(object):
             [{"op": "replace", "path": "/spec/replicas", "value": 1}],
         )
 
-        return self._wait_for_operator_ready()
+        return self.wait_for_operator_ready()
 
 
 def delete_operator_crds():

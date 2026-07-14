@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,10 +21,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
@@ -39,25 +42,18 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1_controllers "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/agent"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/authentication/scram"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/generate"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/result"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/scale"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scram"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -65,6 +61,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/timeutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -86,8 +85,8 @@ const (
 	// Used to convey to the operator to force reconfigure agent. At the moment
 	// it is used for DR in case of Multi-Cluster AppDB when after a cluster outage
 	// there is no primary in the AppDB deployment.
-	ForceReconfigureAnnotation = "mongodb.com/v1.forceReconfigure"
-
+	ForceReconfigureAnnotation                  = "mongodb.com/v1.forceReconfigure"
+	trueString                                  = "true"
 	ForcedReconfigureAlreadyPerformedAnnotation = "mongodb.com/v1.forceReconfigurePerformed"
 )
 
@@ -119,17 +118,22 @@ type ReconcileAppDbReplicaSet struct {
 	stateStore      *StateStore[AppDBDeploymentState]
 	deploymentState *AppDBDeploymentState
 
-	imageUrls        images.ImageUrls
-	initAppdbVersion string
+	imageUrls           images.ImageUrls
+	initDatabaseVersion string
+
+	ownerReferences     []metav1.OwnerReference
+	defaultArchitecture architectures.DefaultArchitecture
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initAppdbVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, appDBSpec omv1.AppDBSpec, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, omAnnotations map[string]string, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger, ownerReferences []metav1.OwnerReference) (*ReconcileAppDbReplicaSet, error) {
 	reconciler := &ReconcileAppDbReplicaSet{
 		ReconcileCommonController: commonController,
 		omConnectionFactory:       omConnectionFactory,
 		centralClient:             commonController.client,
 		imageUrls:                 imageUrls,
-		initAppdbVersion:          initAppdbVersion,
+		initDatabaseVersion:       initDatabaseVersion,
+		ownerReferences:           ownerReferences,
+		defaultArchitecture:       defaultArchitecture,
 	}
 
 	if err := reconciler.initializeStateStore(ctx, appDBSpec, omAnnotations, log); err != nil {
@@ -148,7 +152,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 func (r *ReconcileAppDbReplicaSet) initializeStateStore(ctx context.Context, appDBSpec omv1.AppDBSpec, omAnnotations map[string]string, log *zap.SugaredLogger) error {
 	r.deploymentState = NewAppDBDeploymentState()
 
-	r.stateStore = NewStateStore[AppDBDeploymentState](&appDBSpec, r.centralClient)
+	r.stateStore = NewStateStore[AppDBDeploymentState](&appDBSpec, r.ownerReferences, r.centralClient)
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
@@ -286,6 +290,7 @@ func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Contex
 	mappingConfigMap := configmap.Builder().
 		SetName(spec.ClusterMappingConfigMapName()).
 		SetLabels(spec.GetOwnerLabels()).
+		SetOwnerReferences(r.ownerReferences).
 		SetNamespace(spec.Namespace).
 		SetData(mappingConfigMapData).
 		Build()
@@ -302,6 +307,7 @@ func (r *ReconcileAppDbReplicaSet) writeLegacyStateConfigMaps(ctx context.Contex
 	specConfigMap := configmap.Builder().
 		SetName(spec.LastAppliedMemberSpecConfigMapName()).
 		SetLabels(spec.GetOwnerLabels()).
+		SetOwnerReferences(r.ownerReferences).
 		SetNamespace(spec.Namespace).
 		SetData(specConfigMapData).
 		Build()
@@ -527,6 +533,14 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring Ops Manager user password: %w", err)), log, appDbStatusOption)
 	}
 
+	// We cannot allow removing cluster specification if the cluster is not scaled down to zero.
+	// For example: we have 3 members in a cluster, and we try to remove the entire cluster spec. The operator is scaling members down one by one.
+	// We could remove one member successfully, but recreate other members with default configuration, rather the one that was used before.
+	// Removing cluster spec would remove all non-default cluster configuration i.e. priority, persistence, etc. and that can lead to unexpected issues.
+	if err := r.blockNonEmptyClusterSpecItemRemoval(rs); err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log)
+	}
+
 	// if any of the processes have been marked as disabled, we don't reconcile the AppDB.
 	// This could be the case if we want to disable a process to perform a manual backup of the AppDB.
 	shouldReconcile, err := r.shouldReconcileAppDB(ctx, opsManager, log)
@@ -535,7 +549,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	if !shouldReconcile {
 		log.Info("Skipping reconciliation for AppDB because at least one of the processes has been disabled. To reconcile the AppDB all process need to be enabled in automation config")
-		return result.OK()
+		return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption)
 	}
 
 	var appdbSecretPath string
@@ -576,10 +590,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitAppdbImageUrlEnv, r.initAppdbVersion),
-		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations()),
+		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
+		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture),
 	}
-	if architectures.IsRunningStaticArchitecture(opsManager.Annotations) {
+	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {
 		if !rs.PodSpec.IsAgentImageOverridden() {
 			// Because OM is not available when starting AppDB, we read the version from the mapping
 			// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
@@ -590,7 +604,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
 			}
 
-			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, agentVersion)
+			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, agentVersion)
 		}
 	} else {
 		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.
@@ -600,12 +614,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
 		}
 
-		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, mcoConstruct.AgentImageEnv, legacyMonitoringAgentVersion)
+		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, util.AgentImageEnv, legacyMonitoringAgentVersion)
 
 		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
-		appdbOpts.AgentImage = r.imageUrls[mcoConstruct.AgentImageEnv]
+		appdbOpts.AgentImage = r.imageUrls[util.AgentImageEnv]
 	}
 
 	workflowStatus := r.ensureTLSSecretAndCreatePEMIfNeeded(ctx, opsManager, log)
@@ -711,7 +725,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		opsManager.Annotations = map[string]string{}
 	}
 
-	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == "true" {
+	if val, ok := opsManager.Annotations[ForceReconfigureAnnotation]; ok && val == trueString {
 		annotationsToAdd := map[string]string{ForcedReconfigureAlreadyPerformedAnnotation: timeutil.Now()}
 
 		err := annotations.SetAnnotations(ctx, opsManager, annotationsToAdd, r.client)
@@ -722,7 +736,21 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	log.Infof("Finished reconciliation for AppDB ReplicaSet!")
 
-	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...))
+	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...), status.NewPVCsStatusOptionEmptyStatus())
+}
+
+func (r *ReconcileAppDbReplicaSet) blockNonEmptyClusterSpecItemRemoval(appDBSpec omv1.AppDBSpec) error {
+	for _, memberCluster := range r.memberClusters {
+		searchFunc := func(item mdbv1.ClusterSpecItem) bool {
+			return item.ClusterName == memberCluster.Name
+		}
+
+		if !slices.ContainsFunc(appDBSpec.GetClusterSpecList(), searchFunc) && memberCluster.Replicas > 0 {
+			return xerrors.Errorf("Cannot remove member cluster %s with non-zero members count. Please scale down members to zero first", memberCluster.Name)
+		}
+	}
+
+	return nil
 }
 
 func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
@@ -1172,7 +1200,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
 			if acType == monitoring {
-				addMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
+				configureMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
 				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
 				automationConfig.Processes = []automationconfig.Process{}
 			}
@@ -1201,7 +1229,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	}
 
 	if acType == automation && opsManager.Spec.AppDB.AutomationConfigOverride != nil {
-		acToMerge := mdbcv1_controllers.OverrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
+		acToMerge := overrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
 		ac = merge.AutomationConfigs(ac, acToMerge)
 	}
 
@@ -1242,7 +1270,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 // it checks this with the user provided annotation and if the operator has actually performed a force reconfigure already
 func shouldPerformForcedReconfigure(annotations map[string]string) bool {
 	if val, ok := annotations[ForceReconfigureAnnotation]; ok {
-		if val == "true" {
+		if val == trueString {
 			if _, ok := annotations[ForcedReconfigureAlreadyPerformedAnnotation]; !ok {
 				return true
 			}
@@ -1396,7 +1424,7 @@ func buildPrometheusModification(ctx context.Context, sClient secrets.SecretClie
 		promConfig.Password = password
 
 		if prom.Port > 0 {
-			promConfig.ListenAddress = fmt.Sprintf("%s:%d", mdbcv1_controllers.ListenAddress, prom.Port)
+			promConfig.ListenAddress = fmt.Sprintf("%s:%d", listenAddress, prom.Port)
 		}
 
 		if prom.MetricsPath != "" {
@@ -1417,37 +1445,36 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func addMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
 	if len(ac.Processes) == 0 {
 		return
 	}
+
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
-		found := false
-		for _, m := range monitoringVersions {
-			if m.Hostname == p.HostName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			monitoringVersion := automationconfig.MonitoringVersion{
-				Hostname: p.HostName,
+		hostname := p.HostName
+		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
+
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m automationconfig.MonitoringVersion) bool {
+			return m.Hostname == hostname
+		})
+
+		if foundIdx == -1 {
+			mv := automationconfig.MonitoringVersion{
+				Hostname: hostname,
 				Name:     om.MonitoringAgentDefaultVersion,
 			}
 			if tls {
-				additionalParams := map[string]string{
-					"useSslForAllConnections":      "true",
-					"sslTrustedServerCertificates": appdbCAFilePath,
-				}
-				pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile")
-				if pemKeyFile != nil {
-					additionalParams["sslClientCertificate"] = pemKeyFile.String()
-				}
-				monitoringVersion.AdditionalParams = additionalParams
+				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
 			}
-			log.Debugw("Added monitoring agent configuration", "host", p.HostName, "tls", tls)
-			monitoringVersions = append(monitoringVersions, monitoringVersion)
+			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
+			monitoringVersions = append(monitoringVersions, mv)
+		} else {
+			if tls {
+				monitoringVersions[foundIdx].AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
+			} else {
+				om.ClearTLSParams(monitoringVersions[foundIdx].AdditionalParams)
+			}
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions
@@ -1491,6 +1518,22 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 			}
 		}
 	}
+
+	// Remove hosts that are no longer in the desired list (scale-down scenario)
+	desiredHostnames := make(map[string]struct{})
+	for _, h := range hostnames {
+		desiredHostnames[h] = struct{}{}
+	}
+
+	for _, existingHost := range getHostsResult.Results {
+		if _, wanted := desiredHostnames[existingHost.Hostname]; !wanted {
+			log.Debugf("Removing AppDB host %s from monitoring as it's no longer needed", existingHost.Hostname)
+			if err := conn.RemoveHost(existingHost.Id); err != nil {
+				return xerrors.Errorf("error removing appdb host %s: %w", existingHost.Hostname, err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1557,7 +1600,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		}
 		password, err := secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 		if err != nil {
-			if secrets.SecretNotExist(err) {
+			if secret.SecretNotExist(err) {
 				log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 				return r.generatePasswordAndCreateSecret(ctx, opsManager, log)
 			}
@@ -1577,7 +1620,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		// delete the auto generated password, we don't need it anymore. We can just generate a new one if
 		// the user password is deleted
 		log.Debugf("Deleting Operator managed password secret/%s from namespace %s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Namespace)
-		if err := r.DeleteSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secrets.SecretNotExist(err) {
+		if err := r.DeleteSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secret.SecretNotExist(err) {
 			return "", err
 		}
 		return password, nil
@@ -1587,7 +1630,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 	appDbPasswordSecretStringData, err := secret.ReadStringData(ctx, r.SecretClient, secretObjectKey)
 
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		// create the password
 		if password, err := r.generatePasswordAndCreateSecret(ctx, opsManager, log); err != nil {
 			return "", err
@@ -1638,8 +1681,12 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 	cred, err := project.ReadCredentials(ctx, r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
-		log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
-		return env.PodEnvVars{}, nil
+		if secret.SecretNotExist(err) {
+			log.Debugf("Ops Manager has not yet been created, not configuring monitoring: %s", err)
+			return env.PodEnvVars{}, nil
+		}
+
+		return env.PodEnvVars{}, xerrors.Errorf("error reading opsManager credentials: %w", err)
 	}
 	log.Debugf("Ensuring monitoring of AppDB is configured in Ops Manager")
 
@@ -1666,8 +1713,9 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		AutoUser:           util.AutomationAgentUserName,
 		AutoPEMKeyFilePath: agentCertPath,
 		CAFilePath:         util.CAFilePathInContainer,
+		MongoDBResource:    types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name},
 	}
-	err = authentication.Configure(conn, opts, false, log)
+	err = authentication.Configure(ctx, r.client, conn, opts, false, log)
 	if err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+
@@ -1731,6 +1779,7 @@ func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMapForCluster(ctx contex
 	cm := configmap.Builder().
 		SetName(opsManager.Spec.AppDB.ProjectIDConfigMapName()).
 		SetLabels(opsManager.GetOwnerLabels()).
+		SetOwnerReferences(opsManager.AppDBOwnerReferenceForMemberCluster()).
 		SetNamespace(opsManager.Namespace).
 		SetDataField(util.AppDbProjectIdKey, projectID).
 		Build()
@@ -1787,10 +1836,9 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 }
 
 func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Context, cmName string, opsManager *omv1.MongoDBOpsManager, version int, memberCluster multicluster.MemberCluster) workflow.Status {
-	labels := opsManager.GetOwnerLabels()
-
 	acVersionConfigMap := configmap.Builder().
-		SetLabels(labels).
+		SetLabels(opsManager.GetOwnerLabels()).
+		SetOwnerReferences(opsManager.AppDBOwnerReferenceForMemberCluster()).
 		SetNamespace(opsManager.Namespace).
 		SetName(cmName).
 		SetDataField(appDBACConfigMapVersionField, fmt.Sprintf("%d", version)).
@@ -1863,10 +1911,16 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 	}
 	currentClusterSpecs := map[string]int{}
 	scalingFirstTime := false
+
 	// iterate over all clusters to scale even unhealthy ones
 	// currentClusterSpecs map is maintained for scaling therefore we need to update it here
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range r.getAllMemberClusters() {
 		scaler := scalers.GetAppDBScaler(opsManager, memberCluster.Name, r.getMemberClusterIndex(memberCluster.Name), r.memberClusters)
+		if scaler.ScalingFirstTime() {
+			scalingFirstTime = true
+		}
+
 		replicasThisReconciliation := scale.ReplicasThisReconciliation(scaler)
 		currentClusterSpecs[memberCluster.Name] = replicasThisReconciliation
 
@@ -1883,41 +1937,38 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 		updateStrategy := r.GetAppDBUpdateStrategyType(opsManager)
 
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, updateStrategy, log)
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, updateStrategy, r.defaultArchitecture, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))
 		}
 
-		if workflowStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log); !workflowStatus.IsOK() {
-			return workflowStatus
+		mutatedSts, deployStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log)
+		if !deployStatus.IsOK() {
+			return deployStatus
 		}
 
-		// we want to deploy all stateful sets the first time we're deploying stateful sets
-		if scaler.ScalingFirstTime() {
-			scalingFirstTime = true
-			continue
-		}
+		expectedGeneration := mutatedSts.GetGeneration()
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), expectedGeneration, memberCluster.Client)
 
-		if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
-			return workflowStatus
-		}
-
-		if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
-			return workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err))
-		}
-	}
-
-	// if this is the first time deployment, then we need to wait for all stateful sets to become ready after deploying all of them
-	if scalingFirstTime {
-		for _, memberCluster := range r.GetHealthyMemberClusters() {
-			if workflowStatus := statefulset.GetStatefulSetStatus(ctx, opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(memberCluster.Index), memberCluster.Client); !workflowStatus.IsOK() {
-				return workflowStatus
-			}
-
+		if statefulsetStatus.IsOK() {
 			if err := statefulset.ResetUpdateStrategy(ctx, opsManager.GetVersionedImplForMemberCluster(r.getMemberClusterIndex(memberCluster.Name)), memberCluster.Client); err != nil {
 				return workflow.Failed(xerrors.Errorf("can't reset AppDB StatefulSet UpdateStrategyType: %w", err))
 			}
 		}
+
+		// if not scaling for the first time we want to deploy statefulsets one by one
+		if !scalingFirstTime {
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
+			}
+		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
+	}
+
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
 	for k, v := range currentClusterSpecs {
@@ -1952,13 +2003,13 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 					svc.Annotations = processedAnnotations
 				}
 
-				if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !apiErrors.IsAlreadyExists(err) {
+				if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !apiErrors.IsAlreadyExists(err) {
 					return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}
 			} else {
 				svcName := opsManager.Spec.AppDB.GetExternalServiceName(memberCluster.Index, podIdx)
 				namespacedName := kube.ObjectKey(opsManager.Spec.AppDB.Namespace, svcName)
-				if err := mekoService.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
+				if err := service.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
 					return xerrors.Errorf("failed to remove external service %s in cluster: %s, err: %w", svcName, memberCluster.Name, err)
 				}
 			}
@@ -1967,7 +2018,7 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 			if opsManager.Spec.AppDB.IsMultiCluster() && opsManager.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name) == nil {
 				svc := getAppDBPodService(opsManager.Spec.AppDB, memberCluster.Index, podIdx)
 				svc.Name = dns.GetMultiServiceName(opsManager.Spec.AppDB.Name(), memberCluster.Index, podIdx)
-				err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc)
+				err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc)
 				if err != nil && !apiErrors.IsAlreadyExists(err) {
 					return xerrors.Errorf("failed to create service: %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 				}
@@ -1979,24 +2030,25 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 }
 
 // deployStatefulSetInMemberCluster updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) (*appsv1.StatefulSet, workflow.Status) {
 	workflowStatus := create.HandlePVCResize(ctx, r.getMemberCluster(memberClusterName).Client, &appDbSts, log)
 	if !workflowStatus.IsOK() {
-		return workflowStatus
+		return nil, workflowStatus
 	}
 
 	if workflow.ContainsPVCOption(workflowStatus.StatusOptions()) {
 		if _, err := r.updateStatus(ctx, opsManager, workflow.Pending(""), log, workflowStatus.StatusOptions()...); err != nil {
-			return workflow.Failed(xerrors.Errorf("error updating status: %w", err))
+			return nil, workflow.Failed(xerrors.Errorf("error updating status: %w", err))
 		}
 	}
 
 	serviceSelectorLabel := opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(r.getMemberCluster(memberClusterName).Index)
-	if err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log); err != nil {
-		return workflow.Failed(err)
+	mutatedSts, err := create.AppDBInKubernetes(ctx, r.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log)
+	if err != nil {
+		return nil, workflow.Failed(xerrors.Errorf("failed to create AppDB StatefulSet in cluster %s: %w", memberClusterName, err))
 	}
 
-	return workflow.OK()
+	return mutatedSts, workflow.OK()
 }
 
 func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalState(ctx context.Context, manager *omv1.MongoDBOpsManager, targetConfigVersion int, log *zap.SugaredLogger) workflow.Status {
@@ -2162,4 +2214,22 @@ func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error
 		return err
 	}
 	return nil
+}
+
+const listenAddress = "0.0.0.0"
+
+func overrideToAutomationConfig(override v1.AutomationConfigOverride) automationconfig.AutomationConfig {
+	var processes []automationconfig.Process
+	for _, o := range override.Processes {
+		p := automationconfig.Process{
+			Name:      o.Name,
+			Disabled:  o.Disabled,
+			LogRotate: automationconfig.ConvertCrdLogRotateToAC(o.LogRotate),
+		}
+		processes = append(processes, p)
+	}
+
+	return automationconfig.AutomationConfig{
+		Processes: processes,
+	}
 }

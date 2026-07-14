@@ -1,13 +1,16 @@
 package authentication
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -17,6 +20,10 @@ func init() {
 }
 
 func TestConfigureScramSha256(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -25,9 +32,10 @@ func TestConfigureScramSha256(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"SCRAM"},
 		AgentMechanism:   "SCRAM",
+		MongoDBResource:  mongoDBResource,
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -41,6 +49,10 @@ func TestConfigureScramSha256(t *testing.T) {
 }
 
 func TestConfigureX509(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -53,9 +65,10 @@ func TestConfigureX509(t *testing.T) {
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
+		MongoDBResource: mongoDBResource,
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,6 +82,10 @@ func TestConfigureX509(t *testing.T) {
 }
 
 func TestConfigureScramSha1(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -77,9 +94,10 @@ func TestConfigureScramSha1(t *testing.T) {
 		ProcessNames:     []string{"process-1", "process-2", "process-3"},
 		Mechanisms:       []string{"SCRAM-SHA-1"},
 		AgentMechanism:   "SCRAM-SHA-1",
+		MongoDBResource:  mongoDBResource,
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,6 +109,10 @@ func TestConfigureScramSha1(t *testing.T) {
 }
 
 func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -102,9 +124,10 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		UserOptions: UserOptions{
 			AutomationSubject: validSubject("automation"),
 		},
+		MongoDBResource: mongoDBResource,
 	}
 
-	if err := Configure(conn, opts, false, zap.S()); err != nil {
+	if err := Configure(ctx, kubeClient, conn, opts, false, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,6 +147,10 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 }
 
 func TestDisableAuthentication(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
 	dep := om.NewDeployment()
 	conn := om.NewMockedOmConnection(dep)
 
@@ -133,7 +160,7 @@ func TestDisableAuthentication(t *testing.T) {
 		return nil
 	}, zap.S())
 
-	if err := Disable(conn, Options{}, true, zap.S()); err != nil {
+	if err := Disable(ctx, kubeClient, conn, Options{MongoDBResource: mongoDBResource}, true, zap.S()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -143,6 +170,73 @@ func TestDisableAuthentication(t *testing.T) {
 	}
 
 	assertAuthenticationDisabled(t, ac.Auth)
+}
+
+// TestDisableAuthenticationWithDeleteUsers tests that when deleteUsers=true (deployment deletion),
+// the automation agent credentials are cleared to prevent stale credentials from being propagated.
+func TestDisableAuthenticationWithDeleteUsers(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	// enable authentication
+	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.Enable()
+		ac.Auth.AutoUser = "mms-automation-agent"
+		ac.Auth.AutoPwd = "some-password"
+		return nil
+	}, zap.S())
+
+	// Disable with deleteUsers=true (deployment deletion)
+	if err := Disable(ctx, kubeClient, conn, Options{MongoDBResource: mongoDBResource}, true, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When deleteUsers=true, credentials should be cleared
+	assert.Equal(t, util.MergoDelete, ac.Auth.AutoUser, "AutoUser should be cleared when deleteUsers=true")
+	assert.Equal(t, util.MergoDelete, ac.Auth.AutoPwd, "AutoPwd should be cleared when deleteUsers=true")
+}
+
+// TestDisableAuthenticationWithoutDeleteUsers tests that when deleteUsers=false (auth transition),
+// the AutoUser is kept to satisfy agent validation.
+func TestDisableAuthenticationWithoutDeleteUsers(t *testing.T) {
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+
+	dep := om.NewDeployment()
+	conn := om.NewMockedOmConnection(dep)
+
+	// enable authentication
+	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.Enable()
+		ac.Auth.AutoUser = "mms-automation-agent"
+		ac.Auth.AutoPwd = "some-password"
+		return nil
+	}, zap.S())
+
+	// Disable with deleteUsers=false (auth transition)
+	if err := Disable(ctx, kubeClient, conn, Options{MongoDBResource: mongoDBResource}, false, zap.S()); err != nil {
+		t.Fatal(err)
+	}
+
+	ac, err := conn.ReadAutomationConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When deleteUsers=false, AutoUser should be kept for agent validation
+	assert.Equal(t, util.AutomationAgentName, ac.Auth.AutoUser, "AutoUser should be set when deleteUsers=false")
+	// Password should NOT be cleared during auth transitions - agent needs it to re-authenticate
+	assert.Equal(t, "some-password", ac.Auth.AutoPwd, "AutoPwd should be preserved when deleteUsers=false")
 }
 
 func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
@@ -188,9 +282,11 @@ func assertAuthenticationDisabled(t *testing.T, auth *om.Auth) {
 	assert.True(t, auth.Disabled)
 	assert.Empty(t, auth.DeploymentAuthMechanisms)
 	assert.Empty(t, auth.AutoAuthMechanisms)
-	assert.Equal(t, auth.AutoUser, util.AutomationAgentName)
+	// When deleteUsers=true (deployment deletion), credentials are cleared to prevent
+	// stale credentials from being propagated to monitoring/backup agents
+	assert.Equal(t, util.MergoDelete, auth.AutoUser)
+	assert.Equal(t, util.MergoDelete, auth.AutoPwd)
 	assert.NotEmpty(t, auth.Key)
-	assert.NotEmpty(t, auth.AutoPwd)
 	assert.True(t, len(auth.Users) == 0 || allNil(auth.Users))
 }
 
@@ -212,7 +308,12 @@ func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism,
 }
 
 func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
-	err := authMechanism.EnableAgentAuthentication(conn, opts, zap.S())
+	ctx := context.Background()
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	mongoDBResource := types.NamespacedName{Namespace: "test", Name: "test"}
+	opts.MongoDBResource = mongoDBResource
+
+	err := authMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.NoError(t, err)
 
 	ac, err := conn.ReadAutomationConfig()

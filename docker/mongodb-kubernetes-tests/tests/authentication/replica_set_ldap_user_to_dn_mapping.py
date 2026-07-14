@@ -1,4 +1,4 @@
-from kubetester import create_secret, find_fixture
+from kubetester import create_secret, find_fixture, try_load
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
@@ -27,7 +27,8 @@ def replica_set(
         "userToDNMapping": '[{match: "(.+)",substitution: "uid={0},ou=groups,dc=example,dc=org"}]',
     }
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @fixture(scope="module")
@@ -53,16 +54,19 @@ def ldap_user_mongodb(
         ]
     )
 
-    return user.create()
+    try_load(user)
+    return user
 
 
 @mark.e2e_replica_set_ldap_user_to_dn_mapping
 def test_replica_set(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
 
 @mark.e2e_replica_set_ldap_user_to_dn_mapping
 def test_create_ldap_user(replica_set: MongoDB, ldap_user_mongodb: MongoDBUser):
+    ldap_user_mongodb.update()
     ldap_user_mongodb.assert_reaches_phase(Phase.Updated)
 
     ac = replica_set.get_automation_config_tester()

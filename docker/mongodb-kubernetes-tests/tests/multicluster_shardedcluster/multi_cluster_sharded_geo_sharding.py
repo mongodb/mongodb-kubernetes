@@ -13,9 +13,7 @@ from tests.multicluster_shardedcluster import (
     assert_mongos_sts_members_count,
     assert_shard_sts_members_count,
 )
-from tests.shardedcluster.conftest import (
-    get_member_cluster_clients_using_cluster_mapping,
-)
+from tests.shardedcluster.conftest import get_member_cluster_clients_using_cluster_mapping
 
 MDB_RESOURCE_NAME = "sh-geo-sharding"
 logger = test_logger.get_test_logger(__name__)
@@ -27,11 +25,8 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         find_fixture("sharded-cluster-multi-cluster.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_architecture_annotation()
-
+    try_load(resource)
     return resource
 
 
@@ -43,7 +38,7 @@ class TestShardedClusterGeoSharding:
     desired clusters."""
 
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_create_primary_for_each_shard_in_different_cluster(
         self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str
@@ -154,5 +149,5 @@ class TestShardedClusterGeoSharding:
         }
         for shard_idx, cluster_idx in cluster_primary_member_mapping.items():
             shard_primary_hostname = sc.shard_hostname(shard_idx, 0, cluster_idx)
-            client = KubernetesTester.check_hosts_are_ready(hosts=[shard_primary_hostname])
+            client = KubernetesTester.get_connected_mongo_client(hosts=[shard_primary_hostname])
             assert client.is_primary

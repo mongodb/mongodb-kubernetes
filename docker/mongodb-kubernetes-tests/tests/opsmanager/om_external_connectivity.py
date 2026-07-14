@@ -16,25 +16,23 @@ def opsmanager(namespace: str, custom_version: Optional[str], custom_appdb_versi
         yaml_fixture("om_ops_manager_basic.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     ## Force creating headless services for internal connectivity
     resource["spec"]["internalConnectivity"] = {
         "type": "ClusterIP",
-        "ClusterIP": "None",
+        "clusterIP": "None",
     }
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
 @mark.e2e_om_external_connectivity
 def test_reaches_goal_state(opsmanager: MongoDBOpsManager):
+    opsmanager.update()
     opsmanager.om_status().assert_reaches_phase(Phase.Running, timeout=600)
     # some time for monitoring to be finished
     opsmanager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
@@ -130,7 +128,7 @@ def test_add_annotations(opsmanager: MongoDBOpsManager):
 
     for _, cluster_spec_item in opsmanager.get_om_indexed_cluster_spec_items():
         internal, external = opsmanager.services(cluster_spec_item["clusterName"])
-
+        assert external is not None
         ant = external.metadata.annotations
         assert len(ant) == 3
         assert "first-annotation" in ant
@@ -155,6 +153,8 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 
     for _, cluster_spec_item in opsmanager.get_om_indexed_cluster_spec_items():
         internal, external = opsmanager.services(cluster_spec_item["clusterName"])
+        assert internal is not None
+        assert external is not None
         assert internal.spec.type == "ClusterIP"
         assert external.spec.type == "NodePort"
         assert external.spec.ports[0].node_port == node_port
@@ -172,6 +172,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 
     for _, cluster_spec_item in opsmanager.get_om_indexed_cluster_spec_items():
         _, external = opsmanager.services(cluster_spec_item["clusterName"])
+        assert external is not None
         assert external.spec.type == "LoadBalancer"
         assert external.spec.ports[0].port == 443
         assert external.spec.ports[0].target_port == 8080
@@ -180,7 +181,7 @@ def test_service_set_node_port(opsmanager: MongoDBOpsManager):
 def service_is_changed_to_nodeport(om: MongoDBOpsManager) -> bool:
     for _, cluster_spec_item in om.get_om_indexed_cluster_spec_items():
         svc = om.services(cluster_spec_item["clusterName"])[1]
-        if svc.spec.type != "NodePort":
+        if svc is None or svc.spec.type != "NodePort":
             return False
 
     return True
@@ -189,7 +190,7 @@ def service_is_changed_to_nodeport(om: MongoDBOpsManager) -> bool:
 def service_is_changed_to_loadbalancer(om: MongoDBOpsManager) -> bool:
     for _, cluster_spec_item in om.get_om_indexed_cluster_spec_items():
         svc = om.services(cluster_spec_item["clusterName"])[1]
-        if svc.spec.type != "LoadBalancer":
+        if svc is None or svc.spec.type != "LoadBalancer":
             return False
 
     return True

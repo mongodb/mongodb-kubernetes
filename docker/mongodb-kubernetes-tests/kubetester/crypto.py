@@ -49,7 +49,7 @@ def generate_csr(namespace: str, host: str, servicename: str):
     )
 
 
-def get_pem_certificate(name: str) -> Optional[str]:
+def get_pem_certificate(name: str) -> Optional[bytes]:
     body = client.CertificatesV1Api().read_certificate_signing_request_status(name)
     if body.status.certificate is None:
         return None

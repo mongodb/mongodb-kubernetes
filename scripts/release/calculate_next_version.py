@@ -3,11 +3,7 @@ import pathlib
 
 from git import Repo
 
-from scripts.release.constants import (
-    DEFAULT_CHANGELOG_PATH,
-    DEFAULT_RELEASE_INITIAL_VERSION,
-    DEFAULT_REPOSITORY_PATH,
-)
+from scripts.release.constants import DEFAULT_CHANGELOG_PATH, DEFAULT_RELEASE_INITIAL_VERSION, DEFAULT_REPOSITORY_PATH
 from scripts.release.version import calculate_next_version
 
 if __name__ == "__main__":

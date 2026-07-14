@@ -8,12 +8,19 @@ source scripts/funcs/kubernetes
 
 # Configuration of the resources for Ops Manager
 title "Creating admin secret for the new Ops Manager instance"
-kubectl --namespace "${NAMESPACE}" delete secrets ops-manager-admin-secret --ignore-not-found
-kubectl --namespace "${NAMESPACE}" create secret generic ops-manager-admin-secret  \
-        --from-literal=Username="jane.doe@example.com" \
-        --from-literal=Password="Passw0rd." \
-        --from-literal=FirstName="Jane" \
-        --from-literal=LastName="Doe" -n "${NAMESPACE}"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ops-manager-admin-secret
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  Username: "jane.doe@example.com"
+  Password: "Passw0rd."
+  FirstName: "Jane"
+  LastName: "Doe"
+EOF
 
 # Configuration of the resources for MongoDB
 title "Creating project and credentials Kubernetes object..."
@@ -24,30 +31,46 @@ else
   BASE_URL="http://ops-manager-svc.${OPS_MANAGER_NAMESPACE:-}.svc.cluster.local:8080"
 fi
 
-# We always create the image pull secret from the docker config.json which gives access to all necessary image repositories
 create_image_registries_secret
 
-# delete `my-project` if it exists
-kubectl --namespace "${NAMESPACE}" delete configmap my-project --ignore-not-found
-# Configuring project
-kubectl --namespace "${NAMESPACE}" create configmap my-project \
-        --from-literal=projectName="${NAMESPACE}" --from-literal=baseUrl="${BASE_URL}" \
-        --from-literal=orgId="${OM_ORGID:-}"
+# In local multi-cluster runs, prepare_multi_cluster.go creates my-project and my-credentials
+# via the Go API immediately after this script. Skip the redundant kubectl calls (~0.7s).
+# In single-cluster or CI, this is the only place these resources are created.
+if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "multi" ]] || [[ "${RUNNING_IN_EVG:-false}" == "true" ]]; then
+  # Configuring project (using apply for idempotency)
+  kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-project
+  namespace: ${NAMESPACE}
+data:
+  projectName: "${NAMESPACE}"
+  baseUrl: "${BASE_URL}"
+  orgId: "${OM_ORGID:-}"
+EOF
 
-if [[ -z ${OM_USER-} ]] || [[ -z ${OM_API_KEY-} ]]; then
-    echo "OM_USER and/or OM_API_KEY env variables are not provided - assuming this is an"
-    echo "e2e test for MongoDbOpsManager, skipping creation of the credentials secret"
-else
-    # delete `my-credentials` if it exists
-    kubectl --namespace "${NAMESPACE}" delete  secret my-credentials  --ignore-not-found
-    # Configure the Kubernetes credentials for Ops Manager
-    if [[ -z ${OM_PUBLIC_API_KEY:-} ]]; then
-         kubectl --namespace "${NAMESPACE}" create secret generic my-credentials \
-            --from-literal=user="${OM_USER:-admin}" --from-literal=publicApiKey="${OM_API_KEY}"
-    else
-        kubectl --namespace "${NAMESPACE}" create secret generic my-credentials \
-            --from-literal=user="${OM_PUBLIC_API_KEY}" --from-literal=publicApiKey="${OM_API_KEY}"
-    fi
+  if [[ -z ${OM_USER-} ]] || [[ -z ${OM_API_KEY-} ]]; then
+      echo "OM_USER and/or OM_API_KEY env variables are not provided - assuming this is an"
+      echo "e2e test for MongoDbOpsManager, skipping creation of the credentials secret"
+  else
+      # Configure the Kubernetes credentials for Ops Manager (using apply for idempotency)
+      cred_user="${OM_USER:-admin}"
+      if [[ -n ${OM_PUBLIC_API_KEY:-} ]]; then
+          cred_user="${OM_PUBLIC_API_KEY}"
+      fi
+      kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-credentials
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+  user: "${cred_user}"
+  publicApiKey: "${OM_API_KEY}"
+EOF
+  fi
 fi
 
 title "All necessary ConfigMaps and Secrets have been created"

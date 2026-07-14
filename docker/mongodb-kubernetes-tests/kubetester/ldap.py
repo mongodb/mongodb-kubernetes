@@ -25,7 +25,7 @@ class LDAPUser:
     uid: str
     password: str
     ldap_base: str = LDAP_BASE
-    ou: str = None
+    ou: Optional[str] = None
 
     @property
     def username(self):

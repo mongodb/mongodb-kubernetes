@@ -7,11 +7,7 @@ from kubetester.omtester import OMBackgroundTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
-from tests.conftest import (
-    get_member_cluster_api_client,
-    is_multi_cluster,
-    verify_pvc_expanded,
-)
+from tests.conftest import get_member_cluster_api_client, is_multi_cluster, verify_pvc_expanded
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 gen_key_resource_version = None
@@ -80,6 +76,7 @@ class TestOpsManagerCreation:
         for _, cluster_spec_item in ops_manager.get_om_indexed_cluster_spec_items():
             internal, external = ops_manager.services(cluster_spec_item["clusterName"])
             assert external is None
+            assert internal is not None
             assert internal.spec.type == "ClusterIP"
             if not ops_manager.is_om_multi_cluster():
                 assert internal.spec.cluster_ip == "None"

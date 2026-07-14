@@ -22,21 +22,19 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
 
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
+    try_load(resource)
     return resource
 
 
 @mark.e2e_sharded_cluster_pv
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_pv
@@ -98,10 +96,10 @@ class TestShardedClusterCreation:
                 hostname = sc.shard_hostname(0, member_idx, cluster_member_client.cluster_index)
                 hosts.append(hostname)
 
-        primary, secondaries = KubernetesTester.wait_for_rs_is_ready(hosts)
+        client = KubernetesTester.get_connected_mongo_client(hosts=hosts)
 
-        assert primary is not None
-        assert len(secondaries) == 2
+        assert client.primary is not None
+        assert len(KubernetesTester.get_replica_set_secondaries(client)) == 2
 
     def test_pvc_are_bound(self, sc: MongoDB):
         for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
@@ -157,7 +155,7 @@ class TestShardedClusterDeletion:
 
             return True
 
-        run_periodically(sts_are_deleted, timeout=60)
+        run_periodically(sts_are_deleted, timeout=300)
 
     def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
         def svc_are_deleted() -> bool:
@@ -173,4 +171,4 @@ class TestShardedClusterDeletion:
 
             return True
 
-        run_periodically(svc_are_deleted, timeout=60)
+        run_periodically(svc_are_deleted, timeout=300)

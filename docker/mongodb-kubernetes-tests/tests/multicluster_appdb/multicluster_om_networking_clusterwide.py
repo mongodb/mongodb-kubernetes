@@ -1,5 +1,12 @@
 import kubernetes
-from kubetester import read_secret, try_load
+from kubetester import (
+    delete_statefulset,
+    get_statefulset,
+    read_secret,
+    try_load,
+    wait_for_statefulset_ready,
+    wait_for_statefulset_recreated,
+)
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_ops_manager_tls_certs
 from kubetester.multicluster_client import MultiClusterClient
@@ -11,15 +18,14 @@ from tests.conftest import (
     get_central_cluster_client,
     get_central_cluster_name,
     get_issuer_ca_filepath,
+    get_member_cluster_api_client,
     install_multi_cluster_operator_cluster_scoped,
 )
 from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
-from ..common.ops_manager.multi_cluster import (
-    ops_manager_multi_cluster_with_tls_s3_backups,
-)
+from ..common.ops_manager.multi_cluster import ops_manager_multi_cluster_with_tls_s3_backups
 from .conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 # This test is for checking networking when OM is deployed in a complex multi-cluster scenario involving:
@@ -105,9 +111,6 @@ def ops_manager(
         OM_NAMESPACE, OM_NAME, central_cluster_client, custom_appdb_version, s3_bucket_blockstore, s3_bucket_oplog
     )
 
-    if try_load(resource):
-        return resource
-
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource["spec"]["version"] = custom_version
     resource["spec"]["topology"] = "MultiCluster"
@@ -134,6 +137,7 @@ def ops_manager(
         },
     }
 
+    try_load(resource)
     return resource
 
 
@@ -177,6 +181,29 @@ def test_deploy_ops_manager(ops_manager: MongoDBOpsManager):
     ops_manager.om_status().assert_reaches_phase(Phase.Running)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
     ops_manager.backup_status().assert_reaches_phase(Phase.Running)
+
+
+@mark.e2e_multi_cluster_om_networking_clusterwide
+def test_om_statefulset_watch_recreates_deleted_member(ops_manager: MongoDBOpsManager):
+    """Deleting an OM StatefulSet in a member cluster must trigger the member-cluster watch.
+
+    A Running resource requeues only after 24h, so prompt recreation proves the watch drove the
+    reconcile rather than the periodic resync.
+    """
+    cluster_name, sts_name = ops_manager.get_om_sts_names_in_member_clusters()[0]
+    api_client = get_member_cluster_api_client(cluster_name)
+    sts_old = get_statefulset(ops_manager.namespace, sts_name, api_client=api_client)
+    annotation_value = (sts_old.metadata.annotations or {}).get("MongoDBMultiResource")
+    assert annotation_value == OM_NAME, (
+        f"OM StatefulSet {sts_name} in cluster {cluster_name} must carry the MongoDBMultiResource "
+        f"annotation, but got {annotation_value!r} from annotations={sts_old.metadata.annotations}"
+    )
+
+    delete_statefulset(ops_manager.namespace, sts_name, api_client=api_client)
+    wait_for_statefulset_recreated(ops_manager.namespace, sts_name, sts_old.metadata.uid, api_client=api_client)
+    wait_for_statefulset_ready(ops_manager.namespace, sts_name, api_client=api_client, timeout=800)
+
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @mark.e2e_multi_cluster_om_networking_clusterwide
@@ -266,6 +293,7 @@ def test_enable_external_connectivity(ops_manager: MongoDBOpsManager):
 @mark.e2e_multi_cluster_om_networking_clusterwide
 def test_external_services_are_created(ops_manager: MongoDBOpsManager):
     _, external = ops_manager.services(MEMBER_CLUSTER_1)
+    assert external is not None
     assert external.spec.type == "NodePort"
     assert external.metadata.annotations == {"test-annotation": "test-value"}
     assert len(external.spec.ports) == 2
@@ -273,12 +301,14 @@ def test_external_services_are_created(ops_manager: MongoDBOpsManager):
     assert external.spec.ports[0].target_port == 8443
 
     _, external = ops_manager.services(MEMBER_CLUSTER_2)
+    assert external is not None
     assert external.spec.type == "LoadBalancer"
     assert len(external.spec.ports) == 2
     assert external.spec.ports[0].port == 5000
     assert external.spec.ports[0].target_port == 8443
 
     _, external = ops_manager.services(MEMBER_CLUSTER_3)
+    assert external is not None
     assert external.spec.type == "LoadBalancer"
     assert len(external.spec.ports) == 2
     assert external.spec.ports[0].port == 9000

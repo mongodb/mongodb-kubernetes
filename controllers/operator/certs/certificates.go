@@ -14,14 +14,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -81,7 +81,7 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 	newData[util.LatestHashSecretKey] = newLatestHash
 
 	existingSecretData, err := secretClient.ReadSecret(ctx, operatorGeneratedSecret, basePath)
-	if secrets.SecretNotExist(err) {
+	if secret.SecretNotExist(err) {
 		// Case: creating the PEM secret the first time (example: enabling TLS)
 		return newData, nil
 	} else if err != nil {
@@ -350,7 +350,7 @@ func EnsureSSLCertsForStatefulSet(ctx context.Context, secretReadClient, secretW
 //
 // For Prometheus we *only accept* certificates of type `corev1.SecretTypeTLS`
 // so they always need to be concatenated into PEM-format.
-func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.SecretClient, namespace string, prom *mdbcv1.Prometheus, podType certDestination, log *zap.SugaredLogger) (string, error) {
+func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.SecretClient, namespace string, prom *v1.Prometheus, podType certDestination, log *zap.SugaredLogger) (string, error) {
 	if prom == nil || prom.TLSSecretRef.Name == "" {
 		return "", nil
 	}

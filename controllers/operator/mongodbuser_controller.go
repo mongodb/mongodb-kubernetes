@@ -18,10 +18,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/v1/user"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
@@ -30,10 +32,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -45,9 +47,10 @@ type MongoDBUserReconciler struct {
 	omConnectionFactory           om.ConnectionFactory
 	memberClusterClientsMap       map[string]kubernetesClient.Client
 	memberClusterSecretClientsMap map[string]secrets.SecretClient
+	backupEnableDelay             time.Duration
 }
 
-func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, backupEnableDelay time.Duration) *MongoDBUserReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -63,6 +66,7 @@ func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omF
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,
+		backupEnableDelay:             backupEnableDelay,
 	}
 }
 
@@ -135,7 +139,7 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB) ([]string, error) {
 	l := zap.S().With("MongoDBUser", mdb.Name)
 	clusterClientMap := r.getK8sClientMap()
-	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l)
+	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +205,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
@@ -242,7 +246,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 		return err
 	}
 
-	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -274,34 +278,41 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	if err != nil && !apiErrors.IsNotFound(err) {
 		return err
 	}
-	if err == nil && !secret.HasOwnerReferences(existingSecret, user.GetOwnerReferences()) {
-		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+	if err == nil {
+		existingController := metav1.GetControllerOf(&existingSecret)
+		if existingController != nil && existingController.UID != user.UID {
+			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
-	connectionStringSecret := secret.Builder().
+	memberClusterSecret := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
 		SetField("username", user.Spec.Username).
 		SetField("password", password).
-		SetOwnerReferences(user.GetOwnerReferences()).
 		Build()
 
 	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(ctx, c, connectionStringSecret)
+		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
 		if err != nil {
 			return err
 		}
 	}
-	return secret.CreateOrUpdate(ctx, r.SecretClient, connectionStringSecret)
+
+	centralClusterSecret := memberClusterSecret
+	if err := controllerutil.SetControllerReference(&user, &centralClusterSecret, r.client.Scheme()); err != nil {
+		return err
+	}
+	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
-func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster) error {
-	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), backupEnableDelay)
 	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -333,7 +344,7 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 // toOmUser converts a MongoDBUser specification and optional password into an
 // automation config MongoDB user. If the user has no password then a blank
 // password should be provided.
-func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, error) {
+func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, error) {
 	user := om.MongoDBUser{
 		Database:                   spec.Database,
 		Username:                   spec.Username,
@@ -344,7 +355,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string) (om.MongoDBUser, err
 
 	// only specify password if we're dealing with non-x509 users
 	if spec.Database != authentication.ExternalDB {
-		if err := authentication.ConfigureScramCredentials(&user, password); err != nil {
+		if err := authentication.ConfigureScramCredentials(&user, password, ac); err != nil {
 			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
 	}
@@ -385,7 +396,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
 
-		desiredUser, err := toOmUser(user.Spec, password)
+		desiredUser, err := toOmUser(user.Spec, password, ac)
 		if err != nil {
 			return err
 		}
@@ -417,20 +428,20 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
-	desiredUser, err := toOmUser(user.Spec, "")
-	if err != nil {
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("error updating user %w", err)), log)
-	}
-
 	shouldRetry := false
 	updateFunction := func(ac *om.AutomationConfig) error {
 		if !externalAuthMechanismsAvailable(ac.Auth.DeploymentAuthMechanisms) {
 			shouldRetry = true
 			return xerrors.Errorf("no external authentication mechanisms (LDAP or x509) have been configured")
+		}
+
+		desiredUser, err := toOmUser(user.Spec, "", ac)
+		if err != nil {
+			return xerrors.Errorf("errorr updating user %w", err)
 		}
 
 		auth := ac.Auth
@@ -442,7 +453,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 		return nil
 	}
 
-	err = conn.ReadUpdateAutomationConfig(updateFunction, log)
+	err := conn.ReadUpdateAutomationConfig(updateFunction, log)
 	if err != nil {
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
@@ -467,7 +478,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
@@ -507,6 +518,13 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	}, log)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
+	}
+
+	secretKey := kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName())
+	for clusterName, c := range r.memberClusterSecretClientsMap {
+		if err := c.DeleteSecret(ctx, secretKey); err != nil && !apiErrors.IsNotFound(err) {
+			return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to delete connection string secret from member cluster %s: %w", clusterName, err)), log)
+		}
 	}
 
 	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.UserFinalizer); !finalizerRemoved {

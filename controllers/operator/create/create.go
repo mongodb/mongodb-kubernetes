@@ -20,23 +20,22 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status/pvc"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
 	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 var (
@@ -46,22 +45,23 @@ var (
 	appLabelKey                  = "app"
 )
 
-// DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Service.
+// DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Services.
 // It returns any errors coming from Kubernetes API.
-func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) error {
+func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	opts := config(mdb)
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, mdb.Namespace, log, &sts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// For mc-sharded, we create external services in the ShardedClusterReconcileHelper.reconcileServices method.
 	if mdb.Spec.IsMultiCluster() && mdb.IsShardedCluster() {
-		return nil
+		return set, nil
 	}
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := mdb.GetPrometheus()
@@ -70,24 +70,24 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
-	if err := mekoService.CreateOrUpdateService(ctx, client, internalService); err != nil {
-		return err
+	if err := service.CreateOrUpdateService(ctx, client, internalService); err != nil {
+		return set, err
 	}
 
 	for podNum := 0; podNum < mdb.GetSpec().Replicas(); podNum++ {
 		namespacedName = kube.ObjectKey(mdb.Namespace, dns.GetExternalServiceName(set.Name, podNum))
 		if mdb.Spec.ExternalAccessConfiguration == nil {
-			if err := mekoService.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
-				return err
+			if err := service.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
+				return set, err
 			}
 		} else {
 			if err := createExternalServices(ctx, client, mdb, opts, namespacedName, set, podNum, log); err != nil {
-				return err
+				return set, err
 			}
 		}
 	}
 
-	return nil
+	return set, nil
 }
 
 // HandlePVCResize handles the state machine of a PVC resize.
@@ -123,12 +123,12 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	// and we are not in the middle of a resize (that means pvcPhase is pvc.PhaseNoAction) for this statefulset.
 	// This means we want to start one
 	if increaseStorageOfAtLeastOnePVC {
-		err := enterprisests.AddPVCAnnotation(desiredSts)
-		if err != nil {
+		if err := enterprisests.AddPVCAnnotation(desiredSts); err != nil {
 			return workflow.Failed(xerrors.Errorf("can't add pvc annotation, err: %s", err))
 		}
+
 		log.Infof("Detected PVC size expansion; patching all pvcs and increasing the size for sts: %s", desiredSts.Name)
-		if err := resizePVCsStorage(memberClient, desiredSts); err != nil {
+		if err := resizePVCsStorage(ctx, memberClient, desiredSts, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("can't resize pvc, err: %s", err))
 		}
 
@@ -136,12 +136,13 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 		if err != nil {
 			return workflow.Failed(err)
 		}
+
 		if finishedResizing {
 			log.Info("PVCs finished resizing")
 			log.Info("Deleting StatefulSet and orphan pods")
 			// Cascade delete the StatefulSet
 			deletePolicy := metav1.DeletePropagationOrphan
-			if err := memberClient.Delete(context.TODO(), desiredSts, client.PropagationPolicy(deletePolicy)); err != nil && !apiErrors.IsNotFound(err) {
+			if err := memberClient.Delete(ctx, desiredSts, client.PropagationPolicy(deletePolicy)); err != nil && !apiErrors.IsNotFound(err) {
 				return workflow.Failed(xerrors.Errorf("error deleting sts, err: %s", err))
 			}
 
@@ -182,7 +183,7 @@ func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClien
 
 func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet) (bool, error) {
 	pvcList := corev1.PersistentVolumeClaimList{}
-	if err := memberClient.List(ctx, &pvcList); err != nil {
+	if err := memberClient.List(ctx, &pvcList, client.InNamespace(desiredSts.Namespace)); err != nil {
 		return false, err
 	}
 
@@ -198,20 +199,23 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 }
 
 // resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
-func resizePVCsStorage(client kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet) error {
-	pvcList := corev1.PersistentVolumeClaimList{}
-
+func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	// this is to ensure that requests to a potentially not allowed resource is not blocking the operator until the end
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	if err := client.List(ctx, &pvcList); err != nil {
+	pvcList := corev1.PersistentVolumeClaimList{}
+	if err := kubeClient.List(ctx, &pvcList, client.InNamespace(statefulSetToCreate.Namespace)); err != nil {
 		return err
 	}
+
 	for _, existingPVC := range pvcList.Items {
 		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
-			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = *template.Spec.Resources.Requests.Storage()
-			if err := client.Update(ctx, &existingPVC); err != nil {
+			currentSize := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
+			targetSize := *template.Spec.Resources.Requests.Storage()
+			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.GetNamespace(), existingPVC.GetName(), currentSize.String(), targetSize.String())
+			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = targetSize
+			if err := kubeClient.Update(ctx, &existingPVC); err != nil {
 				return err
 			}
 		}
@@ -240,6 +244,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	}
 	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
 	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	externalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
 		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
@@ -265,7 +270,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 		externalService.Annotations = processedAnnotations
 	}
 
-	err := mekoService.CreateOrUpdateService(ctx, client, externalService)
+	err := service.CreateOrUpdateService(ctx, client, externalService)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to created external service: %s, err: %w", externalService.Name, err)
 	}
@@ -349,14 +354,15 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, name
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) error {
+func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, ptr.To(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
@@ -365,79 +371,92 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 		internalService.Spec.Ports = append(internalService.Spec.Ports, corev1.ServicePort{Port: int32(prom.GetPort()), Name: "prometheus"})
 	}
 
-	return mekoService.CreateOrUpdateService(ctx, client, internalService)
+	return set, service.CreateOrUpdateService(ctx, client, internalService)
+}
+
+type StatefulSetIsRecreating struct {
+	msg string
+}
+
+func (s StatefulSetIsRecreating) Error() string {
+	return s.msg
 }
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
-func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (bool, error) {
+func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		// Check if it is a k8s error or a custom one
 		var statefulSetCantBeUpdatedError enterprisests.StatefulSetCantBeUpdatedError
 		if !errors.As(err, &statefulSetCantBeUpdatedError) {
-			return false, err
+			return nil, xerrors.Errorf("failed to create or update backup daemon statefulset: %w", err)
 		}
 
 		// In this case, we delete the old Statefulset
-		log.Debug("Deleting the old backup stateful set and creating a new one")
 		stsNamespacedName := kube.ObjectKey(sts.Namespace, sts.Name)
-		err = client.DeleteStatefulSet(ctx, stsNamespacedName)
-		if err != nil {
-			return false, xerrors.Errorf("failed while trying to delete previous backup daemon statefulset: %w", err)
+		if deleteErr := client.DeleteStatefulSet(ctx, stsNamespacedName); deleteErr != nil {
+			return nil, xerrors.Errorf("failed while trying to delete previous backup daemon statefulset: %w", deleteErr)
 		}
-		return true, nil
+
+		return nil, StatefulSetIsRecreating{"deleted the old backup stateful set and creating a new one in next reconciliation"}
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
-	err = mekoService.CreateOrUpdateService(ctx, client, internalService)
-	return false, err
+	internalService.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
+	internalService.Spec.PublishNotReadyAddresses = false
+
+	return set, service.CreateOrUpdateService(ctx, client, internalService)
 }
 
-// OpsManagerInKubernetes creates all of the required Kubernetes resources for Ops Manager.
+// OpsManagerInKubernetes creates all the required Kubernetes resources for Ops Manager.
 // It creates the StatefulSet and all required services.
-func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.MemberCluster, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) error {
+func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.MemberCluster, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, memberCluster.Client, opsManager.Namespace, log, &sts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	_, port := opsManager.GetSchemePort()
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, getInternalServiceDefinition(opsManager))
+	internalService.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
+	internalService.Spec.PublishNotReadyAddresses = false
 
 	// add queryable backup port to service
 	if opsManager.Spec.Backup.Enabled {
 		if err := addQueryableBackupPortToService(opsManager, &internalService, internalConnectivityPortName); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, internalService); err != nil {
-		return err
+	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, internalService); err != nil {
+		return nil, err
 	}
 
 	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
 	if externalConnectivity := opsManager.GetExternalConnectivityConfigurationForMemberCluster(memberCluster.Name); externalConnectivity != nil {
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *externalConnectivity)
+		svc.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
+		svc.Spec.PublishNotReadyAddresses = false
 
 		// Need to create queryable backup service
 		if opsManager.Spec.Backup.Enabled {
 			if err := addQueryableBackupPortToService(opsManager, &svc, externalConnectivityPortName); err != nil {
-				return err
+				return nil, err
 			}
 		}
 
-		if err := mekoService.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
-			return err
+		if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
+			return nil, err
 		}
 	} else {
-		if err := mekoService.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
-			return err
+		if err := service.DeleteServiceIfItExists(ctx, memberCluster.Client, namespacedName); err != nil {
+			return nil, err
 		}
 	}
 
-	return nil
+	return set, nil
 }
 
 func getInternalServiceDefinition(opsManager *omv1.MongoDBOpsManager) omv1.MongoDBOpsManagerServiceDefinition {
@@ -501,7 +520,6 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
-		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetLabels(svcLabels).
 		SetSelector(selectorLabels).
 		SetServiceType(mongoServiceDefinition.Type).
@@ -511,7 +529,7 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	switch serviceType {
 	case corev1.ServiceTypeNodePort:
 		// Service will have a NodePort
-		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt32(port), Name: "mongodb"}
 		svcPort.NodePort = mongoServiceDefinition.Port
 		if mongoServiceDefinition.Port != 0 {
 			svcPort.Port = mongoServiceDefinition.Port
@@ -520,7 +538,7 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 		}
 		svcBuilder.AddPort(&svcPort).SetClusterIP("")
 	case corev1.ServiceTypeLoadBalancer:
-		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt(int(port)), Name: "mongodb"}
+		svcPort := corev1.ServicePort{TargetPort: intstr.FromInt32(port), Name: "mongodb"}
 		if mongoServiceDefinition.Port != 0 {
 			svcPort.Port = mongoServiceDefinition.Port
 		} else {

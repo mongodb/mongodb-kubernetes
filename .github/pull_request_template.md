@@ -1,6 +1,6 @@
 # Summary
 
-<!-- Enter your issue summary here.-->
+<!-- Enter your PR summary here. Try to emphasize on WHY this change is needed, followed by what's being done in the PR. -->
 
 ## Proof of Work
 
@@ -13,3 +13,8 @@
 - [ ] Have you added changelog file?
     - use `skip-changelog` label if not needed
     - refer to [Changelog files and Release Notes](https://github.com/mongodb/mongodb-kubernetes/blob/master/CONTRIBUTING.md#changelog-files-and-release-notes) section in CONTRIBUTING.md for more details
+
+---
+
+<!-- start git-machete generated -->
+<!-- end git-machete generated -->

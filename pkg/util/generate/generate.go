@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"math/big"
+	"unicode"
 )
 
 var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123")
@@ -31,6 +32,27 @@ func GenerateRandomBytes(size int) ([]byte, error) {
 func generateRandomString(numBytes int) (string, error) {
 	b, err := GenerateRandomBytes(numBytes)
 	return base64.StdEncoding.EncodeToString(b), err
+}
+
+// RandomValidDNS1123Label generates a random fixed-length string with characters in a certain range.
+func RandomValidDNS1123Label(n int) (string, error) {
+	str, err := RandomFixedLengthStringOfSize(n)
+	if err != nil {
+		return "", err
+	}
+
+	runes := []rune(str)
+
+	// Make sure that any letters are lowercase and that if any non-alphanumeric characters appear they are set to '0'.
+	for i, r := range runes {
+		if unicode.IsLetter(r) {
+			runes[i] = unicode.ToLower(r)
+		} else if !unicode.IsNumber(r) {
+			runes[i] = rune('0')
+		}
+	}
+
+	return string(runes), nil
 }
 
 func randSeq(n int) string {

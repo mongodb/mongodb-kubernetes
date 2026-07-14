@@ -108,7 +108,8 @@ def mongodb_multi(
     }
     mongodb_multi_unmarshalled.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
 
-    return mongodb_multi_unmarshalled.update()
+    mongodb_multi_unmarshalled.update()
+    return mongodb_multi_unmarshalled
 
 
 @fixture(scope="module")
@@ -130,7 +131,7 @@ def server_certs(
 
 
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 def test_create_mongodb_multi(

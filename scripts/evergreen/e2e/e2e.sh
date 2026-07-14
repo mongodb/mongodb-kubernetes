@@ -72,6 +72,40 @@ cleanup_openshift_cluster(){
   fi
 }
 
+# Pre-test cleanup for OpenShift to ensure a clean state before each test.
+# This helps prevent cascading failures from leftover resources of previous test runs.
+pre_test_cleanup_openshift() {
+  if [[ "${KUBE_ENVIRONMENT_NAME}" != *openshift* ]]; then
+    return 0
+  fi
+
+  echo "Running pre-test cleanup for OpenShift..."
+  local context
+  context=$(kubectl config current-context)
+
+  if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
+    echo "Namespace ${NAMESPACE} already exists, cleaning up before test..."
+
+    local ns_status
+    ns_status=$(kubectl get namespace "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+
+    if [[ "${ns_status}" == "Terminating" ]]; then
+      echo "Namespace ${NAMESPACE} is in Terminating state, waiting for it to be fully deleted..."
+      if ! wait_for_namespace_deletion "${NAMESPACE}"; then
+        echo "Namespace ${NAMESPACE} still stuck, attempting force cleanup..."
+        reset_namespace "${context}" "${NAMESPACE}" || true
+        wait_for_namespace_deletion "${NAMESPACE}" || true
+      fi
+    else
+      echo "Cleaning up existing namespace ${NAMESPACE}..."
+      reset_namespace "${context}" "${NAMESPACE}" || true
+      wait_for_namespace_deletion "${NAMESPACE}" || true
+    fi
+  fi
+
+  echo "Pre-test cleanup for OpenShift completed."
+}
+
 if [[ -n "${KUBECONFIG:-}" && ! -f "${KUBECONFIG}" ]]; then
   echo "Kube configuration: ${KUBECONFIG} file does not exist!"
   exit 1
@@ -97,6 +131,9 @@ if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   echo "Current context: ${current_context}, namespace=${NAMESPACE}"
   kubectl get nodes | grep "control-plane"
 fi
+
+# For OpenShift, clean up any leftover resources from previous test runs before creating namespace
+pre_test_cleanup_openshift
 
 ensure_namespace "${NAMESPACE}"
 
@@ -147,6 +184,33 @@ else
 fi
 
 dump_cluster_information
+
+# Generate comprehensive test summary (fail silently if script fails)
+generate_test_summary() {
+  echo "Generating test summary..."
+
+  # Determine test status
+  local test_status="FAILED"
+  if [[ "${TEST_RESULTS}" -eq 0 ]]; then
+    test_status="PASSED"
+  fi
+
+  # Run the test summary generator (fail silently to not break the pipeline)
+  # The output file name starts with '!' to appear at top of file list in Evergreen
+  if python3 scripts/evergreen/e2e/test_summary/generate_test_summary.py \
+    logs \
+    --output "logs/!test-summary.html" \
+    --test-name "${task_name:-${TEST_NAME:-unknown}}" \
+    --variant "${build_variant:-unknown}" \
+    --status "${test_status}" 2>&1 | tee logs/summary_generation.log; then
+    echo "✅ Test summary generated: logs/!test-summary.html"
+  else
+    echo "⚠️  Warning: Failed to generate test summary (continuing anyway)"
+  fi
+}
+
+# Generate test summary (will fail silently if there's an error)
+generate_test_summary || true
 
 # We only have static clusters in OpenShift; otherwise, there's no need to mark and clean them up here.
 if [[ "${KUBE_ENVIRONMENT_NAME}" == *openshift* ]]; then

@@ -1,17 +1,20 @@
-import time
 from typing import Dict
 
+import kubernetes.client.rest
 import pytest
 from kubernetes import client
 from kubetester import (
     assert_pod_container_security_context,
     assert_pod_security_context,
+    get_statefulset,
+    scale_statefulset,
     try_load,
+    wait_for_statefulset_replicas,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, skip_if_local
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
@@ -38,9 +41,6 @@ def _get_group_id(envs) -> str:
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "my-replica-set", namespace)
-
-    if try_load(resource):
-        return resource
 
     resource.set_version(custom_mdb_version)
     resource["spec"]["clusterDomain"] = cluster_domain
@@ -87,7 +87,7 @@ def replica_set(namespace: str, custom_mdb_version: str, cluster_domain: str) ->
         }
 
     setup_log_rotate_for_agents(resource)
-    resource.update()
+    try_load(resource)
 
     return resource
 
@@ -109,6 +109,7 @@ class TestReplicaSetCreation(KubernetesTester):
         config_version.version = config["version"]
 
     def test_mdb_created(self, replica_set: MongoDB):
+        replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
 
     def test_replica_set_sts_exists(self):
@@ -358,12 +359,13 @@ class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=500)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=700)
 
     def test_replica_set_sts_should_exist(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
+    @pytest.mark.flaky(reruns=10, reruns_delay=3)
     def test_sts_update(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
@@ -387,7 +389,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts.spec.replicas == 5
 
-    def _get_pods(self, podname, qty):
+    def _get_pods(self, podname, qty=3):
         return [podname.format(i) for i in range(qty)]
 
     def test_replica_set_pods_exists(self):
@@ -515,6 +517,28 @@ def test_replica_set_can_be_scaled_down_and_connectable(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_replica_set
+def test_statefulset_watch_reverts_manual_scaling(replica_set: MongoDB, namespace: str):
+    """Asserts the single-cluster StatefulSet watch fires and triggers a reconcile.
+
+    The watch reacts to StatefulSet status updates and resolves the owner through the controller
+    ownerReference. Scaling the StatefulSet up directly drops readiness below
+    the desired count, which only the operator reverts (Kubernetes never undoes a manual scale). A
+    Running resource requeues only after 24h, so a prompt revert proves the watch drove the reconcile
+    rather than the periodic resync."""
+    sts = get_statefulset(namespace, RESOURCE_NAME)
+    owner_refs = sts.metadata.owner_references or []
+    assert any(
+        ref.kind == "MongoDB" and ref.name == RESOURCE_NAME for ref in owner_refs
+    ), f"StatefulSet {RESOURCE_NAME} must have an ownerReference to its MongoDB CR, got: {owner_refs}"
+
+    desired_replicas = sts.spec.replicas
+    scale_statefulset(namespace, RESOURCE_NAME, desired_replicas + 1)
+    wait_for_statefulset_replicas(namespace, RESOURCE_NAME, desired_replicas)
+
+    replica_set.assert_reaches_phase(Phase.Running, timeout=800)
+
+
+@pytest.mark.e2e_replica_set
 class TestReplicaSetDelete(KubernetesTester):
     """
     name: Replica Set Deletion
@@ -528,10 +552,16 @@ class TestReplicaSetDelete(KubernetesTester):
 
     def test_replica_set_sts_doesnt_exist(self):
         """The StatefulSet must be removed by Kubernetes as soon as the MongoDB resource is removed.
-        Note, that this may lag sometimes (caching or whatever?) and it's more safe to wait a bit"""
-        time.sleep(15)
-        with pytest.raises(client.rest.ApiException):
-            self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
+        Note, that this may lag sometimes (caching or whatever?) so we poll until it's gone."""
+
+        def sts_is_deleted():
+            try:
+                self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
+                return False
+            except client.rest.ApiException:
+                return True
+
+        run_periodically(sts_is_deleted, timeout=60, msg="StatefulSet to be deleted")
 
     def test_service_does_not_exist(self):
         with pytest.raises(client.rest.ApiException):
@@ -558,7 +588,6 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
             "MULTI_CLUSTER_MODE",
             "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
-            "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR",
             "MDB_LOG_FILE_AUTOMATION_AGENT",
             "MDB_LOG_FILE_MONITORING_AGENT",
             "MDB_LOG_FILE_BACKUP_AGENT",

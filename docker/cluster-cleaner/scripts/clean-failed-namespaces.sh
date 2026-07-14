@@ -4,15 +4,15 @@ touch error.log
 tail -F error.log &
 
 delete_resources_safely() {
-    resource_type="$1"
-    namespace="$2"
+    resource_type="${1}"
+    namespace="${2}"
 
-    echo "Attempting normal deletion of $resource_type in $namespace..."
+    echo "Attempting normal deletion of ${resource_type} in ${namespace}..."
     kubectl delete "${resource_type}" --all -n "${namespace}" --wait=true --timeout=10s 2>error.log|| true
 
     # Check if any resources are still stuck
     # Let's not fail here and continue deletion
-    resources=$(kubectl get "$resource_type" -n "${namespace}" --no-headers -o custom-columns=":metadata.name" 2>error.log || true)
+    resources=$(kubectl get "${resource_type}" -n "${namespace}" --no-headers -o custom-columns=":metadata.name" 2>error.log || true)
 
     for resource in ${resources}; do
         echo "${resource_type}/${resource} is still present, force deleting..."
@@ -39,7 +39,7 @@ kubectl get namespace -l "${LABELS}" -o name
 for namespace in $(kubectl get namespace -l "${LABELS}" -o name 2>error.log); do
     creation_time=$(kubectl get "${namespace}" -o jsonpath='{.metadata.creationTimestamp}' 2>error.log || echo "")
 
-    if [ -z "$creation_time" ]; then
+    if [ -z "${creation_time}" ]; then
         echo "Namespace ${namespace} does not exist or has no creation timestamp, skipping."
         continue
     fi

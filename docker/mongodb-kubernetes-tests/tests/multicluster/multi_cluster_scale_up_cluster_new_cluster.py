@@ -3,6 +3,7 @@ from typing import Callable, List
 import kubernetes
 import pytest
 from kubernetes import client
+from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
@@ -62,7 +63,8 @@ def server_certs(
 @pytest.fixture(scope="module")
 def mongodb_multi(mongodb_multi_unmarshalled: MongoDBMulti, server_certs: str) -> MongoDBMulti:
     mongodb_multi_unmarshalled["spec"]["clusterSpecList"].pop()
-    return mongodb_multi_unmarshalled.create()
+    try_load(mongodb_multi_unmarshalled)
+    return mongodb_multi_unmarshalled
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
@@ -74,11 +76,12 @@ def test_deploy_operator(
     run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
 def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
+    mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -123,7 +126,7 @@ def test_re_deploy_operator(
 
     # deploy the operator without all clusters
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster

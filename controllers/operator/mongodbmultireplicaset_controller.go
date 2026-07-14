@@ -30,11 +30,11 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdbmulti"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
-	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
@@ -50,20 +50,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/annotations"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/service"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	mekoService "github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -71,6 +68,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -86,11 +84,15 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	imageUrls                         images.ImageUrls
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
+
+	agentDebug          bool
+	agentDebugImage     string
+	defaultArchitecture architectures.DefaultArchitecture
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -113,6 +115,9 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 		enableClusterMongoDBRoles:         enableClusterMongoDBRoles,
+		agentDebug:                        agentDebug,
+		agentDebugImage:                   agentDebugImage,
+		defaultArchitecture:               defaultArchitecture,
 	}
 }
 
@@ -135,7 +140,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcileResult, err
 	}
 
-	if !architectures.IsRunningStaticArchitecture(mrs.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), true)
 	}
 
@@ -148,7 +153,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Error reading project config and credentials: %w", err)), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
@@ -161,7 +166,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
 	if len(failedClusterNames) > 0 && !multicluster.ShouldPerformFailover() {
-		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("resource has failed clusters in the annotation: %+v", failedClusterNames)), log)
+		log.Warnf("Reconciling with degraded clusters; the following will be skipped this cycle: %+v (automated failover disabled)", failedClusterNames)
 	}
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
@@ -253,7 +258,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
 // needs to be updated before the StatefulSets are created for this resource.
 func (r *ReconcileMongoDbMultiReplicaSet) publishAutomationConfigFirstMultiCluster(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (bool, error) {
-	if architectures.IsRunningStaticArchitecture(mrs.Annotations) {
+	if architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 		if mrs.IsInChangeVersion() {
 			return true, nil
 		}
@@ -381,19 +386,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 			return workflow.Failed(err)
 		}
 	}
+
+	previousRoles, err := getPreviousRolesFromAnnotation(*mrs)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	// Ensure custom roles are created in OM
-	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), previousRoles, log); !status.IsOK() {
 		return status
 	}
 
 	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash)
-}
-
-type stsIdentifier struct {
-	namespace   string
-	name        string
-	client      kubernetesClient.Client
-	clusterName string
 }
 
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash string) workflow.Status {
@@ -406,8 +410,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	var stsLocators []stsIdentifier
+	automationConfig, err := conn.ReadAutomationConfig()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config: %w", err))
+	}
+	currentAgentAuthMode := automationConfig.GetAgentAuthMode()
+	processes := automationConfig.Deployment.GetAllProcessNames()
+	// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
+	// stateful-sets in parallel.
+	scalingFirstTime := len(processes) == 0
 
+	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s is marked as failed", item.ClusterName))
@@ -448,13 +461,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			return status
 		}
 
-		automationConfig, err := conn.ReadAutomationConfig()
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config in cluster: %s, err: %w", item.ClusterName, err))
-		}
-
-		currentAgentAuthMode := automationConfig.GetAgentAuthMode()
-
 		certConfigurator := certs.MongoDBMultiX509CertConfigurator{
 			MongoDBMultiCluster: mrs,
 			ClusterNum:          clusterNum,
@@ -482,8 +488,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			Data: secretByte,
 		}
 
-		err = secret.CreateOrUpdate(ctx, memberClient, secretObject)
-		if err != nil {
+		if err := secret.CreateOrUpdate(ctx, memberClient, secretObject); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -498,13 +503,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		var automationAgentVersion string
-		if architectures.IsRunningStaticArchitecture(mrs.Annotations) {
+		if architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 			if !mrs.Spec.IsAgentImageOverridden() {
 				automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
 				if err != nil {
 					log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-					status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
-					return status
+					return workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
 				}
 			}
 		}
@@ -513,7 +517,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			mconstruct.WithClusterNum(clusterNum),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
-			mconstruct.WithAnnotations(mrs.Name),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
@@ -524,8 +527,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
 			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-			WithAgentImage(images.ContainerImage(r.imageUrls, architectures.MdbAgentImageRepo, automationAgentVersion)),
-			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations())),
+			WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
+			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture)),
+			WithAgentDebug(r.agentDebug),
+			WithAgentDebugImage(r.agentDebugImage),
+			WithDefaultArchitecture(r.defaultArchitecture),
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
@@ -541,50 +547,39 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 
-		workflowStatus := create.HandlePVCResize(ctx, memberClient, &sts, log)
-		if !workflowStatus.IsOK() {
-			return workflowStatus
+		pvcResizeStatus := create.HandlePVCResize(ctx, memberClient, &sts, log)
+		if !pvcResizeStatus.IsOK() {
+			return pvcResizeStatus
 		}
-		if err = r.updateStatusFromInnerMethod(ctx, mrs, log, workflowStatus); err != nil {
+
+		if err := r.updateStatusFromInnerMethod(ctx, mrs, log, pvcResizeStatus); err != nil {
 			return workflow.Failed(xerrors.Errorf("%w", err))
 		}
 
-		_, err = statefulset.CreateOrUpdateStatefulset(ctx, memberClient, mrs.Namespace, log, &sts)
+		mutatedSts, err := statefulset.CreateOrUpdateStatefulset(ctx, memberClient, mrs.Namespace, log, &sts)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to create/update StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 		}
 
-		processes := automationConfig.Deployment.GetAllProcessNames()
-		// If we don't have processes defined yet, that means we are in the first deployment, and we can deploy all
-		// stateful-sets in parallel.
-		// If we have processes defined, it means we want to wait until all of them are ready.
-		if len(processes) > 0 {
-			// We already have processes defined, and therefore we are waiting for each of them
-			if status := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, memberClient); !status.IsOK() {
-				return status
+		expectedGeneration := mutatedSts.GetGeneration()
+		statefulsetStatus := statefulset.GetStatefulSetStatus(ctx, sts.Namespace, sts.Name, expectedGeneration, memberClient)
+
+		// if not scaling for the first time we want to deploy statefulsets one by one
+		if !scalingFirstTime {
+			if !statefulsetStatus.IsOK() {
+				return statefulsetStatus
 			}
-
-			log.Infof("Successfully ensured StatefulSet in cluster: %s", item.ClusterName)
-		} else {
-			// We create all sts in parallel and wait below for all of them to finish
-			stsLocators = append(stsLocators, stsIdentifier{
-				namespace:   sts.Namespace,
-				name:        sts.Name,
-				client:      memberClient,
-				clusterName: item.ClusterName,
-			})
 		}
+
+		workflowStatus = workflowStatus.Merge(statefulsetStatus)
 	}
 
-	// Running into this means we are in the first deployment/don't have processes yet.
-	// That means we have created them in parallel and now waiting for them to get ready.
-	for _, locator := range stsLocators {
-		if status := statefulset.GetStatefulSetStatus(ctx, locator.namespace, locator.name, locator.client); !status.IsOK() {
-			return status
-		}
-		log.Infof("Successfully ensured StatefulSet in cluster: %s", locator.clusterName)
+	// wait for all statefulsets to become ready
+	if !workflowStatus.IsOK() {
+		return workflowStatus
 	}
 
+	log.Infof("Successfully ensured all StatefulSets are ready")
 	return workflow.OK()
 }
 
@@ -687,6 +682,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 		}
 	}
 
+	// Set annotation and state for previously configured roles
+	roleAnnotation, _, err := r.getRoleAnnotation(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(&mrs))
+	if err != nil {
+		return err
+	}
+	for k, val := range roleAnnotation {
+		annotationsToAdd[k] = val
+	}
+
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
 }
 
@@ -740,7 +744,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[mcoConstruct.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath, r.defaultArchitecture)
 	if err != nil && !isRecovering {
 		return err
 	}
@@ -778,7 +782,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return xerrors.Errorf("failed to complete reconciliation")
 	}
 
-	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, &mrs, r.SecretClient, log)
+	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, &mrs, r.SecretClient, log, 0)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
 	}
@@ -819,6 +823,17 @@ func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (
 		return processIds[mrs.Name], nil
 	}
 	return make(map[string]int), nil
+}
+
+func getPreviousRolesFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) ([]string, error) {
+	if rolesString, ok := mrs.Annotations[util.LastConfiguredRoles]; ok {
+		var roles []string
+		if err := json.Unmarshal([]byte(rolesString), &roles); err != nil {
+			return nil, err
+		}
+		return roles, nil
+	}
+	return nil, nil
 }
 
 func getSRVService(mrs *mdbmultiv1.MongoDBMultiCluster) corev1.Service {
@@ -933,6 +948,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
 		nameSpacedName := kube.ObjectKey(mrs.Namespace, headlessServiceName)
 		headlessService := create.BuildService(nameSpacedName, mrs, ptr.To(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		headlessService.OwnerReferences = nil
 		if err := ensureHeadlessService(ctx, client, headlessService, e.ClusterName); err != nil {
 			return err
 		}
@@ -963,7 +979,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 }
 
 func ensureSRVService(ctx context.Context, client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
-	err := mekoService.CreateOrUpdateService(ctx, client, svc)
+	err := service.CreateOrUpdateService(ctx, client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create SRV service: % in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
@@ -991,7 +1007,7 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 				svc.Annotations = processedAnnotations
 			}
 
-			err := mekoService.CreateOrUpdateService(ctx, client, svc)
+			err := service.CreateOrUpdateService(ctx, client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
 			}
@@ -1000,7 +1016,7 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 		// we create regular pod-services only if we don't use external domains
 		if m.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName) == nil {
 			svc = getService(m, clusterSpecItem.ClusterName, podNum)
-			err := mekoService.CreateOrUpdateService(ctx, client, svc)
+			err := service.CreateOrUpdateService(ctx, client, svc)
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
 			}
@@ -1010,7 +1026,7 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 }
 
 func ensureHeadlessService(ctx context.Context, client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
-	err := mekoService.CreateOrUpdateService(ctx, client, svc)
+	err := service.CreateOrUpdateService(ctx, client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create headless service: %s in cluster: %s, err: %w", svc.Name, clusterName, err)
 	}
@@ -1102,9 +1118,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1151,17 +1167,20 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		}
 	}
 
-	// register watcher across member clusters
-	for k, v := range memberClustersMap {
-		err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+	for clusterName, memberCluster := range memberClustersMap {
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
-			return xerrors.Errorf("failed to set Watch on member cluster: %s, err: %w", k, err)
+			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
 		}
 	}
 
 	// the operator watches the member clusters' API servers to determine whether the clusters are healthy or not
 	eventChannel := make(chan event.GenericEvent)
-	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{Cache: make(map[string]*memberwatch.MemberHeathCheck)}
+	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{
+		Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
+		HealthyStreak:         make(map[string]int),
+		RequiredHealthyStreak: requiredHealthyStreak,
+	}
 	go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, reconciler.client, memberClustersMap)
 
 	err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
@@ -1198,7 +1217,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", mrs.Spec)
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
 	if err != nil {
 		return err
 	}
@@ -1221,26 +1240,39 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 		return err
 	}
 
+	// Collect errors during cleanup but continue with all cleanup steps.
+	// This ensures we attempt all cleanup operations even if some fail.
+	var errs error
+
 	hostsToRemove, err := mrs.GetMultiClusterAgentHostnames()
 	if err != nil {
-		return err
+		errs = multierror.Append(errs, xerrors.Errorf("failed to get multi-cluster agent hostnames. Continuing with cleanup: %w", err))
 	}
-	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
-	if err = host.StopMonitoring(conn, hostsToRemove, log); err != nil {
-		return err
+	if len(hostsToRemove) > 0 {
+		log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
+		if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
+			errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
+		}
 	}
 
 	opts := authentication.Options{
 		AuthoritativeSet: false,
 		ProcessNames:     processNames,
+		MongoDBResource:  types.NamespacedName{Namespace: mrs.GetNamespace(), Name: mrs.GetName()},
 	}
 
-	if err := authentication.Disable(conn, opts, true, log); err != nil {
-		return err
+	if err := authentication.Disable(ctx, r.client, conn, opts, true, log); err != nil {
+		errs = multierror.Append(errs, xerrors.Errorf("failed to disable authentication. Continuing with cleanup: %w", err))
 	}
-	log.Infof("Removed deployment %s from Ops Manager at %s", mrs.Name, conn.BaseURL())
-	return nil
+
+	if errs != nil {
+		log.Warnf("Multi-cluster replica set cleanup from Ops Manager completed with errors")
+	} else {
+		log.Infof("Removed deployment %s from Ops Manager at %s", mrs.Name, conn.BaseURL())
+	}
+	return errs
 }
 
 // deleteManagedResources deletes resources across all member clusters that are owned by this MongoDBMultiCluster resource.
@@ -1252,14 +1284,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
-		return err
-	}
-
-	for _, item := range clusterSpecList {
-		clusterName := item.ClusterName
-		clusterClient := r.memberClusterClientsMap[clusterName]
-		if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+		errs = multierror.Append(errs, err)
+	} else {
+		for _, item := range clusterSpecList {
+			clusterName := item.ClusterName
+			clusterClient := r.memberClusterClientsMap[clusterName]
+			if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
+				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
 		}
 	}
 

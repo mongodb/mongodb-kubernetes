@@ -5,16 +5,17 @@ from base64 import b64decode
 from typing import Any, Callable, Dict, List, Optional
 
 import kubernetes.client
+import requests
 from kubeobject import CustomObject
 from kubernetes import client, utils
 from kubetester.kubetester import run_periodically
+from tests import test_logger
 
 # Re-exports
 from .kubetester import fixture as find_fixture
-from .security_context import (
-    assert_pod_container_security_context,
-    assert_pod_security_context,
-)
+from .security_context import assert_pod_container_security_context, assert_pod_security_context
+
+logger = test_logger.get_test_logger(__name__)
 
 
 def create_secret(
@@ -78,7 +79,7 @@ def delete_service_account(namespace: str, name: str) -> str:
 
 def get_service(
     namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
-) -> client.V1ServiceSpec:
+) -> Optional[client.V1Service]:
     """Gets a service with `name` in `namespace.
     :return None if the service does not exist
     """
@@ -151,6 +152,13 @@ def create_or_update_service(
     service: Optional[client.V1Service] = None,
 ) -> str:
     print("Logging inside create_or_update_service")
+    if service_name is None and service is not None:
+        if isinstance(service, dict):
+            service_name = service.get("metadata", {}).get("name")
+        elif hasattr(service, "metadata") and service.metadata is not None:
+            service_name = service.metadata.name
+    if service_name is None:
+        raise ValueError("service_name must not be None")
     try:
         create_service(namespace, service_name, cluster_ip=cluster_ip, ports=ports, selector=selector, service=service)
     except kubernetes.client.ApiException as e:
@@ -250,8 +258,8 @@ def delete_pod(namespace: str, name: str, api_client: Optional[kubernetes.client
 
 def create_or_update_namespace(
     namespace: str,
-    labels: dict = None,
-    annotations: dict = None,
+    labels: Optional[dict] = None,
+    annotations: Optional[dict] = None,
     api_client: Optional[kubernetes.client.ApiClient] = None,
 ):
     namespace_resource = client.V1Namespace(
@@ -271,6 +279,27 @@ def create_or_update_namespace(
 def delete_namespace(name: str):
     c = client.CoreV1Api()
     c.delete_namespace(name, body=c.V1DeleteOptions())
+
+
+def label_namespace(name: str, labels: dict):
+    body = {"metadata": {"labels": labels}}
+    client.CoreV1Api().patch_namespace(name, body)
+
+
+def downgrade_pss_to_warn(namespace: str) -> None:
+    """Downgrade a namespace from PSS enforce to warn mode.
+
+    Used for test namespaces that contain third-party or legacy components that
+    predate PSS-restricted compliance (e.g. old operator releases, nginx images
+    that run as root). PSS violations are still surfaced as warnings.
+    """
+    label_namespace(
+        namespace,
+        {
+            "pod-security.kubernetes.io/enforce": None,
+            "pod-security.kubernetes.io/warn": "restricted",
+        },
+    )
 
 
 def get_deployments(namespace: str):
@@ -300,6 +329,30 @@ def get_statefulset(
     return client.AppsV1Api(api_client=api_client).read_namespaced_stateful_set(name, namespace)
 
 
+def scale_statefulset(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    client.AppsV1Api(api_client=api_client).patch_namespaced_stateful_set(
+        name, namespace, {"spec": {"replicas": replicas}}
+    )
+
+
+def wait_for_statefulset_replicas(
+    namespace: str,
+    name: str,
+    replicas: int,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_has_replicas() -> bool:
+        return get_statefulset(namespace, name, api_client=api_client).spec.replicas == replicas
+
+    wait_until(statefulset_has_replicas, timeout=timeout)
+
+
 def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[client.ApiClient]):
     try:
         get_statefulset(namespace, name, api_client=api_client)
@@ -309,6 +362,43 @@ def statefulset_is_deleted(namespace: str, name: str, api_client: Optional[clien
             return True
         else:
             raise e
+
+
+def wait_for_statefulset_recreated(
+    namespace: str,
+    name: str,
+    old_uid: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 120,
+):
+    def statefulset_is_recreated() -> bool:
+        try:
+            return get_statefulset(namespace, name, api_client=api_client).metadata.uid != old_uid
+        except client.ApiException as e:
+            if e.status == 404:
+                return False
+            raise e
+
+    wait_until(statefulset_is_recreated, timeout=timeout)
+
+
+def wait_for_statefulset_ready(
+    namespace: str,
+    name: str,
+    api_client: Optional[client.ApiClient] = None,
+    timeout: int = 600,
+):
+    def statefulset_is_ready() -> bool:
+        sts = get_statefulset(namespace, name, api_client=api_client)
+        wanted = sts.spec.replicas
+        return (
+            sts.status.observed_generation == sts.metadata.generation
+            and (sts.status.updated_replicas or 0) == wanted
+            and (sts.status.ready_replicas or 0) == wanted
+            and (sts.status.replicas or 0) == wanted
+        )
+
+    wait_until(statefulset_is_ready, timeout=timeout)
 
 
 def delete_cluster_role(name: str, api_client: Optional[client.ApiClient] = None):
@@ -335,12 +425,14 @@ def get_pod_when_running(
     namespace: str,
     label_selector: str,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    timeout: int = 600,
 ) -> client.V1Pod:
     """
     Returns a Pod that matches label_selector. It will block until the Pod is in
-    Running state.
+    Running state or timeout is reached.
     """
-    while True:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         time.sleep(3)
 
         try:
@@ -358,6 +450,10 @@ def get_pod_when_running(
             if e.status != 404:
                 raise
 
+    raise Exception(
+        f"Timeout ({timeout}s) waiting for pod with label_selector '{label_selector}' in namespace '{namespace}' to be Running"
+    )
+
 
 def get_pod_when_ready(
     namespace: str,
@@ -371,7 +467,7 @@ def get_pod_when_ready(
     """
     cnt = 0
 
-    while True and cnt < default_retry:
+    while default_retry is not None and cnt < default_retry:
         print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
 
         if cnt > 0:
@@ -399,6 +495,119 @@ def get_pod_when_ready(
                 raise
 
     print(f"bailed on getting pod ready after 10 retries")
+
+
+def list_matching_pods(
+    namespace: str,
+    *,
+    label_selector: Optional[str] = None,
+    name_prefix: Optional[str] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+) -> List[client.V1Pod]:
+    """List pods in ``namespace`` filtered by label selector and/or name prefix.
+
+    At least one of ``label_selector`` / ``name_prefix`` must be set.
+    """
+    if not label_selector and not name_prefix:
+        raise ValueError("must provide label_selector or name_prefix")
+    kwargs: Dict[str, Any] = {}
+    if label_selector:
+        kwargs["label_selector"] = label_selector
+    pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, **kwargs).items
+    if name_prefix:
+        pods = [p for p in pods if p.metadata.name.startswith(name_prefix)]
+    return pods
+
+
+def pod_is_ready(pod: client.V1Pod) -> bool:
+    conds = pod.status.conditions or []
+    return any(c.type == "Ready" and c.status == "True" for c in conds)
+
+
+def wait_for_pods_ready(
+    namespace: str,
+    *,
+    label_selector: Optional[str] = None,
+    name_prefix: Optional[str] = None,
+    expected_count: Optional[int] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+    timeout: int = 300,
+    sleep_time: int = 3,
+) -> List[client.V1Pod]:
+    """Block until at least ``expected_count`` matching pods report Ready=True.
+
+    When ``expected_count`` is ``None``, every matching pod must be Ready and
+    there must be at least one. Returns the Ready pod list on success.
+    """
+
+    def check() -> tuple:
+        pods = list_matching_pods(
+            namespace,
+            label_selector=label_selector,
+            name_prefix=name_prefix,
+            api_client=api_client,
+        )
+        if not pods:
+            return False, "no pods"
+        ready = [p for p in pods if pod_is_ready(p)]
+        want = expected_count if expected_count is not None else len(pods)
+        return len(ready) >= want, f"ready={len(ready)}/{len(pods)} want={want}"
+
+    selector = label_selector or f"name~{name_prefix}*"
+    run_periodically(
+        check,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"pods Ready=True selector={selector}",
+    )
+    return [
+        p
+        for p in list_matching_pods(
+            namespace,
+            label_selector=label_selector,
+            name_prefix=name_prefix,
+            api_client=api_client,
+        )
+        if pod_is_ready(p)
+    ]
+
+
+def wait_for_no_pods_ready(
+    namespace: str,
+    *,
+    label_selector: Optional[str] = None,
+    name_prefix: Optional[str] = None,
+    expected_not_ready: Optional[int] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
+    timeout: int = 180,
+    sleep_time: int = 3,
+) -> None:
+    """Block until no matching pod has Ready=True (or no pods match at all).
+
+    When ``expected_not_ready`` is given, at least that many matching pods
+    must report Ready=False (the rest may be Ready or absent).
+    """
+
+    def check() -> tuple:
+        pods = list_matching_pods(
+            namespace,
+            label_selector=label_selector,
+            name_prefix=name_prefix,
+            api_client=api_client,
+        )
+        if not pods:
+            return True, "no pods"
+        not_ready = sum(1 for p in pods if not pod_is_ready(p))
+        want = expected_not_ready if expected_not_ready is not None else len(pods)
+        return not_ready >= want, f"not_ready={not_ready}/{len(pods)} want={want}"
+
+    selector = label_selector or f"name~{name_prefix}*"
+    run_periodically(
+        check,
+        timeout=timeout,
+        sleep_time=sleep_time,
+        msg=f"pods Ready=False selector={selector}",
+    )
 
 
 def is_pod_ready(
@@ -432,7 +641,7 @@ def is_pod_ready(
     return None
 
 
-def get_default_storage_class() -> str:
+def get_default_storage_class() -> Optional[str]:
     default_class_annotations = (
         "storageclass.kubernetes.io/is-default-class",  # storage.k8s.io/v1
         "storageclass.beta.kubernetes.io/is-default-class",  # storage.k8s.io/v1beta1
@@ -443,6 +652,7 @@ def get_default_storage_class() -> str:
             sc.metadata.annotations.get(a) == "true" for a in default_class_annotations
         ):
             return sc.metadata.name
+    return None
 
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
@@ -472,21 +682,63 @@ def try_load(resource: CustomObject) -> bool:
     return True
 
 
-def wait_for_webhook(namespace, retries=5, delay=5, service_name="operator-webhook"):
-    webhook_api = client.AdmissionregistrationV1Api()
-    core_api = client.CoreV1Api()
+def wait_for_webhook(
+    namespace,
+    retries: int = 10,
+    multi_cluster: bool = False,
+    service_name="operator-webhook",
+    validation_endpoint: str = "validate-mongodb-com-v1-mongodb",
+):
+    from tests.conftest import get_central_cluster_name, get_cluster_domain, get_test_pod_cluster_name, local_operator
 
-    for attempt in range(retries):
+    # we don't want to wait for the operator webhook if the operator is running locally and not in a pod
+    if local_operator():
+        return
+
+    # in multi-cluster mode the operator and the test pod are in different clusters(test pod won't be able to talk to webhook),
+    # so we skip this extra check for multi-cluster
+    if multi_cluster and get_central_cluster_name() != get_test_pod_cluster_name():
+        logger.info(
+            f"Skipping waiting for the webhook as we cannot call the webhook endpoint from a test_pod_cluster ({get_test_pod_cluster_name()}) "
+            f"to central cluster ({get_central_cluster_name()}); sleeping for 10s instead"
+        )
+        # We need to sleep here otherwise the function returns too early and we create a race condition in tests
+        time.sleep(10)
+        return
+
+    webhook_services = client.CoreV1Api().list_namespaced_service(namespace)
+    logger.debug("Listing webhook services...")
+    for svc in webhook_services.items:
+        if "webhook" in svc.metadata.name:
+            logger.debug(
+                f"Service: {svc.metadata.name}, ClusterIP: {svc.spec.cluster_ip}, Ports: {svc.spec.ports}, Selector: {svc.spec.selector}"
+            )
+
+    logger.debug("wait_for_webhook")
+    webhook_endpoint = "https://{}.{}.svc.{}/{}".format(
+        service_name, namespace, get_cluster_domain(), validation_endpoint
+    )
+    headers = {"Content-Type": "application/json"}
+    logger.debug(f"Webhook_endpoint: {webhook_endpoint}")
+    retry_count = retries + 1
+    while retry_count > 0:
+        retry_count -= 1
+        logger.debug("Waiting for operator/webhook to be functional")
         try:
-            core_api.read_namespaced_service(service_name, namespace)
+            response = requests.post(webhook_endpoint, headers=headers, verify=False, timeout=2)
+        except Exception as e:
+            logger.warning(e)
+            time.sleep(2)
+            continue
 
-            # make sure the validating_webhook is installed.
-            webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
-            print("Webhook is ready.")
-            return True
-        except kubernetes.client.ApiException as e:
-            print(f"Attempt {attempt + 1} failed, webhook not ready. Sleeping: {delay}, error: {e}")
-            time.sleep(delay)
+        try:
+            # Let's assume that if we get a json response, then the webhook
+            # is already in place.
+            response.json()
+        except Exception:
+            logger.warning("Didn't get a json response from webhook")
+        else:
+            return
+        time.sleep(2)
 
-    print("Webhook did not become ready in time.")
-    return False
+    raise Exception("Operator webhook didn't start after {} retries".format(retries))

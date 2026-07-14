@@ -22,10 +22,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/role"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
@@ -34,9 +34,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -81,6 +81,34 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	assert.NoError(t, err)
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "MYOTHERTAG"}
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
+}
+
+func TestPrepareOpsManagerConnection_TagNamespace(t *testing.T) {
+	callPrepare := func(tagNamespace bool) *om.MockedOmConnection {
+		ctx := context.Background()
+		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+		controller := NewReconcileCommonController(ctx, kubeClient)
+		projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+		require.NoError(t, err)
+		credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
+		require.NoError(t, err)
+		conn, _, err := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mock.TestNamespace, tagNamespace, zap.S())
+		require.NoError(t, err)
+		return conn.(*om.MockedOmConnection)
+	}
+
+	t.Run("namespace tag is added when tagNamespace is true", func(t *testing.T) {
+		mockOm := callPrepare(true)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.Contains(t, tags, strings.ToUpper(mock.TestNamespace))
+	})
+
+	t.Run("namespace tag is not added and UpdateProject is not called when tagNamespace is false", func(t *testing.T) {
+		mockOm := callPrepare(false)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.NotContains(t, tags, strings.ToUpper(mock.TestNamespace))
+		mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject))
+	})
 }
 
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
@@ -290,7 +318,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -318,7 +346,7 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -345,7 +373,7 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 
 	_ = kubeClient.Create(ctx, roleResource)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -371,7 +399,7 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -398,7 +426,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
@@ -498,7 +526,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig()
 	assert.NoError(t, err)
@@ -526,6 +554,172 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		assert.Nil(t, roles[i].Privileges[3].Resource.Db)
 		assert.Nil(t, roles[i].Privileges[3].Resource.Collection)
 	}
+}
+
+func TestMergeRoles(t *testing.T) {
+	externalRole := mdbv1.MongoDBRole{
+		Role: "ext_role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+	role1 := mdbv1.MongoDBRole{
+		Role: "role1",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWrite",
+		}},
+	}
+
+	role2 := mdbv1.MongoDBRole{
+		Role: "role2",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "readWrite",
+		}},
+	}
+
+	tests := []struct {
+		name          string
+		deployedRoles []mdbv1.MongoDBRole
+		currentRoles  []mdbv1.MongoDBRole
+		previousRoles []string
+		expectedRoles []mdbv1.MongoDBRole
+	}{
+		// externalRole was added via UI
+		// role1 and role2 were defined in the CR
+		// role2 was removed from the CR
+		{
+			name:          "Removing role from resource",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  []mdbv1.MongoDBRole{role1},
+			previousRoles: []string{"role1@admin", "role2@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1},
+		},
+		// externalRole was added via UI
+		// role1 was defined in the CR
+		// role2 was added in the CR
+		{
+			name:          "Adding role in resource",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1},
+			currentRoles:  []mdbv1.MongoDBRole{role1, role2},
+			previousRoles: []string{"role1@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+		},
+		{
+			name:          "Idempotency",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  []mdbv1.MongoDBRole{role1, role2},
+			previousRoles: []string{"role1@admin", "role2@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+		},
+		{
+			name:          "Nil previous roles - adding all defined roles",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  []mdbv1.MongoDBRole{role1, role2},
+			previousRoles: nil,
+			expectedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+		},
+		{
+			name:          "Nil current roles - removing all defined roles",
+			deployedRoles: []mdbv1.MongoDBRole{externalRole, role1, role2},
+			currentRoles:  nil,
+			previousRoles: []string{"role1@admin", "role2@admin"},
+			expectedRoles: []mdbv1.MongoDBRole{externalRole},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mergedRoles := mergeRoles(tc.deployedRoles, tc.currentRoles, tc.previousRoles)
+
+			require.Len(t, mergedRoles, len(tc.expectedRoles))
+			for _, r := range tc.expectedRoles {
+				assert.Contains(t, mergedRoles, r)
+			}
+		})
+	}
+}
+
+func TestExternalRoleIsNotRemoved(t *testing.T) {
+	ctx := context.Background()
+
+	role := mdbv1.MongoDBRole{
+		Role: "embedded-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+
+	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	// Create deployment with one embedded role
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+
+	roles := mockOm.GetRoles()
+	require.Len(t, roles, 1)
+
+	// Add external role directly to OM (via UI/API)
+	externalRole := mdbv1.MongoDBRole{
+		Role: "external-role",
+		Db:   "admin",
+		Roles: []mdbv1.InheritedRole{{
+			Db:   "admin",
+			Role: "read",
+		}},
+	}
+	mockOm.AddRole(externalRole)
+
+	// Ensure external role is added
+	roles = mockOm.GetRoles()
+	require.Len(t, roles, 2)
+
+	// Reconcile again - role created from the UI should still be there
+	roleStrings, _ := controller.getRoleStrings(ctx, rs.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(rs))
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
+
+	roles = mockOm.GetRoles()
+	require.Len(t, roles, 2)
+
+	// Delete embedded role, only the external should remain
+	rs.Spec.Security.Roles = nil
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
+
+	roles = mockOm.GetRoles()
+	require.Len(t, roles, 1)
+	assert.Equal(t, roles[0].Role, "external-role")
+}
+
+// TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix tests that SetupCommonWatchers
+// handles the case when CertificatesSecretsPrefix is set but TLSConfig is nil.
+// This tests the fix for CLOUDP-352133: IsTLSEnabled() returns true when
+// CertificatesSecretsPrefix is set, and the code must handle nil TLSConfig gracefully.
+func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	// Set CertificatesSecretsPrefix but leave TLSConfig nil
+	// IsTLSEnabled() will return true because CertificatesSecretsPrefix != ""
+	// The code should handle nil TLSConfig gracefully without panicking
+	rs.Spec.Security = &mdbv1.Security{
+		CertificatesSecretsPrefix: "my-prefix",
+		// TLSConfig is intentionally nil
+	}
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := NewReconcileCommonController(ctx, kubeClient)
+
+	assert.NotPanics(t, func() {
+		controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+	}, "SetupCommonWatchers should not panic when CertificatesSecretsPrefix is set but TLSConfig is nil")
 }
 
 func TestSecretWatcherWithAllResources(t *testing.T) {
@@ -664,7 +858,7 @@ func prepareConnection(ctx context.Context, controller *ReconcileCommonControlle
 	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
 	assert.NoError(t, err)
 
-	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
+	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, true, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, newPodVars(conn, projectConfig, mdbv1.Warn)
@@ -704,6 +898,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	// fields common to all resource types
 	assert.Equal(t, object.Spec.Version, object.Status.Version)
 	assert.Equal(t, expectedLink, object.Status.Link)
+	assert.Equal(t, om.TestGroupID, object.Status.ProjectId)
 	assert.NotNil(t, object.Status.LastTransition)
 	assert.NotEqual(t, object.Status.LastTransition, "")
 
@@ -741,7 +936,7 @@ func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconcil
 
 func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
-	expected, _ := workflow.OK().Requeue().ReconcileResult()
+	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 
@@ -799,7 +994,7 @@ func getWatch(namespace string, resourceName string, t watch.Type) watch.Object 
 
 type testReconciliationResources struct {
 	Resource          *mdbv1.MongoDB
-	ReconcilerFactory func(rs *mdbv1.MongoDB) (reconcile.Reconciler, kubernetesClient.Client)
+	ReconcilerFactory func(rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (reconcile.Reconciler, kubernetesClient.Client)
 }
 
 // agentVersionMappingTest is a helper function to verify that the version mapping mechanism works correctly in controllers
@@ -808,29 +1003,25 @@ func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource 
 	nonExistingPath := "/foo/bar/foo"
 
 	t.Run("Static architecture, version retrieving fails, image is overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		overridenReconciler, overridenClient := overridenResource.ReconcilerFactory(overridenResource.Resource)
+		overridenReconciler, overridenClient := overridenResource.ReconcilerFactory(overridenResource.Resource, architectures.Static)
 		checkReconcileSuccessful(ctx, t, overridenReconciler, overridenResource.Resource, overridenClient)
 	})
 
 	t.Run("Static architecture, version retrieving fails, image is not overriden, reconciliation should fail", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.Static)
 		checkReconcileFailed(ctx, t, defaultReconciler, defaultResource.Resource, true, "", defaultClient)
 	})
 
 	t.Run("Static architecture, version retrieving succeeds, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.Static)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
 
 	t.Run("Non-Static architecture, version retrieving fails, image is not overriden, reconciliation should succeed", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
 		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
-		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource)
+		defaultReconciler, defaultClient := defaultResource.ReconcilerFactory(defaultResource.Resource, architectures.NonStatic)
 		checkReconcileSuccessful(ctx, t, defaultReconciler, defaultResource.Resource, defaultClient)
 	})
 }

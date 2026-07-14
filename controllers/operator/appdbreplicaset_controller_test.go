@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -23,8 +24,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -34,17 +37,16 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -344,6 +346,19 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
 		assert.Len(t, hosts.Results, 5)
 	})
+
+	t.Run("Ensure hosts are removed when scaled down", func(t *testing.T) {
+		opsManager.Spec.AppDB.Members = 3
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+
+		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
+		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		assert.NoError(t, err)
+
+		// After scale-down, hosts should be removed from monitoring
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
+		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")
+	})
 }
 
 func TestEnsureAppDbAgentApiKey(t *testing.T) {
@@ -383,7 +398,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -423,7 +438,7 @@ func TestTryConfigureMonitoringInOpsManager(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -435,7 +450,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 	opsManager := builder.Build()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
 
-	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = common.PodTemplateSpecWrapper{
+	opsManager.Spec.AppDB.PodSpec.PodTemplateWrapper = v1.PodTemplateSpecWrapper{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -458,7 +473,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images while activating monitoring", func(t *testing.T) {
 		podVars := env.PodEnvVars{ProjectID: "something"}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -484,7 +499,7 @@ func TestTryConfigureMonitoringInOpsManagerWithCustomTemplate(t *testing.T) {
 
 	t.Run("do not override images, but remove monitoring if not activated", func(t *testing.T) {
 		podVars := env.PodEnvVars{}
-		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 		assert.NoError(t, err)
 		assert.NotNil(t, appDbSts)
 
@@ -528,7 +543,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	assert.Empty(t, podVars.User)
 
 	opsManager.Spec.AppDB.Members = 5
-	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.Nil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
@@ -568,10 +583,62 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 
 	assertExpectedHostnamesAndPreferred(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection), expectedHostnames)
 
-	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, zap.S())
+	appDbSts, err = construct.AppDbStatefulSet(*opsManager, &podVars, construct.AppDBStatefulSetOptions{}, appdbScaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 	assert.NoError(t, err)
 
 	assert.NotNil(t, findVolumeByName(appDbSts.Spec.Template.Spec.Volumes, construct.AgentAPIKeyVolumeName))
+}
+
+func TestTryConfigureMonitoringInOpsManagerWithMalformedCredentials(t *testing.T) {
+	ctx := context.Background()
+	builder := DefaultOpsManagerBuilder().SetAppDbMembers(5)
+	opsManager := builder.Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	data := map[string]string{
+		util.OmPublicApiKey + "Malformed": "publicApiKey",
+		util.OmPrivateKey:                 "privateApiKey",
+	}
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
+	assert.NoError(t, err)
+
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(data).
+		Build()
+
+	err = reconciler.client.CreateSecret(ctx, apiKeySecret)
+	assert.NoError(t, err)
+
+	// the secret is malformed and tryConfigureMonitoringInOpsManager fails
+	podVars, err := reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "error reading opsManager credentials")
+	assert.Empty(t, podVars)
+
+	updatedData := map[string]string{
+		util.OmPublicApiKey: "publicApiKey",
+		util.OmPrivateKey:   "privateApiKey",
+	}
+
+	updatedApiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(updatedData).
+		Build()
+
+	err = reconciler.client.UpdateSecret(ctx, updatedApiKeySecret)
+	assert.NoError(t, err)
+
+	// the secret is correct and tryConfigureMonitoringInOpsManager succeeds
+	podVars, err = reconciler.tryConfigureMonitoringInOpsManager(ctx, opsManager, "password", "/fake/agent-cert/path", zap.S())
+	assert.NoError(t, err)
+	assert.NotEmpty(t, podVars)
+	assert.Equal(t, om.TestGroupID, podVars.ProjectID)
+	assert.Equal(t, "publicApiKey", podVars.User)
 }
 
 func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
@@ -617,7 +684,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 2,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -780,7 +847,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 			members: 1,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
 				ExternalService: mdbv1.ExternalServiceConfiguration{
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "NodePort",
 							Ports: []corev1.ServicePort{
@@ -838,7 +905,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -941,7 +1008,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 						create.PlaceholderMongodProcessDomain: "{mongodProcessDomain}",
 						create.PlaceholderMongodProcessFQDN:   "{mongodProcessFQDN}",
 					},
-					SpecWrapper: &common.ServiceSpecWrapper{
+					SpecWrapper: &v1.ServiceSpecWrapper{
 						Spec: corev1.ServiceSpec{
 							Type: "LoadBalancer",
 							Ports: []corev1.ServicePort{
@@ -1103,7 +1170,7 @@ func TestAppDBScaleUp_HappensIncrementally_FullOpsManagerReconcile(t *testing.T)
 		SetVersion("7.0.0").
 		Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory)
+	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory, architectures.NonStatic)
 
 	checkOMReconciliationSuccessful(ctx, t, omReconciler, opsManager, client)
 
@@ -1141,7 +1208,7 @@ func TestAppDbPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 		SetAdditionalMongodbConfig(mdbv1.NewAdditionalMongodConfig("net.port", 30000)).
 		Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory)
+	omReconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, nil, omConnectionFactory, architectures.NonStatic)
 
 	checkOMReconciliationSuccessful(ctx, t, omReconciler, opsManager, client)
 
@@ -1182,8 +1249,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 		reconciler := createReconcilerWithAllRequiredSecrets(opsManager, true)
 
-		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager = DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1202,8 +1269,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 		// should not take place (since we are not changing a process back from disabled).
 
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1221,8 +1288,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should happen if no automation config is present", func(t *testing.T) {
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1240,8 +1307,8 @@ func TestAppDBSkipsReconciliation_IfAnyProcessesAreDisabled(t *testing.T) {
 
 	t.Run("Reconciliation should happen we are re-enabling a process", func(t *testing.T) {
 		omName := "test-om"
-		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(mdbcv1.AutomationConfigOverride{
-			Processes: []mdbcv1.OverrideProcess{
+		opsManager := DefaultOpsManagerBuilder().SetName(omName).SetAppDBAutomationConfigOverride(v1.AutomationConfigOverride{
+			Processes: []v1.OverrideProcess{
 				{
 					// disable the process
 					Name:     fmt.Sprintf("%s-db-0", omName),
@@ -1352,13 +1419,13 @@ func checkDeploymentEqualToPublished(t *testing.T, expected automationconfig.Aut
 
 func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactoryFunc om.ConnectionFactory, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, zap.S())
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, nil, architectures.NonStatic, log, kube.BaseOwnerReference(opsManager))
 }
 
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
 	_ = c.Update(ctx, opsManager)
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, log)
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager.Spec.AppDB, commonController, omConnectionFactoryFunc, opsManager.Annotations, memberClusterMap, architectures.NonStatic, log, kube.BaseOwnerReference(opsManager))
 }
 
 func TestChangingFCVAppDB(t *testing.T) {
@@ -1456,4 +1523,152 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 	ok, _ := workflow.OK().ReconcileResult()
 	assert.Equal(t, ok, res)
 	return reconciler
+}
+
+// TestClearTLSParams tests CLOUDP-351614 fix:
+// When TLS is disabled on AppDB, TLS-specific params should be cleared from
+// the monitoring config's additionalParams to prevent the monitoring agent
+// from trying to use certificate files that no longer exist.
+func TestClearTLSParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          map[string]string
+		expectedOutput map[string]string
+	}{
+		{
+			name:           "nil map",
+			input:          nil,
+			expectedOutput: nil,
+		},
+		{
+			name:           "empty map",
+			input:          map[string]string{},
+			expectedOutput: map[string]string{},
+		},
+		{
+			name: "only TLS params",
+			input: map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": "/some/path/ca.pem",
+				"sslClientCertificate":         "/some/path/cert.pem",
+			},
+			expectedOutput: map[string]string{},
+		},
+		{
+			name: "mixed params - TLS and non-TLS",
+			input: map[string]string{
+				"useSslForAllConnections":      "true",
+				"sslTrustedServerCertificates": "/some/path/ca.pem",
+				"sslClientCertificate":         "/some/path/cert.pem",
+				"someOtherParam":               "someValue",
+				"anotherParam":                 "anotherValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+		},
+		{
+			name: "only non-TLS params",
+			input: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+				"anotherParam":   "anotherValue",
+			},
+		},
+		{
+			name: "partial TLS params",
+			input: map[string]string{
+				"useSslForAllConnections": "true",
+				"someOtherParam":          "someValue",
+			},
+			expectedOutput: map[string]string{
+				"someOtherParam": "someValue",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			om.ClearTLSParams(tt.input)
+			assert.Equal(t, tt.expectedOutput, tt.input)
+		})
+	}
+}
+
+// TestAppDB_PVCStatusClearedAfterSuccessfulResize is a regression test for KUBE-108.
+// After a PVC resize completes, the AppDB controller must clear the stale PVC status
+// from the CRD. Without the fix, the PhaseSTSOrphaned entry persists indefinitely.
+func TestAppDB_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		builder := DefaultOpsManagerBuilder().SetAppDbMembers(3)
+		opsManager := builder.Build()
+
+		fakeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+		createRunningAppDB(ctx, t, 3, fakeClient, opsManager, omConnectionFactory)
+
+		// Create the PVCs that Kubernetes would generate for the AppDB StatefulSet.
+		// VolumeClaimTemplate name is "data" (AppDBSpec.DataVolumeName()), STS name is "<om-name>-db".
+		stsName := opsManager.Spec.AppDB.Name()
+		initialStorage := resource.MustParse("16G")
+		newStorage := resource.MustParse("50G")
+
+		var pvcs []corev1.PersistentVolumeClaim
+		for i := 0; i < 3; i++ {
+			p := corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("data-%s-%d", stsName, i),
+					Namespace: opsManager.Namespace,
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceStorage: initialStorage},
+					},
+				},
+				Status: corev1.PersistentVolumeClaimStatus{
+					Capacity: corev1.ResourceList{corev1.ResourceStorage: initialStorage},
+				},
+			}
+			require.NoError(t, fakeClient.Create(ctx, &p))
+			pvcs = append(pvcs, p)
+		}
+
+		// Trigger a resize by increasing the storage in the AppDB spec.
+		opsManager.Spec.AppDB.PodSpec.Persistence = &v1.Persistence{
+			SingleConfig: &v1.PersistenceConfig{Storage: "50G"},
+		}
+		require.NoError(t, fakeClient.Update(ctx, opsManager))
+
+		// Reconcile 1: resize detected; PVCs are patched but storage has not propagated yet.
+		reconciler, err := newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+		require.NoError(t, err)
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+		require.NoError(t, err)
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, opsManager))
+		require.Equal(t, pvc.PhasePVCResize, opsManager.Status.AppDbStatus.PVCs[0].Phase)
+
+		// Simulate Kubernetes completing the PVC resize (update status.Capacity on each PVC).
+		for i := range pvcs {
+			var updatedPVC corev1.PersistentVolumeClaim
+			require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: pvcs[i].Name, Namespace: pvcs[i].Namespace}, &updatedPVC))
+			updatedPVC.Status.Capacity = corev1.ResourceList{corev1.ResourceStorage: newStorage}
+			updatedPVC.Spec.Resources.Requests[corev1.ResourceStorage] = newStorage
+			require.NoError(t, fakeClient.SubResource("status").Update(ctx, &updatedPVC))
+		}
+
+		// Reconcile 2: PVCs done; the STS is orphaned and recreated. The reconcile completes
+		// successfully, so the final updateStatus clears the stale PVC entry in the same pass.
+		reconciler, err = newAppDbReconciler(ctx, fakeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+		require.NoError(t, err)
+		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+		require.NoError(t, err)
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: opsManager.Name, Namespace: opsManager.Namespace}, opsManager))
+
+		assert.Nil(t, opsManager.Status.AppDbStatus.PVCs,
+			"PVC status must be cleared after a successful resize")
+	})
 }

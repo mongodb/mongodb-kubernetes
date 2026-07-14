@@ -38,9 +38,47 @@ run_setup_step() {
     fi
 }
 
+# Install libsodium from source on s390x — RHEL9 ships 1.0.18 which is too old for pynacl>=1.6
+if [[ "$(uname -m)" == "s390x" ]]; then
+    echo ""
+    echo ">>> Running: libsodium installation (s390x only)"
+    LIBSODIUM_VERSION="1.0.20"
+    if pkg-config --exists libsodium 2>/dev/null && [[ "$(pkg-config --modversion libsodium)" == "${LIBSODIUM_VERSION}" ]]; then
+        echo "✅ libsodium ${LIBSODIUM_VERSION} already installed, skipping installation"
+    else
+        echo ">>> Building libsodium ${LIBSODIUM_VERSION} from source..."
+        tmp_dir=$(mktemp -d)
+        curl --fail --retry 3 -L -o "${tmp_dir}/libsodium.tar.gz" \
+            "https://download.libsodium.org/libsodium/releases/libsodium-${LIBSODIUM_VERSION}.tar.gz"
+        tar xzf "${tmp_dir}/libsodium.tar.gz" -C "${tmp_dir}"
+        (cd "${tmp_dir}/libsodium-${LIBSODIUM_VERSION}" && ./configure --prefix=/usr/local && make -j"$(nproc)" && sudo make install)
+        # Ensure /usr/local/lib is in ldconfig search paths (RHEL9 doesn't include it by default)
+        echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local.conf
+        sudo ldconfig
+        rm -rf "${tmp_dir}"
+        echo "✅ libsodium ${LIBSODIUM_VERSION} installed successfully"
+    fi
+fi
+
+# Install Rust/Cargo on s390x — system Cargo is too old to parse Cargo.lock v4
+# (required by cryptography >= 48.0.0 which uses maturin to build a Rust extension wheel)
+if [[ "$(uname -m)" == "s390x" ]]; then
+    MIN_RUST_VERSION="1.78.0"
+    installed_rust_version="$(rustc --version 2>/dev/null | awk '{print $2}' || echo "0.0.0")"
+    if [[ "$(printf '%s\n' "${MIN_RUST_VERSION}" "${installed_rust_version}" | sort -V | head -1)" != "${MIN_RUST_VERSION}" ]]; then
+        echo ">>> Installing Rust via rustup (system rustc ${installed_rust_version} < ${MIN_RUST_VERSION})..."
+        export CARGO_HOME="${PROJECT_DIR}/.cargo"
+        export RUSTUP_HOME="${PROJECT_DIR}/.rustup"
+        curl --proto '=https' --tlsv1.2 --retry 3 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --quiet
+        export PATH="${CARGO_HOME}/bin:${PATH}"
+        echo "✅ Rust $(rustc --version) installed"
+    else
+        echo "✅ Rust ${installed_rust_version} already >= ${MIN_RUST_VERSION}, skipping"
+    fi
+fi
+
 # Setup Python environment (needed for AWS CLI pip installation)
 export GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1
-export SKIP_INSTALL_REQUIREMENTS=${SKIP_INSTALL_REQUIREMENTS:-true}
 run_setup_step "Python Virtual Environment" "scripts/dev/recreate_python_venv.sh"
 
 run_setup_step "AWS CLI Setup" "scripts/evergreen/setup_aws.sh"

@@ -1,4 +1,4 @@
-from kubetester import find_fixture
+from kubetester import find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
@@ -11,11 +11,13 @@ def standalone(namespace: str) -> MongoDB:
 
     resource["spec"]["agent"] = {"startupOptions": {"logFile": "/var/log/mongodb-mms-automation/customLogFile"}}
 
-    return resource.create()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_standalone_agent_flags
 def test_standalone(standalone: MongoDB):
+    standalone.update()
     standalone.assert_reaches_phase(Phase.Running, timeout=400)
 
 

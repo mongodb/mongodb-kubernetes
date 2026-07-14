@@ -15,26 +15,26 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/lifecycle"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/podtemplatespec"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/lifecycle"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -70,9 +70,10 @@ type OpsManagerStatefulSetOptions struct {
 	kmip                         *KmipConfiguration
 	DebugPort                    int32
 	// backup daemon only
-	HeadDbPersistenceConfig *common.PersistenceConfig
+	HeadDbPersistenceConfig *v1.PersistenceConfig
 	Annotations             map[string]string
 	LoggingConfiguration    *omv1.Logging
+	DefaultArchitecture     architectures.DefaultArchitecture
 }
 
 type KmipClientConfiguration struct {
@@ -176,6 +177,12 @@ func WithDebugPort(port int32) func(opts *OpsManagerStatefulSetOptions) {
 	}
 }
 
+func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.DefaultArchitecture = defaultArchitecture
+	}
+}
+
 // updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
 func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Context, centralClusterSecretClient secrets.SecretClient, memberCluster multicluster.MemberCluster, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
 	// Return immediately if no Certificate is provided
@@ -235,7 +242,8 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
 	opts.Annotations = opsManager.Annotations
-	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferenceForMemberCluster(), log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
@@ -252,6 +260,9 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	opts.LoggingConfiguration = opsManager.Spec.Logging
 
 	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
+	if opsManager.Spec.IsMultiCluster() {
+		omSts.Annotations = merge.StringToStringMap(omSts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
+	}
 	var err error
 	if opts.StatefulSetSpecOverride != nil {
 		omSts.Spec = merge.StatefulSetSpecs(omSts.Spec, *opts.StatefulSetSpecOverride)
@@ -269,7 +280,7 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          kube.BaseOwnerReference(opsManager),
+		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
 		OwnerName:               opsManager.Name,
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
@@ -348,7 +359,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	var omVolumes []corev1.Volume
 
-	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations, opts.DefaultArchitecture) {
 		omScriptsVolume := statefulset.CreateVolumeFromEmptyDir("ops-manager-scripts")
 		omVolumes = append(omVolumes, omScriptsVolume)
 		omScriptsVolumeMount := buildOmScriptsVolumeMount(true)
@@ -443,7 +454,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 
 	initContainerMod := podtemplatespec.NOOP()
 
-	if !architectures.IsRunningStaticArchitecture(opts.Annotations) {
+	if !architectures.IsRunningStaticArchitecture(opts.Annotations, opts.DefaultArchitecture) {
 		initContainerMod = podtemplatespec.WithInitContainerByIndex(0,
 			buildOpsManagerAndBackupInitContainer(opts.InitOpsManagerImage),
 		)
@@ -660,11 +671,13 @@ func opsManagerConfigurationToEnvVars(m *omv1.MongoDBOpsManager) []corev1.EnvVar
 	return envVars
 }
 
-func hasReleasesVolumeMount(opts OpsManagerStatefulSetOptions) bool {
+// hasVolumeMount checks if the user has provided a custom volume mount for the given path.
+// This allows users to override default emptyDir mounts with their own PVCs.
+func hasVolumeMount(opts OpsManagerStatefulSetOptions, mountPath string) bool {
 	if opts.StatefulSetSpecOverride != nil {
 		for _, c := range opts.StatefulSetSpecOverride.Template.Spec.Containers {
 			for _, vm := range c.VolumeMounts {
-				if vm.MountPath == util.OpsManagerPvcMountDownloads {
+				if vm.MountPath == mountPath {
 					return true
 				}
 			}
@@ -676,10 +689,20 @@ func hasReleasesVolumeMount(opts OpsManagerStatefulSetOptions) bool {
 func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, opts OpsManagerStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.OpsManagerPvcNameData))
 
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+	// Mount default emptyDir paths only if user hasn't provided custom overrides.
+	// This allows users to use their own PVCs for any of these paths.
+	if !hasVolumeMount(opts, util.PvcMountPathTmp) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+	}
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathTmp) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
+	}
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathLogs) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
+	}
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathEtc) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+	}
 
 	if opts.LoggingConfiguration != nil && opts.LoggingConfiguration.LogBackRef != nil {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackNameVolume, opts.LoggingConfiguration.LogBackRef.Name))
@@ -691,13 +714,13 @@ func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMount
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcLogBackAccessNameVolume, util.OpsManagerPvcLogbackAccessMountPath, statefulset.WithSubPath(util.OpsManagerPvcLogbackAccessSubPath)))
 	}
 
-	// This content is used by the Ops Manager to download mongodbs. Mount it only if there's no downloads override (like in om_localmode-multiple-pv.yaml for example)
-	if !hasReleasesVolumeMount(opts) {
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountDownloads) {
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountDownloads, statefulset.WithSubPath(util.OpsManagerPvcNameDownloads)))
 	}
 
-	// This content is populated by the docker-entry-point.sh. It's being copied from conf-template
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathConf, statefulset.WithSubPath(util.OpsManagerPvcNameConf)))
+	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathConf) {
+		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathConf, statefulset.WithSubPath(util.OpsManagerPvcNameConf)))
+	}
 
 	return volumes, volumeMounts
 }

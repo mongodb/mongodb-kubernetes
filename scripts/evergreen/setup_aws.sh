@@ -19,7 +19,7 @@ install_aws_cli_binary() {
     cd "${temp_dir}"
 
     echo "Downloading AWS CLI v2 for ${aws_arch}..."
-    curl --retry 5 --retry-delay 3 --retry-all-errors --fail --show-error --max-time 180 -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
+    curl_with_retry -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
 
     unzip -q awscliv2.zip
     sudo ./aws/install --update
@@ -42,13 +42,12 @@ install_aws_cli_binary() {
 install_aws_cli_pip() {
     echo "Installing AWS CLI v1 via pip (for IBM architectures)..."
 
-    if [[ ! -d "${PROJECT_DIR}/venv" ]]; then
-        echo "Error: Python venv not found at ${PROJECT_DIR}/venv. Please run recreate_python_venv.sh first." >&2
+    # The venv is activated by set_env_context.sh (sourced at the top of this
+    # script); fail clearly if it is not on PATH.
+    if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+        echo "Error: Python venv not active. Please run recreate_python_venv.sh first." >&2
         return 1
     fi
-
-    # Activate the venv
-    source "${PROJECT_DIR}/venv/bin/activate"
 
     # Check if AWS CLI exists and works in the venv
     if command -v aws &> /dev/null; then

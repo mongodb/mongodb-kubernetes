@@ -9,13 +9,13 @@ SCRIPTS_DIR="/opt/scripts"
 # Function to start the agent launcher
 start_agent_launcher() {
   echo "Starting agent launcher..."
-  echo "Final contents of $SCRIPTS_DIR:"
-  ls -la "$SCRIPTS_DIR"
+  echo "Final contents of ${SCRIPTS_DIR}:"
+  ls -la "${SCRIPTS_DIR}"
 
-  if [[ -f "$SCRIPTS_DIR/agent-launcher.sh" ]]; then
+  if [[ -f "${SCRIPTS_DIR}/agent-launcher.sh" ]]; then
     echo "Found agent-launcher.sh, executing..."
     echo "Note: agent-launcher.sh will become PID 1 and handle all signal processing including cleanup"
-    exec "$SCRIPTS_DIR/agent-launcher.sh"
+    exec "${SCRIPTS_DIR}/agent-launcher.sh"
   else
     echo "ERROR: agent-launcher.sh not found"
     exit 1

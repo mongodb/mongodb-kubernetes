@@ -26,17 +26,14 @@ const (
 // https://kubernetes.io/docs/tasks/access-application-cluster/access-cluster/#accessing-the-api-from-a-pod)
 // though passing the namespace as an environment variable makes the code simpler for testing and saves an IO operation
 func PerformCheckHeadlessMode(ctx context.Context, health health.Status, conf config.Config) (bool, error) {
-	var targetVersion int64
-	var err error
-
-	targetVersion, err = secret.ReadAutomationConfigVersionFromSecret(ctx, conf.Namespace, conf.ClientSet, conf.AutomationConfigSecretName)
+	targetVersion, err := secret.ReadAutomationConfigVersionFromSecret(ctx, conf.Namespace, conf.ClientSet, conf.AutomationConfigSecretName)
 	if err != nil {
 		// this file is expected to be present in case of AppDB, there is no point trying to access it in
 		// community, it masks the underlying error
 		if _, pathErr := os.Stat(acVersionPath); !os.IsNotExist(pathErr) {
 			file, err := os.Open(acVersionPath)
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("failed to open automation config version file: %w", err)
 			}
 			defer func() {
 				if closeErr := file.Close(); closeErr != nil {
@@ -46,12 +43,12 @@ func PerformCheckHeadlessMode(ctx context.Context, health health.Status, conf co
 
 			data, err := io.ReadAll(file)
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("failed to read automation config version file: %w", err)
 			}
 
 			targetVersion, err = strconv.ParseInt(string(data), 10, 64)
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("failed to parse automation config version from file: %w", err)
 			}
 		} else {
 			return false, fmt.Errorf("failed to fetch automation-config secret name: %s, err: %s", conf.AutomationConfigSecretName, err)
@@ -61,7 +58,7 @@ func PerformCheckHeadlessMode(ctx context.Context, health health.Status, conf co
 	currentAgentVersion := readCurrentAgentInfo(health, targetVersion)
 
 	if err = pod.PatchPodAnnotation(ctx, conf.Namespace, currentAgentVersion, conf.Hostname, conf.ClientSet); err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to patch pod version annotation: %w", err)
 	}
 
 	return targetVersion == currentAgentVersion, nil
@@ -70,7 +67,7 @@ func PerformCheckHeadlessMode(ctx context.Context, health health.Status, conf co
 // readCurrentAgentInfo returns the version the Agent has reached and the rs member name
 func readCurrentAgentInfo(health health.Status, targetVersion int64) int64 {
 	for _, v := range health.MmsStatus {
-		zap.S().Debugf("Automation Config version: %d, Agent last version: %d", targetVersion, v.LastGoalStateClusterConfigVersion)
+		zap.S().Infof("Automation Config version: %d, Agent last version: %d", targetVersion, v.LastGoalStateClusterConfigVersion)
 		return v.LastGoalStateClusterConfigVersion
 	}
 

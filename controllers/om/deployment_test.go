@@ -11,9 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/automationconfig"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func init() {
@@ -62,7 +63,7 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	newProcess := NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil, "")
+	newProcess := NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil, "", architectures.NonStatic)
 
 	d.getProcesses()[0]["processType"] = ProcessTypeMongos                            // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20              // this will be left as-is
@@ -489,12 +490,12 @@ func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
 	}
 }
 
-func TestAddMonitoring(t *testing.T) {
+func TestConfigureMonitoring(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
@@ -504,16 +505,16 @@ func TestAddMonitoring(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
-func TestAddMonitoringTls(t *testing.T) {
+func TestConfigureMonitoringTls(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.AddMonitoring(zap.S(), true, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	expectedAdditionalParams := map[string]string{
 		"useSslForAllConnections":      "true",
@@ -528,16 +529,45 @@ func TestAddMonitoringTls(t *testing.T) {
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
 	// adding again - nothing changes
-	d.AddMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 }
 
-func TestAddBackup(t *testing.T) {
+func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 	d.MergeReplicaSet(rs0, nil, nil, zap.S())
-	d.addBackup(zap.S())
+	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
+
+	// verify TLS is present in additionalParams
+	expectedAdditionalParams := map[string]string{
+		"useSslForAllConnections":      "true",
+		"sslTrustedServerCertificates": util.CAFilePathInContainer,
+	}
+	expectedMonitoringVersionsWithTls := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+	}
+	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
+
+	// disabling TLS should clear additionalParams (CLOUDP-351614)
+	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
+	expectedMonitoringVersionsWithoutTls := []interface{}{
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+	}
+	assert.Equal(t, expectedMonitoringVersionsWithoutTls, d.getMonitoringVersions())
+}
+
+func TestConfigureBackup(t *testing.T) {
+	d := NewDeployment()
+
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.ConfigureBackup(zap.S())
 
 	expectedBackupVersions := []interface{}{
 		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
@@ -547,7 +577,7 @@ func TestAddBackup(t *testing.T) {
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 
 	// adding again - nothing changes
-	d.addBackup(zap.S())
+	d.ConfigureBackup(zap.S())
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 }
 
@@ -727,7 +757,7 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 }
 
 func createStandalone() Process {
-	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "")
+	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
 }
 
 func createMongosProcesses(num int, name, clusterName string) []Process {
@@ -735,7 +765,7 @@ func createMongosProcesses(num int, name, clusterName string) []Process {
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "")
+		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -751,7 +781,7 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "")
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
@@ -761,7 +791,7 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3-ent"), "", nil, "")
+		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3-ent"), "", nil, "", architectures.NonStatic)
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers

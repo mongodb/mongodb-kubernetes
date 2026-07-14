@@ -2,9 +2,9 @@
 set -Eeou pipefail
 
 check_process() {
-  local check_process=$1
+  local check_process=${1}
   # shellcheck disable=SC2009
-  ps -ax | grep -v " grep " | grep -v jq | grep -v tail | grep "$check_process"
+  ps -ax | grep -v " grep " | grep -v jq | grep -v tail | grep "${check_process}"
   return $?
 }
 

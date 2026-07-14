@@ -1,7 +1,8 @@
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 import jsonpatch
 import kubernetes.client
+import kubernetes.client.rest
 from kubernetes import client
 from kubetester import try_load, wait_until
 from kubetester.awss3client import AwsS3Client
@@ -11,11 +12,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    get_central_cluster_client,
-    get_member_cluster_api_client,
-    is_multi_cluster,
-)
+from tests.conftest import get_central_cluster_client, get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.om_ops_manager_backup import (
     HEAD_PATH,
     OPLOG_RS_NAME,
@@ -35,7 +32,7 @@ Note, that it doesn't check for mongodb backup as it's done in 'e2e_om_ops_manag
 
 
 @fixture(scope="module")
-def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> str:
+def s3_bucket(aws_s3_client: AwsS3Client, namespace: str) -> Iterator[str]:
     create_aws_secret(aws_s3_client, S3_SECRET_NAME, namespace)
     yield from create_s3_bucket(aws_s3_client, bucket_prefix="test-s3-bucket-")
 
@@ -51,9 +48,6 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
-    if try_load(resource):
-        return resource
-
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
@@ -61,7 +55,7 @@ def ops_manager(
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    resource.update()
+    try_load(resource)
     return resource
 
 
@@ -92,6 +86,7 @@ def service_exists(service_name: str, namespace: str, api_client: Optional[kuber
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
+        ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -136,8 +131,7 @@ class TestOpsManagerCreation:
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
         ops_manager.assert_appdb_monitoring_group_was_created()
 
-        # TODO uncomment when CLOUDP-70468 is fixed and AppDB supports scram-sha-256
-        # making sure the s3 config pushed to OM references the appdb
+        # TODO for multicluster appdb, the connection string uses the per-pod service, not the headless
         # appdb_replica_set = ops_manager.get_appdb_resource()
         # appdb_password = KubernetesTester.read_secret(
         #     ops_manager.namespace, ops_manager.app_db_password_secret_name()

@@ -6,12 +6,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import (
-    get_default_operator,
-    get_multi_cluster_operator,
-    install_official_operator,
-    is_multi_cluster,
-)
+from tests.conftest import get_default_operator, get_multi_cluster_operator, install_official_operator, is_multi_cluster
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_CHART,
@@ -103,7 +98,7 @@ def test_install_latest_official_operator(
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
@@ -155,14 +150,17 @@ def test_upgrade_operator(
         operator = get_default_operator(
             namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
         )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
 def test_om_tls_ok(ops_manager_tls: MongoDBOpsManager):
     ops_manager_tls.load()
-    ops_manager_tls.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
-    ops_manager_tls.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    # We use assert_persist_phase here to ensure that the status stays in Running phase for some time,
+    # to avoid false positives due to a transient Running state before starting reconciliation of OM.
+    # TODO: Revert after fixing root issue (https://jira.mongodb.org/browse/CLOUDP-364841)
+    ops_manager_tls.appdb_status().assert_persist_phase(Phase.Running, timeout=900, persist_for=3)
+    ops_manager_tls.om_status().assert_persist_phase(Phase.Running, timeout=900, persist_for=3)
     ops_manager_tls.get_om_tester().assert_healthiness()
 
 

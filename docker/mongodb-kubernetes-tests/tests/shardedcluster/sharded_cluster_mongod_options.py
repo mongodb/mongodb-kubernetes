@@ -15,15 +15,12 @@ from tests.constants import OPERATOR_NAME
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-mongod-options.yaml"),
         namespace=namespace,
     )
-
-    if try_load(resource):
-        return resource
 
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource.set_architecture_annotation()
@@ -38,16 +35,18 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
             configsrv_members_array=[1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
 def test_sharded_cluster_created(sc: MongoDB):
+    sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
 
@@ -175,6 +174,6 @@ def test_backup_log_rotation():
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
-def test_backup_log_rotation():
+def test_monitoring_log_rotation():
     mc = KubernetesTester.get_monitoring_config()
     assert_log_rotation_backup_monitoring(mc)

@@ -38,8 +38,8 @@ otel_trace_id:
 otel_parent_id:
 otel_endpoint:
 otel_resource_attributes:
+pytestOtelEnabled: true
 mdbDefaultArchitecture: "non-static"
-mdbImageType: "ubi8"
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:
@@ -51,4 +51,8 @@ helm:
     version: ""
     registry: ""
     repository: ""
-    region: ""
+
+autoEmbedding:
+  providerMongoDB:
+    indexingKey: ""
+    queryKey: ""

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -16,10 +17,10 @@ import (
 )
 
 type ClusterHealthChecker interface {
-	IsClusterHealthy() bool
+	IsClusterHealthy(log *zap.SugaredLogger) bool
 }
 
-type MemberHeathCheck struct {
+type MemberHealthCheck struct {
 	Server string
 	Client *retryablehttp.Client
 	Token  string
@@ -31,44 +32,76 @@ var (
 	DefaultRetryMax     = 10
 )
 
-func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger) *MemberHeathCheck {
+// HealthCheckOption is a functional option for configuring MemberHealthCheck
+type HealthCheckOption func(*retryablehttp.Client)
+
+// WithRetryConfig configures the retry behavior of the health check client
+func WithRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) HealthCheckOption {
+	return func(client *retryablehttp.Client) {
+		client.RetryWaitMin = retryWaitMin
+		client.RetryWaitMax = retryWaitMax
+		client.RetryMax = retryMax
+	}
+}
+
+func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.SugaredLogger, opts ...HealthCheckOption) ClusterHealthChecker {
 	certpool := x509.NewCertPool()
 	certpool.AppendCertsFromPEM(ca)
 
-	return &MemberHeathCheck{
-		Server: server,
-		Client: &retryablehttp.Client{
-			HTTPClient: &http.Client{
-				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{
-						RootCAs:    certpool,
-						MinVersion: tls.VersionTLS12,
-					},
-				},
-				Timeout: time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
-			},
-			RetryWaitMin: DefaultRetryWaitMin,
-			RetryWaitMax: DefaultRetryWaitMax,
-			RetryMax:     DefaultRetryMax,
-			// Will retry on all errors
-			CheckRetry: retryablehttp.DefaultRetryPolicy,
-			// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
-			// We don't need Jitter here as we're the only client to the OM, so there's no risk
-			// of overwhelming it in a peek.
-			Backoff: retryablehttp.DefaultBackoff,
-			RequestLogHook: func(logger retryablehttp.Logger, request *http.Request, i int) {
-				if i > 0 {
-					log.Warnf("Retrying (#%d) failed health check to %s (%s)", i, server, request.URL)
-				}
-			},
+	// MULTI_CLUSTER_HEALTHCHECK_PROXY (when set) routes the member-cluster
+	// /readyz checks through an explicit HTTP CONNECT proxy. We can't use
+	// http.ProxyFromEnvironment here because Go hardcodes a 127.0.0.1 /
+	// localhost bypass that overrides NO_PROXY — and member-cluster API
+	// server URLs in the local-dev kubeconfig are exactly 127.0.0.1:<port>
+	// on the EVG host's loopback, reachable only via the SSH tunnel.
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs:    certpool,
+			MinVersion: tls.VersionTLS12,
 		},
-		Token: token,
+	}
+	if proxyEnv := env.ReadOrDefault("MULTI_CLUSTER_HEALTHCHECK_PROXY", ""); proxyEnv != "" { // nolint:forbidigo
+		if proxyURL, perr := url.Parse(proxyEnv); perr == nil && proxyURL.Host != "" {
+			transport.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+
+	client := &retryablehttp.Client{
+		HTTPClient: &http.Client{
+			Transport: transport,
+			Timeout:   time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
+		},
+		RetryWaitMin: DefaultRetryWaitMin,
+		RetryWaitMax: DefaultRetryWaitMax,
+		RetryMax:     DefaultRetryMax,
+		// Will retry on all errors
+		CheckRetry: retryablehttp.DefaultRetryPolicy,
+		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
+		// We don't need Jitter here as we're the only client to the OM, so there's no risk
+		// of overwhelming it in a peek.
+		Backoff: retryablehttp.DefaultBackoff,
+		RequestLogHook: func(logger retryablehttp.Logger, request *http.Request, i int) {
+			if i > 0 {
+				log.Warnf("Retrying (#%d) failed health check to %s (%s)", i, server, request.URL)
+			}
+		},
+	}
+
+	// Apply any custom options
+	for _, opt := range opts {
+		opt(client)
+	}
+
+	return &MemberHealthCheck{
+		Server: server,
+		Client: client,
+		Token:  token,
 	}
 }
 
 // IsMemberClusterHealthy checks if there are some member clusters that are not in a "healthy" state
-// by curl "ing" the healthz endpoint of the clusters.
-func (m *MemberHeathCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
+// by curl "ing" the /readyz endpoint of the clusters.
+func (m *MemberHealthCheck) IsClusterHealthy(log *zap.SugaredLogger) bool {
 	statusCode, err := check(m.Client, m.Server, m.Token)
 	if err != nil {
 		log.Errorf("Error running healthcheck for server: %s, error: %v", m.Server, err)

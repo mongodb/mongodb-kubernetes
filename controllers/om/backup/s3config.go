@@ -1,11 +1,9 @@
 package backup
 
 import (
-	"fmt"
-
 	"go.uber.org/zap"
 
-	omv1 "github.com/mongodb/mongodb-kubernetes/api/v1/om"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
@@ -72,6 +70,10 @@ type S3Config struct {
 
 	// CustomCertificates is a list of valid Certificate Authority certificates that apply to the associated S3 bucket.
 	CustomCertificates []S3CustomCertificate `json:"customCertificates,omitempty"`
+
+	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
+	// This should be enabled for Immutable Backups.
+	ObjectLockEnabled *bool `json:"objectLockEnabled,omitempty"`
 }
 
 // S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
@@ -121,6 +123,7 @@ func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri
 		PathStyleAccessEnabled: true,
 		AuthMethod:             string(authMode),
 		S3RegionOverride:       &s3Config.S3RegionOverride,
+		ObjectLockEnabled:      s3Config.ObjectLockEnabled,
 	}
 
 	if _, err := versionutil.StringToSemverVersion(opsManager.Spec.Version); err == nil {
@@ -165,10 +168,6 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.S3RegionOverride = s.S3RegionOverride
 	opsManagerS3Config.Labels = s.Labels
 	opsManagerS3Config.CustomCertificates = s.CustomCertificates
+	opsManagerS3Config.ObjectLockEnabled = s.ObjectLockEnabled
 	return opsManagerS3Config
-}
-
-func (s S3Config) String() string {
-	return fmt.Sprintf("id %s, uri: %s, enabled: %t, awsAccessKey: %s, awsSecretKey: %s, bucketEndpoint: %s, bucketName: %s, pathStyleAccessEnabled: %t",
-		s.Id, util.RedactMongoURI(s.Uri), s.AssignmentEnabled, util.Redact(s.AccessKey), util.Redact(s.SecretKey), s.Endpoint, s.Name, s.PathStyleAccessEnabled)
 }

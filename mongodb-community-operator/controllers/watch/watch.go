@@ -12,7 +12,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/contains"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/contains"
 )
 
 // ResourceWatcher implements handler.EventHandler and is used to trigger reconciliation when

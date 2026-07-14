@@ -25,7 +25,6 @@ source /opt/scripts/agent-launcher-lib.sh
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
-tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" 2> /dev/null | json_log 'automation-agent-stderr' &
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT}" 2> /dev/null | json_log 'automation-agent' &
 tail -F -n0 "${MDB_LOG_FILE_MONITORING_AGENT}" 2> /dev/null | json_log 'monitoring-agent' &
 tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent' &
@@ -126,6 +125,14 @@ elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
   agentOpts+=("-ephemeralPortOffset=1")
 fi
 
+# Remove stale agent health status file if exists.
+#
+# With `spec.persistent = true` the `{MMS_LOG_DIR}` directory is mounted using PVC. That means during pod recreation
+# we are not losing any logs. At the same time `agent-health-status.json` file is also is preserved during restarts.
+# This is problematic, because our readiness probe uses this file as source of truth for deployment status
+# and if it is stale we can quickly mark the container as ready, while in fact it is still booting up.
+rm -f "${MMS_LOG_DIR}/agent-health-status.json" 2>/dev/null || true
+
 agentOpts+=("-healthCheckFilePath=${MMS_LOG_DIR}/agent-health-status.json")
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   agentOpts+=("-useLocalMongoDbTools=true")
@@ -218,25 +225,8 @@ else
   agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
 fi
 
-debug="${MDB_AGENT_DEBUG-}"
-if [ "${debug}" = "true" ]; then
-  cd ${mdb_downloads_dir} || true
-  mkdir -p /var/lib/mongodb-mms-automation/gopath
-  mkdir -p /var/lib/mongodb-mms-automation/go
-  curl -LO https://go.dev/dl/go1.20.1.linux-amd64.tar.gz
-  tar -xzf go1.20.1.linux-amd64.tar.gz
-  export GOPATH=${mdb_downloads_dir}/gopath
-  export GOCACHE=${mdb_downloads_dir}/.cache
-  export PATH=${PATH}:${mdb_downloads_dir}/go/bin
-  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
-  go install github.com/go-delve/delve/cmd/dlv@latest
-  export PATH=${PATH}:${mdb_downloads_dir}/gopath/bin
-  cd ${mdb_downloads_dir} || true
-  dlv --headless=true --listen=:5006 --accept-multiclient=true --continue --api-version=2 exec "${AGENT_BINARY_PATH}" -- "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" > >(json_log "automation-agent-stdout") &
-else
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-  "${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2>> "${MDB_LOG_FILE_AUTOMATION_AGENT_STDERR}" >> >(json_log "automation-agent-stdout") &
-fi
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"

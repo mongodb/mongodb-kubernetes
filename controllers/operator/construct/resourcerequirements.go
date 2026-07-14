@@ -6,13 +6,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 )
 
 // buildStorageRequirements returns a corev1.ResourceList definition for storage requirements.
 // This is used by the StatefulSet PersistentVolumeClaimTemplate.
-func buildStorageRequirements(persistenceConfig *common.PersistenceConfig, defaultConfig common.PersistenceConfig) corev1.ResourceList {
+func buildStorageRequirements(persistenceConfig *v1.PersistenceConfig, defaultConfig v1.PersistenceConfig) corev1.ResourceList {
 	res := corev1.ResourceList{}
 
 	if q := ParseQuantityOrZero(mdbv1.GetStorageOrDefault(persistenceConfig, defaultConfig)); !q.IsZero() {

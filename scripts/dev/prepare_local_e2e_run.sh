@@ -11,8 +11,8 @@ source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
 if [[ "$(uname)" == "Linux" ]]; then
-  export PATH=/opt/golang/go1.24/bin:${PATH}
-  export GOROOT=/opt/golang/go1.24
+  export PATH=/opt/golang/go1.25/bin:${PATH}
+  export GOROOT=/opt/golang/go1.25
 fi
 
 on_exit() {
@@ -29,7 +29,8 @@ on_exit() {
 trap on_exit EXIT
 if [[ "${RESET:-"true"}" == "true" ]]; then
   echo "Running reset script..."
-  go run "${PROJECT_DIR}/scripts/dev/reset.go" 2>&1 | prepend "reset"
+  go build -o "${PROJECT_DIR}/bin/reset" "${PROJECT_DIR}/scripts/dev/reset/"
+  "${PROJECT_DIR}/bin/reset" 2>&1 | prepend "reset"
 fi
 
 current_context=$(kubectl config current-context)
@@ -47,8 +48,13 @@ fi
 echo "Ensuring namespace ${NAMESPACE}"
 ensure_namespace "${NAMESPACE}" 2>&1 | prepend "ensure_namespace"
 
-echo "Deleting ~/.docker/.config.json and re-creating it"
-rm ~/.docker/config.json || true
+# Start independent make install and delete om project in background
+(make install 2>&1 | prepend "make install") &
+pid_install=$!
+(scripts/dev/delete_om_projects.sh 2>&1 | prepend "delete_om_projects") &
+pid_om=$!
+
+echo "Configuring container auth (skips login if credentials still valid)"
 scripts/dev/configure_container_auth.sh 2>&1 | prepend "configure_docker_auth"
 
 echo "Configuring operator"
@@ -62,13 +68,29 @@ cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
-  prepare_multi_cluster_e2e_run 2>&1 | prepend "prepare_multi_cluster_e2e_run"
+  go build -o "${PROJECT_DIR}/bin/prepare_multi_cluster" "${PROJECT_DIR}/scripts/dev/prepare-multi-cluster/"
+  "${PROJECT_DIR}/bin/prepare_multi_cluster" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
   run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
 fi
 
-make install 2>&1 | prepend "make install"
+# Wait for background operations before deploy step (which needs CRDs from make install)
+wait "${pid_install}" || exit $?
+wait "${pid_om}" || exit $?
 test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongodb-kubernetes-tests/.test_identifiers"
-scripts/dev/delete_om_projects.sh 2>&1 | prepend "delete_om_projects"
+
+# Ensure database pod service accounts exist in each watched namespace
+# regardless of DEPLOY_OPERATOR setting (the Helm chart only creates them
+# when DEPLOY_OPERATOR=true, but they're required even for local operator runs).
+# Add Helm ownership metadata so that when Helm runs (in this script or in pytest)
+# it can adopt these resources instead of failing with "invalid ownership metadata".
+for sa in mongodb-kubernetes-database-pods mongodb-kubernetes-appdb; do
+  kubectl create serviceaccount "${sa}" -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl label serviceaccount "${sa}" -n "${NAMESPACE}" "app.kubernetes.io/managed-by=Helm" --overwrite
+  kubectl annotate serviceaccount "${sa}" -n "${NAMESPACE}" \
+    "meta.helm.sh/release-name=mongodb-kubernetes-operator" \
+    "meta.helm.sh/release-namespace=${NAMESPACE}" \
+    --overwrite
+done
 
 (
   if [[ "${DEPLOY_OPERATOR:-"false"}" == "true" ]]; then

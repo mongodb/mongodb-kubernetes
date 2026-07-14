@@ -188,9 +188,6 @@ dump_pod_logs() {
 
     done
 
-    if kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-stderr.log &>/dev/null; then
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent-stderr.log" "logs/${prefix}${pod}-agent-stderr.log" &> /dev/null
-    fi
 }
 
 # dump_pod_readiness_state dumps readiness and agent-health-status files.
@@ -386,6 +383,7 @@ dump_namespace() {
     # Download test results from the test pod in community
     download_test_results "${context}" "${namespace}" "e2e-test"
 
+    dump_objects "${context}" jobs "Jobs" "${namespace}" "get -o yaml" "logs/${prefix}z_jobs.txt"
     dump_objects "${context}" pvc "Persistent Volume Claims" "${namespace}" "get -o yaml" "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "get -o yaml" "logs/${prefix}z_deployments.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "describe" "logs/${prefix}z_deployments_describe.txt"

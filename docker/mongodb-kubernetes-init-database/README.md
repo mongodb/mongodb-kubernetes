@@ -1,6 +1,6 @@
 ### Building locally
 
-For building the MongoDB Init AppDB image locally use the example command:
+For building the MongoDB Init Database image locally use the example command:
 
 ```bash
 VERSION="1.3.0"

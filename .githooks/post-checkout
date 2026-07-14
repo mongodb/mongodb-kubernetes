@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Git post-checkout hook that initializes linked worktrees.
+#
+# To set up: ln -sf "$(pwd)/.githooks/post-checkout" .git/hooks/post-checkout
+#
+
+set -Eeou pipefail
+
+# Hook arguments:
+#   $1 - previous HEAD ref
+#   $2 - new HEAD ref
+#   $3 - flag: 1 = branch checkout, 0 = file checkout
+CHECKOUT_TYPE="${3:-}"
+
+# Only run on branch checkouts.
+if [[ "${CHECKOUT_TYPE}" != "1" ]]; then
+    exit 0
+fi
+
+# Skip during rebase — git checks out each commit internally and would trigger
+# this hook repeatedly.
+git_dir="$(git rev-parse --git-dir)"
+if [[ -d "${git_dir}/rebase-merge" || -d "${git_dir}/rebase-apply" ]]; then
+    exit 0
+fi
+
+# Only run inside a linked worktree. In a linked worktree .git is a regular
+# file; in the main clone it is a directory.
+if [[ ! -f ".git" ]]; then
+    exit 0
+fi
+
+# Resolve the root of the original ("main") clone via the shared git dir.
+# `git rev-parse --git-common-dir` returns e.g. /path/to/main-clone/.git
+git_common_dir="$(git rev-parse --git-common-dir)"
+main_repo_root="$(cd "${git_common_dir}/.." && pwd)"
+worktree_root="$(pwd)"
+
+echo "post-checkout: detected linked worktree at ${worktree_root}"
+echo "post-checkout: main repo at ${main_repo_root}"
+
+"${main_repo_root}/scripts/dev/init_worktree.sh" "${worktree_root}" "${main_repo_root}"

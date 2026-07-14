@@ -335,6 +335,8 @@ spec:
                           type: object
                         type: array
                       replicaSet:
+                        description: OverrideReplicaSet holds replica set override
+                          fields for the AutomationConfig.
                         properties:
                           id:
                             description: |-
@@ -1283,6 +1285,11 @@ spec:
                           type: object
                         name:
                           type: string
+                        objectLockEnabled:
+                          description: |-
+                            ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
+                            This should be enabled to leverage Immutable Backups.
+                          type: boolean
                         pathStyleAccessEnabled:
                           type: boolean
                         s3BucketEndpoint:
@@ -1375,6 +1382,11 @@ spec:
                           type: object
                         name:
                           type: string
+                        objectLockEnabled:
+                          description: |-
+                            ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
+                            This should be enabled to leverage Immutable Backups.
+                          type: boolean
                         pathStyleAccessEnabled:
                           type: boolean
                         s3BucketEndpoint:
@@ -1817,6 +1829,8 @@ spec:
                     format: int64
                     type: integer
                   phase:
+                    type: string
+                  projectId:
                     type: string
                   pvc:
                     items:

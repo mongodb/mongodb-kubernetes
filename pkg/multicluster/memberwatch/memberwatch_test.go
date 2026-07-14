@@ -1,15 +1,24 @@
 package memberwatch
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
-	"github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	mc "github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
@@ -148,7 +157,7 @@ func TestShouldAddFailedClusterAnnotation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, shouldAddFailedClusterAnnotation(tt.annotations, tt.clusterName), tt.out)
+		assert.Equal(t, !isInFailedClusterAnnotation(tt.annotations, tt.clusterName), tt.out)
 	}
 }
 
@@ -339,4 +348,51 @@ func TestGetUserFromContext(t *testing.T) {
 			assert.Equal(t, tc.expectedUser, user)
 		})
 	}
+}
+
+func TestAddAndRemoveFailedClusterAnnotation(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, apiv1.AddToScheme(scheme))
+
+	mrs := &mdbmulti.MongoDBMultiCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mdbmc",
+			Namespace: "ns",
+		},
+		Spec: mdbmulti.MongoDBMultiSpec{},
+	}
+	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+		{ClusterName: "cluster1", Members: 2},
+		{ClusterName: "cluster2", Members: 2},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mrs).Build()
+	central := kubernetesClient.NewClient(fakeClient)
+
+	// 1. Initial state: no failedClusters annotation.
+	got := &mdbmulti.MongoDBMultiCluster{}
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+	_, present := got.Annotations[failedcluster.FailedClusterAnnotation]
+	require.False(t, present, "precondition: annotation should not exist yet")
+
+	// 2. Mark cluster1 as failed; annotation should appear with cluster1 in it.
+	require.NoError(t, addFailedClustersAnnotation(ctx, *mrs, "cluster1", central))
+
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+	val, present := got.Annotations[failedcluster.FailedClusterAnnotation]
+	require.True(t, present, "annotation should exist after adding cluster1")
+	assert.True(t, isInFailedClusterAnnotation(got.Annotations, "cluster1"))
+
+	var parsed []failedcluster.FailedCluster
+	require.NoError(t, json.Unmarshal([]byte(val), &parsed))
+	require.Len(t, parsed, 1)
+	assert.Equal(t, "cluster1", parsed[0].ClusterName)
+
+	// 3. Remove cluster1; the annotation key should be deleted entirely.
+	require.NoError(t, removeClusterFromFailedAnnotation(ctx, *got, "cluster1", central))
+
+	require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: "mdbmc", Namespace: "ns"}, got))
+	_, present = got.Annotations[failedcluster.FailedClusterAnnotation]
+	assert.False(t, present, "annotation key should be removed when the list becomes empty")
 }

@@ -10,12 +10,12 @@ import logging
 import random
 import string
 import time
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 import pymongo
 import yaml
 from kubernetes.client.rest import ApiException
-from kubetester import find_fixture, wait_until
+from kubetester import find_fixture, try_load, wait_until
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.mongotester import upload_random_data
@@ -40,7 +40,7 @@ def large_json_generator() -> Callable[[], Dict]:
     return inner
 
 
-async def upload_random_data_async(client: pymongo.MongoClient, task_name: str = None, count: int = 50_000):
+async def upload_random_data_async(client: pymongo.MongoClient, task_name: Optional[str] = None, count: int = 50_000):
     fn = functools.partial(
         upload_random_data,
         client=client,
@@ -59,23 +59,26 @@ def create_writing_task(client: pymongo.MongoClient, name: str, count: int) -> a
     return asyncio.create_task(upload_random_data_async(client, name, count))
 
 
-def create_writing_tasks(client: pymongo.MongoClient, prefix: str, task_sizes: List[int] = None) -> asyncio:
+def create_writing_tasks(
+    client: pymongo.MongoClient, prefix: str, task_sizes: Optional[List[int]] = None
+) -> list[asyncio.Task]:
     """
     Creates many async tasks to upload documents to a MongoDB database.
     """
-    return [create_writing_task(client, prefix + str(task), task) for task in task_sizes]
+    return [create_writing_task(client, prefix + str(task), task) for task in (task_sizes or [])]
 
 
 @fixture(scope="module")
 def replica_set(namespace: str) -> MongoDB:
-    rs = generic_replicaset(namespace, version="4.4.2")
-
-    rs["spec"]["persistent"] = True
-    return rs.create()
+    resource = generic_replicaset(namespace, version="4.4.2")
+    resource["spec"]["persistent"] = True
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_replication_state_awareness
 def test_replicaset_reaches_running_state(replica_set: MongoDB):
+    replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 

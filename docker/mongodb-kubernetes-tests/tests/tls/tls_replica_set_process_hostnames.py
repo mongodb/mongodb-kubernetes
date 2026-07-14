@@ -17,11 +17,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    default_external_domain,
-    external_domain_fqdns,
-    update_coredns_hosts,
-)
+from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
 
 
 @fixture(scope="module")
@@ -72,7 +68,7 @@ def replica_set(
 
 @mark.e2e_replica_set_tls_process_hostnames
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_replica_set_tls_process_hostnames

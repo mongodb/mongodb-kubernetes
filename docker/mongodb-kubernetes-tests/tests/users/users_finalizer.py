@@ -3,9 +3,10 @@ import time
 import pytest
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
-from kubetester import create_or_update_secret, find_fixture
+from kubetester import create_or_update_secret, find_fixture, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
@@ -18,7 +19,8 @@ RESOURCE_NAME = "my-replica-set"
 def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
     res = MongoDB.from_yaml(load_fixture("replica-set-scram-sha-256.yaml"), namespace=namespace)
     res.set_version(custom_mdb_version)
-    return res.update()
+    try_load(res)
+    return res
 
 
 @pytest.fixture(scope="module")
@@ -31,20 +33,23 @@ def scram_user(namespace: str) -> MongoDBUser:
         {"password": USER_PASSWORD},
     )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @pytest.mark.e2e_users_finalizer
 class TestReplicaSetIsRunning(KubernetesTester):
 
     def test_mdb_resource_running(self, mdb: MongoDB):
+        mdb.update()
         mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @pytest.mark.e2e_users_finalizer
 class TestUserIsAdded(KubernetesTester):
 
-    def test_user_is_ready(mdb: MongoDB, scram_user: MongoDBUser):
+    def test_user_is_ready(self, mdb: MongoDB, scram_user: MongoDBUser):
+        scram_user.update()
         scram_user.assert_reaches_phase(Phase.Updated)
 
         ac = KubernetesTester.get_automation_config()
@@ -60,6 +65,25 @@ class TestUserIsAdded(KubernetesTester):
         finalizers = scram_user["metadata"]["finalizers"]
 
         assert finalizers[0] == "mongodb.com/v1.userRemovalFinalizer"
+
+    def test_connection_string_secret_has_controller_ref(self, scram_user: MongoDBUser):
+        """The connection string Secret must carry a controller owner reference pointing to
+        the MongoDBUser CR so that Kubernetes GC removes it when the MongoDBUser is deleted."""
+        secret_name = f"{RESOURCE_NAME}-{scram_user.name}-admin"
+        secret = self.corev1.read_namespaced_secret(name=secret_name, namespace=self.namespace)
+
+        owner_refs = secret.metadata.owner_references or []
+        controller_ref = next((ref for ref in owner_refs if ref.controller), None)
+
+        assert (
+            controller_ref is not None
+        ), f"Connection string secret '{secret_name}' has no controller owner reference."
+        assert (
+            controller_ref.name == scram_user.name
+        ), f"Expected controller owner '{scram_user.name}', got '{controller_ref.name}'."
+        assert (
+            controller_ref.kind == "MongoDBUser"
+        ), f"Expected controller owner kind 'MongoDBUser', got '{controller_ref.kind}'."
 
 
 @pytest.mark.e2e_users_finalizer
@@ -99,3 +123,17 @@ class TestCleanupIdPerformedBeforeDeletingUser(KubernetesTester):
         ac = KubernetesTester.get_automation_config()
         users = ac["auth"]["usersWanted"]
         assert "username" not in [user["user"] for user in users]
+
+    def test_connection_string_secret_is_deleted_by_gc(self):
+        """After the MongoDBUser CR is deleted, Kubernetes GC must remove the connection
+        string Secret via the controller owner reference set by the operator."""
+        secret_name = f"{RESOURCE_NAME}-scram-user-admin"
+
+        def secret_deleted():
+            try:
+                self.corev1.read_namespaced_secret(name=secret_name, namespace=self.namespace)
+                return False
+            except ApiException as e:
+                return e.status == 404
+
+        run_periodically(secret_deleted, timeout=30, msg="connection string secret to be GC'd")

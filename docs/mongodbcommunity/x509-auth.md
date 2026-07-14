@@ -22,27 +22,147 @@ MongoDB Agent and client.
 
 ## Use Helm to Enable X.509 Authentication
 
-You can use Helm to install and deploy the MongoDB Community Kubernetes
-Operator with X.509 Authentication enabled for the MongoDB Agent and
-client. To learn more, see [Install the Operator using Helm](https://github.com/mongodb/mongodb-kubernetes/blob/master/docs/install-upgrade.md#install-the-operator-using-helm).
+You can use Helm to install the MongoDB Community Kubernetes Operator
+and then create the required `cert-manager` resources and a
+`MongoDBCommunity` custom resource with X.509 authentication.
 
-1. To deploy the MongoDB Community Kubernetes Operator, copy and paste
-   the following command and replace the `<namespace>` variable with the
-   namespace:
+To learn more about installing the operator, see [Install the Operator using Helm](https://github.com/mongodb/mongodb-kubernetes/blob/master/docs/install-upgrade.md#install-the-operator-using-helm).
 
-   **Note:**
-
-   The following command deploys a sample resource with X.509 enabled
-   for both the MongoDB Agent and client authentication. It also creates
-   a sample X.509 user and the certificate that the user can use to
-   authenticate.
+1. Install the operator:
 
    ```
    helm upgrade --install community-operator mongodb/community-operator \
-   --namespace <namespace> --set namespace=<namespace> --create-namespace \
-   --set resource.tls.useCertManager=true --set resource.tls.enabled=true \
-   --set resource.tls.useX509=true --set resource.tls.sampleX509User=true \
-   --set createResource=true
+   --namespace <namespace> --create-namespace
+   ```
+
+2. Create `cert-manager` resources for TLS and X.509 authentication.
+   Save the following YAML to a file (e.g. `x509-certs.yaml`), replacing
+   `<resource-name>` with the name of your MongoDBCommunity resource and
+   `<namespace>` with your namespace:
+
+   ```yaml
+   # Self-signed issuer to bootstrap the CA
+   apiVersion: cert-manager.io/v1
+   kind: Issuer
+   metadata:
+     name: tls-selfsigned-issuer
+     namespace: <namespace>
+   spec:
+     selfSigned: {}
+   ---
+   # Self-signed CA certificate
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: tls-selfsigned-ca
+     namespace: <namespace>
+   spec:
+     isCA: true
+     commonName: "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+     dnsNames:
+       - "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+     secretName: tls-ca-key-pair
+     privateKey:
+       algorithm: ECDSA
+       size: 256
+     issuerRef:
+       name: tls-selfsigned-issuer
+       kind: Issuer
+   ---
+   # CA issuer that signs certificates
+   apiVersion: cert-manager.io/v1
+   kind: Issuer
+   metadata:
+     name: tls-ca-issuer
+     namespace: <namespace>
+   spec:
+     ca:
+       secretName: tls-ca-key-pair
+   ---
+   # TLS certificate for the MongoDB replica set
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: cert-manager-tls-certificate
+     namespace: <namespace>
+   spec:
+     secretName: tls-certificate
+     issuerRef:
+       name: tls-ca-issuer
+       kind: Issuer
+     duration: 8760h
+     renewBefore: 720h
+     commonName: "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+     dnsNames:
+       - "*.<resource-name>-svc.<namespace>.svc.cluster.local"
+   ---
+   # Agent X.509 certificate
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: agent-certs
+     namespace: <namespace>
+   spec:
+     commonName: mms-automation-agent
+     dnsNames:
+       - automation
+     duration: 240h
+     issuerRef:
+       name: tls-ca-issuer
+     renewBefore: 120h
+     secretName: agent-certs
+     subject:
+       countries:
+         - US
+       localities:
+         - NY
+       organizationalUnits:
+         - a-1635241837-m5yb81lfnrz
+       organizations:
+         - cluster.local-agent
+       provinces:
+         - NY
+     usages:
+       - digital signature
+       - key encipherment
+       - client auth
+   ---
+   # Sample X.509 client certificate
+   apiVersion: cert-manager.io/v1
+   kind: Certificate
+   metadata:
+     name: x509-user-cert
+     namespace: <namespace>
+   spec:
+     commonName: my-x509-user
+     duration: 240h
+     issuerRef:
+       name: tls-ca-issuer
+     renewBefore: 120h
+     secretName: my-x509-user-cert
+     subject:
+       organizationalUnits:
+         - organizationalunit
+       organizations:
+         - organization
+     usages:
+       - digital signature
+       - client auth
+   ```
+
+   Apply the file:
+
+   ```
+   kubectl apply -f x509-certs.yaml --namespace <namespace>
+   ```
+
+3. Create a `MongoDBCommunity` resource with X.509 authentication. For
+   an example, see [mongodb.com_v1_mongodbcommunity_x509.yaml](https://github.com/mongodb/mongodb-kubernetes/blob/master/public/samples/community/mongodb.com_v1_mongodbcommunity_x509.yaml).
+
+   Apply the file:
+
+   ```
+   kubectl apply -f <your-mongodb-resource>.yaml --namespace <namespace>
    ```
 
 ## Use `kubectl` to Enable X.509 Authentication

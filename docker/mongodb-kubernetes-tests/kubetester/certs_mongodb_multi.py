@@ -128,7 +128,7 @@ def create_multi_cluster_tls_certs(
     secret_name: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_clients: List[MultiClusterClient],
-    mongodb_multi: Optional[CustomObject] = None,
+    mongodb_multi: Optional[MongoDBMulti] = None,
     namespace: Optional[str] = None,
     secret_backend: Optional[str] = None,
     additional_domains: Optional[List[str]] = None,
@@ -137,6 +137,7 @@ def create_multi_cluster_tls_certs(
     spec: Optional[dict] = None,
 ) -> str:
     if service_fqdns is None:
+        assert mongodb_multi is not None, "mongodb_multi is required when service_fqdns is not provided"
         service_fqdns = [f"{mongodb_multi.name}-svc.{mongodb_multi.namespace}.svc.cluster.local"]
 
         for client in member_clients:
@@ -145,6 +146,7 @@ def create_multi_cluster_tls_certs(
                 external_domain = cluster_spec["externalAccess"]["externalDomain"]
             except KeyError:
                 external_domain = None
+            assert client.cluster_index is not None
             service_fqdns.extend(
                 multi_cluster_service_fqdns(
                     mongodb_multi.name,
@@ -156,6 +158,7 @@ def create_multi_cluster_tls_certs(
             )
 
     if namespace is None:
+        assert mongodb_multi is not None, "mongodb_multi is required when namespace is not provided"
         namespace = mongodb_multi.namespace
 
     generate_cert(

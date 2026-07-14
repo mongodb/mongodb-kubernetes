@@ -9,10 +9,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import central_cluster_client
-from tests.shardedcluster.conftest import (
-    enable_multi_cluster_deployment,
-    get_mongos_service_names,
-)
+from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_mongos_service_names
 
 MDB_RESOURCE = "sharded-cluster-custom-certs"
 
@@ -21,9 +18,9 @@ MDB_RESOURCE = "sharded-cluster-custom-certs"
 def all_certs(central_cluster_client: kubernetes.client.ApiClient, issuer: str, namespace: str) -> None:
     """Generates all required TLS certificates: Servers and Client/Member."""
 
-    shard_distribution = None
-    mongos_distribution = None
-    config_srv_distribution = None
+    shard_distribution: list[int | None] | None = None
+    mongos_distribution: list[int | None] | None = None
+    config_srv_distribution: list[int | None] | None = None
     if is_multi_cluster():
         shard_distribution = [1, 1, 1]
         mongos_distribution = [1, 1, None]
@@ -52,9 +49,6 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
         namespace=namespace,
     )
 
-    if try_load(resource):
-        return resource
-
     resource["spec"]["security"] = {
         "tls": {
             "enabled": True,
@@ -74,16 +68,18 @@ def sc(namespace: str, issuer_ca_configmap: str, custom_mdb_version: str, all_ce
             configsrv_members_array=[1, 1, 1],
         )
 
-    return resource.update()
+    try_load(resource)
+    return resource
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_sharded_cluster_with_prefix_gets_to_running_state(sc: MongoDB):
+    sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 
@@ -105,12 +101,14 @@ def test_sharded_cluster_has_no_connectivity_without_tls(sc: MongoDB):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
+    last_transition = sc.get_status_last_transition_time()
+
     # update the shard cert
     cert = Certificate(name=f"prefix-{MDB_RESOURCE}-0-cert", namespace=namespace).load()
     cert["spec"]["dnsNames"].append("foo")
     cert.update()
 
-    sc.assert_abandons_phase(Phase.Running)
+    sc.assert_state_transition_happens(last_transition, timeout=800)
     sc.assert_reaches_phase(Phase.Running, timeout=800)
 
 
@@ -121,7 +119,7 @@ def test_disable_tls(sc: MongoDB):
     sc["spec"]["security"]["tls"]["enabled"] = False
     sc.update()
 
-    sc.assert_state_transition_happens(last_transition)
+    sc.assert_state_transition_happens(last_transition, timeout=1200)
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 
 

@@ -12,17 +12,17 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
 func UpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	mergedOptions := append(statusOptions, st.StatusOptions()...)
-	log.Debugf("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
+	log.Infof("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
 	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
 	if err := patchUpdateStatus(ctx, kubeClient, reconciledResource, statusOptions...); err != nil {
 		log.Errorf("Error updating status to %s: %s", st.Phase(), err)
@@ -75,18 +75,14 @@ func patchUpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, 
 // ensureStatusSubresourceExists ensures that the status subresource section we are trying to write to exists.
 // if we just try and patch the full path directly, the subresource sections are not recursively created, so
 // we need to ensure that the actual object we're trying to write to exists, otherwise we will get errors.
+// Each path (ancestors and leaf) is probed before being added: JSON-patch add
+// REPLACES an existing member, so an unconditional add at /status would wipe
+// sibling status fields written by another controller.
 func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, options ...status.Option) error {
-	fullPath := resource.GetStatusPath(options...)
-	parts := strings.Split(fullPath, "/")
-
-	if strings.HasPrefix(fullPath, "/") {
-		parts = parts[1:]
-	}
-
-	var path []string
-	for _, part := range parts {
-		pathStr := "/" + strings.Join(path, "/")
-		path = append(path, part)
+	for _, pathStr := range statusSubresourcePatchPaths(resource.GetStatusPath(options...)) {
+		if !statusPathAbsent(ctx, kubeClient, resource, pathStr) {
+			continue
+		}
 		emptyPatchPayload := []patchValue{{
 			Op:    "add",
 			Path:  pathStr,
@@ -102,4 +98,35 @@ func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesCli
 		}
 	}
 	return nil
+}
+
+// statusPathAbsent probes a status path with a JSON-patch test against null,
+// which succeeds iff the member is absent (or null); any failure — including a
+// transport error, which the follow-up write will surface — means "exists".
+func statusPathAbsent(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, pathStr string) bool {
+	data, err := json.Marshal([]patchValue{{
+		Op:    "test",
+		Path:  pathStr,
+		Value: nil,
+	}})
+	if err != nil {
+		return false
+	}
+	return kubeClient.Status().Patch(ctx, resource, client.RawPatch(types.JSONPatchType, data)) == nil
+}
+
+// statusSubresourcePatchPaths returns the cumulative JSON-patch paths to ensure,
+// e.g. "/status/loadBalancer" → ["/status", "/status/loadBalancer"]. Never the
+// document root: a JSON-patch add at "/" would replace the entire status.
+func statusSubresourcePatchPaths(fullPath string) []string {
+	var paths []string
+	prefix := ""
+	for _, part := range strings.Split(fullPath, "/") {
+		if part == "" {
+			continue
+		}
+		prefix += "/" + part
+		paths = append(paths, prefix)
+	}
+	return paths
 }

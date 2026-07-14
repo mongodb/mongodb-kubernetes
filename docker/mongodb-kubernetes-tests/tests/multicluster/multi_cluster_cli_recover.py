@@ -8,10 +8,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import (
-    run_kube_config_creation_tool,
-    run_multi_cluster_recovery_tool,
-)
+from tests.conftest import run_kube_config_creation_tool, run_multi_cluster_recovery_tool
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -73,7 +70,7 @@ def test_deploy_operator(
     run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -94,8 +91,7 @@ def test_recover_operator_add_cluster(
         namespace=namespace,
         api_client=central_cluster_client,
     )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -120,8 +116,7 @@ def test_recover_operator_remove_cluster(
         namespace=namespace,
         api_client=central_cluster_client,
     )
-    operator._wait_for_operator_ready()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover

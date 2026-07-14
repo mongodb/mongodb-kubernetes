@@ -29,12 +29,6 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/printing
 source scripts/dev/set_env_context.sh
 
-increment_version() {
-  IFS=. read -r major minor patch <<<"$1"
-  ((patch++))
-  echo "${major}.${minor}.${patch}"
-}
-
 # Generates helm charts the same way they are generates part of pre-commit hook.
 # We also provide helm values override the same way it's done when installing the operator helm chart in e2e tests.
 generate_helm_charts() {
@@ -47,7 +41,7 @@ generate_helm_charts() {
     helm_set_values+=("--set" "${param}")
   done
 
-  .githooks/pre-commit generate_standalone_yaml "${helm_set_values[@]}"
+  scripts/dev/generate_files.sh generate_standalone_yaml "${helm_set_values[@]}"
 }
 
 function clone_git_repo_into_temp() {
@@ -196,9 +190,8 @@ meko_package_name="mongodb-enterprise"
 
 certified_operators_repo="https://github.com/redhat-openshift-ecosystem/certified-operators.git"
 current_operator_version_from_release_json=$(jq -r .mongodbOperator <release.json)
-current_incremented_operator_version_from_release_json=$(increment_version "${current_operator_version_from_release_json}")
-current_incremented_operator_version_from_release_json_with_version_id="${current_incremented_operator_version_from_release_json}-${VERSION_ID}"
-test_catalog_image="${REGISTRY}/mongodb-kubernetes-test-catalog:${current_incremented_operator_version_from_release_json_with_version_id}"
+current_operator_version_from_release_json_with_version_id="${current_operator_version_from_release_json}-${VERSION_ID}"
+test_catalog_image="${REGISTRY}/mongodb-kubernetes-test-catalog:${current_operator_version_from_release_json_with_version_id}"
 certified_repo_cloned="$(clone_git_repo_into_temp ${certified_operators_repo})"
 
 mck_latest_released_operator_version="$(find_the_latest_certified_operator "${certified_repo_cloned}" "${mck_package_name}")"
@@ -206,15 +199,15 @@ meko_latest_released_operator_version="$(find_the_latest_certified_operator "${c
 
 meko_latest_certified_bundle_image="${REGISTRY}/mongodb-enterprise-operator-certified-bundle:${meko_latest_released_operator_version}"
 mck_latest_certified_bundle_image="${REGISTRY}/mongodb-kubernetes-certified-bundle:${mck_latest_released_operator_version}"
-current_bundle_image="${REGISTRY}/mongodb-kubernetes-certified-bundle:${current_incremented_operator_version_from_release_json_with_version_id}"
+current_bundle_image="${REGISTRY}/mongodb-kubernetes-certified-bundle:${current_operator_version_from_release_json_with_version_id}"
 
 header "Configuration:"
 echo "certified_operators_repo: ${certified_operators_repo}"
 echo "certified_repo_cloned: ${certified_repo_cloned}"
 echo "mck_latest_released_operator_version: ${mck_latest_released_operator_version:-"NONE"}"
 echo "meko_latest_released_operator_version: ${meko_latest_released_operator_version}"
-echo "current_incremented_operator_version_from_release_json: ${current_incremented_operator_version_from_release_json}"
-echo "current_incremented_operator_version_from_release_json_with_version_id: ${current_incremented_operator_version_from_release_json_with_version_id}"
+echo "current_operator_version_from_release_json: ${current_operator_version_from_release_json}"
+echo "current_operator_version_from_release_json_with_version_id: ${current_operator_version_from_release_json_with_version_id}"
 echo "test_catalog_image: ${test_catalog_image}"
 echo "meko_latest_certified_bundle_image: ${meko_latest_certified_bundle_image}"
 echo "mck_latest_certified_bundle_image: ${mck_latest_certified_bundle_image}"
@@ -235,7 +228,7 @@ generate_helm_charts
 
 # prepare openshift bundles the same way it's built in release process from the current sources and helm charts.
 export CERTIFIED_BUNDLE_IMAGE=${current_bundle_image}
-export VERSION="${current_incremented_operator_version_from_release_json}"
+export VERSION="${current_operator_version_from_release_json}"
 export OPERATOR_IMAGE="${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-kubernetes:${OPERATOR_VERSION}"
 header "Preparing OpenShift bundles:"
 scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
@@ -243,7 +236,7 @@ scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 # publish two-channel catalog source to be used in e2e test.
 header "Building and pushing the catalog:"
 catalog_dir="$(init_test_catalog "${certified_repo_cloned}")"
-generate_mck_catalog_metadata "${catalog_dir}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}" "${current_incremented_operator_version_from_release_json}" "${current_bundle_image}" "${meko_package_name}"
+generate_mck_catalog_metadata "${catalog_dir}" "${mck_package_name}" "${mck_latest_released_operator_version}" "${mck_latest_certified_bundle_image}" "${current_operator_version_from_release_json}" "${current_bundle_image}" "${meko_package_name}"
 generate_meko_catalog_metadata "${catalog_dir}" "${meko_package_name}" "${meko_latest_released_operator_version}" "${meko_latest_certified_bundle_image}"
 build_and_publish_test_catalog "${catalog_dir}" "${test_catalog_image}"
 

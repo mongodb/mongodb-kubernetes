@@ -3,7 +3,7 @@ package om
 import (
 	"encoding/json"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -57,6 +57,7 @@ func (bac *BackupAgentConfig) EnableX509Authentication(backupAgentSubject, autom
 func (bac *BackupAgentConfig) DisableX509Authentication() {
 	bac.BackupAgentTemplate.SSLPemKeyFile = util.MergoDelete
 	bac.UnsetAgentUsername()
+	bac.UnsetAgentPassword()
 }
 
 func (bac *BackupAgentConfig) EnableLdapAuthentication(backupAgentSubject string, backupAgentPwd string) {

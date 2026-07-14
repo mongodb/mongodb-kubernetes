@@ -21,6 +21,7 @@ run:
   go: 1.24
 linters:
   enable:
+    - depguard
     - dupl
     - errcheck
     - forbidigo
@@ -33,6 +34,40 @@ linters:
     - unconvert
     - unused
   settings:
+    depguard:
+      rules:
+        no-enterprise-from-mco:
+          # The Enterprise and Community operator share a single Go module, but must stay
+          # architecturally decoupled to allow for easier changes: no MCO logic should import
+          # Enterprise controller packages to avoid coupling the two operators together.
+          #
+          # Suppress with //nolint:depguard only when the coupling is genuinely structural
+          # (e.g. binary wiring, CRD type reference) and document the reason inline.
+          files:
+            - "**/mongodb-community-operator/**"
+          deny:
+            - pkg: "github.com/mongodb/mongodb-kubernetes/controllers"
+              desc: >-
+                This boundary keeps the two operators architecturally decoupled within
+                the shared module. Suppress with //nolint:depguard only when the coupling
+                is genuinely structural (e.g. binary wiring, CRD type reference) and
+                document the reason inline.
+        no-mco-from-enterprise:
+          # The Enterprise and Community operator share a single Go module, but must stay
+          # architecturally decoupled to allow for easier changes: no Enterprise logic should import
+          # mongodb-community-operator packages to avoid coupling the two operators together.
+          #
+          # Suppress with //nolint:depguard only when the coupling is genuinely structural
+          # (e.g. binary wiring, CRD type reference) and document the reason inline.
+          files:
+            - "!**/mongodb-community-operator/**"
+          deny:
+            - pkg: "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator"
+              desc: >-
+                This boundary keeps the two operators architecturally decoupled within
+                the shared module. Suppress with //nolint:depguard only when the coupling
+                is genuinely structural (e.g. binary wiring, CRD type reference) and
+                document the reason inline.
     forbidigo:
       forbid:
         - pattern: os\.(Getenv|LookupEnv|Environ|ExpandEnv)
@@ -41,12 +76,12 @@ linters:
         - pattern: os\.(Clearenv|Unsetenv|Setenv)
           pkg: os
           msg: "Modifying environment variables is prohibited."
-        - pattern: env\.(Read.*?|EnsureVar)
+        - pattern: env\.(Read.*?|EnsureVar|MergeWithOverride)
           pkg: github.com/mongodb/mongodb-kubernetes/pkg/util/env
           msg: "Using this env package here is prohibited. Please work with environment variables in the main package."
-        - p: envvar\.(Read.*?|MergeWithOverride|GetEnvOrDefault)
-          pkg: github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/util/envvar
-          msg: "Using this envvar package here is prohibited. Please work with environment variables in the main package."
+        - pattern: env\.Get.*
+          pkg: k8s.io/utils/env
+          msg: "Reading environment variables here is prohibited. Please read environment variables in the main package."
       # Rules with the `pkg` depend on it
       analyze-types: true
     staticcheck:
@@ -88,10 +123,7 @@ linters:
         path: ^pkg\/util\/env
       - linters:
           - forbidigo
-        path: ^main.go$
-      - linters:
-          - forbidigo
-        path: ^mongodb-community-operator\/pkg\/util\/envvar
+        path: (^|/)main\.go$
       - linters:
           - forbidigo
         path: ^mongodb-community-operator\/cmd\/(readiness|versionhook)\/main\.go$

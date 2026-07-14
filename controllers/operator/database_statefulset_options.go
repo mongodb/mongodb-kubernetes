@@ -1,9 +1,10 @@
 package operator
 
 import (
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -132,5 +133,29 @@ func WithMongodbImage(image string) func(*construct.DatabaseStatefulSetOptions) 
 func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
 		opts.AgentImage = image
+	}
+}
+
+func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebug = debug
+	}
+}
+
+func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentDebugImage = debugImage
+	}
+}
+
+func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.DefaultArchitecture = defaultArchitecture
+	}
+}
+
+func WithStsAnnotations(annotations map[string]string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.Annotations = annotations
 	}
 }

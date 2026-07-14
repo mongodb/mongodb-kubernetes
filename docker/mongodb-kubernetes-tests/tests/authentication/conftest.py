@@ -2,7 +2,7 @@ import os
 from typing import Dict, Generator, List, Optional
 
 from kubernetes import client
-from kubetester import get_pod_when_ready, read_secret
+from kubetester import create_or_update_namespace, get_pod_when_ready, read_secret
 from kubetester.certs import generate_cert
 from kubetester.helm import helm_uninstall, helm_upgrade
 from kubetester.ldap import (
@@ -16,10 +16,11 @@ from kubetester.ldap import (
     ldap_initialize,
 )
 from pytest import fixture
-from tests.conftest import is_member_cluster
+from tests.conftest import create_issuer, is_member_cluster
 
 LDAP_PASSWORD = "LDAPPassword."
 LDAP_NAME = "openldap"
+LDAP_NAMESPACE = "openldap"
 LDAP_POD_LABEL = "app=openldap"
 LDAP_PORT_PLAIN = 389
 LDAP_PORT_TLS = 636
@@ -27,6 +28,15 @@ LDAP_PROTO_PLAIN = "ldap"
 LDAP_PROTO_TLS = "ldaps"
 
 AUTOMATION_AGENT_NAME = "mms-automation-agent"
+
+
+@fixture(scope="session")
+def ldap_namespace() -> str:
+    create_or_update_namespace(
+        LDAP_NAMESPACE,
+        labels={"pod-security.kubernetes.io/warn": "restricted"},
+    )
+    return LDAP_NAMESPACE
 
 
 def pytest_runtest_setup(item):
@@ -40,10 +50,11 @@ def openldap_install(
     name: str = LDAP_NAME,
     cluster_client: Optional[client.ApiClient] = None,
     cluster_name: Optional[str] = None,
-    helm_args: Dict[str, str] = None,
+    helm_args: Optional[Dict[str, str]] = None,
     tls: bool = False,
 ) -> OpenLDAP:
     if is_member_cluster(cluster_name):
+        assert cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = cluster_name
 
     if helm_args is None:
@@ -77,7 +88,7 @@ def openldap_install(
 
 @fixture(scope="module")
 def openldap_tls(
-    namespace: str,
+    ldap_namespace: str,
     openldap_cert: str,
     ca_path: str,
 ) -> OpenLDAP:
@@ -86,15 +97,14 @@ def openldap_tls(
     In order to do it, this fixture will install the vendored openldap Helm chart
     located in `vendor/openldap` directory inside the `tests` container image.
     """
-
     helm_args = {
         "tls.enabled": "true",
         "tls.secret": openldap_cert,
         # Do not require client certificates
         "env.LDAP_TLS_VERIFY_CLIENT": "never",
-        "namespace": namespace,
+        "namespace": ldap_namespace,
     }
-    server = openldap_install(namespace, name=LDAP_NAME, helm_args=helm_args, tls=True)
+    server = openldap_install(ldap_namespace, name=LDAP_NAME, helm_args=helm_args, tls=True)
     # When creating a new OpenLDAP container with TLS enabled, the container is ready, but the server is not accepting
     # requests, as it's generating DH parameters for the TLS config. Only using retries!=0 for ldap_initialize when creating
     # the OpenLDAP server.
@@ -103,27 +113,36 @@ def openldap_tls(
 
 
 @fixture(scope="module")
-def openldap(namespace: str) -> OpenLDAP:
+def openldap(ldap_namespace: str) -> OpenLDAP:
     """Installs a OpenLDAP server and returns a reference to it.
 
     In order to do it, this fixture will install the vendored openldap Helm chart
     located in `vendor/openldap` directory inside the `tests` container image.
     """
-    ref = openldap_install(namespace, LDAP_NAME)
+    ref = openldap_install(ldap_namespace, LDAP_NAME)
     print(f"Returning OpenLDAP=: {ref}")
     return ref
 
 
 @fixture(scope="module")
-def secondary_openldap(namespace: str) -> OpenLDAP:
-    return openldap_install(namespace, f"{LDAP_NAME}secondary")
+def secondary_openldap(ldap_namespace: str) -> OpenLDAP:
+    return openldap_install(ldap_namespace, f"{LDAP_NAME}secondary")
 
 
 @fixture(scope="module")
-def openldap_cert(namespace: str, issuer: str) -> str:
-    """Returns a new secret to be used to enable TLS on LDAP."""
-    host = ldap_host(namespace, LDAP_NAME)
-    return generate_cert(namespace, "openldap", host, issuer)
+def ldap_issuer(cert_manager: str, ldap_namespace: str) -> str:
+    """Creates a cert-manager Issuer in the openldap namespace."""
+    return create_issuer(ldap_namespace)
+
+
+@fixture(scope="module")
+def openldap_cert(namespace: str, ldap_namespace: str, ldap_issuer: str) -> str:
+    """Returns a new secret to be used to enable TLS on LDAP.
+
+    The secret is created directly in ldap_namespace so the openldap pod can mount it.
+    """
+    host = ldap_host(ldap_namespace, LDAP_NAME)
+    return generate_cert(ldap_namespace, "openldap", host, ldap_issuer)
 
 
 @fixture(scope="module")

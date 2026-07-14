@@ -396,6 +396,11 @@ func getCentralRules() []rbacv1.PolicyRule {
 			},
 			APIGroups: []string{"mongodbcommunity.mongodb.com"},
 		},
+		{
+			Verbs:     []string{"*"},
+			Resources: []string{"voyageais", "voyageais/finalizers", "voyageais/status"},
+			APIGroups: []string{"ai.mongodb.com"},
+		},
 	}
 }
 
@@ -437,7 +442,7 @@ func getMemberRules() []rbacv1.PolicyRule {
 		},
 		{
 			Verbs:     []string{"get", "list", "create", "update", "delete", "watch", "deletecollection"},
-			Resources: []string{"statefulsets"},
+			Resources: []string{"statefulsets", "deployments"},
 			APIGroups: []string{"apps"},
 		},
 		{

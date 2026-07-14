@@ -28,23 +28,25 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1/common"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S())
+	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1276,7 +1278,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	require.NoError(t, err)
 	automationConfig, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	require.NoError(t, err)
-	normalizedActualReplicaSets, err := normalizeObjectToInterfaceMap(map[string]any{"replicaSets": automationConfig.Deployment.ReplicaSets()})
+	normalizedActualReplicaSets, err := normalizeObjectToInterfaceMap(map[string]any{"replicaSets": automationConfig.Deployment.GetReplicaSets()})
 	require.NoError(t, err)
 	if !assert.Equal(t, normalizedExpectedReplicaSets, normalizedActualReplicaSets) {
 		visualDiff, err := getVisualJsonDiff(normalizedExpectedReplicaSets, normalizedActualReplicaSets)
@@ -1362,7 +1364,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	err = kubeClient.Get(ctx, types.NamespacedName{Name: configMapName, Namespace: sc.Namespace}, stateConfigMap)
 	require.NoError(t, err)
 
-	expectedDeploymentState := generateExpectedDeploymentState(t, sc)
+	expectedDeploymentState := generateExpectedDeploymentState(ctx, t, sc, reconciler.ReconcileCommonController)
 	require.Contains(t, stateConfigMap.Data, stateKey)
 	require.JSONEq(t, expectedDeploymentState, stateConfigMap.Data[stateKey])
 
@@ -1523,7 +1525,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc)
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
@@ -2684,7 +2686,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 }
 
 func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, forceEnterprise bool, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
-	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S())
+	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S(), testBackupEnableDelay)
 	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	return allHostnames
 }
@@ -2764,125 +2766,6 @@ func checkCorrectShardDistributionInStatus(t *testing.T, sc *mdbv1.MongoDB) {
 	assert.Equal(t, sumSlice(util.Transform(sc.Spec.MongosSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongosCount)
 	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ConfigSrvSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.ConfigServerCount)
 	assert.Equal(t, sumSlice(util.Transform(sc.Spec.ShardSpec.ClusterSpecList, clusterSpecItemToMembers)), sc.Status.MongodsPerShardCount)
-}
-
-func TestComputeMembersToScaleDown(t *testing.T) {
-	ctx := context.Background()
-	memberCluster1 := "cluster1"
-	memberCluster2 := "cluster2"
-	memberClusterNames := []string{memberCluster1, memberCluster2}
-
-	type testCase struct {
-		name                        string
-		shardCount                  int
-		cfgServerCurrentClusters    []multicluster.MemberCluster
-		shardsCurrentClusters       map[int][]multicluster.MemberCluster
-		targetCfgServerDistribution map[string]int
-		targetShardDistribution     map[string]int
-		expected                    map[string][]string
-	}
-
-	testCases := []testCase{
-		{
-			name:       "Case 1: Downscale config server and shard",
-			shardCount: 1,
-			cfgServerCurrentClusters: []multicluster.MemberCluster{
-				{Name: memberCluster1, Index: 0, Replicas: 5},
-				{Name: memberCluster2, Index: 1, Replicas: 0},
-			},
-			shardsCurrentClusters: map[int][]multicluster.MemberCluster{
-				0: {
-					{Name: memberCluster1, Index: 0, Replicas: 3},
-					{Name: memberCluster2, Index: 1, Replicas: 2},
-				},
-			},
-			targetCfgServerDistribution: map[string]int{
-				memberCluster1: 2,
-				memberCluster2: 1,
-			},
-			targetShardDistribution: map[string]int{
-				memberCluster1: 1,
-				memberCluster2: 2,
-			},
-			expected: map[string][]string{
-				// For the config replica set: downscale from 5 to 2 means remove members with indices 2, 3, 4
-				test.SCBuilderDefaultName + "-config": {
-					test.SCBuilderDefaultName + "-config-0-2",
-					test.SCBuilderDefaultName + "-config-0-3",
-					test.SCBuilderDefaultName + "-config-0-4",
-				},
-				// For the shard replica set (shard 0): downscale from 3 to 1, so remove two members
-				test.SCBuilderDefaultName + "-0": {
-					test.SCBuilderDefaultName + "-0-0-1",
-					test.SCBuilderDefaultName + "-0-0-2",
-				},
-			},
-		},
-		{
-			name:       "Case 2: Scale down and move replicas among clusters",
-			shardCount: 2,
-			cfgServerCurrentClusters: []multicluster.MemberCluster{
-				{Name: memberCluster1, Index: 0, Replicas: 2},
-				{Name: memberCluster2, Index: 1, Replicas: 1},
-			},
-			shardsCurrentClusters: map[int][]multicluster.MemberCluster{
-				0: {
-					{Name: memberCluster1, Index: 0, Replicas: 3},
-					{Name: memberCluster2, Index: 1, Replicas: 2},
-				},
-				1: {
-					{Name: memberCluster1, Index: 0, Replicas: 3},
-					{Name: memberCluster2, Index: 1, Replicas: 2},
-				},
-			},
-			targetCfgServerDistribution: map[string]int{
-				memberCluster1: 1,
-				memberCluster2: 2,
-			},
-			targetShardDistribution: map[string]int{
-				memberCluster1: 3,
-				memberCluster2: 0,
-			},
-			expected: map[string][]string{
-				test.SCBuilderDefaultName + "-config": {
-					test.SCBuilderDefaultName + "-config" + "-0" + "-1",
-				},
-				// For each shard replica set, we remove two members from cluster with index 1
-				test.SCBuilderDefaultName + "-0": {
-					test.SCBuilderDefaultName + "-0-1-0",
-					test.SCBuilderDefaultName + "-0-1-1",
-				},
-				test.SCBuilderDefaultName + "-1": {
-					test.SCBuilderDefaultName + "-1-1-0",
-					test.SCBuilderDefaultName + "-1-1-1",
-				},
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			targetSpec := test.DefaultClusterBuilder().
-				SetTopology(mdbv1.ClusterTopologyMultiCluster).
-				SetShardCountSpec(tc.shardCount).
-				SetMongodsPerShardCountSpec(0).
-				SetConfigServerCountSpec(0).
-				SetMongosCountSpec(0).
-				SetConfigSrvClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetCfgServerDistribution)).
-				SetShardClusterSpec(test.CreateClusterSpecList(memberClusterNames, tc.targetShardDistribution)).
-				Build()
-
-			_, omConnectionFactory := mock.NewDefaultFakeClient(targetSpec)
-			memberClusterMap := getFakeMultiClusterMapWithClusters(memberClusterNames, omConnectionFactory)
-
-			_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", targetSpec, memberClusterMap)
-			assert.NoError(t, err)
-
-			membersToScaleDown := reconcileHelper.computeMembersToScaleDown(tc.cfgServerCurrentClusters, tc.shardsCurrentClusters, zap.S())
-
-			assert.Equal(t, tc.expected, membersToScaleDown)
-		})
-	}
 }
 
 func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
@@ -3038,7 +2921,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3154,7 +3037,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3176,7 +3059,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName2,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3199,7 +3082,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 					ClusterName: memberClusterName3,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 						ExternalService: mdbv1.ExternalServiceConfiguration{
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "NodePort",
 									Ports: []corev1.ServicePort{
@@ -3331,7 +3214,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3366,7 +3249,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3401,7 +3284,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								create.PlaceholderClusterName:         "{clusterName}",
 								create.PlaceholderClusterIndex:        "{clusterIndex}",
 							},
-							SpecWrapper: &common.ServiceSpecWrapper{
+							SpecWrapper: &v1.ServiceSpecWrapper{
 								Spec: corev1.ServiceSpec{
 									Type: "LoadBalancer",
 									Ports: []corev1.ServicePort{
@@ -3861,14 +3744,16 @@ func getMultiClusterFQDN(stsName string, namespace string, clusterIdx int, podId
 	return fmt.Sprintf("%s-svc.%s.svc.%s", getPodName(stsName, clusterIdx, podIdx), namespace, clusterDomain)
 }
 
-func generateExpectedDeploymentState(t *testing.T, sc *mdbv1.MongoDB) string {
+func generateExpectedDeploymentState(ctx context.Context, t *testing.T, sc *mdbv1.MongoDB, r *ReconcileCommonController) string {
 	lastSpec, _ := sc.GetLastSpec()
+	lastConfiguredRoles, _ := r.getRoleStrings(ctx, sc.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(sc))
 	expectedState := ShardedClusterDeploymentState{
 		CommonDeploymentState: CommonDeploymentState{
 			ClusterMapping: map[string]int{},
 		},
-		LastAchievedSpec: lastSpec,
-		Status:           &sc.Status,
+		LastAchievedSpec:    lastSpec,
+		LastConfiguredRoles: lastConfiguredRoles,
+		Status:              &sc.Status,
 	}
 	lastSpecBytes, err := json.Marshal(expectedState)
 	require.NoError(t, err)

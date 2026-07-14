@@ -3,7 +3,6 @@ kind: PersistentVolumeClaim
 metadata:
   name: mongodb-versions-claim
 spec:
-  storageClassName: gp2
   accessModes:
     - ReadWriteOnce
   resources:

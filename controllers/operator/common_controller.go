@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"time"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/go-multierror"
@@ -23,10 +24,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/v1"
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
-	rolev1 "github.com/mongodb/mongodb-kubernetes/api/v1/role"
-	"github.com/mongodb/mongodb-kubernetes/api/v1/status"
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -36,14 +37,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -100,29 +100,68 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-// ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
-// Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-// If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
+	previousRoles, err := r.getRoleStrings(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("Error retrieving configured roles: %w", err)
+	}
+
+	annotationToAdd := make(map[string]string)
+	rolesBytes, err := json.Marshal(previousRoles)
+	if err != nil {
+		return nil, nil, err
+	}
+	annotationToAdd[util.LastConfiguredRoles] = string(rolesBytes)
+
+	return annotationToAdd, previousRoles, nil
+}
+
+func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]string, error) {
+	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+	if err != nil {
+		return []string{}, err
+	}
+
+	roleStrings := make([]string, len(roles))
+	for i, r := range roles {
+		roleStrings[i] = fmt.Sprintf("%s@%s", r.Role, r.Db)
+	}
+
+	return roleStrings, nil
+}
+
+func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
 	localRoles := db.GetSecurity().Roles
 	roleRefs := db.GetSecurity().RoleRefs
 
 	if len(localRoles) > 0 && len(roleRefs) > 0 {
-		return workflow.Failed(xerrors.Errorf("At most one one of roles or roleRefs can be non-empty."))
+		return nil, xerrors.Errorf("At most one of roles or roleRefs can be non-empty.")
 	}
 
 	var roles []mdbv1.MongoDBRole
 	if len(roleRefs) > 0 {
 		if !enableClusterMongoDBRoles {
-			return workflow.Failed(xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC."))
+			return nil, xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC.")
 		}
 		var err error
 		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName, db.Version)
 		if err != nil {
-			return workflow.Failed(err)
+			return nil, err
 		}
 	} else {
 		roles = localRoles
+	}
+
+	return roles, nil
+}
+
+// ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
+// Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
+// If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, previousRoles []string, log *zap.SugaredLogger) workflow.Status {
+	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+	if err != nil {
+		return workflow.Failed(err)
 	}
 
 	d, err := conn.ReadDeployment()
@@ -130,14 +169,16 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 		return workflow.Failed(err)
 	}
 	dRoles := d.GetRoles()
-	if reflect.DeepEqual(dRoles, roles) {
+	mergedRoles := mergeRoles(dRoles, roles, previousRoles)
+
+	if reflect.DeepEqual(dRoles, mergedRoles) {
 		return workflow.OK()
 	}
 
 	// clone roles list to avoid mutating the spec in normalizePrivilegeResource
-	newRoles := make([]mdbv1.MongoDBRole, len(roles))
-	for i := range roles {
-		newRoles[i] = *roles[i].DeepCopy()
+	newRoles := make([]mdbv1.MongoDBRole, len(mergedRoles))
+	for i := range mergedRoles {
+		newRoles[i] = *mergedRoles[i].DeepCopy()
 	}
 	roles = newRoles
 
@@ -187,6 +228,33 @@ func normalizePrivilegeResource(resource mdbv1.Resource) mdbv1.Resource {
 	}
 
 	return resource
+}
+
+// mergeRoles merges the deployed roles with the current roles and previously configured roles.
+// It ensures that roles configured outside the operator are not removed.
+// This is achieved by removing currently configured roles from the deployed roles.
+// To ensure that roles removed from the spec are also removed from OM, we also remove the previously configured roles.
+// Finally, we add back the currently configured roles.
+func mergeRoles(deployed []mdbv1.MongoDBRole, current []mdbv1.MongoDBRole, previous []string) []mdbv1.MongoDBRole {
+	roleMap := make(map[string]struct{})
+	for _, r := range current {
+		roleMap[r.Role+"@"+r.Db] = struct{}{}
+	}
+
+	for _, r := range previous {
+		roleMap[r] = struct{}{}
+	}
+
+	mergedRoles := make([]mdbv1.MongoDBRole, 0)
+	for _, r := range deployed {
+		key := r.Role + "@" + r.Db
+		if _, ok := roleMap[key]; !ok {
+			mergedRoles = append(mergedRoles, r)
+		}
+	}
+
+	mergedRoles = append(mergedRoles, current...)
+	return mergedRoles
 }
 
 // getRoleRefs retrieves the roles from the referenced resources. It will return an error if any of the referenced resources are not found.
@@ -270,7 +338,12 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 				secretNames = append(secretNames, security.AgentClientCertificateSecretName(resourceNameForSecret))
 			}
 		}
-		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, security.TLSConfig.CA, secretNames)
+		// TLSConfig may be nil if TLS is enabled via CertificatesSecretsPrefix only
+		var ca string
+		if security.TLSConfig != nil {
+			ca = security.TLSConfig.CA
+		}
+		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
@@ -353,8 +426,8 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
-func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger) workflow.Status {
-	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log)
+func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger, backupEnableDelay time.Duration) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log, backupEnableDelay)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(ctx, mdb, statusOpt, log, opts...); err != nil {
 			return workflow.Failed(err)
@@ -486,6 +559,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		AutoUser:           scramAgentUserName,
 		AutoLdapGroupDN:    ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:         caFilepath,
+		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 	}
 	var databaseSecretPath string
 	if r.VaultClient != nil {
@@ -548,7 +622,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 			authOpts.UserOptions = userOpts
 		}
 
-		if err := authentication.Configure(conn, authOpts, isRecovering, log); err != nil {
+		if err := authentication.Configure(ctx, r.client, conn, authOpts, isRecovering, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	} else if wantToEnableAuthentication {
@@ -567,7 +641,8 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		}
 
 		authOpts.UserOptions = userOpts
-		if err := authentication.Disable(conn, authOpts, false, log); err != nil {
+
+		if err := authentication.Disable(ctx, r.client, conn, authOpts, false, log); err != nil {
 			return workflow.Failed(err), false
 		}
 	}
@@ -627,11 +702,12 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx conte
 	}
 	log.Infof("Disabling authentication for project: %s", conn.GroupName())
 	disableOpts := authentication.Options{
-		ProcessNames: processNames,
-		UserOptions:  userOpts,
+		ProcessNames:    processNames,
+		UserOptions:     userOpts,
+		MongoDBResource: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name},
 	}
 
-	return authentication.Disable(conn, disableOpts, true, log)
+	return authentication.Disable(ctx, r.client, conn, disableOpts, true, log)
 }
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
@@ -763,7 +839,7 @@ func isPrometheusSupported(conn om.Connection) bool {
 }
 
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
-func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *mdbcv1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
+func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *v1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
 	if prometheus == nil {
 		return nil
 	}
@@ -911,7 +987,7 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
@@ -956,7 +1032,7 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return true
 	}
 
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		if mdb.Spec.IsInChangeVersion(lastSpec) {
 			return true
 		}
@@ -985,7 +1061,7 @@ func getAnnotationsForResource(mdb *mdbv1.MongoDB) (map[string]string, error) {
 }
 
 type PrometheusConfiguration struct {
-	prometheus         *mdbcv1.Prometheus
+	prometheus         *v1.Prometheus
 	conn               om.Connection
 	secretsClient      secrets.SecretClient
 	namespace          string
@@ -1004,7 +1080,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, log)
-	d.AddMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
+	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 
