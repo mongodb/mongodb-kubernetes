@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -4431,9 +4430,6 @@ func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
 	})
 }
 
-// newMCReplicaSetHelper builds an RS MC helper over cluster-a and cluster-b with
-// the given member clients. External RS source and no TLS, so reconcile skips the
-// sharded preflight and goes straight to the unit loop.
 func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central kubernetesClient.Client) *MongoDBSearchReconcileHelper {
 	mdb := newTestMongoDBSearch("mdb-search", "ns")
 	mdb.Spec.Clusters = []searchv1.ClusterSpec{
@@ -4462,31 +4458,33 @@ func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central k
 
 // A cluster referenced in spec.clusters but missing from the operator's member
 // clients fails the reconcile, naming the unmanaged cluster, without blocking the
-// well-configured clusters from reconciling.
+// well-configured clusters from reconciling. The missing cluster is the FIRST
+// unit on purpose: under fail-fast the later cluster would never reconcile, so
+// this test catches a regression to that behavior.
 func TestReconcileRSMC_MissingClientFailsReconcile(t *testing.T) {
 	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
-	clusterA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
-	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA}, central)
+	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-b": clusterB}, central)
 
 	st := helper.reconcile(t.Context(), zap.S())
 	require.False(t, st.IsOK())
 	assert.Contains(t, MessageFromStatus(st), "no Kubernetes client registered",
 		"a spec cluster with no configured client must fail the reconcile")
 
-	// cluster-a still reconciled despite cluster-b having no client.
-	require.NoError(t, clusterA.Get(t.Context(),
-		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{}))
+	// cluster-b still reconciled despite cluster-a (the first unit) having no client.
+	require.NoError(t, clusterB.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
 
-	// cluster-b's unit was not leaked onto the central client.
+	// cluster-a's unit was not leaked onto the central client.
 	err := central.Get(t.Context(),
-		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{})
-	assert.True(t, apierrors.IsNotFound(err), "cluster-b STS must NOT be created on the central client")
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
+	assert.True(t, apierrors.IsNotFound(err), "cluster-a STS must NOT be created on the central client")
 }
 
 // A failing member cluster must not block the units on the other clusters: the
 // error is aggregated and returned once, after all units ran.
 func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
-	injectedErr := xerrors.New("injected cluster-a apply failure")
+	injectedErr := fmt.Errorf("injected cluster-a apply failure")
 	baseA := mock.NewEmptyFakeClientBuilder().Build()
 	clusterA := kubernetesClient.NewClient(interceptor.NewClient(baseA, interceptor.Funcs{
 		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {

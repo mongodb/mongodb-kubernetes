@@ -542,6 +542,8 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// reconcileErrs aggregates intermittent per-unit failures (e.g. an unreachable
 	// cluster) so one failing cluster does not block the others, returned once after
 	// all units ran.
+	// TODO(KUBE-167): this only engages for replica-set topology: for sharded MC the
+	// per-shard TLS preflight above still fails fast on an unreachable cluster.
 	// TODO(KUBE-159): surface per-cluster failures in status.
 	var reconcileErrs error
 	applied := make([]unitApplyResult, 0, len(plan.units))
