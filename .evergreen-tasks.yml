@@ -1467,14 +1467,8 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # Quarantined: flaky, producing unreliable results in CI and slowing down development.
-  # See KUBE-161. github_pr_aliases selects task: ".*" for every pr_patch variant, so tags
-  # alone can't exclude this from PR runs — patchable:false is the mechanism that actually
-  # keeps it out of PR/manual patches while still letting it run (and gate releasability) on
-  # master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_search_connectivity_tool_mc_sharded
-    tags: [ "quarantined" ]
-    patchable: false
+    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 

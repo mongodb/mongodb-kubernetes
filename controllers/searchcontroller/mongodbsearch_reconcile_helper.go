@@ -532,18 +532,23 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	}
 
 	// Apply all units before any readiness check — see TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck.
-	type unitApplyResult struct {
-		unit               reconcileUnit
-		unitClient         kubernetesClient.Client
-		expectedGeneration int64
-	}
+	// reconcileErrs aggregates intermittent per-unit failures (e.g. an unreachable
+	// cluster) so one failing cluster does not block the others, returned once after
+	// all units ran.
+	// TODO(KUBE-167): this only engages for replica-set topology: for sharded MC the
+	// per-shard TLS preflight above still fails fast on an unreachable cluster.
+	// TODO(KUBE-159): surface per-cluster failures in status.
+	var reconcileErrs error
 	applied := make([]unitApplyResult, 0, len(plan.units))
 	for _, unit := range plan.units {
 		unitLog := log.With(unit.logFields...)
 
 		mutatedSts, unitClient, err := r.applyReconcileUnit(ctx, unitLog, plan, unit, mods)
 		if err != nil {
-			return workflow.Failed(err)
+			// e.g. unreachable cluster: aggregate and continue with the other units.
+			unitLog.Warnf("Failed to reconcile unit on cluster %q: %s", unit.clusterName, err)
+			reconcileErrs = multierror.Append(reconcileErrs, err)
+			continue
 		}
 		applied = append(applied, unitApplyResult{
 			unit:               unit,
@@ -563,38 +568,47 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			return workflow.Failed(err)
 		}
 		if err := r.ensureSearchService(ctx, log, clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)); err != nil {
-			return workflow.Failed(err)
+			log.Warnf("Failed to ensure cluster-level proxy service on cluster %q: %s", res.clusterName, err)
+			reconcileErrs = multierror.Append(reconcileErrs, err)
+			continue
 		}
 	}
 
 	plan.cleanup(ctx, log)
 
-	// Mark routing-ready shards across ALL units (a one-way switch persisted in the
-	// state CM) before the worst-of readiness return: one not-ready or failing unit
-	// must not block the others, so per-unit errors are aggregated instead of
-	// failing fast.
-	var switchErrs error
+	// Mark routing-ready shards across ALL units before the worst-of readiness
+	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
-			switchErrs = multierror.Append(switchErrs, err)
+			reconcileErrs = multierror.Append(reconcileErrs, err)
 		}
 	}
-	if switchErrs != nil {
-		return workflow.Failed(switchErrs)
+	if reconcileErrs != nil {
+		return workflow.Failed(reconcileErrs)
 	}
 
-	// Worst-of readiness check — first non-OK status wins.
-	for _, res := range applied {
-		if statefulSetStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient); !statefulSetStatus.IsOK() {
-			return statefulSetStatus
-		}
+	// Collect every unit's readiness (not first-loss-wins): the top-level phase is the
+	// worst across clusters and status.clusters lists them all.
+	readiness := r.aggregateReadiness(ctx, applied)
+
+	clusterStatusesOption := searchv1.NewMongoDBSearchClusterStatusesOption(readiness.clusterStatuses)
+	versionOption := searchv1.NewMongoDBSearchVersionOption(imageVersion)
+
+	switch readiness.phase {
+	case status.PhaseFailed:
+		return workflow.Failed(xerrors.New(readiness.message)).
+			WithAdditionalOptions([]status.Option{versionOption, clusterStatusesOption})
+	case status.PhasePending:
+		return workflow.Pending("%s", readiness.message).
+			WithResourcesNotReady(readiness.resourcesNotReady).
+			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	}
 
 	if !r.mdbSearch.IsLoadBalancerReady() {
 		return workflow.Pending("Waiting for managed load balancer to be ready").
-			WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
+			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	}
-	return workflow.OK().WithAdditionalOptions(searchv1.NewMongoDBSearchVersionOption(imageVersion))
+	return workflow.OK().WithAdditionalOptions(versionOption, clusterStatusesOption)
 }
 
 // reconcileUnitMods bundles the topology-agnostic modifications applied to
@@ -735,6 +749,169 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	}
 
 	return mutatedSts, unitClient, nil
+}
+
+// unitApplyResult pairs an applied reconcile unit with the cluster client used to
+// apply it and the StatefulSet generation expected after the apply.
+type unitApplyResult struct {
+	unit               reconcileUnit
+	unitClient         kubernetesClient.Client
+	expectedGeneration int64
+}
+
+// readinessResult is the outcome of aggregateReadiness: the worst-of top-level
+// phase + message + resourcesNotReady for the CR's common status, plus the full
+// per-cluster status list.
+type readinessResult struct {
+	phase             status.Phase
+	message           string
+	resourcesNotReady []status.ResourceNotReady
+	clusterStatuses   []searchv1.ClusterStatus
+}
+
+// aggregateReadiness reads each applied unit's readiness (mongot STS, and the managed
+// Envoy + metrics-forwarder Deployments when configured) and folds it into one worst-of
+// top-level phase and one ClusterStatus per cluster (shards rolled up via WorstOfPhase).
+// It is built from the applied units, so operator per cluster model yields a single-entry list.
+func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, applied []unitApplyResult) readinessResult {
+	managedLB := r.mdbSearch.IsLBModeManaged()
+	metricsForwarderEnabled := r.mdbSearch.IsMetricsForwarderEnabled()
+
+	// Per-cluster accumulators, keyed and ordered by clusterIndex.
+	type clusterReadiness struct {
+		name                     string
+		index                    int
+		searchPhase              status.Phase
+		searchMsgs               []string
+		loadBalancerPhase        status.Phase
+		loadBalancerMsg          string
+		loadBalancerComputed     bool
+		metricsForwarderPhase    status.Phase
+		metricsForwarderMsg      string
+		metricsForwarderComputed bool
+	}
+	// accs maps cluster index -> clusterAcc; in sharded deployments all shards on a
+	// cluster roll up under one cluster index. Because reconcileUnit is per shard but the cluster
+	// index would be same for shards of same cluster.
+	accs := make(map[int]*clusterReadiness)
+	accFor := func(unit reconcileUnit) *clusterReadiness {
+		if a, ok := accs[unit.clusterIndex]; ok {
+			return a
+		}
+		a := &clusterReadiness{name: unit.clusterName, index: unit.clusterIndex}
+		accs[unit.clusterIndex] = a
+		return a
+	}
+
+	// Top-level worst-of, accumulated across every unit's search + LB status.
+	var topStatus workflow.Status = workflow.OK()
+
+	for _, res := range applied {
+		acc := accFor(res.unit)
+
+		// Per shard mongot StatefulSet readiness — this is what gates the top-level phase (via topStatus).
+		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient)
+		acc.searchPhase = searchv1.WorstOfPhase(acc.searchPhase, stsStatus.Phase())
+		if !stsStatus.IsOK() {
+			if msg := MessageFromStatus(stsStatus); msg != "" {
+				acc.searchMsgs = append(acc.searchMsgs, msg)
+			}
+		}
+		topStatus = topStatus.Merge(stsStatus)
+
+		// Per-cluster managed Envoy readiness, computed once per cluster. Informational
+		// for status.clusters only — top-level phase gating stays on IsLoadBalancerReady().
+		if managedLB && !acc.loadBalancerComputed {
+			acc.loadBalancerComputed = true
+			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			acc.loadBalancerPhase = lbStatus.Phase()
+			if !lbStatus.IsOK() {
+				acc.loadBalancerMsg = MessageFromStatus(lbStatus)
+			}
+		}
+
+		// Per-cluster metrics-forwarder readiness, computed once per cluster. Informational
+		// for status.clusters only — never gates the top-level phase.
+		if metricsForwarderEnabled && !acc.metricsForwarderComputed {
+			acc.metricsForwarderComputed = true
+			mfStatus := r.metricsForwarderDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			acc.metricsForwarderPhase = mfStatus.Phase()
+			if !mfStatus.IsOK() {
+				acc.metricsForwarderMsg = MessageFromStatus(mfStatus)
+			}
+		}
+	}
+
+	// Range over clusters sorted by index so status.clusters is stable across reconciles
+	// (map iteration order is randomized).
+	clusterStatuses := make([]searchv1.ClusterStatus, 0, len(accs))
+	for _, idx := range slices.Sorted(maps.Keys(accs)) {
+		a := accs[idx]
+		cs := searchv1.ClusterStatus{
+			Name:          a.name,
+			Index:         a.index,
+			Search:        a.searchPhase,
+			SearchMessage: strings.Join(a.searchMsgs, "; "),
+		}
+		if managedLB {
+			cs.LoadBalancer = a.loadBalancerPhase
+			cs.LoadBalancerMessage = a.loadBalancerMsg
+		}
+		if metricsForwarderEnabled {
+			cs.MetricsForwarder = a.metricsForwarderPhase
+			cs.MetricsForwarderMessage = a.metricsForwarderMsg
+		}
+		clusterStatuses = append(clusterStatuses, cs)
+	}
+
+	result := readinessResult{
+		phase:           topStatus.Phase(),
+		message:         MessageFromStatus(topStatus),
+		clusterStatuses: clusterStatuses,
+	}
+	if opt, ok := status.GetOption(topStatus.StatusOptions(), status.ResourcesNotReadyOption{}); ok {
+		result.resourcesNotReady = opt.(status.ResourcesNotReadyOption).ResourcesNotReady
+	}
+	return result
+}
+
+// envoyDeploymentStatus reports the readiness of one cluster's managed Envoy
+// Deployment by reading the Deployment object. Absent/unreadable → Pending, since the
+// envoy controller may not have created it yet.
+func (r *MongoDBSearchReconcileHelper) envoyDeploymentStatus(ctx context.Context, clusterIndex int, unitClient kubernetesClient.Client) workflow.Status {
+	name := r.mdbSearch.LoadBalancerDeploymentNameForCluster(clusterIndex)
+	return r.deploymentReadiness(ctx, unitClient, name, "Load balancer")
+}
+
+// metricsForwarderDeploymentStatus reports the readiness of one cluster's Ops Manager
+// metrics-forwarder Deployment.
+func (r *MongoDBSearchReconcileHelper) metricsForwarderDeploymentStatus(ctx context.Context, clusterIndex int, unitClient kubernetesClient.Client) workflow.Status {
+	name := r.mdbSearch.MetricsForwarderDeploymentNameForCluster(clusterIndex)
+	return r.deploymentReadiness(ctx, unitClient, name, "Metrics forwarder")
+}
+
+// deploymentReadiness reports whether a Deployment has fully rolled out its current spec.
+// A plain ReadyReplicas check is insufficient because during a rolling update ReadyReplicas can equal
+// the desired count while the ready pods still belong to the OLD ReplicaSet.
+func (r *MongoDBSearchReconcileHelper) deploymentReadiness(ctx context.Context, unitClient kubernetesClient.Client, name, kind string) workflow.Status {
+	dep := &appsv1.Deployment{}
+	if err := unitClient.Get(ctx, kube.ObjectKey(r.mdbSearch.Namespace, name), dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return workflow.Pending("%s deployment %s not yet created", kind, name)
+		}
+		return workflow.Failed(xerrors.Errorf("reading %s deployment %s: %w", strings.ToLower(kind), name, err))
+	}
+	desired := ptr.Deref(dep.Spec.Replicas, 1)
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return workflow.Pending("%s deployment %s rollout in progress: waiting for generation %d to be observed (observed %d)", kind, name, dep.Generation, dep.Status.ObservedGeneration)
+	}
+	if dep.Status.UpdatedReplicas < desired {
+		return workflow.Pending("%s deployment %s rollout in progress: %d/%d updated replicas", kind, name, dep.Status.UpdatedReplicas, desired)
+	}
+	if dep.Status.ReadyReplicas < desired {
+		return workflow.Pending("%s deployment %s not ready: %d/%d replicas ready", kind, name, dep.Status.ReadyReplicas, desired)
+	}
+	return workflow.OK()
 }
 
 // markRoutingReadyIfThresholdMet flips a shard's routing-ready switch once its

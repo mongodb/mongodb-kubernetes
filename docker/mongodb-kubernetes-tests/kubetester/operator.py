@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from typing import Dict, List, Optional
 
-import requests
 from kubernetes import client
 from kubernetes.client import V1CustomResourceDefinition, V1Deployment, V1Pod
 from kubernetes.client.rest import ApiException

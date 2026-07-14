@@ -842,14 +842,17 @@ def wait_for_mongot_statefulset_drained(
     timeout: int = 180,
     sleep_time: int = 5,
 ) -> None:
-    """Wait until the mongot StatefulSet has 0 ready replicas or is deleted.
+    """Wait until the mongot StatefulSet has 0 replicas or is deleted.
 
     On ``spec.clusters[].replicas`` -> 0 the operator keeps the StatefulSet but
-    scales it to 0, so ``ready == desired == 0`` is the normal terminal state; a
-    404 is also accepted for callers that remove the STS outright (e.g. CR
-    delete). ``api_client`` must target the cluster that hosts the STS — for
-    multi-cluster the mongot StatefulSets live on the member clusters, not the
-    operator/default cluster.
+    scales it to 0, so ``replicas == ready == desired == 0`` is the normal
+    terminal state. ``status.replicas`` (not just ``readyReplicas``) must reach 0:
+    a Terminating pod is unready but still counted, and only its full deletion
+    means the drain completed (the PVC GC under ``WhenScaled: Delete`` starts
+    after that — see ``wait_for_mongot_pvcs_deleted``). A 404 is also accepted
+    for callers that remove the STS outright (e.g. CR delete). ``api_client``
+    must target the cluster that hosts the STS — for multi-cluster the mongot
+    StatefulSets live on the member clusters, not the operator/default cluster.
     """
     apps_v1 = client.AppsV1Api(api_client=api_client)
 
@@ -860,9 +863,13 @@ def wait_for_mongot_statefulset_drained(
             if exc.status == 404:
                 return True, f"{sts_name} deleted by reconciler"
             raise
+        replicas = sts.status.replicas or 0
         ready = sts.status.ready_replicas or 0
         desired = (sts.spec.replicas if sts.spec else 0) or 0
-        return ready == 0 and desired == 0, f"ready={ready}, desired={desired}"
+        return (
+            replicas == 0 and ready == 0 and desired == 0,
+            f"replicas={replicas}, ready={ready}, desired={desired}",
+        )
 
     run_periodically(
         drained,

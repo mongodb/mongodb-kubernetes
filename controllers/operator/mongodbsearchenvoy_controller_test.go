@@ -2371,3 +2371,48 @@ func TestReconcile_LBConfigSurvivesClusterRemoval(t *testing.T) {
 	assert.Equal(t, int32(3), *dep.Spec.Replicas,
 		"cluster-b's Envoy must keep its configured replica count after cluster-a is removed")
 }
+
+// TestEnsureDeployment_PreservesRolloutRestartAnnotation guards against a
+// regression where re-applying the Envoy Deployment wiped a foreign pod-template
+// annotation (kubectl.kubernetes.io/restartedAt).
+func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
+	const restartedAtKey = "kubectl.kubernetes.io/restartedAt"
+
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	central := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+	}
+	search.Spec.Clusters = []searchv1.ClusterSpec{{
+		LoadBalancer: &searchv1.LoadBalancerConfig{
+			Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot.example.com"},
+		},
+	}}
+	managedLB := search.GetManagedLBForCluster("")
+	depName := types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}
+
+	// First apply: operator creates the Deployment with its config-hash annotation.
+	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, "", 0, managedLB, r.clientForCluster(""), nil, zap.S()))
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, central.Get(ctx, depName, dep))
+	originalHash := dep.Spec.Template.Annotations[envoyConfigHashAnnotation]
+	require.NotEmpty(t, originalHash, "operator must stamp the config-hash annotation")
+
+	// Simulate `kubectl rollout restart`: stamp restartedAt onto the live pod template.
+	dep.Spec.Template.Annotations[restartedAtKey] = "2026-07-14T13:53:28Z"
+	require.NoError(t, central.Update(ctx, dep))
+
+	// Re-apply (as any reconcile triggered during the rollout would).
+	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, "", 0, managedLB, r.clientForCluster(""), nil, zap.S()))
+
+	require.NoError(t, central.Get(ctx, depName, dep))
+	assert.Equal(t, "2026-07-14T13:53:28Z", dep.Spec.Template.Annotations[restartedAtKey],
+		"restartedAt must survive re-apply so the rollout is not reverted")
+	assert.Equal(t, originalHash, dep.Spec.Template.Annotations[envoyConfigHashAnnotation],
+		"operator-owned config-hash annotation must remain present and authoritative")
+}

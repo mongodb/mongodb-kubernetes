@@ -4009,6 +4009,254 @@ func TestReconcileShardedMC_MultiPass(t *testing.T) {
 	require.Equal(t, svcB+1, svcB3)
 }
 
+// clusterStatusesFromStatus extracts the per-cluster status list carried in a
+// workflow.Status's options (reconcile() returns options rather than mutating the
+// CR; the CR write happens later in Reconcile() via UpdateStatus).
+func clusterStatusesFromStatus(t *testing.T, st workflow.Status) []searchv1.ClusterStatus {
+	t.Helper()
+	opt, ok := status.GetOption(st.StatusOptions(), searchv1.MongoDBSearchClusterStatusesOption{})
+	if !ok {
+		return nil
+	}
+	return opt.(searchv1.MongoDBSearchClusterStatusesOption).Statuses
+}
+
+// clusterStatusByIndex finds the ClusterStatus for a given clusterIndex.
+func clusterStatusByIndex(t *testing.T, statuses []searchv1.ClusterStatus, idx int) searchv1.ClusterStatus {
+	t.Helper()
+	for _, cs := range statuses {
+		if cs.Index == idx {
+			return cs
+		}
+	}
+	t.Fatalf("no ClusterStatus with clusterIndex %d in %+v", idx, statuses)
+	return searchv1.ClusterStatus{}
+}
+
+func readyDeploymentStatus(desired int32) appsv1.DeploymentStatus {
+	return appsv1.DeploymentStatus{
+		ReadyReplicas:      desired,
+		UpdatedReplicas:    desired,
+		Replicas:           desired,
+		ObservedGeneration: 0,
+	}
+}
+
+// markEnvoyDeploymentReady creates the managed Envoy Deployment for a cluster in a
+// fully-rolled-out ready state, simulating what the envoy controller would have written.
+func markEnvoyDeploymentReady(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int) {
+	t.Helper()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.LoadBalancerDeploymentNameForCluster(clusterIndex),
+			Namespace: search.Namespace,
+		},
+		Spec:   appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
+		Status: readyDeploymentStatus(1),
+	}
+	require.NoError(t, c.Create(t.Context(), dep))
+}
+
+// markMetricsForwarderDeploymentReady creates the metrics-forwarder Deployment for a
+// cluster in a fully-rolled-out ready state, simulating what the metrics-forwarder
+// controller would have written.
+func markMetricsForwarderDeploymentReady(t *testing.T, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterIndex int) {
+	t.Helper()
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.MetricsForwarderDeploymentNameForCluster(clusterIndex),
+			Namespace: search.Namespace,
+		},
+		Spec:   appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
+		Status: readyDeploymentStatus(1),
+	}
+	require.NoError(t, c.Create(t.Context(), dep))
+}
+
+// TestReconcileShardedMC_PerClusterStatus verifies the per-cluster status surface:
+// every cluster appears (not just failing ones), shards roll up into a single
+// per-cluster Search phase via worst-of, and the managed-LB phase is read from the
+// Envoy Deployment independently of the top-level phase gating.
+func TestReconcileShardedMC_PerClusterStatus(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	// Pass 1: STSs just applied, none ready, no Envoy Deployments yet.
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2, "both clusters must be listed, not just the first failing one")
+
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhasePending, cs.Search, "cluster %d search should be Pending (STSs not ready)", idx)
+		require.NotEmpty(t, cs.SearchMessage, "cluster %d should carry a search message while not ready", idx)
+		// Envoy Deployment absent → LoadBalancer reported Pending, informational only.
+		require.Equal(t, status.PhasePending, cs.LoadBalancer, "cluster %d LB should be Pending (deployment not created yet)", idx)
+	}
+	require.Equal(t, "cluster-a", clusterStatusByIndex(t, statuses, 0).Name)
+	require.Equal(t, "cluster-b", clusterStatusByIndex(t, statuses, 1).Name)
+
+	// Make all mongot STSs ready and create ready Envoy Deployments in both members.
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	// Pass 2: everything ready → both clusters Running on both halves.
+	st = helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "expected OK, got: %s", MessageFromStatus(st))
+	statuses = clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhaseRunning, cs.Search, "cluster %d search should be Running", idx)
+		require.Empty(t, cs.SearchMessage, "cluster %d search message should clear when Running", idx)
+		require.Equal(t, status.PhaseRunning, cs.LoadBalancer, "cluster %d LB should be Running", idx)
+		require.Empty(t, cs.LoadBalancerMessage)
+	}
+}
+
+// TestReconcileShardedMC_PerClusterMetricsForwarderStatus verifies that
+// when the forwarder is enabled, each cluster reports its own metricsForwarder phase
+// (read from that cluster's forwarder Deployment), it transitions Pending->Running independently.
+func TestReconcileShardedMC_PerClusterMetricsForwarderStatus(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	// Force the metrics forwarder on (fixture uses an external source, so Auto would
+	// leave it disabled without an OpsManager block).
+	fx.search.Spec.Observability.MetricsForwarder.Mode = searchv1.MetricsForwarderModeEnabled
+	helper := fx.newHelper()
+
+	// Pass 1: mongot STSs + Envoy ready, but no metrics-forwarder Deployments yet.
+	_ = helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	st := helper.reconcile(t.Context(), zap.S())
+	// Metrics forwarder is informational: even though its Deployments are absent
+	// (Pending), the top-level phase must be OK (search + LB ready).
+	require.True(t, st.IsOK(), "metrics forwarder must not gate top-level phase; got: %s", MessageFromStatus(st))
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhaseRunning, cs.Search, "cluster %d search Running", idx)
+		require.Equal(t, status.PhasePending, cs.MetricsForwarder,
+			"cluster %d metricsForwarder Pending (deployment not created yet)", idx)
+		require.NotEmpty(t, cs.MetricsForwarderMessage, "cluster %d should carry a metrics-forwarder message while not ready", idx)
+	}
+
+	// Create ready metrics-forwarder Deployments in both members.
+	markMetricsForwarderDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markMetricsForwarderDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+
+	// Pass 2: every per-cluster half Running.
+	st = helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "expected OK, got: %s", MessageFromStatus(st))
+	statuses = clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Equal(t, status.PhaseRunning, cs.MetricsForwarder, "cluster %d metricsForwarder Running", idx)
+		require.Empty(t, cs.MetricsForwarderMessage, "cluster %d metrics-forwarder message clears when Running", idx)
+	}
+}
+
+// TestReconcileShardedMC_PerClusterMetricsForwarderDisabled verifies that when the
+// metrics forwarder is disabled, the per-cluster metricsForwarder phase is left empty
+// (omitted), mirroring how loadBalancer is empty when no managed LB is configured.
+func TestReconcileShardedMC_PerClusterMetricsForwarderDisabled(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	fx.search.Spec.Observability.MetricsForwarder.Mode = searchv1.MetricsForwarderModeDisabled
+	helper := fx.newHelper()
+
+	_ = helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+	fx.search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.True(t, st.IsOK(), "expected OK, got: %s", MessageFromStatus(st))
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	for _, idx := range []int{0, 1} {
+		cs := clusterStatusByIndex(t, statuses, idx)
+		require.Empty(t, cs.MetricsForwarder, "cluster %d metricsForwarder must be empty when disabled", idx)
+		require.Empty(t, cs.MetricsForwarderMessage, "cluster %d metrics-forwarder message must be empty when disabled", idx)
+	}
+}
+
+func TestReconcileShardedMC_PerClusterLoadBalancerMidRollout(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	_ = helper.reconcile(t.Context(), zap.S())
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns",
+		fx.central, fx.members["cluster-a"], fx.members["cluster-b"]))
+
+	// cluster-a: Envoy fully rolled out (ready). cluster-b: mid-rollout — enough ready
+	// pods to satisfy a naive check, but they are the old generation.
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	depB := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       fx.search.LoadBalancerDeploymentNameForCluster(1),
+			Namespace:  fx.search.Namespace,
+			Generation: 2, // spec advanced to gen 2
+		},
+		Spec: appsv1.DeploymentSpec{Replicas: ptr.To(int32(1))},
+		Status: appsv1.DeploymentStatus{
+			ReadyReplicas:      1, // 1 ready pod, but it is the OLD ReplicaSet:
+			UpdatedReplicas:    0, // no pods on the new spec yet
+			Replicas:           1,
+			ObservedGeneration: 1, // controller has not observed gen 2 yet
+		},
+	}
+	require.NoError(t, fx.members["cluster-b"].Create(t.Context(), depB))
+
+	st := helper.reconcile(t.Context(), zap.S())
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+
+	csA := clusterStatusByIndex(t, statuses, 0)
+	require.Equal(t, status.PhaseRunning, csA.LoadBalancer, "cluster 0 Envoy fully rolled out → Running")
+
+	csB := clusterStatusByIndex(t, statuses, 1)
+	require.Equal(t, status.PhasePending, csB.LoadBalancer,
+		"cluster 1 Envoy mid-rollout (ready pods are old generation) → must be Pending, not Running")
+	require.NotEmpty(t, csB.LoadBalancerMessage, "mid-rollout should carry a message explaining why")
+}
+
+// TestReconcileShardedMC_PerClusterStatusWorstOfShards verifies that when one shard
+// in a cluster is ready and another is not, the cluster's rolled-up Search phase is
+// the worst of the two (Pending), proving shard roll-up rather than first-loss-wins.
+func TestReconcileShardedMC_PerClusterStatusWorstOfShards(t *testing.T) {
+	fx := newMCShardedFixture(t)
+	helper := fx.newHelper()
+
+	// Apply everything.
+	_ = helper.reconcile(t.Context(), zap.S())
+
+	// Mark ALL of cluster-a ready, but only mark cluster-b's central client ready
+	// (cluster-b's member STSs stay not-ready).
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), "ns", fx.members["cluster-a"]))
+	markEnvoyDeploymentReady(t, fx.members["cluster-a"], fx.search, 0)
+	markEnvoyDeploymentReady(t, fx.members["cluster-b"], fx.search, 1)
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK(), "must be Pending while cluster-b shards are not ready")
+
+	statuses := clusterStatusesFromStatus(t, st)
+	require.Len(t, statuses, 2)
+	require.Equal(t, status.PhaseRunning, clusterStatusByIndex(t, statuses, 0).Search, "cluster-a all shards ready")
+	require.Equal(t, status.PhasePending, clusterStatusByIndex(t, statuses, 1).Search, "cluster-b has not-ready shards → worst-of Pending")
+}
+
 // TestReconcileShardedMC_MissingMemberClusterClient verifies that when a
 // member cluster named in spec.clusters has no entry in memberClusterClients
 // (e.g. an operator that joined the cluster mid-flight but hasn't been
@@ -4543,4 +4791,78 @@ func TestReconcileShardedMC_ShardOverrideReplicas(t *testing.T) {
 		"cluster-a": {"sh-0": 1, "sh-1": 1, "sh-2": 1}, // back to the cluster default
 		"cluster-b": {"sh-0": 5, "sh-1": 3, "sh-2": 3}, // sh-2 back to default after the override moved
 	})
+}
+
+func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central kubernetesClient.Client) *MongoDBSearchReconcileHelper {
+	mdb := newTestMongoDBSearch("mdb-search", "ns")
+	mdb.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "mdb-search-search-0-proxy-svc.ns.svc.cluster.local",
+		}}},
+		{Name: "cluster-b", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)), LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
+			ExternalHostname: "mdb-search-search-1-proxy-svc.ns.svc.cluster.local",
+		}}},
+	}
+	mdb.Spec.Source = &searchv1.MongoDBSource{
+		ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+			HostAndPorts: []string{"a.example:27017"},
+		},
+	}
+	source := &fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts}
+	return &MongoDBSearchReconcileHelper{
+		mdbSearch:            mdb,
+		db:                   source,
+		client:               central,
+		memberClusterClients: members,
+		state:                NewSearchDeploymentState(),
+		operatorSearchConfig: newTestOperatorSearchConfig(),
+	}
+}
+
+// A cluster referenced in spec.clusters but missing from the operator's member
+// clients fails the reconcile, naming the unmanaged cluster, without blocking the
+// well-configured clusters from reconciling. The missing cluster is the FIRST
+// unit on purpose: under fail-fast the later cluster would never reconcile, so
+// this test catches a regression to that behavior.
+func TestReconcileRSMC_MissingClientFailsReconcile(t *testing.T) {
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-b": clusterB}, central)
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+	assert.Contains(t, MessageFromStatus(st), "no Kubernetes client registered",
+		"a spec cluster with no configured client must fail the reconcile")
+
+	// cluster-b still reconciled despite cluster-a (the first unit) having no client.
+	require.NoError(t, clusterB.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+
+	// cluster-a's unit was not leaked onto the central client.
+	err := central.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-0", Namespace: "ns"}, &appsv1.StatefulSet{})
+	assert.True(t, apierrors.IsNotFound(err), "cluster-a STS must NOT be created on the central client")
+}
+
+// A failing member cluster must not block the units on the other clusters: the
+// error is aggregated and returned once, after all units ran.
+func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
+	injectedErr := fmt.Errorf("injected cluster-a apply failure")
+	baseA := mock.NewEmptyFakeClientBuilder().Build()
+	clusterA := kubernetesClient.NewClient(interceptor.NewClient(baseA, interceptor.Funcs{
+		Create: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			return injectedErr
+		},
+	}))
+	clusterB := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+	helper := newMCReplicaSetHelper(map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}, central)
+
+	st := helper.reconcile(t.Context(), zap.S())
+	require.False(t, st.IsOK())
+	assert.Contains(t, MessageFromStatus(st), "injected cluster-a apply failure")
+
+	// cluster-b's unit was still applied despite cluster-a failing first.
+	require.NoError(t, clusterB.Get(t.Context(),
+		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
 }
