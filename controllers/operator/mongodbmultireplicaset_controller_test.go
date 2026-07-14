@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -96,6 +97,71 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+}
+
+// TestMultiReplicaSet_TerminalFailureIsNotMaskedByTransientConflict runs a full
+// MongoDBMultiCluster reconcile where reading back the freshly created StatefulSet
+// fails on both member clusters, for very different reasons:
+//
+//   - member-cluster-1 hits a routine optimistic-lock conflict ("the object has been
+//     modified..."). Transient: the next reconcile fixes it on its own.
+//   - member-cluster-2 gets Forbidden from its API server (RBAC misconfiguration).
+//     Terminal: no retry will ever fix it; the user must act.
+//
+// A terminal failure on any member cluster must be reported to the user: the resource
+// phase must be Failed and the status message must show the Forbidden error.
+//
+// Today the per-cluster statuses are merged in reconcileStatefulSets into one status
+// whose combined text is classified by substring matching
+// (workflow.failedStatus.Phase -> apierrors.IsTransientMessage), so member-cluster-1's
+// conflict text marks the WHOLE aggregate transient: the CR reports Pending with a
+// blanked message, and member-cluster-2's RBAC failure is invisible.
+func TestMultiReplicaSet_TerminalFailureIsNotMaskedByTransientConflict(t *testing.T) {
+	ctx := context.Background()
+	memberClusters := []string{"member-cluster-1", "member-cluster-2"}
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(memberClusters).Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(mrs)
+
+	transientConflict := apiErrors.NewConflict(appsv1.Resource("statefulsets"), mrs.MultiStatefulsetName(0),
+		fmt.Errorf("the object has been modified; please apply your changes to the latest version and try again"))
+	terminalForbidden := apiErrors.NewForbidden(appsv1.Resource("statefulsets"), mrs.MultiStatefulsetName(1),
+		fmt.Errorf("User \"system:serviceaccount:mongodb:mongodb-kubernetes-operator\" cannot get resource \"statefulsets\""))
+
+	// The member clients behave normally until the StatefulSet exists, then fail every
+	// read of it. The first such read is the readiness poll right after creation, whose
+	// per-cluster status is merged across clusters in reconcileStatefulSets.
+	failingStsReadsClient := func(failure error) client.Client {
+		builder := mock.NewEmptyFakeClientBuilder()
+		builder.WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if err := c.Get(ctx, key, obj, opts...); err != nil {
+					return err
+				}
+				if _, ok := obj.(*appsv1.StatefulSet); ok {
+					return failure
+				}
+				return nil
+			},
+		})
+		return kubernetesClient.NewClient(builder.Build())
+	}
+	memberClusterMap := map[string]client.Client{
+		memberClusters[0]: failingStsReadsClient(transientConflict),
+		memberClusters[1]: failingStsReadsClient(terminalForbidden),
+	}
+
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs))
+
+	// member-cluster-2 is misconfigured (RBAC): retrying cannot fix it, so the
+	// resource must report Failed, whatever happened on the other clusters.
+	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase,
+		"a terminal error on one member cluster must surface as Failed even when another cluster hit a transient conflict")
+	// ...and the user must be able to see what is wrong from the status message.
+	assert.Contains(t, mrs.Status.Message, "is forbidden",
+		"the terminal error must be visible in the status message")
 }
 
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
