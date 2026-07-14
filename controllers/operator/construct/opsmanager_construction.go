@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -450,6 +451,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	omVolumes, omVolumeMounts = getNonPersistentOpsManagerVolumeMounts(omVolumes, omVolumeMounts, opts)
 
 	opts.EnvVars = append(opts.EnvVars, kmipEnvVars(opts)...)
+	opts.EnvVars = append(opts.EnvVars, omAutoHeapEnvVars()...)
 	omVolumes, omVolumeMounts = appendKmipVolumes(omVolumes, omVolumeMounts, opts)
 
 	initContainerMod := podtemplatespec.NOOP()
@@ -534,6 +536,15 @@ func kmipEnvVars(opts OpsManagerStatefulSetOptions) []corev1.EnvVar {
 		}
 	}
 	return nil
+}
+
+func omAutoHeapEnvVars() []corev1.EnvVar {
+	if os.Getenv(util.OmAutoHeapEnv) != util.EnvVarTrue {
+		return nil
+	}
+	return []corev1.EnvVar{
+		{Name: "OM_AUTO_HEAP", Value: util.EnvVarTrue},
+	}
 }
 
 // opsManagerReadinessProbe creates the readiness probe.

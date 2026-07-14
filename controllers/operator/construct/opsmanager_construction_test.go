@@ -86,12 +86,12 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 	envVarsNoLimitsOrReqs, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
 	assert.NoError(t, err)
 
-	// if only memory requests are configured, xms and xmx should be 90% of mem request
-	assert.Equal(t, "-DFakeOptionEnabled -Xmx187m -Xms187m", envVarReqsOnly[0].Value)
-	// both are configured, xms should be 90% of mem request, and xmx 90% of mem limit
-	assert.Equal(t, "-DFakeOptionEnabled -Xmx230m -Xms187m", envVarLimitsAndReqs[0].Value)
-	// if only memory limits are configured, xms and xmx should be 90% of mem limits
-	assert.Equal(t, "-DFakeOptionEnabled -Xmx230m -Xms230m", envVarLimitsOnly[0].Value)
+	// if only memory requests are configured, xms and xmx should be 75% of mem request
+	assert.Equal(t, "-DFakeOptionEnabled -Xmx156m -Xms156m", envVarReqsOnly[0].Value)
+	// both are configured, xms should be 75% of mem request, and xmx 75% of mem limit
+	assert.Equal(t, "-DFakeOptionEnabled -Xmx192m -Xms156m", envVarLimitsAndReqs[0].Value)
+	// if only memory limits are configured, xms and xmx should be 75% of mem limits
+	assert.Equal(t, "-DFakeOptionEnabled -Xmx192m -Xms192m", envVarLimitsOnly[0].Value)
 	// if neither is configured, xms/xmx params should not be added to JVM params, keeping OM defaults
 	assert.Equal(t, "-DFakeOptionEnabled", envVarsNoLimitsOrReqs[0].Value)
 }
@@ -167,10 +167,63 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 	assert.NoError(t, err)
 	// xmx and xms based calculated from  default container memory, requests.mem=limits.mem=5GB
 	assert.Equal(t, "CUSTOM_JAVA_MMS_UI_OPTS", envVar[0].Name)
-	assert.Equal(t, "-Xmx4291m -Xms4291m", envVar[0].Value)
+	assert.Equal(t, "-Xmx3576m -Xms3576m", envVar[0].Value)
 
 	assert.Equal(t, "CUSTOM_JAVA_DAEMON_OPTS", envVar[1].Name)
-	assert.Equal(t, "-Xmx4291m -Xms4291m -DDAEMON.DEBUG.PORT=8090", envVar[1].Value)
+	assert.Equal(t, "-Xmx3576m -Xms3576m -DDAEMON.DEBUG.PORT=8090", envVar[1].Value)
+}
+
+func TestOmAutoHeapEnvVars(t *testing.T) {
+	t.Run("disabled when env var not set", func(t *testing.T) {
+		assert.Nil(t, omAutoHeapEnvVars())
+	})
+
+	t.Run("enabled returns OM_AUTO_HEAP env var", func(t *testing.T) {
+		t.Setenv(util.OmAutoHeapEnv, "true")
+		vars := omAutoHeapEnvVars()
+		assert.NotNil(t, vars)
+		assert.Len(t, vars, 1)
+		assert.Equal(t, "OM_AUTO_HEAP", vars[0].Name)
+		assert.Equal(t, "true", vars[0].Value)
+	})
+}
+
+func TestBuildJvmParamsEnvVars_WithAutoHeap(t *testing.T) {
+	t.Setenv(util.OmAutoHeapEnv, "true")
+
+	ctx := context.Background()
+	om := omv1.NewOpsManagerBuilderDefault().
+		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+		Build()
+	om.Spec.JVMParams = []string{"-DFakeOptionEnabled"}
+
+	omSts, err := createOpsManagerStatefulset(ctx, om)
+	assert.NoError(t, err)
+	template := omSts.Spec.Template
+
+	envVar, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
+	assert.NoError(t, err)
+	assert.Equal(t, "-DFakeOptionEnabled", envVar[0].Value)
+	assert.NotContains(t, envVar[0].Value, "-Xmx")
+	assert.NotContains(t, envVar[0].Value, "-Xms")
+}
+
+func TestBuildJvmParamsEnvVars_WithCustomPercentage(t *testing.T) {
+	t.Setenv(util.OmJvmHeapPercentageEnv, "80")
+
+	ctx := context.Background()
+	om := omv1.NewOpsManagerBuilderDefault().
+		AddConfiguration(util.MmsCentralUrlPropKey, "http://om-svc").
+		Build()
+
+	omSts, err := createOpsManagerStatefulset(ctx, om)
+	assert.NoError(t, err)
+	template := omSts.Spec.Template
+
+	envVar, err := buildJvmParamsEnvVars(om.Spec, util.OpsManagerContainerName, template)
+	assert.NoError(t, err)
+	assert.Contains(t, envVar[0].Value, "-Xmx3814m")
+	assert.Contains(t, envVar[0].Value, "-Xms3814m")
 }
 
 func TestBuildOpsManagerStatefulSet(t *testing.T) {
@@ -190,8 +243,8 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 			{Name: "ENABLE_IRP", Value: "true"},
 			{Name: "OM_PROP_mms_adminEmailAddr", Value: "cloud-manager-support@mongodb.com"},
 			{Name: "OM_PROP_mms_centralUrl", Value: "http://om-svc"},
-			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms4291m"},
-			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms4291m -DDAEMON.DEBUG.PORT=8090"},
+			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx3576m -Xms3576m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx3576m -Xms3576m -DDAEMON.DEBUG.PORT=8090"},
 		}
 		env := sts.Spec.Template.Spec.Containers[0].Env
 		assert.Equal(t, expectedVars, env)
@@ -223,8 +276,8 @@ func TestBuildOpsManagerStatefulSet(t *testing.T) {
 		assert.NoError(t, err)
 		expectedVars := []corev1.EnvVar{
 			{Name: "ENABLE_IRP", Value: "true"},
-			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx5149m -Xms343m"},
-			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx5149m -Xms343m -DDAEMON.DEBUG.PORT=8090"},
+			{Name: "CUSTOM_JAVA_MMS_UI_OPTS", Value: "-Xmx4291m -Xms286m"},
+			{Name: "CUSTOM_JAVA_DAEMON_OPTS", Value: "-Xmx4291m -Xms286m -DDAEMON.DEBUG.PORT=8090"},
 		}
 		env := sts.Spec.Template.Spec.Containers[0].Env
 		assert.Equal(t, expectedVars, env)

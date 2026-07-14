@@ -73,6 +73,15 @@ operator:
   # 4*4=20 workers in total. Memory usage depends on the actual number of resources reconciles in parallel and is not allocated upfront.
   maxConcurrentReconciles: 1
 
+  # Percentage of the OM container memory limit to use for JVM heap (-Xmx).
+  # Default: 75 (MongoDB internal standard). Previous default was 90%.
+  omJvmHeapPercentage: 75
+
+  # Use OM's native cgroup-aware heap sizing instead of operator's percentage-based approach.
+  # WARNING: Only use with OM pods having ≥16Gi memory. OM_AUTO_HEAP has an 8GB lower bound
+  # that will cause OOM on smaller pods (default 5Gi).
+  omAutoHeap: false
+
   # Create operator service account and roles
   # if false, then operator RBAC will not be provided by the chart
   createOperatorServiceAccount: true

@@ -76,8 +76,8 @@ class TestOpsManagerCreationWithJvmParams:
                 api_client=api_client,
             )
             java_params = self.parse_java_params(result, JAVA_MMS_UI_OPTS)
-            assert "-Xmx4291m" in java_params
-            assert "-Xms343m" in java_params
+            assert "-Xmx3576m" in java_params
+            assert "-Xms286m" in java_params
 
     def test_om_process_mem_scales(self, ops_manager: MongoDBOpsManager):
         for api_client, pod in ops_manager.read_om_pods():
