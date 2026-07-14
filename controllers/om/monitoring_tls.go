@@ -7,6 +7,12 @@ const (
 	TLSParamClientCert  = "sslClientCertificate"
 )
 
+// MongodStdoutLogPath is a symlink created by agent-launcher.sh that resolves to
+// the database container's stdout pipe. Used for mongod systemLog because under
+// ShareProcessNamespace (static arch) /proc/1/fd/1 is the pause container's
+// /dev/null. The launcher creates this symlink to its own fd1.
+const MongodStdoutLogPath = "/var/log/mongodb-mms-automation/mongod-stdout"
+
 // NewTLSParams creates and returns a new map with TLS parameters.
 func NewTLSParams(caFilePath string, pemKeyFile interface{}) map[string]string {
 	params := map[string]string{

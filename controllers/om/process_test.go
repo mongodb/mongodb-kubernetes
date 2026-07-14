@@ -24,7 +24,6 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "4.0.5", process.Version())
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
-		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
 		assert.Equal(t, nil, process.LogRotateSizeThresholdMB())
@@ -59,7 +58,6 @@ func TestCreateMongodProcessStatic(t *testing.T) {
 		assert.Equal(t, "4.0.5-ent", process.Version())
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
-		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
 		assert.Equal(t, 5, process.authSchemaVersion())
 		assert.Equal(t, "", process.replicaSetName())
 
@@ -273,7 +271,7 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 		},
 		"systemLog": map[string]interface{}{
 			"destination": "file",
-			"path":        "/var/log/mongodb-mms-automation/mongodb.log",
+			"path":        "/var/log/mongodb-mms-automation/mongod-stdout",
 		},
 	}
 
@@ -317,14 +315,14 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 				},
 			},
 		},
-		"systemLog": map[string]interface{}{
-			"destination": "file",
-			"path":        "/var/log/mongodb-mms-automation/mongodb.log",
-		},
 		"some": map[string]interface{}{
 			"other": map[string]interface{}{
 				"option": "value",
 			},
+		},
+		"systemLog": map[string]interface{}{
+			"destination": "file",
+			"path":        "/var/log/mongodb-mms-automation/mongod-stdout",
 		},
 	}
 

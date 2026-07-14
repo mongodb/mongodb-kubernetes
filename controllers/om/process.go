@@ -3,13 +3,11 @@ package om
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/spf13/cast"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -108,8 +106,7 @@ func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 		WithResourceSpec(processVersion, fcv),
 	)
 
-	// default values for configurable values
-	p.SetLogPath(path.Join(util.PvcMountPathLogs, "/mongodb.log"))
+	p.SetLogPath(MongodStdoutLogPath)
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
 	}
@@ -134,16 +131,8 @@ func NewMongodProcess(name, hostName, mongoDBImage string, forceEnterprise bool,
 		WithResourceSpec(processVersion, fcv),
 	)
 
-	// default values for configurable values
 	p.SetDbPath("/data")
-	agentConfig := spec.GetAgentConfig()
-	if agentConfig.Mongod.SystemLog != nil {
-		p.SetLogPathFromCommunitySystemLog(agentConfig.Mongod.SystemLog)
-	} else {
-		// CLOUDP-33467: we put mongod logs to the same directory as AA/Monitoring/Backup ones to provide single mount point
-		// for all types of logs
-		p.SetLogPath(path.Join(util.PvcMountPathLogs, "mongodb.log"))
-	}
+	p.SetLogPath(MongodStdoutLogPath)
 
 	if certificateFilePath == "" {
 		certificateFilePath = util.PEMKeyFilePathInContainer
@@ -258,18 +247,6 @@ func (p Process) SetLogPath(logPath string) Process {
 	sysLogMap["destination"] = "file"
 	sysLogMap["path"] = logPath
 	return p
-}
-
-func (p Process) SetLogPathFromCommunitySystemLog(systemLog *automationconfig.SystemLog) Process {
-	sysLogMap := util.ReadOrCreateMap(p.Args(), "systemLog")
-	sysLogMap["destination"] = string(systemLog.Destination)
-	sysLogMap["path"] = systemLog.Path
-	sysLogMap["logAppend"] = systemLog.LogAppend
-	return p
-}
-
-func (p Process) LogPath() string {
-	return maputil.ReadMapValueAsString(p.Args(), "systemLog", "path")
 }
 
 func (p Process) LogRotateSizeThresholdMB() interface{} {

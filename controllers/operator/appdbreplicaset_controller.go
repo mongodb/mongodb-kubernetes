@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"fmt"
-	"path"
 	"slices"
 	"sort"
 	"strconv"
@@ -1176,20 +1175,12 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 				p.Args26.Set("net.tls.certificateKeyFile", certFile)
 
 			}
+			// Propagate logRotate and auditLogRotate to the automation config.
+			// systemLog is always routed to the stdout FIFO; logRotate settings are still respected.
 			systemLog := &automationconfig.SystemLog{
 				Destination: automationconfig.File,
-				Path:        path.Join(util.PvcMountPathLogs, "mongodb.log"),
+				Path:        om.MongodStdoutLogPath,
 			}
-
-			if opsManager.Spec.AppDB.AutomationAgent.SystemLog != nil {
-				systemLog = opsManager.Spec.AppDB.AutomationAgent.SystemLog
-			}
-
-			// This setting takes precedence, above has been deprecated, and we should favor the one after mongod
-			if opsManager.Spec.AppDB.AutomationAgent.Mongod.SystemLog != nil {
-				systemLog = opsManager.Spec.AppDB.AutomationAgent.Mongod.SystemLog
-			}
-
 			if acType == automation {
 				if opsManager.Spec.AppDB.AutomationAgent.Mongod.HasLoggingConfigured() {
 					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.Mongod.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
@@ -1463,6 +1454,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 			mv := automationconfig.MonitoringVersion{
 				Hostname: hostname,
 				Name:     om.MonitoringAgentDefaultVersion,
+				LogPath:  "/var/log/mongodb-mms-automation/monitoring-stdout",
 			}
 			if tls {
 				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)

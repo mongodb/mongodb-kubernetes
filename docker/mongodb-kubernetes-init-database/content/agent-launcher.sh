@@ -8,28 +8,25 @@ MDB_STATIC_CONTAINERS_ARCHITECTURE="${MDB_STATIC_CONTAINERS_ARCHITECTURE:-}"
 MMS_HOME=${MMS_HOME:-/mongodb-automation}
 MMS_LOG_DIR=${MMS_LOG_DIR:-/var/log/mongodb-mms-automation}
 
+# mongod logs to ${MMS_LOG_DIR}/mongod-stdout FIFO; a jq reader drains it tagged to stdout.
+# Under ShareProcessNamespace (static arch) PID 1 is the pause container and
+# /proc/1/fd/1 is /dev/null, but FIFOs don't depend on /proc (POSIX pipes).
+# $$ resolves to 1 in non static and in static to launcher pid.
+# The while-loop reopens the FIFO after EOF so the reader survives mongod restarts.
+mkdir -p "${MMS_LOG_DIR}"
+rm -f "${MMS_LOG_DIR}/mongod-stdout"
+mkfifo "${MMS_LOG_DIR}/mongod-stdout"
+while true; do
+  jq --unbuffered -Rc --arg p mongod '{process:$p,msg:.}' < "${MMS_LOG_DIR}/mongod-stdout" 2>/dev/null
+done &
+
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   AGENT_BINARY_PATH="${MMS_HOME}/files/mongodb-mms-automation-agent"
 else
   AGENT_BINARY_PATH="/agent/mongodb-agent"
 fi
 
-export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.log"
-
-# We start tailing script logs immediately to not miss anything.
-# -F flag is equivalent to --follow=name --retry.
-# -n0 parameter is instructing tail to show only new lines (by default tail is showing last 10 lines)
-tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
-
 source /opt/scripts/agent-launcher-lib.sh
-
-# all the following MDB_LOG_FILE_* env var should be defined in container's env vars
-tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
-tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT}" 2> /dev/null | json_log 'automation-agent' &
-tail -F -n0 "${MDB_LOG_FILE_MONITORING_AGENT}" 2> /dev/null | json_log 'monitoring-agent' &
-tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent' &
-tail -F -n0 "${MDB_LOG_FILE_MONGODB}" 2> /dev/null | json_log 'mongodb' &
-tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT}" 2> /dev/null | json_log 'mongodb-audit' &
 
 # This is the directory corresponding to 'options.downloadBase' in the automation config - the directory where
 # the agent will extract MongoDB binaries to
@@ -82,13 +79,6 @@ fi
 ln -sf /journal /data/
 script_log "Created symlink: /data/journal -> $(readlink -f /data/journal)"
 
-# If it is a migration of the existing MongoDB - then there could be a mongodb.log in a default location -
-# let's try to copy it to a new directory
-if [[ -f /data/mongodb.log ]] && [[ ! -f "${MDB_LOG_FILE_MONGODB}" ]]; then
-    script_log "The mongodb log file /data/mongodb.log already exists - moving it to ${MMS_LOG_DIR}"
-    mv /data/mongodb.log "${MMS_LOG_DIR}"
-fi
-
 base_url="${BASE_URL-}" # If unassigned, set to empty string to avoid set-u errors
 base_url="${base_url%/}" # Remove any accidentally defined trailing slashes
 declare -r base_url
@@ -105,7 +95,6 @@ fi
 agentOpts=(
     "-mmsGroupId=${GROUP_ID-}"
     "-pidfilepath=${MMS_HOME}/mongodb-mms-automation-agent.pid"
-    "-maxLogFileDurationHrs=24"
     "-logLevel=${LOG_LEVEL:-INFO}"
 )
 
@@ -194,6 +183,11 @@ else
     script_log "waiting for mongod_pid being available"
     # shellcheck disable=SC2009
     MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
+    # When using `exec -a mongodb_marker sleep infinity`, also check /proc/1/fd/1
+    # or marker file as fallback
+    if [ -z "${MONGOD_PID}" ] || [ "${MONGOD_PID}" -eq 0 ]; then
+      MONGOD_PID=$(pgrep -f "mongodb_marker" || true)
+    fi
 
     if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
     break
@@ -225,8 +219,28 @@ else
   agentOpts+=("-binariesFixedPath=${mdb_downloads_dir}/mongod/bin")
 fi
 
-# Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
+# Audit log is user-configured. If the user routes audit to a file, tail it to stdout.
+tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT:-${MMS_LOG_DIR}/mongodb-audit.log}" 2>/dev/null | jq --unbuffered -Rc --arg p audit '{process:$p,msg:.}' &
+
+# Monitoring/backup goroutines are configured via automation config logPath;
+# each writes to its own FIFO, drained tagged to stdout. No log files.
+rm -f "${MMS_LOG_DIR}/monitoring-stdout"
+mkfifo "${MMS_LOG_DIR}/monitoring-stdout"
+while true; do
+  jq --unbuffered -Rc --arg p monitoring '{process:$p,msg:.}' < "${MMS_LOG_DIR}/monitoring-stdout" 2>/dev/null
+done &
+rm -f "${MMS_LOG_DIR}/backup-stdout"
+mkfifo "${MMS_LOG_DIR}/backup-stdout"
+while true; do
+  jq --unbuffered -Rc --arg p backup '{process:$p,msg:.}' < "${MMS_LOG_DIR}/backup-stdout" 2>/dev/null
+done &
+
+# Run agent stderr/stdout through jq for process tagging.
+# Use process substitution (not a pipe) so $! captures the agent's PID, not jq's.
+# The cleanup() function in agent-launcher-lib.sh sends SIGTERM to $agentPid;
+# with a pipe (agent | jq &) $! would be jq's PID and the agent would never receive SIGTERM,
+# leaving the pod stuck in Terminating until the 600s grace period expires.
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" > >(jq --unbuffered -Rc --arg p agent '{process:$p,msg:.}') 2>&1 &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"

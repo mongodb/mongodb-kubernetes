@@ -165,25 +165,25 @@ dump_pod_logs() {
         kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent.log" "logs/${prefix}${pod}-agent.log" &> /dev/null
         kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/monitoring-agent-verbose.log" "logs/${prefix}${pod}-monitoring-agent-verbose.log" &> /dev/null
         kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/monitoring-agent.log" "logs/${prefix}${pod}-monitoring-agent.log" &> /dev/null
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongod" > "logs/${prefix}${pod}-mongod-container.log" || true
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent" > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
+        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" --tail 5000 > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
+        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongod" --tail 5000 > "logs/${prefix}${pod}-mongod-container.log" || true
+        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent" --tail 5000 > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
         kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log" &> /dev/null || true
 
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
+        kubectl --context="${context}" logs -n "${namespace}" "${pod}" --tail 5000 | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
     fi
 
     for container in $(kubectl --context="${context}" get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
         echo "Writing log file for pod ${pod} - container ${container} to logs/${prefix}${pod}-${container}.log"
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}.log"
+        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" --tail 5000 > "logs/${prefix}${pod}-${container}.log"
 
         # Check if the container has restarted by examining its restart count
         restartCount=$(kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath="{.status.containerStatuses[?(@.name=='${container}')].restartCount}")
 
         if [ "${restartCount}" -gt 0 ]; then
             echo "Writing log file for restarted ${pod} - container ${container} to logs/${prefix}${pod}-${container}-previous.log"
-            kubectl --context="${context}" logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}-previous.log" || true
+            kubectl --context="${context}" logs --previous -n "${namespace}" "${pod}" -c "${container}" --tail 5000 > "logs/${prefix}${pod}-${container}-previous.log" || true
         fi
 
     done

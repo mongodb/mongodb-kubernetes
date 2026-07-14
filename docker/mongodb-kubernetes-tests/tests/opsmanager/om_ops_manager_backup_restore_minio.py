@@ -8,6 +8,7 @@ from kubetester import create_or_update_namespace, create_or_update_secret, read
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
@@ -24,6 +25,10 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 TEST_DATA = {"_id": "unique_id", "name": "John", "address": "Highway 37", "age": 30}
 
 OPLOG_SECRET_NAME = S3_SECRET_NAME + "-oplog"
+
+
+def _container_name() -> str:
+    return "mongodb-agent" if is_default_architecture_static() else "mongodb-enterprise-database"
 
 
 @fixture(scope="module")
@@ -436,3 +441,54 @@ def time_to_millis(date_time) -> int:
     epoch = datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
     pit_millis = (date_time - epoch).total_seconds() * 1000
     return pit_millis
+
+
+@mark.e2e_om_ops_manager_backup_restore_minio
+class TestBackupMonitoringStdoutLogging:
+    """Verify that automation agent monitoring and backup module logs reach pod stdout,
+    and that no agent log files are written to disk."""
+
+    def test_monitoring_agent_logs_in_stdout(self, mdb_latest: MongoDB):
+        """Monitoring agent module logs must reach pod stdout."""
+        namespace = mdb_latest.namespace
+        pod_name = f"{FIRST_PROJECT_RS_NAME}-0"
+
+        logs = KubernetesTester.read_pod_logs(namespace, pod_name, _container_name())
+
+        assert "<Monitoring Module Manager>" in logs, (
+            f"Expected '<Monitoring Module Manager>' tagged lines in stdout for "
+            f"{namespace}/{pod_name}, got none. log_length={len(logs)}"
+        )
+
+    def test_backup_agent_logs_in_stdout(self, mdb_latest: MongoDB):
+        """Backup agent module logs must reach pod stdout."""
+        namespace = mdb_latest.namespace
+        pod_name = f"{FIRST_PROJECT_RS_NAME}-0"
+
+        logs = KubernetesTester.read_pod_logs(namespace, pod_name, _container_name())
+
+        assert "<Backup Module Manager>" in logs, (
+            f"Expected '<Backup Module Manager>' tagged lines in stdout for "
+            f"{namespace}/{pod_name}, got none. log_length={len(logs)}"
+        )
+
+    def test_no_agent_log_files_written(self, mdb_latest: MongoDB):
+        """Agent log files must not be written to disk."""
+        namespace = mdb_latest.namespace
+        pod_name = f"{FIRST_PROJECT_RS_NAME}-0"
+
+        expected_absent = [
+            "/var/log/mongodb-mms-automation/monitoring-agent.log",
+            "/var/log/mongodb-mms-automation/backup-agent.log",
+        ]
+        result = KubernetesTester.run_command_in_pod_container(
+            pod_name,
+            namespace,
+            ["sh", "-c", "ls " + " ".join(expected_absent) + " 2>/dev/null | wc -l"],
+            container=_container_name(),
+        )
+        file_count = result.strip()
+
+        assert file_count == "0", (
+            f"Expected none of {expected_absent} to exist in {namespace}/{pod_name}, " f"got {file_count} present"
+        )

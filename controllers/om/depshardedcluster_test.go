@@ -63,7 +63,6 @@ func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	// These OM changes must be overriden
 	(*d.getProcessByName("configSrv-1")).Args()["sharding"] = map[string]interface{}{"clusterRole": "shardsrv", "archiveMovedChunks": true}
 	(*d.getProcessByName("cluster-1-1"))["hostname"] = "rubbish"
-	(*d.getProcessByName("pretty2")).SetLogPath("/doesnt/exist")
 
 	// Final check - we create the expected configuration, add there correct OM changes and check for equality with merge
 	// result

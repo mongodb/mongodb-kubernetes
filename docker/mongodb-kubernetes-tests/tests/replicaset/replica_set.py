@@ -262,7 +262,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
-            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongod-stdout"
             assert_log_rotation_process(p)
 
     def test_om_replica_set(self):
@@ -452,7 +452,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert p["args2_6"]["replication"]["replSetName"] == RESOURCE_NAME
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
-            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongod-stdout"
             assert p["logRotate"]["sizeThresholdMB"] == 100
             assert p["logRotate"]["timeThresholdHrs"] == 1
 

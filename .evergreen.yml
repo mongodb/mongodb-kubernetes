@@ -773,6 +773,7 @@ task_groups:
       - e2e_replica_set
       - e2e_replica_set_liveness_probe
       - e2e_replica_set_mongod_options
+      - e2e_replica_set_stdout_logging
       - e2e_replica_set_readiness_probe
       - e2e_replica_set_update_delete_parallel
       - e2e_sharded_cluster_scale_shards

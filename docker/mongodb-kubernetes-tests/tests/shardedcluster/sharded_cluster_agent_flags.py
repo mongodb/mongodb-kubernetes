@@ -1,11 +1,11 @@
 from kubetester import find_fixture, try_load
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
-from tests.pod_logs import assert_log_types_in_structured_json_pod_log, get_all_default_log_types, get_all_log_types
+from tests.pod_logs import get_agent_logs, get_audit_logs, get_mongodb_logs, get_pod_logs
 from tests.shardedcluster.conftest import (
     enable_multi_cluster_deployment,
     get_member_cluster_clients_using_cluster_mapping,
@@ -97,7 +97,7 @@ def test_sharded_cluster_has_agent_flags(sc: MongoDB):
 
 @mark.e2e_sharded_cluster_agent_flags
 def test_log_types_without_audit_enabled(sc: MongoDB):
-    _assert_log_types_in_pods(sc, get_all_default_log_types())
+    _assert_agent_and_mongodb_logs_in_pods(sc)
 
 
 @mark.e2e_sharded_cluster_agent_flags
@@ -119,25 +119,50 @@ def test_enable_audit_log(sc: MongoDB):
 
 @mark.e2e_sharded_cluster_agent_flags
 def test_log_types_with_audit_enabled(sc: MongoDB):
-    _assert_log_types_in_pods(sc, get_all_log_types())
+    _assert_audit_logs_in_pods(sc)
 
 
-def _assert_log_types_in_pods(sc: MongoDB, expected_log_types: set[str]):
+def _assert_agent_and_mongodb_logs_in_pods(sc: MongoDB):
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
         cluster_idx = cluster_member_client.cluster_index
         api_client = cluster_member_client.api_client
 
         for member_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
-            assert_log_types_in_structured_json_pod_log(
-                sc.namespace, sc.shard_pod_name(0, member_idx, cluster_idx), expected_log_types, api_client=api_client
-            )
+            _assert_agent_and_mongodb_logs(sc.namespace, sc.shard_pod_name(0, member_idx, cluster_idx), api_client)
 
         for member_idx in range(sc.config_srv_members_in_cluster(cluster_member_client.cluster_name)):
-            assert_log_types_in_structured_json_pod_log(
-                sc.namespace, sc.config_srv_pod_name(member_idx, cluster_idx), expected_log_types, api_client=api_client
-            )
+            _assert_agent_and_mongodb_logs(sc.namespace, sc.config_srv_pod_name(member_idx, cluster_idx), api_client)
 
         for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
-            assert_log_types_in_structured_json_pod_log(
-                sc.namespace, sc.mongos_pod_name(member_idx, cluster_idx), expected_log_types, api_client=api_client
-            )
+            _assert_agent_and_mongodb_logs(sc.namespace, sc.mongos_pod_name(member_idx, cluster_idx), api_client)
+
+
+def _assert_audit_logs_in_pods(sc: MongoDB):
+    for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+        cluster_idx = cluster_member_client.cluster_index
+        api_client = cluster_member_client.api_client
+
+        for member_idx in range(sc.shard_members_in_cluster(cluster_member_client.cluster_name)):
+            _assert_audit_logs(sc.namespace, sc.shard_pod_name(0, member_idx, cluster_idx), api_client)
+
+        for member_idx in range(sc.config_srv_members_in_cluster(cluster_member_client.cluster_name)):
+            _assert_audit_logs(sc.namespace, sc.config_srv_pod_name(member_idx, cluster_idx), api_client)
+
+        for member_idx in range(sc.mongos_members_in_cluster(cluster_member_client.cluster_name)):
+            _assert_audit_logs(sc.namespace, sc.mongos_pod_name(member_idx, cluster_idx), api_client)
+
+
+def _container_name() -> str:
+    return "mongodb-agent" if is_default_architecture_static() else "mongodb-enterprise-database"
+
+
+def _assert_agent_and_mongodb_logs(namespace: str, pod: str, api_client=None):
+    logs = get_pod_logs(namespace, pod, _container_name(), api_client=api_client)
+    assert len(get_agent_logs(logs)) > 0, f"{pod}: expected agent logs in stdout"
+    assert len(get_mongodb_logs(logs)) > 0, f"{pod}: expected mongod logs in stdout"
+
+
+def _assert_audit_logs(namespace: str, pod: str, api_client=None):
+    logs = get_pod_logs(namespace, pod, _container_name(), api_client=api_client)
+    audit_lines = get_audit_logs(logs)
+    assert len(audit_lines) > 0, f"{pod}: expected audit log lines in stdout"

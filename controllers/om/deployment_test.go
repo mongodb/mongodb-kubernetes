@@ -498,9 +498,9 @@ func TestConfigureMonitoring(t *testing.T) {
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout"},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout"},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout"},
 	}
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
@@ -522,9 +522,9 @@ func TestConfigureMonitoringTls(t *testing.T) {
 	}
 
 	expectedMonitoringVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout", "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout", "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout", "additionalParams": expectedAdditionalParams},
 	}
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
@@ -546,18 +546,18 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 		"sslTrustedServerCertificates": util.CAFilePathInContainer,
 	}
 	expectedMonitoringVersionsWithTls := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout", "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout", "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout", "additionalParams": expectedAdditionalParams},
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
 
 	// disabling TLS should clear additionalParams (CLOUDP-351614)
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 	expectedMonitoringVersionsWithoutTls := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout"},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout"},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/monitoring-stdout"},
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithoutTls, d.getMonitoringVersions())
 }
@@ -570,9 +570,9 @@ func TestConfigureBackup(t *testing.T) {
 	d.ConfigureBackup(zap.S())
 
 	expectedBackupVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion},
+		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/backup-stdout"},
+		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/backup-stdout"},
+		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion, "logPath": "/var/log/mongodb-mms-automation/backup-stdout"},
 	}
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 

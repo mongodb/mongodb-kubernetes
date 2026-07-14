@@ -1,11 +1,11 @@
 from typing import Optional
 
 from kubetester import create_or_update_configmap, find_fixture, random_k8s_name, read_configmap, try_load
-from kubetester.kubetester import KubernetesTester, ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version, is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.pod_logs import assert_log_types_in_structured_json_pod_log, get_all_default_log_types, get_all_log_types
+from tests.pod_logs import get_agent_logs, get_audit_logs, get_mongodb_logs, get_pod_logs
 
 custom_agent_log_path = "/var/log/mongodb-mms-automation/customLogFile"
 custom_readiness_log_path = "/var/log/mongodb-mms-automation/customReadinessLogFile"
@@ -81,7 +81,7 @@ def test_second_replica_set(second_replica_set: MongoDB):
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_default_automation_log_file(replica_set: MongoDB):
-    assert_pod_log_types(replica_set, get_all_default_log_types())
+    _assert_pod_agent_and_mongodb_logs_in_stdout(replica_set)
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
@@ -140,7 +140,9 @@ def test_log_readiness_probe_path_set_via_env_var(replica_set: MongoDB, namespac
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_custom_automation_log_file(replica_set: MongoDB):
-    assert_pod_log_types(replica_set, get_all_default_log_types())
+    # When user sets a custom -logFile, agent writes to that file.
+    # mongod logs via /var/log/mongodb-mms-automation/mongod-stdout (symlink to container stdout), so mongod JSON must still appear in stdout.
+    _assert_pod_mongodb_logs_in_stdout(replica_set)
 
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
@@ -160,11 +162,34 @@ def test_enable_audit_log(replica_set: MongoDB):
 
 @mark.e2e_replica_set_agent_flags_and_readinessProbe
 def test_log_types_with_audit_enabled(replica_set: MongoDB):
-    assert_pod_log_types(replica_set, get_all_log_types())
+    _assert_pod_audit_logs_in_stdout(replica_set)
 
 
-def assert_pod_log_types(replica_set: MongoDB, expected_log_types: Optional[set[str]]):
+def _container_name() -> str:
+    return "mongodb-agent" if is_default_architecture_static() else "mongodb-enterprise-database"
+
+
+def _assert_pod_agent_and_mongodb_logs_in_stdout(replica_set: MongoDB):
+    container = _container_name()
     for i in range(3):
-        assert_log_types_in_structured_json_pod_log(
-            replica_set.namespace, f"{replica_set.name}-{i}", expected_log_types
-        )
+        pod = f"{replica_set.name}-{i}"
+        logs = get_pod_logs(replica_set.namespace, pod, container)
+        assert len(get_agent_logs(logs)) > 0, f"{pod}: expected agent logs in stdout"
+        assert len(get_mongodb_logs(logs)) > 0, f"{pod}: expected mongod logs in stdout"
+
+
+def _assert_pod_mongodb_logs_in_stdout(replica_set: MongoDB):
+    container = _container_name()
+    for i in range(3):
+        pod = f"{replica_set.name}-{i}"
+        logs = get_pod_logs(replica_set.namespace, pod, container)
+        assert len(get_mongodb_logs(logs)) > 0, f"{pod}: expected mongod logs in stdout"
+
+
+def _assert_pod_audit_logs_in_stdout(replica_set: MongoDB):
+    container = _container_name()
+    for i in range(3):
+        pod = f"{replica_set.name}-{i}"
+        logs = get_pod_logs(replica_set.namespace, pod, container)
+        audit_lines = get_audit_logs(logs)
+        assert len(audit_lines) > 0, f"{pod}: expected audit log lines in stdout"

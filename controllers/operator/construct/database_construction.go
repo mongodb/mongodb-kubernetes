@@ -740,7 +740,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/mongodb_marker && exec -a mongodb_marker tail -f /dev/null"}),
 		configureContainerSecurityContext,
 	)}
 
@@ -749,7 +749,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{""}),
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && exec -a agent-utilities-holder_marker tail -f /dev/null"}),
 		configureContainerSecurityContext,
 	)}
 
@@ -912,20 +912,7 @@ func readinessEnvironmentVariablesToEnvVars(parameters mdbv1.EnvironmentVariable
 }
 
 func defaultAgentParameters() mdbv1.StartupParameters {
-	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
-}
-
-func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
-	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
-
-	// the following are hardcoded log files where we don't support changing the names
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
-
-	return envVars
+	return map[string]string{}
 }
 
 func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
@@ -942,7 +929,7 @@ func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) cor
 		if auditLogMap := maputil.ReadMapValueAsMap(additionalMongodConfig.ToMap(), "auditLog"); auditLogMap != nil {
 			auditLogDestination := maputil.ReadMapValueAsString(auditLogMap, "destination")
 			auditLogFilePath := maputil.ReadMapValueAsString(auditLogMap, "path")
-			if auditLogDestination == "file" && len(auditLogFile) > 0 {
+			if auditLogDestination == "file" && len(auditLogFilePath) > 0 {
 				auditLogFile = auditLogFilePath
 			}
 		}
@@ -966,6 +953,19 @@ func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar
 		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
 		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
 	}
+}
+
+func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
+	envVars = append(envVars, getAuditLogEnvVar(additionalMongodConfig))
+
+	// the following are hardcoded log files where we don't support changing the names
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
+	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
+
+	return envVars
 }
 
 // databaseScriptsVolumeMount constructs the VolumeMount for the Database scripts

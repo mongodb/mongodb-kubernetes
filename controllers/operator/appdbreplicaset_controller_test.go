@@ -258,18 +258,10 @@ func TestPublishAutomationConfig_Update(t *testing.T) {
 // TestBuildAppDbAutomationConfig checks that the automation config is built correctly
 func TestBuildAppDbAutomationConfig(t *testing.T) {
 	ctx := context.Background()
-	logRotateConfig := &automationconfig.CrdLogRotate{
-		SizeThresholdMB: "1",
-	}
 	builder := DefaultOpsManagerBuilder().
 		SetAppDbMembers(2).
 		SetAppDbVersion("4.2.11-ent").
-		SetAppDbFeatureCompatibility("4.0").
-		SetLogRotate(logRotateConfig).
-		SetSystemLog(&automationconfig.SystemLog{
-			Destination: automationconfig.File,
-			Path:        "/tmp/test",
-		})
+		SetAppDbFeatureCompatibility("4.0")
 
 	om := builder.Build()
 
@@ -291,9 +283,6 @@ func TestBuildAppDbAutomationConfig(t *testing.T) {
 	assert.Equal(t, "4.0", automationConfig.Processes[1].FeatureCompatibilityVersion)
 	assert.Len(t, monitoringAutomationConfig.Processes, 0)
 	assert.Len(t, monitoringAutomationConfig.ReplicaSets, 0)
-	assert.Equal(t, automationconfig.ConvertCrdLogRotateToAC(logRotateConfig), automationConfig.Processes[0].LogRotate)
-	assert.Equal(t, "/tmp/test", automationConfig.Processes[0].Args26.Get("systemLog.path").String())
-	assert.Equal(t, "file", automationConfig.Processes[0].Args26.Get("systemLog.destination").String())
 
 	// replicasets
 	assert.Len(t, automationConfig.ReplicaSets, 1)

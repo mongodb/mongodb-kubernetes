@@ -1,20 +1,8 @@
 #!/usr/bin/env bash
 
-# see if jq is available for json logging
-use_jq="$(command -v jq)"
-
-# log stdout as structured json with given log type
-json_log() {
-    if [ "${use_jq}" ]; then
-        jq --unbuffered --null-input -c --raw-input "inputs | {\"logType\": \"$1\", \"contents\": .}"
-    else
-    echo "$1"
-    fi
-}
-
-# log a given message in json format
+# log a message to stdout
 script_log() {
-    echo "$1" | json_log 'agent-launcher-script' &>>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
+    echo "[agent-launcher] $1"
 }
 
 # the function reacting on SIGTERM command sent by the container on its shutdown. Makes sure all processes started (including
@@ -133,12 +121,10 @@ download_agent() {
         curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
-    if ! curl "${curl_opts[@]}" &>"${MMS_LOG_DIR}/curl.log"; then
+    if ! curl "${curl_opts[@]}" 2>&1; then
         script_log "Error while downloading the Mongodb agent"
         exit 1
     fi
-    json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/curl.log" >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
-    rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
 
     script_log "The Mongodb Agent binary downloaded, unpacking"
 

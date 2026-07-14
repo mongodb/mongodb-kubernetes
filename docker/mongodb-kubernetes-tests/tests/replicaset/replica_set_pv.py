@@ -84,7 +84,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
             assert p["args2_6"]["replication"]["replSetName"] == "rs001-pv"
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
-            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
+            assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongod-stdout"
             assert p["logRotate"]["sizeThresholdMB"] == 1000
             assert p["logRotate"]["timeThresholdHrs"] == 24
 
