@@ -1110,7 +1110,58 @@ spec:
             - clusters
             type: object
           status:
+            description: Top level Phase field is considered `Running` only when Search
+              STSs and LoadBalancer (status.LoadBalancer) is running.
             properties:
+              clusters:
+                description: |-
+                  Clusters reports per-cluster search + load balancer + metrics forwarder state across the topology. In
+                  single-cluster and operator per cluster deployments the list has exactly one entry.
+                items:
+                  description: ClusterStatus reports one member cluster's search +
+                    LB + metrics forwarder state.
+                  properties:
+                    index:
+                      description: |-
+                        Index is the spec.clusters[] pinned index so the status entries map back to their spec
+                        entry independently of list order.
+                      type: integer
+                    loadBalancer:
+                      description: LoadBalancer is this cluster's managed Envoy load
+                        balancer phase; empty when no managed LB.
+                      type: string
+                    loadBalancerMessage:
+                      description: LoadBalancerMessage contains reason when LoadBalancer
+                        is not Running.
+                      type: string
+                    metricsForwarder:
+                      description: |-
+                        MetricsForwarder is this cluster's Ops Manager metrics-forwarder Deployment phase;
+                        empty when the metrics forwarder is not enabled.
+                      type: string
+                    metricsForwarderMessage:
+                      description: MetricsForwarderMessage contians the reason when
+                        metrics-forwarder is not Running.
+                      type: string
+                    name:
+                      description: Name is the member cluster name; empty in single-cluster
+                        deployments.
+                      type: string
+                    search:
+                      description: Search is the worst-of phase of this cluster's
+                        mongot StatefulSet(s).
+                      type: string
+                    searchMessage:
+                      description: SearchMessage contains the reason when Search is
+                        not Running.
+                      type: string
+                  required:
+                  - index
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - index
+                x-kubernetes-list-type: map
               lastTransition:
                 type: string
               loadBalancer:

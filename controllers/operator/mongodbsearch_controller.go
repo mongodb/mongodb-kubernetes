@@ -320,6 +320,10 @@ func AddMongoDBSearchController(
 	}
 
 	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
+	// status.Clusters for Search/LB/MetricsForwarder is updated via search controller, adding deployment in watch list would make sure that
+	// search reconcile is triggered when deployment change that would make sure we have up to date status of these components in status.Clusters.
+	// deploymentOwnerHandler is different from ownerHandler in the sense that it's for normal owner references and not controller owner references.
+	deploymentOwnerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{})
 	centralWatches := []struct {
 		obj     client.Object
 		handler handler.EventHandler
@@ -332,6 +336,7 @@ func AddMongoDBSearchController(
 		{&appsv1.StatefulSet{}, ownerHandler},
 		{&corev1.Service{}, ownerHandler},
 		{&corev1.Secret{}, ownerHandler},
+		{&appsv1.Deployment{}, deploymentOwnerHandler},
 	}
 	for _, w := range centralWatches {
 		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler)); err != nil {
