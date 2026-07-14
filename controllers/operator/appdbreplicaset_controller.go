@@ -152,7 +152,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 func (r *ReconcileAppDbReplicaSet) initializeStateStore(ctx context.Context, appDBSpec omv1.AppDBSpec, omAnnotations map[string]string, log *zap.SugaredLogger) error {
 	r.deploymentState = NewAppDBDeploymentState()
 
-	r.stateStore = NewStateStore[AppDBDeploymentState](&appDBSpec, r.ownerReferences, r.centralClient)
+	r.stateStore = NewStateStore[AppDBDeploymentState](&appDBSpec, r.ownerReferences, r.centralClient, "")
 	if state, err := r.stateStore.ReadState(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:

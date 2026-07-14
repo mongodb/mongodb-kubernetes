@@ -206,7 +206,7 @@ class Operator(object):
         )
 
         # wait till there are 0 operator pods
-        for _ in range(20):
+        for _ in range(40):
             pods = self.list_operator_pods()
             if len(pods) == 0:
                 break

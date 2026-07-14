@@ -79,12 +79,17 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 MARKER = mark.e2e_search_sharded_scale_shards_managed_lb
 
 
+@fixture(scope="module")
+def source_tls_secret_uids() -> dict[str, str]:
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Inline verification helpers for shard resource existence / deletion
 # ---------------------------------------------------------------------------
 
 
-def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str):
+def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str) -> str:
     apps_v1 = client.AppsV1Api()
     core_v1 = client.CoreV1Api()
 
@@ -118,9 +123,11 @@ def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str
     logger.info(f"PVC(s) {matching} exist for shard {shard_name}")
 
     source_tls_secret_name = search_resource_names.shard_tls_cert_name(mdbs_name, shard_name, MDBS_TLS_CERT_PREFIX)
-    operator_tls_secret_name = f"{mdbs_name}-search-0-{shard_name}-certificate-key"
-    core_v1.read_namespaced_secret(source_tls_secret_name, namespace)
+    operator_tls_secret_name = search_resource_names.shard_operator_managed_tls_secret_name(mdbs_name, shard_name)
+    source_tls_secret = core_v1.read_namespaced_secret(source_tls_secret_name, namespace)
     core_v1.read_namespaced_secret(operator_tls_secret_name, namespace)
+    assert source_tls_secret.metadata.uid
+    return source_tls_secret.metadata.uid
 
 
 def verify_shard_proxy_service_deleted(namespace: str, mdbs_name: str, shard_name: str):
@@ -484,10 +491,10 @@ def test_scale_up_wait_for_search_running(mdbs: MongoDBSearch):
 
 
 @MARKER
-def test_scale_up_verify_new_shard_resources(namespace: str):
+def test_scale_up_verify_new_shard_resources(namespace: str, source_tls_secret_uids: dict[str, str]):
     """Verify per-shard resources exist for the newly added shard."""
     new_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
-    verify_shard_resources_exist(namespace, MDBS_RESOURCE_NAME, new_shard_name)
+    source_tls_secret_uids[new_shard_name] = verify_shard_resources_exist(namespace, MDBS_RESOURCE_NAME, new_shard_name)
     logger.info(f"All resources verified for new shard {new_shard_name}")
 
 
@@ -547,7 +554,7 @@ def test_scale_down_wait_for_search_running(mdbs: MongoDBSearch):
 
 
 @MARKER
-def test_scale_down_verify_stale_resources_cleaned(namespace: str):
+def test_scale_down_verify_stale_resources_cleaned(namespace: str, source_tls_secret_uids: dict[str, str]):
     """Verify the removed shard's mongot resources are FULLY torn down by the operator.
 
     Beyond the proxy Service (the only kind the original sweep removed), the
@@ -563,7 +570,9 @@ def test_scale_down_verify_stale_resources_cleaned(namespace: str):
     source_tls_secret_name = search_resource_names.shard_tls_cert_name(
         MDBS_RESOURCE_NAME, removed_shard_name, MDBS_TLS_CERT_PREFIX
     )
-    operator_tls_secret_name = f"{MDBS_RESOURCE_NAME}-search-0-{removed_shard_name}-certificate-key"
+    operator_tls_secret_name = search_resource_names.shard_operator_managed_tls_secret_name(
+        MDBS_RESOURCE_NAME, removed_shard_name
+    )
 
     def operator_tls_secret_gone():
         try:
@@ -580,7 +589,10 @@ def test_scale_down_verify_stale_resources_cleaned(namespace: str):
         sleep_time=10,
         msg=f"operator-managed TLS Secret {operator_tls_secret_name} deletion",
     )
-    core_v1.read_namespaced_secret(source_tls_secret_name, namespace)
+    assert (
+        core_v1.read_namespaced_secret(source_tls_secret_name, namespace).metadata.uid
+        == source_tls_secret_uids[removed_shard_name]
+    )
     logger.info(f"Stale mongot resources for {removed_shard_name} confirmed fully deleted")
 
 

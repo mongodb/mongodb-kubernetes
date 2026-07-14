@@ -12,10 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -388,6 +390,54 @@ func TestMongoDBSearchReconcile_NotFoundSweepAggregatesFailuresAndContinues(t *t
 	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(failedSecret), &corev1.Secret{}))
 }
 
+func TestMongoDBSearchReconcile_NotFoundSweepUsesUIDDeletePrecondition(t *testing.T) {
+	ctx := t.Context()
+	searchKey := types.NamespacedName{Name: "deleted-search", Namespace: mock.TestNamespace}
+	oldUID := types.UID("listed-resource-uid")
+	newUID := types.UID("replacement-resource-uid")
+	ownedDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      "owned-deployment",
+		Namespace: searchKey.Namespace,
+		UID:       oldUID,
+		Labels: map[string]string{
+			khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+		},
+	}}
+
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(ownedDeployment).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				deleteOptions := (&client.DeleteOptions{}).ApplyOptions(opts)
+				require.NotNil(t, deleteOptions.Preconditions)
+				require.NotNil(t, deleteOptions.Preconditions.UID)
+				assert.Equal(t, oldUID, *deleteOptions.Preconditions.UID)
+
+				require.NoError(t, c.Delete(ctx, obj))
+				replacement := ownedDeployment.DeepCopy()
+				replacement.UID = newUID
+				replacement.ResourceVersion = ""
+				require.NoError(t, c.Create(ctx, replacement))
+				return apiErrors.NewConflict(
+					schema.GroupResource{Group: appsv1.GroupName, Resource: "deployments"},
+					obj.GetName(),
+					fmt.Errorf("UID precondition failed"),
+				)
+			},
+		}).
+		Build()
+	reconciler := newMongoDBSearchReconciler(kubeClient, kubeClient, searchcontroller.OperatorSearchConfig{}, nil, "")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "UID precondition failed")
+	current := &appsv1.Deployment{}
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), current))
+	assert.Equal(t, newUID, current.UID)
+}
+
 func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *testing.T) {
 	ctx := context.Background()
 	searchKey := types.NamespacedName{Name: "missing-search", Namespace: mock.TestNamespace}
@@ -395,6 +445,7 @@ func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *te
 		khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
 	}
+
 	otherSearchLabels := map[string]string{
 		khandler.MongoDBSearchOwnerNameLabel:      "other-search",
 		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
@@ -553,6 +604,92 @@ func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *te
 			require.NoError(t, err,
 				"[%s] %s (%s) should be preserved", cluster.name, key.Name, tracked.reason)
 		}
+	}
+}
+
+func TestMongoDBSearchDeploymentWatchesRouteLifecycleEvents(t *testing.T) {
+	reconciler, _ := newSearchReconciler(nil)
+	topologies := []struct {
+		name    string
+		watches []mongoDBSearchResourceWatch
+	}{
+		{name: "central", watches: centralMongoDBSearchResourceWatches(reconciler)},
+		{name: "member", watches: memberMongoDBSearchResourceWatches()},
+	}
+	searchKey := types.NamespacedName{Name: "search", Namespace: mock.TestNamespace}
+	labeled := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      "owned",
+		Namespace: searchKey.Namespace,
+		Labels: map[string]string{
+			khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+		},
+	}}
+	plain := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: labeled.Name, Namespace: labeled.Namespace}}
+
+	for _, topology := range topologies {
+		t.Run(topology.name, func(t *testing.T) {
+			var deploymentWatch *mongoDBSearchResourceWatch
+			for i := range topology.watches {
+				if _, ok := topology.watches[i].obj.(*appsv1.Deployment); ok {
+					deploymentWatch = &topology.watches[i]
+					break
+				}
+			}
+			require.NotNil(t, deploymentWatch)
+			require.Len(t, deploymentWatch.predicates, 1)
+			p := deploymentWatch.predicates[0]
+
+			tests := []struct {
+				name string
+				send func(workqueue.TypedRateLimitingInterface[reconcile.Request])
+			}{
+				{
+					name: "create",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedCreateEvent[client.Object]{Object: labeled}
+						require.True(t, p.Create(event.CreateEvent{Object: labeled}))
+						deploymentWatch.handler.Create(t.Context(), e, q)
+					},
+				},
+				{
+					name: "update",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: labeled.DeepCopy()}
+						require.True(t, p.Update(event.UpdateEvent{ObjectOld: e.ObjectOld, ObjectNew: e.ObjectNew}))
+						deploymentWatch.handler.Update(t.Context(), e, q)
+					},
+				},
+				{
+					name: "update label removal",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: plain}
+						require.True(t, p.Update(event.UpdateEvent{ObjectOld: e.ObjectOld, ObjectNew: e.ObjectNew}))
+						deploymentWatch.handler.Update(t.Context(), e, q)
+					},
+				},
+				{
+					name: "delete",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedDeleteEvent[client.Object]{Object: labeled}
+						require.True(t, p.Delete(event.DeleteEvent{Object: labeled}))
+						deploymentWatch.handler.Delete(t.Context(), e, q)
+					},
+				},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+					defer q.ShutDown()
+					tc.send(q)
+					require.Equal(t, 1, q.Len())
+					req, shutdown := q.Get()
+					require.False(t, shutdown)
+					assert.Equal(t, searchKey, req.NamespacedName)
+					q.Done(req)
+				})
+			}
+		})
 	}
 }
 

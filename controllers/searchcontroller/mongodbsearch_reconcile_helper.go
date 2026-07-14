@@ -142,14 +142,9 @@ func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[s
 // existing STS); the pod-routing labels stay in the unit's podLabels.
 func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
 	return func(set *appsv1.StatefulSet) {
-		if set.Labels == nil {
-			set.Labels = map[string]string{}
-		}
 		protected := searchOwnerLabels(search, clusterName)
 		protected[khandler.MongoDBSearchComponentLabel] = mongotComponent
-		for k, v := range protected {
-			set.Labels[k] = v
-		}
+		set.Labels = khandler.ReapplyProtectedSearchLabels(set.Labels, protected)
 	}
 }
 
@@ -725,7 +720,6 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unitClient,
 		unit.stsName,
 		stsFunc,
-		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
 		mods.passwordAuthSts,
 		configHashModification,
 		mods.keyfileSts,
@@ -1222,7 +1216,7 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
-	componentLabelKey     = "component"
+	componentLabelKey     = khandler.MongoDBSearchComponentLabel
 	proxyServiceComponent = "search-proxy"
 	// mongotComponent is the component-label value on the per-shard mongot headless
 	// Service and ConfigMap (the StatefulSet is swept by owner label instead).

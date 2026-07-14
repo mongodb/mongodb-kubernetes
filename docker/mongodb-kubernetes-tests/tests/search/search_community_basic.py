@@ -1,6 +1,5 @@
 import yaml
 from kubernetes import client
-from kubernetes.client.rest import ApiException
 from kubetester import (
     create_or_update_secret,
     get_statefulset,
@@ -19,7 +18,13 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.connectivity import wait_for_mongot_pvcs_deleted, wait_for_mongot_statefulset_drained
+from tests.common.search.connectivity import (
+    mongot_data_pvc_names,
+    wait_for_mongot_pvcs_deleted,
+    wait_for_mongot_statefulset_drained,
+    wait_for_resource_deleted,
+    wait_for_resource_recreated,
+)
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
@@ -147,32 +152,6 @@ def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelp
     sample_movies_helper.assert_search_query(retry_timeout=60)
 
 
-def _wait_for_absence(read_resource, description: str, timeout: int = 300) -> None:
-    def check():
-        try:
-            read_resource()
-            return False, f"{description} still exists"
-        except ApiException as exc:
-            if exc.status == 404:
-                return True, f"{description} deleted"
-            raise
-
-    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"{description} deletion")
-
-
-def _wait_for_recreated(read_resource, old_uid: str, description: str, timeout: int = 300) -> None:
-    def check():
-        try:
-            resource = read_resource()
-            return resource.metadata.uid != old_uid, f"{description} UID is {resource.metadata.uid}"
-        except ApiException as exc:
-            if exc.status == 404:
-                return False, f"{description} is absent"
-            raise
-
-    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"{description} recreation")
-
-
 @mark.e2e_search_community_basic
 def test_recreate_mongot_top_level_resources(
     namespace: str,
@@ -194,12 +173,12 @@ def test_recreate_mongot_top_level_resources(
     core.delete_namespaced_config_map(cm_name, namespace)
 
     wait_for_statefulset_recreated(namespace, sts_name, old_sts_uid, timeout=300)
-    _wait_for_recreated(
+    wait_for_resource_recreated(
         lambda: core.read_namespaced_service(svc_name, namespace),
         old_svc_uid,
         f"Service {namespace}/{svc_name}",
     )
-    _wait_for_recreated(
+    wait_for_resource_recreated(
         lambda: core.read_namespaced_config_map(cm_name, namespace),
         old_cm_uid,
         f"ConfigMap {namespace}/{cm_name}",
@@ -207,18 +186,6 @@ def test_recreate_mongot_top_level_resources(
     wait_for_statefulset_ready(namespace, sts_name)
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
     sample_movies_helper.assert_search_query(retry_timeout=120)
-
-
-def _mongot_data_pvc_names(namespace: str, sts_name: str) -> list[str]:
-    """Names of the data PVCs backing a mongot StatefulSet (volumeClaimTemplate
-    ``data`` -> ``data-<sts>-<ordinal>``)."""
-    core_v1 = client.CoreV1Api()
-    prefix = f"data-{sts_name}-"
-    return [
-        pvc.metadata.name
-        for pvc in core_v1.list_namespaced_persistent_volume_claim(namespace).items
-        if pvc.metadata.name.startswith(prefix)
-    ]
 
 
 @mark.e2e_search_community_basic
@@ -231,7 +198,7 @@ def test_scale_mongot_offline_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     # Presence guard: the STS and its data PVC must exist before scale-down, else
     # the reclaim assertion below passes vacuously.
     client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace)
-    assert _mongot_data_pvc_names(namespace, sts_name), f"expected a mongot data PVC for {sts_name} before scale-down"
+    assert mongot_data_pvc_names(namespace, sts_name), f"expected a mongot data PVC for {sts_name} before scale-down"
 
     mdbs.load()
     mdbs["spec"]["clusters"][0]["replicas"] = 0
@@ -264,7 +231,7 @@ def test_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     client.CoreV1Api().read_namespaced_service(svc_name, namespace)
     client.CoreV1Api().read_namespaced_config_map(cm_name, namespace)
     client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-    pvcs_before = _mongot_data_pvc_names(namespace, sts_name)
+    pvcs_before = mongot_data_pvc_names(namespace, sts_name)
     assert pvcs_before, f"expected at least one mongot data PVC for {sts_name} before delete"
     logger.info(f"pre-delete: STS {sts_name} present, data PVCs {pvcs_before}")
 
@@ -276,15 +243,15 @@ def test_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
         sleep_time=5,
         msg=f"mongot StatefulSet {sts_name} deletion after MongoDBSearch delete",
     )
-    _wait_for_absence(
+    wait_for_resource_deleted(
         lambda: client.CoreV1Api().read_namespaced_service(svc_name, namespace),
         f"Service {namespace}/{svc_name}",
     )
-    _wait_for_absence(
+    wait_for_resource_deleted(
         lambda: client.CoreV1Api().read_namespaced_config_map(cm_name, namespace),
         f"ConfigMap {namespace}/{cm_name}",
     )
-    _wait_for_absence(
+    wait_for_resource_deleted(
         lambda: client.CoreV1Api().read_namespaced_pod(pod_name, namespace),
         f"Pod {namespace}/{pod_name}",
     )

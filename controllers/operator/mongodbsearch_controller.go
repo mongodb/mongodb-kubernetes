@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -350,21 +351,48 @@ func (r *MongoDBSearchReconciler) sweepOwnedResourceKind(
 	var errs error
 	for _, item := range items {
 		obj, ok := item.(client.Object)
-		if !ok || !ownsSearchForSweep(search, obj) {
+		if !ok {
 			continue
 		}
 		log.Infof("Deleting %s %s for deleted MongoDBSearch %s on cluster %q", kind, obj.GetName(), search, clusterName)
-		if err := deleteClient.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		if err := deleteClient.Delete(ctx, obj, client.Preconditions{UID: ptr.To(obj.GetUID())}); err != nil && !apierrors.IsNotFound(err) {
 			errs = errors.Join(errs, xerrors.Errorf("failed deleting %s %s for deleted MongoDBSearch %s on cluster %q: %w", kind, obj.GetName(), search, clusterName, err))
 		}
 	}
 	return errs
 }
 
-func ownsSearchForSweep(search types.NamespacedName, obj client.Object) bool {
-	labels := obj.GetLabels()
-	return labels[khandler.MongoDBSearchOwnerNameLabel] == search.Name &&
-		labels[khandler.MongoDBSearchOwnerNamespaceLabel] == search.Namespace
+type mongoDBSearchResourceWatch struct {
+	obj        client.Object
+	handler    handler.EventHandler
+	predicates []predicate.Predicate
+}
+
+func centralMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSearchResourceWatch {
+	searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
+	searchOwnerPredicates := []predicate.Predicate{watch.PredicatesForMultiClusterSearchResource()}
+	return []mongoDBSearchResourceWatch{
+		{obj: &searchv1.MongoDBSearch{}, handler: &handler.EnqueueRequestForObject{}},
+		{obj: &mdbv1.MongoDB{}, handler: &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
+		{obj: &mdbcv1.MongoDBCommunity{}, handler: &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
+		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &appsv1.StatefulSet{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Service{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Secret{}, handler: &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch, MapFunc: khandler.EnqueueMemberClusterObjectToSearch}},
+		{obj: &corev1.ConfigMap{}, handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch, MapFunc: khandler.EnqueueMemberClusterObjectToSearch}},
+	}
+}
+
+func memberMongoDBSearchResourceWatches() []mongoDBSearchResourceWatch {
+	searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
+	searchOwnerPredicates := []predicate.Predicate{watch.PredicatesForMultiClusterSearchResource()}
+	return []mongoDBSearchResourceWatch{
+		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &appsv1.StatefulSet{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Service{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.ConfigMap{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Secret{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+	}
 }
 
 // getSearchSource resolves the source database for a MongoDBSearch resource.
@@ -449,25 +477,8 @@ func AddMongoDBSearchController(
 		return err
 	}
 
-	centralWatches := []struct {
-		obj     client.Object
-		handler handler.EventHandler
-	}{
-		{&searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{}},
-		{&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
-		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
-		{&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)},
-		{&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)},
-		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch, MapFunc: khandler.EnqueueMemberClusterObjectToSearch}},
-		{&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch, MapFunc: khandler.EnqueueMemberClusterObjectToSearch}},
-	}
-	for _, w := range centralWatches {
-		predicates := []predicate.Predicate{}
-		switch w.obj.(type) {
-		case *appsv1.StatefulSet, *corev1.Service:
-			predicates = append(predicates, watch.PredicatesForMultiClusterSearchResource())
-		}
-		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler, predicates...)); err != nil {
+	for _, w := range centralMongoDBSearchResourceWatches(r) {
+		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
 			return xerrors.Errorf("failed to set MongoDBSearch central watch for %T: %w", w.obj, err)
 		}
 	}
@@ -490,18 +501,10 @@ func AddMongoDBSearchController(
 
 		// Per-member-cluster watches map events back to the parent MongoDBSearch
 		// via the search-owner labels (cross-cluster owner refs do not GC).
-		searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
-		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
-		watchedTypes := []client.Object{
-			&appsv1.StatefulSet{},
-			&corev1.Service{},
-			&corev1.ConfigMap{},
-			&corev1.Secret{},
-		}
 		for k, v := range memberClusterObjectsMap {
-			for _, gvk := range watchedTypes {
-				if err := c.Watch(source.Kind[client.Object](v.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
-					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, gvk, err)
+			for _, w := range memberMongoDBSearchResourceWatches() {
+				if err := c.Watch(source.Kind[client.Object](v.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
+					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, w.obj, err)
 				}
 			}
 		}

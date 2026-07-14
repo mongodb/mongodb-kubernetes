@@ -474,6 +474,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
+		cm.OwnerReferences = nil
 		cm.Labels = envoyLabelsForCluster(search, clusterName, clusterIndex)
 		cm.Data = map[string]string{
 			"bootstrap.json": bootstrapJSON,
@@ -528,6 +529,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 	}
 
 	_, err = controllerutil.CreateOrUpdate(ctx, c, dep, func() error {
+		dep.OwnerReferences = nil
 		dep.Labels = labels
 
 		dep.Spec = appsv1.DeploymentSpec{

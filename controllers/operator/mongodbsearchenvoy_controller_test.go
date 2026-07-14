@@ -1014,6 +1014,16 @@ func TestEnsureConfigMap_SingleCluster_NoOwnerRef(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
+	require.NoError(t, central.Create(t.Context(), &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.LoadBalancerConfigMapNameForCluster(0),
+		Namespace: search.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: "mongodb.com/v1",
+			Kind:       "MongoDBSearch",
+			Name:       search.Name,
+			UID:        "old-search-uid",
+		}},
+	}}))
 	// Single-cluster uses index 0.
 	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "", 0, r.kubeClient, zap.S()))
 
@@ -1279,6 +1289,16 @@ func TestEnsureDeployment_SingleCluster_NoOwnerRef(t *testing.T) {
 			Clusters: []searchv1.ClusterSpec{{LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}}},
 		},
 	}
+	require.NoError(t, central.Create(t.Context(), &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.LoadBalancerDeploymentNameForCluster(0),
+		Namespace: search.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: "mongodb.com/v1",
+			Kind:       "MongoDBSearch",
+			Name:       search.Name,
+			UID:        "old-search-uid",
+		}},
+	}}))
 
 	require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "", 0, search.GetManagedLBForCluster(""), r.kubeClient, nil, zap.S()))
 

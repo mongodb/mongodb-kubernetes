@@ -24,18 +24,6 @@ const (
 	stateOwnerUIDKey = "ownerUID"
 )
 
-type stateStoreOptions struct {
-	ownerUID string
-}
-
-type StateStoreOption func(*stateStoreOptions)
-
-func WithStateStoreOwnerUID(ownerUID string) StateStoreOption {
-	return func(o *stateStoreOptions) {
-		o.ownerUID = ownerUID
-	}
-}
-
 // StateStore is a wrapper for a custom, per-resource deployment state required for the operator to reconciler the resource correctly.
 // It handles serialization/deserialization of any deployment state structure of type S.
 // The deployment state is saved to a config map <resourceName>-state in the resource's namespace in the operator's cluster.
@@ -55,19 +43,13 @@ type StateStore[S any] struct {
 // designed to be thread safe.
 // - owner provides the namespace, name, and labels for the config map
 // - ownerReferences are set on the config map to enable garbage collection when the owner is deleted
-func NewStateStore[S any](owner v1.ResourceOwner, ownerReferences []metav1.OwnerReference, client kubernetesClient.Client, opts ...StateStoreOption) *StateStore[S] {
-	options := stateStoreOptions{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&options)
-		}
-	}
+func NewStateStore[S any](owner v1.ResourceOwner, ownerReferences []metav1.OwnerReference, client kubernetesClient.Client, ownerUID string) *StateStore[S] {
 	return &StateStore[S]{
 		namespace:       owner.GetNamespace(),
 		resourceName:    owner.GetName(),
 		ownerLabels:     owner.GetOwnerLabels(),
 		ownerReferences: ownerReferences,
-		ownerUID:        options.ownerUID,
+		ownerUID:        ownerUID,
 		client:          client,
 		data:            map[string]string{},
 	}

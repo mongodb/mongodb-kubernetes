@@ -683,11 +683,7 @@ func (o metricsForwarderStateOwner) GetOwnerLabels() map[string]string {
 }
 
 func (r *MongoDBSearchMetricsForwarderReconciler) openTopologyStateStore(search *searchv1.MongoDBSearch) *StateStore[searchTopologyState] {
-	opts := []StateStoreOption{}
-	if search.UID != "" {
-		opts = append(opts, WithStateStoreOwnerUID(string(search.UID)))
-	}
-	return NewStateStore[searchTopologyState](metricsForwarderStateOwner{MongoDBSearch: search}, nil, r.kubeClient, opts...)
+	return NewStateStore[searchTopologyState](metricsForwarderStateOwner{MongoDBSearch: search}, nil, r.kubeClient, string(search.UID))
 }
 
 // reconcileTopologyState reconciles the topology state for one cluster work item: it detects
@@ -955,6 +951,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMa
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
+		cm.OwnerReferences = nil
 		cm.Labels = metricsForwarderLabelsForCluster(search, clusterName, clusterIndex)
 		cm.Data = map[string]string{metricsForwarderConfigFileName: string(configYAML)}
 		return nil
@@ -982,6 +979,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, dep, func() error {
+		dep.OwnerReferences = nil
 		dep.Labels = labels
 
 		dep.Spec = appsv1.DeploymentSpec{

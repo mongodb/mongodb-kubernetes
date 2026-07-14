@@ -621,38 +621,53 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 }
 
 func TestStatefulSetOverridePreservesProtectedSearchLabels(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "test-ns", func(search *searchv1.MongoDBSearch) {
-		search.UID = "search-uid"
-		search.Spec.Clusters = []searchv1.ClusterSpec{{
-			Name: "member-a",
-			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
-				MetadataWrapper: v1.StatefulSetMetadataWrapper{
-					Labels: map[string]string{
-						"custom-label":                            "custom-value",
-						khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
-						khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
-						khandler.MongoDBSearchOwnerUIDLabel:       "wrong-uid",
-						khandler.MongoDBSearchClusterNameLabel:    "wrong-cluster",
-						khandler.MongoDBSearchComponentLabel:      "wrong-component",
+	tests := []struct {
+		name        string
+		clusterName string
+		wantCluster string
+	}{
+		{name: "member cluster restores cluster label", clusterName: "member-a", wantCluster: "member-a"},
+		{name: "legacy single cluster removes injected cluster label", clusterName: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(search *searchv1.MongoDBSearch) {
+				search.UID = "search-uid"
+				search.Spec.Clusters = []searchv1.ClusterSpec{{
+					Name: tc.clusterName,
+					StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+						MetadataWrapper: v1.StatefulSetMetadataWrapper{
+							Labels: map[string]string{
+								"custom-label":                            "custom-value",
+								khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+								khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+								khandler.MongoDBSearchOwnerUIDLabel:       "wrong-uid",
+								khandler.MongoDBSearchClusterNameLabel:    "wrong-cluster",
+								khandler.MongoDBSearchComponentLabel:      "wrong-component",
+							},
+						},
 					},
-				},
-			},
-		}}
-	})
-	sizing := search.EffectiveClusters()[0]
-	sts := statefulset.New(
-		CreateSearchStatefulSetFunc(search, sizing, "test-search-search-0", search.Namespace, "test-search-search-0-svc", "test-search-search-0-config", map[string]string{"app": "test-search-search-0"}, "mongot:latest", false),
-		withSearchOwnerLabels(search, "member-a"),
-		StatefulSetOverrideModification(sizing.StatefulSetConfiguration),
-		withSearchOwnerLabels(search, "member-a"),
-	)
+				}}
+			})
+			sizing := search.EffectiveClusters()[0]
+			sts := statefulset.New(
+				CreateSearchStatefulSetFunc(search, sizing, "test-search-search-0", search.Namespace, "test-search-search-0-svc", "test-search-search-0-config", map[string]string{"app": "test-search-search-0"}, "mongot:latest", false),
+				StatefulSetOverrideModification(sizing.StatefulSetConfiguration),
+				withSearchOwnerLabels(search, tc.clusterName),
+			)
 
-	assert.Equal(t, "custom-value", sts.Labels["custom-label"])
-	assert.Equal(t, search.Name, sts.Labels[khandler.MongoDBSearchOwnerNameLabel])
-	assert.Equal(t, search.Namespace, sts.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, string(search.UID), sts.Labels[khandler.MongoDBSearchOwnerUIDLabel])
-	assert.Equal(t, "member-a", sts.Labels[khandler.MongoDBSearchClusterNameLabel])
-	assert.Equal(t, mongotComponent, sts.Labels[khandler.MongoDBSearchComponentLabel])
+			assert.Equal(t, "custom-value", sts.Labels["custom-label"])
+			assert.Equal(t, search.Name, sts.Labels[khandler.MongoDBSearchOwnerNameLabel])
+			assert.Equal(t, search.Namespace, sts.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+			assert.Equal(t, string(search.UID), sts.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+			if tc.wantCluster == "" {
+				assert.NotContains(t, sts.Labels, khandler.MongoDBSearchClusterNameLabel)
+			} else {
+				assert.Equal(t, tc.wantCluster, sts.Labels[khandler.MongoDBSearchClusterNameLabel])
+			}
+			assert.Equal(t, mongotComponent, sts.Labels[khandler.MongoDBSearchComponentLabel])
+		})
+	}
 }
 
 var (
@@ -2666,7 +2681,7 @@ func TestReconcileSharded_PerShardIngressTLSSecretLabels(t *testing.T) {
 	operatorSecret, err := fakeClient.GetSecret(t.Context(), search.TLSOperatorSecretForClusterShard(0, shardName))
 	require.NoError(t, err)
 	assert.Empty(t, operatorSecret.OwnerReferences)
-	assert.Equal(t, mongotComponent, operatorSecret.Labels[componentLabelKey])
+	assert.Equal(t, mongotComponent, operatorSecret.Labels[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, search.Name, operatorSecret.Labels[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, search.Namespace, operatorSecret.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
 	assert.Empty(t, operatorSecret.Labels[khandler.MongoDBSearchClusterNameLabel])

@@ -75,37 +75,72 @@ func TestShouldHandleUpdate(t *testing.T) {
 }
 
 func TestResourcesHandlerDelete(t *testing.T) {
-	t.Run("configmap delete requeues dependent resource", func(t *testing.T) {
-		watcher := NewResourceWatcher()
-		search := types.NamespacedName{Name: "search", Namespace: "ns"}
-		watcher.AddWatchedResourceIfNotAdded("state-cm", "ns", ConfigMap, search)
-		handler := &ResourcesHandler{ResourceType: ConfigMap, ResourceWatcher: watcher}
-		q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-		defer q.ShutDown()
+	search := types.NamespacedName{Name: "search", Namespace: "ns"}
+	labeled := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+	}
+	tests := []struct {
+		name      string
+		obj       client.Object
+		resource  Type
+		tracked   bool
+		mapFunc   func(context.Context, client.Object) []reconcile.Request
+		wantQueue int
+	}{
+		{
+			name:      "legacy ConfigMap handler ignores delete",
+			obj:       &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state-cm", Namespace: "ns"}},
+			resource:  ConfigMap,
+			tracked:   true,
+			wantQueue: 0,
+		},
+		{
+			name:      "legacy Secret handler ignores delete",
+			obj:       &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-op", Namespace: "ns"}},
+			resource:  Secret,
+			tracked:   true,
+			wantQueue: 0,
+		},
+		{
+			name:      "Search handler routes tracked ConfigMap delete",
+			obj:       &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state-cm", Namespace: "ns"}},
+			resource:  ConfigMap,
+			tracked:   true,
+			mapFunc:   khandler.EnqueueMemberClusterObjectToSearch,
+			wantQueue: 1,
+		},
+		{
+			name: "Search handler maps labeled Secret delete",
+			obj: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+				Name: "tls-op", Namespace: "ns", Labels: labeled,
+			}},
+			resource:  Secret,
+			mapFunc:   khandler.EnqueueMemberClusterObjectToSearch,
+			wantQueue: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			watcher := NewResourceWatcher()
+			if tc.tracked {
+				watcher.AddWatchedResourceIfNotAdded(tc.obj.GetName(), tc.obj.GetNamespace(), tc.resource, search)
+			}
+			h := &ResourcesHandler{ResourceType: tc.resource, ResourceWatcher: watcher, MapFunc: tc.mapFunc}
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
 
-		handler.Delete(context.Background(), event.TypedDeleteEvent[client.Object]{
-			Object: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state-cm", Namespace: "ns"}},
-		}, q)
-		assert.Equal(t, 1, q.Len())
-	})
+			h.Delete(t.Context(), event.TypedDeleteEvent[client.Object]{Object: tc.obj}, q)
 
-	t.Run("secret delete requeues dependent resource", func(t *testing.T) {
-		watcher := NewResourceWatcher()
-		search := types.NamespacedName{Name: "search", Namespace: "ns"}
-		watcher.AddWatchedResourceIfNotAdded("tls-op", "ns", Secret, search)
-		handler := &ResourcesHandler{ResourceType: Secret, ResourceWatcher: watcher}
-		q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-		defer q.ShutDown()
-
-		handler.Delete(context.Background(), event.TypedDeleteEvent[client.Object]{
-			Object: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-op", Namespace: "ns"}},
-		}, q)
-		assert.Equal(t, 1, q.Len())
-		req, shutdown := q.Get()
-		assert.False(t, shutdown)
-		assert.Equal(t, search, req.NamespacedName)
-		q.Done(req)
-	})
+			assert.Equal(t, tc.wantQueue, q.Len())
+			if tc.wantQueue > 0 {
+				req, shutdown := q.Get()
+				assert.False(t, shutdown)
+				assert.Equal(t, search, req.NamespacedName)
+				q.Done(req)
+			}
+		})
+	}
 }
 
 func TestResourcesHandlerMapFuncEvents(t *testing.T) {

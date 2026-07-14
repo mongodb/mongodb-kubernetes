@@ -51,12 +51,6 @@ func searchStateFromCM(cm *corev1.ConfigMap) (*SearchDeploymentState, error) {
 	return state, nil
 }
 
-func searchStateLabels(search *searchv1.MongoDBSearch) map[string]string {
-	labels := searchOwnerLabels(search, "")
-	labels[khandler.MongoDBSearchOwnerUIDLabel] = string(search.UID)
-	return labels
-}
-
 func searchStateHasCurrentUID(cm *corev1.ConfigMap, search *searchv1.MongoDBSearch) bool {
 	recordedUID, ok := cm.Labels[khandler.MongoDBSearchOwnerUIDLabel]
 	return !ok || recordedUID == string(search.UID)
@@ -108,7 +102,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		newCM := configmap.Builder().
 			SetName(cmName).
 			SetNamespace(search.Namespace).
-			SetLabels(searchStateLabels(search)).
+			SetLabels(searchOwnerLabels(search, "")).
 			SetDataField(searchStateKey, string(data)).
 			Build()
 		return state, c.Create(ctx, &newCM)
@@ -135,7 +129,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 	if cm.Labels == nil {
 		cm.Labels = map[string]string{}
 	}
-	for k, v := range searchStateLabels(search) {
+	for k, v := range searchOwnerLabels(search, "") {
 		if cm.Labels[k] != v {
 			cm.Labels[k] = v
 			metadataChanged = true

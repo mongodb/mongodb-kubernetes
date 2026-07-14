@@ -365,6 +365,22 @@ func getMongoDBSearch(t *testing.T, c client.Client, namespace, name string) *se
 func TestEnsureMetricsForwarderResources_SingleCluster_NoOwnerRef(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage)
+	legacyOwnerReferences := []metav1.OwnerReference{{
+		APIVersion: "mongodb.com/v1",
+		Kind:       "MongoDBSearch",
+		Name:       search.Name,
+		UID:        "old-search-uid",
+	}}
+	require.NoError(t, fakeClient.Create(t.Context(), &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:            search.MetricsForwarderConfigMapNameForCluster(0),
+		Namespace:       search.Namespace,
+		OwnerReferences: legacyOwnerReferences,
+	}}))
+	require.NoError(t, fakeClient.Create(t.Context(), &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:            search.MetricsForwarderDeploymentNameForCluster(0),
+		Namespace:       search.Namespace,
+		OwnerReferences: legacyOwnerReferences,
+	}}))
 
 	require.NoError(t, r.ensureMetricsForwarderConfigMap(
 		context.Background(),
