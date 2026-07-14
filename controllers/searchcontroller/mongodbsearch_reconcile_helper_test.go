@@ -579,7 +579,6 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 					Mode: searchv1.PrometheusModeEnabled,
 					Port: 9999,
 				}
-
 			},
 			expectedPorts: map[string]int32{
 				"mongot-grpc": searchv1.MongotDefaultGrpcPort,

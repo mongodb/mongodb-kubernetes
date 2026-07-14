@@ -656,7 +656,7 @@ func TestMongoDBSearchDeploymentWatchesRouteLifecycleEvents(t *testing.T) {
 					name: "update",
 					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 						e := event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: labeled.DeepCopy()}
-						require.True(t, p.Update(event.UpdateEvent{ObjectOld: e.ObjectOld, ObjectNew: e.ObjectNew}))
+						require.True(t, p.Update(event.UpdateEvent(e)))
 						deploymentWatch.handler.Update(t.Context(), e, q)
 					},
 				},
@@ -664,7 +664,7 @@ func TestMongoDBSearchDeploymentWatchesRouteLifecycleEvents(t *testing.T) {
 					name: "update label removal",
 					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 						e := event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: plain}
-						require.True(t, p.Update(event.UpdateEvent{ObjectOld: e.ObjectOld, ObjectNew: e.ObjectNew}))
+						require.True(t, p.Update(event.UpdateEvent(e)))
 						deploymentWatch.handler.Update(t.Context(), e, q)
 					},
 				},
