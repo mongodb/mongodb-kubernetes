@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -146,6 +147,89 @@ func TestAppDB_MultiCluster(t *testing.T) {
 
 func agentAPIKeySecretName(projectID string) string {
 	return fmt.Sprintf("%s-group-secret", projectID)
+}
+
+// TestAppDB_MultiCluster_TerminalFailureIsNotMaskedByTransientConflict runs a full AppDB
+// reconcile where the two member clusters fail to write the TLS PEM secret for very
+// different reasons:
+//
+//   - member-cluster-1 hits a routine optimistic-lock conflict ("the object has been
+//     modified..."). Transient: the next reconcile fixes it on its own.
+//   - member-cluster-2 gets Forbidden from its API server (RBAC misconfiguration).
+//     Terminal: no retry will ever fix it; the user must act.
+//
+// A terminal failure on any member cluster must be reported to the user: the AppDB phase
+// must be Failed and the status message must show the Forbidden error.
+//
+// Today both errors are aggregated into one multierror whose combined text is classified
+// by substring matching (workflow.failedStatus.Phase -> apierrors.IsTransientMessage), so
+// cluster-1's conflict text marks the WHOLE aggregate transient: the CR reports Pending
+// with a blanked message, and cluster-2's RBAC failure is invisible.
+func TestAppDB_MultiCluster_TerminalFailureIsNotMaskedByTransientConflict(t *testing.T) {
+	ctx := context.Background()
+	memberClusterName := "member-cluster-1"
+	memberClusterName2 := "member-cluster-2"
+
+	opsManager := DefaultOpsManagerBuilder().
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: memberClusterName, Members: 2},
+			{ClusterName: memberClusterName2, Members: 3},
+		}).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetAppDBTLSConfig(mdbv1.TLSConfig{Enabled: true, CA: "appdb-ca"}).
+		Build()
+	appdb := opsManager.Spec.AppDB
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	createAppDbCAConfigMap(ctx, t, kubeClient, appdb)
+	tlsCertSecretName, _ := createAppDBTLSCert(ctx, t, kubeClient, appdb)
+	pemSecretName := tlsCertSecretName + "-pem"
+
+	// Each member cluster fails the PEM secret write in its own way.
+	transientConflict := apiErrors.NewConflict(corev1.Resource("secrets"), pemSecretName,
+		fmt.Errorf("the object has been modified; please apply your changes to the latest version and try again"))
+	terminalForbidden := apiErrors.NewForbidden(corev1.Resource("secrets"), pemSecretName,
+		fmt.Errorf("User \"system:serviceaccount:mongodb:mongodb-kubernetes-operator\" cannot update resource \"secrets\""))
+
+	failingPEMWritesClient := func(failure error) client.Client {
+		builder := mock.NewEmptyFakeClientBuilder()
+		builder.WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, false),
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if obj.GetName() == pemSecretName {
+					return failure
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if obj.GetName() == pemSecretName {
+					return failure
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+		return kubernetesClient.NewClient(builder.Build())
+	}
+	memberClusterMap := map[string]client.Client{
+		memberClusterName:  failingPEMWritesClient(transientConflict),
+		memberClusterName2: failingPEMWritesClient(terminalForbidden),
+	}
+
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, opsManagerUserPassword))
+
+	_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+
+	// member-cluster-2 is misconfigured (RBAC): retrying cannot fix it, so the
+	// resource must report Failed, whatever happened on the other clusters.
+	assert.Equal(t, status.PhaseFailed, opsManager.Status.AppDbStatus.Phase,
+		"a terminal error on one member cluster must surface as Failed even when another cluster hit a transient conflict")
+	// ...and the user must be able to see what is wrong from the status message.
+	assert.Contains(t, opsManager.Status.AppDbStatus.Message, "is forbidden",
+		"the terminal error must be visible in the status message")
 }
 
 func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
