@@ -73,6 +73,12 @@ MDBS_RESOURCE_NAME = "mdb-mc-sim-search"
 
 MEMBERS_PER_CLUSTER: List[int | None] = [3, 3]
 MONGOT_REPLICAS_PER_CLUSTER = 3
+RecreatedResource = (
+    kubernetes.client.V1StatefulSet
+    | kubernetes.client.V1Service
+    | kubernetes.client.V1ConfigMap
+    | kubernetes.client.V1Deployment
+)
 
 # Generous index-ready timeout to account for cross-cluster mesh latency during sync.
 SEARCH_INDEX_READY_TIMEOUT = 300
@@ -359,7 +365,7 @@ def _wait_for_not_found(read_fn: Callable[[], object], what: str, timeout: int =
     run_periodically(deleted, timeout=timeout, sleep_time=5, msg=f"{what} cleanup")
 
 
-def _wait_for_recreated(read_fn: Callable[[], object], old_uid: str, what: str, timeout: int = 300) -> None:
+def _wait_for_recreated(read_fn: Callable[[], RecreatedResource], old_uid: str, what: str, timeout: int = 300) -> None:
     def recreated() -> tuple[bool, str]:
         try:
             resource = read_fn()
