@@ -12,7 +12,7 @@ func TestLoadReleaseImages(t *testing.T) {
 		name        string
 		buildInfo   string
 		releaseJSON string
-		wantNames   []string // expected group members, sorted by Name
+		wantNames   []string // expected images, sorted by Name
 		wantVer     map[string]string
 		wantErr     string
 	}{
@@ -25,7 +25,7 @@ func TestLoadReleaseImages(t *testing.T) {
 				"agent":{"staging":{"repository":"ecr/staging/agent"},"release":{"repository":"quay/agent"}}
 			}}`,
 			releaseJSON: `{"mongodbOperator":"1.9.2","readinessProbeVersion":"1.0.24","agentVersion":"108.0.0"}`,
-			wantNames:   []string{"operator", "readiness-probe"},
+			wantNames:   []string{"operator", "readiness-probe"}, // expected image set members,
 			wantVer:     map[string]string{"operator": "1.9.2", "readiness-probe": "1.0.24"},
 		},
 		{
@@ -104,7 +104,7 @@ func TestLoadReleaseImages(t *testing.T) {
 				gotNames[i] = img.Name
 			}
 			if strings.Join(gotNames, ",") != strings.Join(tt.wantNames, ",") {
-				t.Fatalf("group members: got %v, want %v", gotNames, tt.wantNames)
+				t.Fatalf("images: got %v, want %v", gotNames, tt.wantNames)
 			}
 			for _, img := range images {
 				if want := tt.wantVer[img.Name]; want != "" && img.Version != want {
@@ -134,11 +134,11 @@ func TestLoadReleaseImagesRealFiles(t *testing.T) {
 		"database": true, "readiness-probe": true, "upgrade-hook": true,
 	}
 	if len(images) != len(want) {
-		t.Errorf("group size: got %d, want %d (%v)", len(images), len(want), images)
+		t.Errorf("image set size: got %d, want %d (%v)", len(images), len(want), images)
 	}
 	for _, img := range images {
 		if !want[img.Name] {
-			t.Errorf("unexpected group member %q", img.Name)
+			t.Errorf("unexpected image %q", img.Name)
 		}
 		if img.Version == "" || img.ReleaseRepo == "" || img.StagingRepo == "" {
 			t.Errorf("%s under-populated: %+v", img.Name, img)

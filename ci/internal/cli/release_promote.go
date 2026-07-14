@@ -9,19 +9,19 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/ci/internal/release"
 )
 
-func newReleasePromoteCmd() *cobra.Command {
+func newPromoteReleaseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "promote",
 		Short: "Promote candidate image(s) by applying promoted-latest and promoted-{commit}-{version} tags",
 	}
 
-	cmd.AddCommand(newReleasePromoteImageCmd())
-	cmd.AddCommand(newReleasePromoteGroupCmd())
+	cmd.AddCommand(newPromoteImageCmd())
+	cmd.AddCommand(newPromoteImagesCmd())
 
 	return cmd
 }
 
-func newReleasePromoteImageCmd() *cobra.Command {
+func newPromoteImageCmd() *cobra.Command {
 	var (
 		image       string
 		commit      string
@@ -35,7 +35,7 @@ func newReleasePromoteImageCmd() *cobra.Command {
 		Use:   "image",
 		Short: "Promote a single candidate image",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSinglePromote(cmd, image, commit, version, registryURL, repo, dryRun)
+			return promoteImage(cmd, image, commit, version, registryURL, repo, dryRun)
 		},
 	}
 
@@ -53,7 +53,7 @@ func newReleasePromoteImageCmd() *cobra.Command {
 	return cmd
 }
 
-func newReleasePromoteGroupCmd() *cobra.Command {
+func newPromoteImagesCmd() *cobra.Command {
 	var (
 		buildInfo   string
 		releaseJSON string
@@ -62,10 +62,10 @@ func newReleasePromoteGroupCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "group",
+		Use:   "images",
 		Short: "Promote every release image defined in build_info.json at the given commit",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGroupPromote(cmd, buildInfo, releaseJSON, commit, dryRun)
+			return promoteAllImages(cmd, buildInfo, releaseJSON, commit, dryRun)
 		},
 	}
 
@@ -79,14 +79,14 @@ func newReleasePromoteGroupCmd() *cobra.Command {
 	return cmd
 }
 
-// runGroupPromote promotes every release image in build_info.json at the given
+// promoteAllImages promotes every release image in build_info.json at the given
 // commit, writing promoted tags to each image's primary staging repository.
-func runGroupPromote(cmd *cobra.Command, buildInfo, releaseJSON, commit string, dryRun bool) error {
+func promoteAllImages(cmd *cobra.Command, buildInfo, releaseJSON, commit string, dryRun bool) error {
 	images, err := release.LoadReleaseImages(buildInfo, releaseJSON)
 	if err != nil {
 		return err
 	}
-	results, err := release.PromoteGroup(images, commit, dryRun, release.DefaultRegistryConnector)
+	results, err := release.PromoteImages(images, commit, dryRun, release.DefaultRegistryConnector)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func runGroupPromote(cmd *cobra.Command, buildInfo, releaseJSON, commit string, 
 	return nil
 }
 
-func runSinglePromote(cmd *cobra.Command, image, commit, version, registryURL, repo string, dryRun bool) error {
+func promoteImage(cmd *cobra.Command, image, commit, version, registryURL, repo string, dryRun bool) error {
 	tags, err := release.Promote(release.PromoteInputs{
 		Image:   image,
 		Commit:  commit,

@@ -6,19 +6,15 @@ import (
 	"testing"
 )
 
-// copyCall records one CopyWithTags invocation on the fake registry.
 type copyCall struct {
 	srcRef  string
 	dstRepo string
 	tags    []string
 }
 
-// fakeRegistry is an in-memory Registry: it records every copy and can be told
-// to fail for a specific source ref, so the group logic can be exercised
-// without standing up a real registry.
 type fakeRegistry struct {
 	copies []copyCall
-	fail   map[string]error // srcRef -> error to return
+	fail   map[string]error
 }
 
 func (f *fakeRegistry) CopyWithTags(srcRef, dstRepo string, tags []string) error {
@@ -29,7 +25,7 @@ func (f *fakeRegistry) CopyWithTags(srcRef, dstRepo string, tags []string) error
 	return nil
 }
 
-func TestPromoteGroup(t *testing.T) {
+func TestPromoteImages(t *testing.T) {
 	fake := &fakeRegistry{}
 	connect := func(url string) Registry { return fake }
 
@@ -38,7 +34,7 @@ func TestPromoteGroup(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: "quay.io/staging/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
 	}
 
-	results, err := PromoteGroup(images, "abc1234", false, connect)
+	results, err := PromoteImages(images, "abc1234", false, connect)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,8 +42,6 @@ func TestPromoteGroup(t *testing.T) {
 		t.Fatalf("results: got %d, want 2", len(results))
 	}
 
-	// Each image must be copied from its version-tagged source in its primary
-	// staging repo to both promoted tags, with host split off from the repo path.
 	want := []copyCall{
 		{
 			srcRef:  "quay.io/staging/mongodb-kubernetes:1.9.2",
@@ -71,7 +65,7 @@ func TestPromoteGroup(t *testing.T) {
 	}
 }
 
-func TestPromoteGroupHardFailsOnMissingSource(t *testing.T) {
+func TestPromoteImagesHardFailsOnMissingSource(t *testing.T) {
 	fake := &fakeRegistry{
 		fail: map[string]error{
 			"quay.io/staging/mongodb-kubernetes-readinessprobe:1.0.24": errors.New("source not found"),
@@ -84,19 +78,19 @@ func TestPromoteGroupHardFailsOnMissingSource(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: "quay.io/staging/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
 	}
 
-	_, err := PromoteGroup(images, "abc1234", false, connect)
+	_, err := PromoteImages(images, "abc1234", false, connect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected hard failure mentioning readiness-probe, got %v", err)
 	}
 }
 
-func TestPromoteGroupCommitRequired(t *testing.T) {
+func TestPromoteImagesCommitRequired(t *testing.T) {
 	connect := func(url string) Registry {
 		t.Fatalf("connector must not be called when commit is missing")
 		return nil
 	}
 	images := []ReleaseImage{{Name: "operator", StagingRepo: "h/staging/op", Version: "1.9.2"}}
-	_, err := PromoteGroup(images, "", false, connect)
+	_, err := PromoteImages(images, "", false, connect)
 	if err == nil || !strings.Contains(err.Error(), "commit") {
 		t.Fatalf("expected commit error, got %v", err)
 	}

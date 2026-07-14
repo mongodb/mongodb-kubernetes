@@ -7,13 +7,13 @@ import (
 	"sort"
 )
 
-// AnchorImageName is the image that anchors the release group. The operator is
+// AnchorImageName is the image that anchors the release image set. The operator is
 // the one image built at merge time; the rest travel with its commit. Its
-// presence in the group is required. (Publish-time "latest" resolution keys off
+// presence in the set is required. (Publish-time "latest" resolution keys off
 // this same anchor, but that lives in a separate change.)
 const AnchorImageName = "operator"
 
-// ReleaseImage is one member of the release group, resolved from build_info.json
+// ReleaseImage is one member of the release image set, resolved from build_info.json
 // (repositories + version-ref) and release.json (the concrete version).
 type ReleaseImage struct {
 	Name             string   // build_info.json image key, e.g. "readiness-probe"
@@ -40,7 +40,7 @@ type buildInfoFile struct {
 }
 
 // LoadReleaseImages reads build_info.json and release.json and returns the
-// release group: exactly the images carrying a version-ref. Membership is
+// release image set: exactly the images carrying a version-ref. Membership is
 // version-ref presence alone, which excludes test images and the separately
 // released agent/ops-manager images. Each member is validated (staging repo,
 // release repo, and a resolvable version); any gap is a hard error, so a
@@ -95,7 +95,7 @@ func LoadReleaseImages(buildInfoPath, releaseJSONPath string) ([]ReleaseImage, e
 		}
 	}
 	if !hasAnchor {
-		return nil, fmt.Errorf("anchor image %q not found in release group", AnchorImageName)
+		return nil, fmt.Errorf("anchor image %q not found in release image set", AnchorImageName)
 	}
 
 	sort.Slice(images, func(i, j int) bool { return images[i].Name < images[j].Name })

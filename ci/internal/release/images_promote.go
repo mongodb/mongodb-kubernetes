@@ -6,15 +6,15 @@ import (
 	"strings"
 )
 
-// GroupPromoteResult records what was (or would be) promoted for one image.
-type GroupPromoteResult struct {
-	Name    string   // build_info.json image key
-	Repo    string   // primary staging repository (host/path) the tags were applied to
-	Version string   // release.json version the source image was tagged with
-	Tags    []string // tags applied: promoted-{commit}-{version} and promoted-latest
+// ImagesPromoteResult records what was (or would be) promoted for one image.
+type ImagesPromoteResult struct {
+	Name    string
+	Repo    string
+	Version string
+	Tags    []string
 }
 
-// PromoteGroup promotes every image in the group at the given commit, writing
+// PromoteImages promotes every image at the given commit, writing
 // promoted-{commit}-{version} and promoted-latest to each image's PRIMARY
 // staging repository only (secondary repositories are intentionally left
 // untouched for now). The source image is the version-tagged image the staging
@@ -22,9 +22,9 @@ type GroupPromoteResult struct {
 //
 // It hard-fails on the first image that cannot be promoted (e.g. its
 // version-tagged source image is missing), so a broken merge build does not
-// silently promote a partial group. connect resolves a Registry for an image's
+// silently promote a partial image set. connect resolves a Registry for an image's
 // host; the CLI passes DefaultRegistryConnector and tests inject a fake.
-func PromoteGroup(images []ReleaseImage, commit string, dryRun bool, connect RegistryConnector) ([]GroupPromoteResult, error) {
+func PromoteImages(images []ReleaseImage, commit string, dryRun bool, connect RegistryConnector) ([]ImagesPromoteResult, error) {
 	if commit == "" {
 		return nil, errors.New("commit is required")
 	}
@@ -32,7 +32,7 @@ func PromoteGroup(images []ReleaseImage, commit string, dryRun bool, connect Reg
 		return nil, errors.New("no images to promote")
 	}
 
-	results := make([]GroupPromoteResult, 0, len(images))
+	results := make([]ImagesPromoteResult, 0, len(images))
 	for _, img := range images {
 		host, path := splitHostRepo(img.StagingRepo)
 		src := fmt.Sprintf("%s:%s", img.StagingRepo, img.Version)
@@ -46,7 +46,7 @@ func PromoteGroup(images []ReleaseImage, commit string, dryRun bool, connect Reg
 		if err != nil {
 			return nil, fmt.Errorf("promote %s (%s): %w", img.Name, src, err)
 		}
-		results = append(results, GroupPromoteResult{
+		results = append(results, ImagesPromoteResult{
 			Name:    img.Name,
 			Repo:    img.StagingRepo,
 			Version: img.Version,
