@@ -604,7 +604,7 @@ functions:
           - --image
           - mongodb-enterprise-server
           - --submit
-          - ${preflight_submit}
+          - "false"
 
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
