@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -229,6 +231,17 @@ type trackingListReader struct {
 	sweepListCalls int
 }
 
+type staleSearchCacheClient struct {
+	client.Client
+}
+
+func (c *staleSearchCacheClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*searchv1.MongoDBSearch); ok {
+		return apiErrors.NewNotFound(schema.GroupResource{Group: "mongodb.com", Resource: "mongodbsearches"}, key.Name)
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
 func (r *trackingListReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if isSweepOwnedResourceList(list) {
 		r.sweepListCalls++
@@ -277,6 +290,102 @@ func TestMongoDBSearchReconcile_NotFoundSweepUsesUncachedReaderForCentralList(t 
 	assert.True(t, apiErrors.IsNotFound(centralBackingClient.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), &appsv1.Deployment{})))
 	assert.Greater(t, uncachedReader.sweepListCalls, 0, "central sweep must list via uncached reader")
 	assert.Equal(t, 0, staleCentralClient.sweepListCalls, "central sweep must not list via cached central client")
+}
+
+func TestMongoDBSearchReconcile_CachedNotFoundPreservesRecreatedSearchResources(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "recreated-search", Namespace: mock.TestNamespace}
+	newSearch := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: searchKey.Name, Namespace: searchKey.Namespace, UID: "new-uid"},
+	}
+	ownedObjects := []client.Object{
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+			Name:      "old-search-sts",
+			Namespace: searchKey.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+				khandler.MongoDBSearchOwnerUIDLabel:       "old-uid",
+			},
+		}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-search-sts",
+			Namespace: searchKey.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+				khandler.MongoDBSearchOwnerUIDLabel:       string(newSearch.UID),
+			},
+		}},
+	}
+	cachedBacking := mock.NewEmptyFakeClientBuilder().WithObjects(ownedObjects...).Build()
+	uncachedReader := mock.NewEmptyFakeClientBuilder().WithObjects(newSearch).Build()
+	reconciler := newMongoDBSearchReconciler(
+		&staleSearchCacheClient{Client: cachedBacking},
+		uncachedReader,
+		searchcontroller.OperatorSearchConfig{},
+		nil,
+		"",
+	)
+
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+	for _, obj := range ownedObjects {
+		require.NoError(t, cachedBacking.Get(ctx, client.ObjectKeyFromObject(obj), obj.DeepCopyObject().(client.Object)))
+	}
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepAggregatesFailuresAndContinues(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "failed-sweep", Namespace: mock.TestNamespace}
+	ownerLabels := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+	}
+	failedConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "failed-configmap-delete", Namespace: searchKey.Namespace, Labels: ownerLabels}}
+	failedSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "failed-secret-delete", Namespace: searchKey.Namespace, Labels: ownerLabels}}
+	deletedService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "successful-service-delete", Namespace: searchKey.Namespace, Labels: ownerLabels}}
+	deleteAttempts := map[string]int{}
+	listErr := fmt.Errorf("injected Deployment list failure")
+	configMapDeleteErr := fmt.Errorf("injected ConfigMap delete failure")
+	secretDeleteErr := fmt.Errorf("injected Secret delete failure")
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(failedConfigMap, failedSecret, deletedService).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*appsv1.DeploymentList); ok {
+					return listErr
+				}
+				return c.List(ctx, list, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				deleteAttempts[obj.GetName()]++
+				switch obj.GetName() {
+				case failedConfigMap.Name:
+					return configMapDeleteErr
+				case failedSecret.Name:
+					return secretDeleteErr
+				default:
+					return c.Delete(ctx, obj, opts...)
+				}
+			},
+		}).
+		Build()
+	reconciler := newMongoDBSearchReconciler(kubeClient, kubeClient, searchcontroller.OperatorSearchConfig{}, nil, "")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, listErr.Error())
+	assert.ErrorContains(t, err, configMapDeleteErr.Error())
+	assert.ErrorContains(t, err, secretDeleteErr.Error())
+	assert.Equal(t, 1, deleteAttempts[failedConfigMap.Name])
+	assert.Equal(t, 1, deleteAttempts[failedSecret.Name])
+	assert.True(t, apiErrors.IsNotFound(kubeClient.Get(ctx, client.ObjectKeyFromObject(deletedService), &corev1.Service{})))
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(failedConfigMap), &corev1.ConfigMap{}))
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(failedSecret), &corev1.Secret{}))
 }
 
 func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *testing.T) {
@@ -344,7 +453,7 @@ func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *te
 				trackedObject{
 					object:       kind.newObject(fmt.Sprintf("%s-%s-owned", prefix, kind.kind), ownerLabels),
 					shouldDelete: true,
-					reason:       "fully labeled owner object must be swept",
+					reason:       "legacy UID-less owner object must be swept",
 				},
 				trackedObject{
 					object:       kind.newObject(fmt.Sprintf("%s-%s-other-search", prefix, kind.kind), otherSearchLabels),
@@ -368,6 +477,26 @@ func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *te
 				},
 			)
 		}
+		objects = append(objects,
+			trackedObject{
+				object: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+					Name:      prefix + "-owned-pod",
+					Namespace: searchKey.Namespace,
+					Labels:    ownerLabels,
+				}},
+				shouldDelete: false,
+				reason:       "Pods must remain outside the explicit top-level sweep allowlist",
+			},
+			trackedObject{
+				object: &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+					Name:      prefix + "-owned-pvc",
+					Namespace: searchKey.Namespace,
+					Labels:    ownerLabels,
+				}},
+				shouldDelete: false,
+				reason:       "PVCs must remain outside the explicit top-level sweep allowlist",
+			},
+		)
 		return objects
 	}
 

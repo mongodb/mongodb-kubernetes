@@ -191,6 +191,46 @@ def test_metrics_forwarder_status(om: MongoDBOpsManager, mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_external_metrics_forwarder_replicaset
+def test_metrics_forwarder_recreates_deleted_resources(om: MongoDBOpsManager, mdbs: MongoDBSearch):
+    apps = client.AppsV1Api()
+    core = client.CoreV1Api()
+    deployment_name = metrics_forwarder_deployment_name(MDBS_RESOURCE_NAME)
+    configmap_name = metrics_forwarder_configmap_name(MDBS_RESOURCE_NAME)
+    old_deployment_uid = apps.read_namespaced_deployment(deployment_name, mdbs.namespace).metadata.uid
+    old_configmap_uid = core.read_namespaced_config_map(configmap_name, mdbs.namespace).metadata.uid
+
+    apps.delete_namespaced_deployment(deployment_name, mdbs.namespace)
+    core.delete_namespaced_config_map(configmap_name, mdbs.namespace)
+
+    def resources_recreated_and_ready():
+        try:
+            deployment = apps.read_namespaced_deployment(deployment_name, mdbs.namespace)
+            configmap = core.read_namespaced_config_map(configmap_name, mdbs.namespace)
+        except ApiException as exc:
+            if exc.status == 404:
+                return False
+            raise
+        desired = deployment.spec.replicas or 0
+        return (
+            deployment.metadata.uid != old_deployment_uid
+            and configmap.metadata.uid != old_configmap_uid
+            and desired > 0
+            and (deployment.status.ready_replicas or 0) == desired
+        )
+
+    run_periodically(resources_recreated_and_ready, timeout=300, sleep_time=5)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+    def metrics_forwarder_running():
+        mdbs.reload()
+        status = mdbs.get_metrics_forwarder_status()
+        return status is not None and status.get("phase") == Phase.Running.name
+
+    run_periodically(metrics_forwarder_running, timeout=120, sleep_time=10)
+    om.get_om_tester(project_name=MDB_RESOURCE_NAME).assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
+
+
+@mark.e2e_search_external_metrics_forwarder_replicaset
 def test_scaling_updates_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
     tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
 

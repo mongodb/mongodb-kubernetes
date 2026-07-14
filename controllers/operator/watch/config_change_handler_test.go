@@ -13,6 +13,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
 func TestShouldHandleUpdate(t *testing.T) {
@@ -73,7 +75,7 @@ func TestShouldHandleUpdate(t *testing.T) {
 }
 
 func TestResourcesHandlerDelete(t *testing.T) {
-	t.Run("configmap delete is ignored", func(t *testing.T) {
+	t.Run("configmap delete requeues dependent resource", func(t *testing.T) {
 		watcher := NewResourceWatcher()
 		search := types.NamespacedName{Name: "search", Namespace: "ns"}
 		watcher.AddWatchedResourceIfNotAdded("state-cm", "ns", ConfigMap, search)
@@ -84,7 +86,7 @@ func TestResourcesHandlerDelete(t *testing.T) {
 		handler.Delete(context.Background(), event.TypedDeleteEvent[client.Object]{
 			Object: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state-cm", Namespace: "ns"}},
 		}, q)
-		assert.Equal(t, 0, q.Len())
+		assert.Equal(t, 1, q.Len())
 	})
 
 	t.Run("secret delete requeues dependent resource", func(t *testing.T) {
@@ -104,4 +106,66 @@ func TestResourcesHandlerDelete(t *testing.T) {
 		assert.Equal(t, search, req.NamespacedName)
 		q.Done(req)
 	})
+}
+
+func TestResourcesHandlerMapFuncEvents(t *testing.T) {
+	search := types.NamespacedName{Name: "search", Namespace: "ns"}
+	labeled := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      "owned",
+		Namespace: "ns",
+		Labels: map[string]string{
+			khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+		},
+	}}
+	plain := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "owned", Namespace: "ns"}}
+
+	tests := []struct {
+		name string
+		send func(*ResourcesHandler, workqueue.TypedRateLimitingInterface[reconcile.Request])
+	}{
+		{
+			name: "create",
+			send: func(h *ResourcesHandler, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				h.Create(t.Context(), event.TypedCreateEvent[client.Object]{Object: labeled}, q)
+			},
+		},
+		{
+			name: "update adds labels",
+			send: func(h *ResourcesHandler, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				h.Update(t.Context(), event.TypedUpdateEvent[client.Object]{ObjectOld: plain, ObjectNew: labeled}, q)
+			},
+		},
+		{
+			name: "update removes labels",
+			send: func(h *ResourcesHandler, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				h.Update(t.Context(), event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: plain}, q)
+			},
+		},
+		{
+			name: "delete",
+			send: func(h *ResourcesHandler, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+				h.Delete(t.Context(), event.TypedDeleteEvent[client.Object]{Object: labeled}, q)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+			h := &ResourcesHandler{
+				ResourceType:    ConfigMap,
+				ResourceWatcher: NewResourceWatcher(),
+				MapFunc:         khandler.EnqueueMemberClusterObjectToSearch,
+			}
+
+			tc.send(h, q)
+
+			assert.Equal(t, 1, q.Len())
+			req, shutdown := q.Get()
+			assert.False(t, shutdown)
+			assert.Equal(t, search, req.NamespacedName)
+			q.Done(req)
+		})
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -455,11 +456,18 @@ func AddMongoDBSearchController(
 		{&searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{}},
 		{&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
 		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
-		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},
-		{&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}},
+		{&appsv1.StatefulSet{}, handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)},
+		{&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)},
+		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch, MapFunc: khandler.EnqueueMemberClusterObjectToSearch}},
+		{&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch, MapFunc: khandler.EnqueueMemberClusterObjectToSearch}},
 	}
 	for _, w := range centralWatches {
-		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler)); err != nil {
+		predicates := []predicate.Predicate{}
+		switch w.obj.(type) {
+		case *appsv1.StatefulSet, *corev1.Service:
+			predicates = append(predicates, watch.PredicatesForMultiClusterSearchResource())
+		}
+		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler, predicates...)); err != nil {
 			return xerrors.Errorf("failed to set MongoDBSearch central watch for %T: %w", w.obj, err)
 		}
 	}
@@ -487,7 +495,6 @@ func AddMongoDBSearchController(
 		watchedTypes := []client.Object{
 			&appsv1.StatefulSet{},
 			&corev1.Service{},
-			&appsv1.Deployment{},
 			&corev1.ConfigMap{},
 			&corev1.Secret{},
 		}

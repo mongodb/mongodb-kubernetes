@@ -256,21 +256,6 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	log *zap.SugaredLogger,
 ) workflow.Status {
 	clusterName, clusterIndex, c := w.ClusterName, w.ClusterIndex, w.Client
-	if clusterName == "" {
-		r.watch.AddWatchedResourceIfNotAdded(
-			search.LoadBalancerConfigMapNameForCluster(clusterIndex),
-			search.Namespace,
-			watch.ConfigMap,
-			search.NamespacedName(),
-		)
-		r.watch.AddWatchedResourceIfNotAdded(
-			search.LoadBalancerDeploymentNameForCluster(clusterIndex),
-			search.Namespace,
-			watch.Deployment,
-			search.NamespacedName(),
-		)
-	}
-
 	routes := buildRoutesForCluster(search, source, clusterIndex, clusterName, routingReadyMongotGroups)
 	if len(routes) == 0 {
 		return workflow.Pending("No routes to configure for load balancer (cluster=%q)", clusterName)
@@ -567,6 +552,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 			dep.Labels = merge.StringToStringMap(dep.Labels, managedLB.Deployment.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, managedLB.Deployment.MetadataWrapper.Annotations)
 		}
+		dep.Labels = khandler.ReapplyProtectedSearchLabels(dep.Labels, labels)
 		return nil
 	})
 	if err != nil {
@@ -789,10 +775,11 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // for the cluster-name label so label selectors remain name-keyed.
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
 	labels := map[string]string{
-		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterIndex),
-		"component":                          labelName,
-		khandler.MongoDBSearchOwnerNameLabel: search.Name,
+		"app":                                     search.LoadBalancerDeploymentNameForCluster(clusterIndex),
+		khandler.MongoDBSearchComponentLabel:      labelName,
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+		khandler.MongoDBSearchOwnerUIDLabel:       string(search.UID),
 	}
 	// In single-cluster legacy mode (clusterName==""), omit the per-cluster label so existing watchers continue to match.
 	if clusterName != "" {
@@ -850,10 +837,13 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, &watch.ResourcesHandler{ResourceType: watch.Deployment, ResourceWatcher: r.watch})); err != nil {
+	mapperFunc := khandler.EnqueueMemberClusterObjectToSearch
+	mapper := handler.EnqueueRequestsFromMapFunc(mapperFunc)
+	searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 		return err
 	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch, MapFunc: mapperFunc})); err != nil {
 		return err
 	}
 
@@ -861,12 +851,11 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// cross-cluster owner refs don't GC. Same pattern as the AppDB MC and
 	// sharded MC controllers (see appdbreplicaset_controller.go and
 	// mongodbshardedcluster_controller.go).
-	mapper := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)
 		}
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set Envoy ConfigMap watch on member cluster %s: %w", k, err)
 		}
 	}

@@ -22,7 +22,6 @@ type Type string
 const (
 	ConfigMap          Type = "ConfigMap"
 	Secret             Type = "Secret"
-	Deployment         Type = "Deployment"
 	MongoDB            Type = "MongoDB"
 	ClusterMongoDBRole Type = "ClusterMongoDBRole"
 )
@@ -45,19 +44,22 @@ func (w Object) String() string {
 type ResourcesHandler struct {
 	ResourceType    Type
 	ResourceWatcher *ResourceWatcher
+	MapFunc         func(context.Context, client.Object) []reconcile.Request
 }
 
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
 // and then created again.
 func (c *ResourcesHandler) Create(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
+	c.doMap(ctx, e.Object, q)
 }
 
 func (c *ResourcesHandler) Update(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if !shouldHandleUpdate(e) {
-		return
+	if shouldHandleUpdate(e) {
+		c.doHandle(e.ObjectOld.GetNamespace(), e.ObjectOld.GetName(), q)
 	}
-	c.doHandle(e.ObjectOld.GetNamespace(), e.ObjectOld.GetName(), q)
+	c.doMap(ctx, e.ObjectOld, q)
+	c.doMap(ctx, e.ObjectNew, q)
 }
 
 // shouldHandleUpdate return true if the update event must be handled. This shouldn't happen if data for watched
@@ -84,15 +86,18 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.TypedRat
 	}
 }
 
-// ConfigMap deletion remains ignored; watched Secret deletion must requeue so
-// operator-managed cert/key regeneration can self-heal.
-func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	switch e.Object.(type) {
-	case *corev1.ConfigMap:
+func (c *ResourcesHandler) doMap(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if c.MapFunc == nil {
 		return
 	}
+	for _, request := range c.MapFunc(ctx, obj) {
+		q.Add(request)
+	}
+}
 
+func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
+	c.doMap(ctx, e.Object, q)
 }
 
 func (c *ResourcesHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {

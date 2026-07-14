@@ -129,6 +129,7 @@ func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[s
 	labels := map[string]string{
 		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+		khandler.MongoDBSearchOwnerUIDLabel:       string(search.UID),
 	}
 	if clusterName != "" {
 		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
@@ -144,7 +145,9 @@ func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) s
 		if set.Labels == nil {
 			set.Labels = map[string]string{}
 		}
-		for k, v := range searchOwnerLabels(search, clusterName) {
+		protected := searchOwnerLabels(search, clusterName)
+		protected[khandler.MongoDBSearchComponentLabel] = mongotComponent
+		for k, v := range protected {
 			set.Labels[k] = v
 		}
 	}
@@ -730,7 +733,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		egressTlsStsModification,
 		x509StsModification,
 		mods.embeddingConfigSts,
-		stsOverride, // must be last: see StatefulSetOverrideModification
+		stsOverride,
+		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -858,7 +862,10 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		expected map[string]bool
 		kind     string
 	}{
-		{func() client.ObjectList { return &appsv1.StatefulSetList{} }, client.MatchingLabels(searchOwnerLabels(r.mdbSearch, "")), expectedSTS, "StatefulSet"},
+		{func() client.ObjectList { return &appsv1.StatefulSetList{} }, client.MatchingLabels{
+			khandler.MongoDBSearchOwnerNameLabel:      r.mdbSearch.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: r.mdbSearch.Namespace,
+		}, expectedSTS, "StatefulSet"},
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: proxyServiceComponent}, expectedProxy, "proxy Service"},
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedHeadless, "headless Service"},
 		{func() client.ObjectList { return &corev1.ConfigMapList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedConfig, "ConfigMap"},

@@ -16,10 +16,34 @@ const (
 	MongoDBSearchOwnerNameLabel      = "mongodb.com/search-name"
 	MongoDBSearchOwnerNamespaceLabel = "mongodb.com/search-namespace"
 	MongoDBSearchOwnerUIDLabel       = "mongodb.com/search-uid"
+	MongoDBSearchComponentLabel      = "component"
 	// MongoDBSearchClusterNameLabel records the owning member cluster on
 	// per-cluster member resources (Envoy Deployment + ConfigMap).
 	MongoDBSearchClusterNameLabel = "mongodb.com/cluster-name"
 )
+
+// ReapplyProtectedSearchLabels restores labels used for Search event routing
+// and cleanup after user metadata overrides while preserving unrelated labels.
+func ReapplyProtectedSearchLabels(labels, desired map[string]string) map[string]string {
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for _, key := range []string{
+		MongoDBSearchOwnerNameLabel,
+		MongoDBSearchOwnerNamespaceLabel,
+		MongoDBSearchOwnerUIDLabel,
+		MongoDBSearchClusterNameLabel,
+		MongoDBSearchComponentLabel,
+	} {
+		value, ok := desired[key]
+		if !ok {
+			delete(labels, key)
+			continue
+		}
+		labels[key] = value
+	}
+	return labels
+}
 
 // MapMemberClusterObjectToSearch reads the search-owner labels off a watched
 // member-cluster object and returns the reconcile request for the central

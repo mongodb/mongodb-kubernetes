@@ -51,6 +51,7 @@ from tests.multicluster_search.conftest import (
     ENVOY_PROXY_PORT,
     MDBS_TLS_CERT_PREFIX,
     MONGOT_USER_NAME,
+    SIMULATED_OPERATOR_NAME,
     SOURCE_CERT_PREFIX,
     USER_NAME,
     USER_PASSWORD,
@@ -358,6 +359,19 @@ def _wait_for_not_found(read_fn: Callable[[], object], what: str, timeout: int =
     run_periodically(deleted, timeout=timeout, sleep_time=5, msg=f"{what} cleanup")
 
 
+def _wait_for_recreated(read_fn: Callable[[], object], old_uid: str, what: str, timeout: int = 300) -> None:
+    def recreated() -> tuple[bool, str]:
+        try:
+            resource = read_fn()
+            return resource.metadata.uid != old_uid, f"{what} UID is {resource.metadata.uid}"
+        except ApiException as exc:
+            if exc.status == 404:
+                return False, f"{what} is absent"
+            raise
+
+    run_periodically(recreated, timeout=timeout, sleep_time=5, msg=f"{what} recreation")
+
+
 def _wait_for_search_deleted(mdbs: MongoDBSearch, timeout: int = 300) -> None:
     def deleted() -> tuple[bool, str]:
         try:
@@ -562,6 +576,79 @@ def test_per_cluster_search_query(
         # Deterministic compound query: the Hawaii/Alaska sample returns exactly 4 docs.
         movies.assert_search_query(retry_timeout=SEARCH_QUERY_RETRY_TIMEOUT)
         logger.info(f"cluster_index={cluster_index}: deterministic $search (==4) via local mongod OK")
+
+
+@mark.e2e_search_simulated_mc_rs
+def test_recreate_local_search_resources_and_restart_operator(
+    namespace: str,
+    mdb: MongoDBMulti,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    mcc, mdbs = per_cluster_mdbs_search[0]
+    cluster_index = _idx(mcc)
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(mdbs.name, cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(mdbs.name, cluster_index)
+    mongot_cm_name = search_resource_names.mongot_configmap_name_for_cluster(mdbs.name, cluster_index)
+    envoy_name = search_resource_names.lb_deployment_name(mdbs.name, cluster_index)
+    envoy_cm_name = search_resource_names.lb_configmap_name(mdbs.name, cluster_index)
+    desired_mongot_replicas = apps.read_namespaced_stateful_set(sts_name, namespace).spec.replicas
+
+    resources = (
+        (
+            "mongot StatefulSet",
+            lambda: apps.read_namespaced_stateful_set(sts_name, namespace),
+            lambda: apps.delete_namespaced_stateful_set(sts_name, namespace),
+        ),
+        (
+            "mongot Service",
+            lambda: core.read_namespaced_service(svc_name, namespace),
+            lambda: core.delete_namespaced_service(svc_name, namespace),
+        ),
+        (
+            "mongot ConfigMap",
+            lambda: core.read_namespaced_config_map(mongot_cm_name, namespace),
+            lambda: core.delete_namespaced_config_map(mongot_cm_name, namespace),
+        ),
+        (
+            "Envoy Deployment",
+            lambda: apps.read_namespaced_deployment(envoy_name, namespace),
+            lambda: apps.delete_namespaced_deployment(envoy_name, namespace),
+        ),
+        (
+            "Envoy ConfigMap",
+            lambda: core.read_namespaced_config_map(envoy_cm_name, namespace),
+            lambda: core.delete_namespaced_config_map(envoy_cm_name, namespace),
+        ),
+    )
+    old_uids = [(kind, read, read().metadata.uid) for kind, read, _ in resources]
+    for _, _, delete in resources:
+        delete()
+    for kind, read, old_uid in old_uids:
+        _wait_for_recreated(read, old_uid, f"{kind} in {mcc.cluster_name}")
+
+    assert_workload_ready_in_cluster(
+        mcc,
+        namespace,
+        {sts_name: desired_mongot_replicas},
+        envoy_name,
+        timeout=300,
+    )
+
+    Operator(namespace=namespace, name=SIMULATED_OPERATOR_NAME, api_client=mcc.api_client).restart_operator_deployment()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    assert_workload_ready_in_cluster(
+        mcc,
+        namespace,
+        {sts_name: desired_mongot_replicas},
+        envoy_name,
+        timeout=300,
+    )
+
+    pod_host = f"{mdb.name}-{cluster_index}-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+    movies = SampleMoviesSearchHelper(search_tester=per_cluster_search_tester(pod_host, USER_NAME, USER_PASSWORD))
+    movies.assert_search_query(retry_timeout=SEARCH_QUERY_RETRY_TIMEOUT)
 
 
 @mark.e2e_search_simulated_mc_rs

@@ -117,6 +117,16 @@ def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str
     assert matching, f"no PVC with prefix {pvc_prefix!r} found for shard {shard_name}"
     logger.info(f"PVC(s) {matching} exist for shard {shard_name}")
 
+    source_tls_secret_name = search_resource_names.shard_tls_cert_name(mdbs_name, shard_name, MDBS_TLS_CERT_PREFIX)
+    operator_tls_secret_name = f"{mdbs_name}-search-0-{shard_name}-certificate-key"
+    core_v1.read_namespaced_secret(source_tls_secret_name, namespace)
+    core_v1.read_namespaced_secret(operator_tls_secret_name, namespace)
+    logger.info(
+        "Source TLS Secret %s and operator-managed copy %s exist",
+        source_tls_secret_name,
+        operator_tls_secret_name,
+    )
+
 
 def verify_shard_proxy_service_deleted(namespace: str, mdbs_name: str, shard_name: str):
     core_v1 = client.CoreV1Api()
@@ -553,6 +563,29 @@ def test_scale_down_verify_stale_resources_cleaned(namespace: str):
     removed_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
     verify_shard_proxy_service_deleted(namespace, MDBS_RESOURCE_NAME, removed_shard_name)
     verify_shard_resources_deleted(namespace, MDBS_RESOURCE_NAME, removed_shard_name)
+
+    core_v1 = client.CoreV1Api()
+    source_tls_secret_name = search_resource_names.shard_tls_cert_name(
+        MDBS_RESOURCE_NAME, removed_shard_name, MDBS_TLS_CERT_PREFIX
+    )
+    operator_tls_secret_name = f"{MDBS_RESOURCE_NAME}-search-0-{removed_shard_name}-certificate-key"
+
+    def operator_tls_secret_gone():
+        try:
+            core_v1.read_namespaced_secret(operator_tls_secret_name, namespace)
+            return False, f"operator-managed TLS Secret {operator_tls_secret_name} still exists"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"operator-managed TLS Secret {operator_tls_secret_name} deleted"
+            raise
+
+    run_periodically(
+        operator_tls_secret_gone,
+        timeout=300,
+        sleep_time=10,
+        msg=f"operator-managed TLS Secret {operator_tls_secret_name} deletion",
+    )
+    core_v1.read_namespaced_secret(source_tls_secret_name, namespace)
     logger.info(f"Stale mongot resources for {removed_shard_name} confirmed fully deleted")
 
 

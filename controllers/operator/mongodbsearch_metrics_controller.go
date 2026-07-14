@@ -1006,6 +1006,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 			dep.Labels = merge.StringToStringMap(dep.Labels, deploymentOverride.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, deploymentOverride.MetadataWrapper.Annotations)
 		}
+		dep.Labels = khandler.ReapplyProtectedSearchLabels(dep.Labels, labels)
 		return nil
 	})
 	if err != nil {
@@ -1118,10 +1119,11 @@ func metricsForwarderResourceRequirements(search *searchv1.MongoDBSearch) corev1
 // clusterName=="" (single-cluster/central): cluster-name label is omitted.
 func metricsForwarderLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
 	labels := map[string]string{
-		"app":                                search.MetricsForwarderDeploymentNameForCluster(clusterIndex),
-		"component":                          metricsForwarderLabelName,
-		khandler.MongoDBSearchOwnerNameLabel: search.Name,
+		"app":                                     search.MetricsForwarderDeploymentNameForCluster(clusterIndex),
+		khandler.MongoDBSearchComponentLabel:      metricsForwarderLabelName,
+		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
 		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+		khandler.MongoDBSearchOwnerUIDLabel:       string(search.UID),
 	}
 	if clusterName != "" {
 		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
@@ -1295,17 +1297,22 @@ func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
+	mapperFunc := khandler.EnqueueMemberClusterObjectToSearch
+	mapper := handler.EnqueueRequestsFromMapFunc(mapperFunc)
+	searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
+		return err
+	}
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch, MapFunc: mapperFunc})); err != nil {
 		return err
 	}
 
 	// Per-member-cluster resource watches: label-based mapper, since cross-cluster owner refs don't GC.
-	mapper := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set metrics forwarder Deployment watch on member cluster %s: %w", k, err)
 		}
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set metrics forwarder ConfigMap watch on member cluster %s: %w", k, err)
 		}
 	}

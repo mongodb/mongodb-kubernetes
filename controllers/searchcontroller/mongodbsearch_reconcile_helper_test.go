@@ -33,6 +33,7 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -578,6 +579,7 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 					Mode: searchv1.PrometheusModeEnabled,
 					Port: 9999,
 				}
+
 			},
 			expectedPorts: map[string]int32{
 				"mongot-grpc": searchv1.MongotDefaultGrpcPort,
@@ -616,6 +618,41 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 			assertServicePorts(t, svc, tc.expectedPorts)
 		})
 	}
+}
+
+func TestStatefulSetOverridePreservesProtectedSearchLabels(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns", func(search *searchv1.MongoDBSearch) {
+		search.UID = "search-uid"
+		search.Spec.Clusters = []searchv1.ClusterSpec{{
+			Name: "member-a",
+			StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+				MetadataWrapper: v1.StatefulSetMetadataWrapper{
+					Labels: map[string]string{
+						"custom-label":                            "custom-value",
+						khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+						khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+						khandler.MongoDBSearchOwnerUIDLabel:       "wrong-uid",
+						khandler.MongoDBSearchClusterNameLabel:    "wrong-cluster",
+						khandler.MongoDBSearchComponentLabel:      "wrong-component",
+					},
+				},
+			},
+		}}
+	})
+	sizing := search.EffectiveClusters()[0]
+	sts := statefulset.New(
+		CreateSearchStatefulSetFunc(search, sizing, "test-search-search-0", search.Namespace, "test-search-search-0-svc", "test-search-search-0-config", map[string]string{"app": "test-search-search-0"}, "mongot:latest", false),
+		withSearchOwnerLabels(search, "member-a"),
+		StatefulSetOverrideModification(sizing.StatefulSetConfiguration),
+		withSearchOwnerLabels(search, "member-a"),
+	)
+
+	assert.Equal(t, "custom-value", sts.Labels["custom-label"])
+	assert.Equal(t, search.Name, sts.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, sts.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), sts.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, "member-a", sts.Labels[khandler.MongoDBSearchClusterNameLabel])
+	assert.Equal(t, mongotComponent, sts.Labels[khandler.MongoDBSearchComponentLabel])
 }
 
 var (

@@ -206,12 +206,13 @@ class Operator(object):
         )
 
         # wait till there are 0 operator pods
-        count = 0
-        while count < 6:
+        for _ in range(20):
             pods = self.list_operator_pods()
             if len(pods) == 0:
                 break
             time.sleep(3)
+        else:
+            raise AssertionError(f"Operator pods for {self.name} did not terminate")
 
         # scale the resource back to 1
         client.AppsV1Api(api_client=self.api_client).patch_namespaced_deployment_scale(

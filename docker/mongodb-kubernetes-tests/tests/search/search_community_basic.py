@@ -1,6 +1,15 @@
 import yaml
 from kubernetes import client
-from kubetester import create_or_update_secret, read_configmap, statefulset_is_deleted, try_load
+from kubernetes.client.rest import ApiException
+from kubetester import (
+    create_or_update_secret,
+    get_statefulset,
+    read_configmap,
+    statefulset_is_deleted,
+    try_load,
+    wait_for_statefulset_ready,
+    wait_for_statefulset_recreated,
+)
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb_community import MongoDBCommunity
@@ -27,6 +36,8 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = "mdb-user-pass"
 
 MDBC_RESOURCE_NAME = "mdbc-rs"
+CUSTOM_STATEFULSET_LABEL = "search-lifecycle-test"
+CUSTOM_STATEFULSET_LABEL_VALUE = "preserved"
 
 
 @fixture(scope="function")
@@ -52,6 +63,10 @@ def mdbs(namespace: str) -> MongoDBSearch:
     )
 
     try_load(resource)
+    resource["spec"]["clusters"][0]["statefulSet"] = {
+        "metadata": {"labels": {CUSTOM_STATEFULSET_LABEL: CUSTOM_STATEFULSET_LABEL_VALUE}},
+        "spec": {},
+    }
     resource["spec"]["clusters"][0]["advancedMongotConfigs"] = ADVANCED_MONGOT_CONFIGS
     return resource
 
@@ -83,6 +98,17 @@ def test_create_database_resource(mdbc: MongoDBCommunity):
 def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_search_community_basic
+def test_search_statefulset_preserves_custom_and_protected_labels(namespace: str, mdbs: MongoDBSearch):
+    mdbs.load()
+    sts = get_statefulset(namespace, search_resource_names.mongot_statefulset_name(mdbs.name))
+    assert sts.metadata.labels[CUSTOM_STATEFULSET_LABEL] == CUSTOM_STATEFULSET_LABEL_VALUE
+    assert sts.metadata.labels["mongodb.com/search-name"] == mdbs.name
+    assert sts.metadata.labels["mongodb.com/search-namespace"] == namespace
+    assert sts.metadata.labels["mongodb.com/search-uid"] == mdbs["metadata"]["uid"]
+    assert sts.metadata.labels["component"] == "mongot"
 
 
 @mark.e2e_search_community_basic
@@ -119,6 +145,68 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 @mark.e2e_search_community_basic
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)
+
+
+def _wait_for_absence(read_resource, description: str, timeout: int = 300) -> None:
+    def check():
+        try:
+            read_resource()
+            return False, f"{description} still exists"
+        except ApiException as exc:
+            if exc.status == 404:
+                return True, f"{description} deleted"
+            raise
+
+    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"{description} deletion")
+
+
+def _wait_for_recreated(read_resource, old_uid: str, description: str, timeout: int = 300) -> None:
+    def check():
+        try:
+            resource = read_resource()
+            return resource.metadata.uid != old_uid, f"{description} UID is {resource.metadata.uid}"
+        except ApiException as exc:
+            if exc.status == 404:
+                return False, f"{description} is absent"
+            raise
+
+    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"{description} recreation")
+
+
+@mark.e2e_search_community_basic
+def test_recreate_mongot_top_level_resources(
+    namespace: str,
+    mdbs: MongoDBSearch,
+    sample_movies_helper: SampleMoviesSearchHelper,
+):
+    apps = client.AppsV1Api()
+    core = client.CoreV1Api()
+    sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    svc_name = search_resource_names.mongot_service_name(mdbs.name)
+    cm_name = search_resource_names.mongot_configmap_name(mdbs.name)
+
+    old_sts_uid = apps.read_namespaced_stateful_set(sts_name, namespace).metadata.uid
+    old_svc_uid = core.read_namespaced_service(svc_name, namespace).metadata.uid
+    old_cm_uid = core.read_namespaced_config_map(cm_name, namespace).metadata.uid
+
+    apps.delete_namespaced_stateful_set(sts_name, namespace)
+    core.delete_namespaced_service(svc_name, namespace)
+    core.delete_namespaced_config_map(cm_name, namespace)
+
+    wait_for_statefulset_recreated(namespace, sts_name, old_sts_uid, timeout=300)
+    _wait_for_recreated(
+        lambda: core.read_namespaced_service(svc_name, namespace),
+        old_svc_uid,
+        f"Service {namespace}/{svc_name}",
+    )
+    _wait_for_recreated(
+        lambda: core.read_namespaced_config_map(cm_name, namespace),
+        old_cm_uid,
+        f"ConfigMap {namespace}/{cm_name}",
+    )
+    wait_for_statefulset_ready(namespace, sts_name)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+    sample_movies_helper.assert_search_query(retry_timeout=120)
 
 
 def _mongot_data_pvc_names(namespace: str, sts_name: str) -> list[str]:
@@ -166,10 +254,16 @@ def test_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     StatefulSet and the persistentVolumeClaimRetentionPolicy{whenDeleted:Delete}
     reclaims its data PVC."""
     sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    svc_name = search_resource_names.mongot_service_name(mdbs.name)
+    cm_name = search_resource_names.mongot_configmap_name(mdbs.name)
+    pod_name = f"{sts_name}-0"
 
     # Presence guard: the STS and its data PVC must exist before delete, otherwise
     # the post-delete absence checks below could pass vacuously.
     client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace)
+    client.CoreV1Api().read_namespaced_service(svc_name, namespace)
+    client.CoreV1Api().read_namespaced_config_map(cm_name, namespace)
+    client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
     pvcs_before = _mongot_data_pvc_names(namespace, sts_name)
     assert pvcs_before, f"expected at least one mongot data PVC for {sts_name} before delete"
     logger.info(f"pre-delete: STS {sts_name} present, data PVCs {pvcs_before}")
@@ -181,5 +275,17 @@ def test_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
         timeout=300,
         sleep_time=5,
         msg=f"mongot StatefulSet {sts_name} deletion after MongoDBSearch delete",
+    )
+    _wait_for_absence(
+        lambda: client.CoreV1Api().read_namespaced_service(svc_name, namespace),
+        f"Service {namespace}/{svc_name}",
+    )
+    _wait_for_absence(
+        lambda: client.CoreV1Api().read_namespaced_config_map(cm_name, namespace),
+        f"ConfigMap {namespace}/{cm_name}",
+    )
+    _wait_for_absence(
+        lambda: client.CoreV1Api().read_namespaced_pod(pod_name, namespace),
+        f"Pod {namespace}/{pod_name}",
     )
     wait_for_mongot_pvcs_deleted(namespace, sts_name, timeout=300)

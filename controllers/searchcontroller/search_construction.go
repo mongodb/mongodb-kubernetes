@@ -184,12 +184,13 @@ func withDataPVCRetentionPolicy() statefulset.Modification {
 
 // StatefulSetOverrideModification applies the resolved clusters[].statefulSet, with any
 // shardOverrides[].statefulSet already deep-merged in (see ResolveSizingForClusterShard).
-// It must run LAST in the modification chain, over the fully built StatefulSet: the override
+// It must run after the fully built StatefulSet: the override
 // merge sorts volumes by name, so merging mid-pipeline (before the password/TLS
 // volume modifications append) yields a different volume order on the create and
 // update paths — the first reconcile after STS creation then sees a spurious
 // template diff and rolls every mongot pod. Applying last also makes the user
-// override win over operator-set fields, as the CRD field documents.
+// override win over operator-set fields, as the CRD field documents. Protected
+// lifecycle labels may be restored afterward without changing the merged spec.
 func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) statefulset.Modification {
 	if stsConfig == nil {
 		return statefulset.NOOP()
