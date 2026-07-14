@@ -29,6 +29,7 @@ from tests.common.multicluster.multicluster_utils import assert_workload_ready_i
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import (
     assert_search_artifacts_present,
+    protected_search_input_uids,
     wait_for_resource_recreated,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
@@ -725,6 +726,8 @@ def test_delete_search_resources_cleanup_per_cluster(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
 ):
     assert_per_cluster_count(per_cluster_mdbs_search)
+    source_tls_secret_name = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    sync_user_secret_name = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
     resources_by_cluster = []
     for mcc, mdbs in per_cluster_mdbs_search:
         idx = _idx(mcc)
@@ -739,10 +742,27 @@ def test_delete_search_resources_cleanup_per_cluster(
         }
 
         assert_search_artifacts_present(mcc, namespace, names)
+        protected_uids = protected_search_input_uids(
+            mcc.core_v1_api(),
+            namespace,
+            source_tls_secret_name,
+            sync_user_secret_name,
+            CA_CONFIGMAP_NAME,
+        )
 
-        resources_by_cluster.append((mcc, mdbs, names))
+        resources_by_cluster.append((mcc, mdbs, names, protected_uids))
 
-    for mcc, mdbs, names in resources_by_cluster:
+    for mcc, mdbs, names, protected_uids in resources_by_cluster:
         mdbs.delete()
         wait_for_search_deleted(mdbs, timeout=600)
         wait_for_search_artifacts_deleted(mcc, namespace, names)
+        assert (
+            protected_search_input_uids(
+                mcc.core_v1_api(),
+                namespace,
+                source_tls_secret_name,
+                sync_user_secret_name,
+                CA_CONFIGMAP_NAME,
+            )
+            == protected_uids
+        )

@@ -98,6 +98,8 @@ func (c *ResourcesHandler) doMap(ctx context.Context, obj client.Object, q workq
 func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	switch e.Object.(type) {
 	case *corev1.ConfigMap, *corev1.Secret:
+		// MapFunc is the Search-only opt-in for ConfigMap/Secret delete routing;
+		// legacy handlers must not set it only to map create/update events.
 		if c.MapFunc == nil {
 			return
 		}

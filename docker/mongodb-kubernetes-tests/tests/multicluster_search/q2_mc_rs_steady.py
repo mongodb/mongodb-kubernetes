@@ -44,6 +44,7 @@ from tests.common.search.connectivity import (
     CLUSTER_LOCATION_TAG_KEY,
     assert_search_artifacts_present,
     mongot_data_pvc_names,
+    protected_search_input_uids,
     wait_for_mongot_pvcs_deleted,
     wait_for_resource_deleted,
     wait_for_search_artifacts_deleted,
@@ -509,21 +510,6 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror MongotConfigConfigMapNameForCluster."""
-    return f"{mdbs_name}-search-{cluster_index}-config"
-
-
-def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror LoadBalancerDeploymentNameForCluster: `{name}-search-lb-{clusterIndex}`."""
-    return f"{mdbs_name}-search-lb-{cluster_index}"
-
-
-def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-{clusterIndex}-config`."""
-    return f"{mdbs_name}-search-lb-{cluster_index}-config"
-
-
 def _assert_no_owner_refs(owner_refs: list | None, where: str) -> None:
     owner_refs = owner_refs or []
     assert not owner_refs, f"{where} must have no ownerReferences in multi-cluster mode, got {owner_refs}"
@@ -623,7 +609,7 @@ def test_verify_per_cluster_mongot_resources(
         idx = helper.cluster_index(mcc.cluster_name)
         sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
         svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-svc"
-        cm_name = _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, idx)
+        cm_name = search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, idx)
         proxy_svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc"
 
         sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
@@ -760,8 +746,8 @@ def test_verify_per_cluster_envoy_deployment(
     """
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
-        envoy_deployment_name = _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
-        envoy_cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
+        envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
+        envoy_cm_name = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         apps = mcc.apps_v1_api()
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
@@ -971,7 +957,7 @@ def test_per_cluster_envoy_sni_observed(
     """
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
-        cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
+        cm_name = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         expected_fqdn = search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)
 
         cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
@@ -1258,19 +1244,21 @@ def test_delete_search_resource_cleans_all_member_cluster_artifacts(
             "sts": search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
             "svc": search_resource_names.mongot_service_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
             "proxy": search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, cluster_idx),
-            "mongot_cm": _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, cluster_idx),
-            "envoy_deployment": _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx),
-            "envoy_cm": _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx),
+            "mongot_cm": search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
+            "envoy_deployment": search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_idx),
+            "envoy_cm": search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_idx),
             "operator_tls_secret": search_resource_names.operator_managed_tls_secret_name(MDBS_RESOURCE_NAME),
         }
 
         assert_search_artifacts_present(mcc, namespace, names)
         core = mcc.core_v1_api()
-        protected_uids = {
-            "source_tls_secret": core.read_namespaced_secret(source_tls_secret_name, namespace).metadata.uid,
-            "sync_user_secret": core.read_namespaced_secret(sync_user_secret_name, namespace).metadata.uid,
-            "ca_configmap": core.read_namespaced_config_map(CA_CONFIGMAP_NAME, namespace).metadata.uid,
-        }
+        protected_uids = protected_search_input_uids(
+            core,
+            namespace,
+            source_tls_secret_name,
+            sync_user_secret_name,
+            CA_CONFIGMAP_NAME,
+        )
 
         resource_by_cluster.append((mcc, names, protected_uids))
 
@@ -1279,15 +1267,13 @@ def test_delete_search_resource_cleans_all_member_cluster_artifacts(
 
     for mcc, names, protected_uids in resource_by_cluster:
         wait_for_search_artifacts_deleted(mcc, namespace, names)
-        core = mcc.core_v1_api()
         assert (
-            core.read_namespaced_secret(source_tls_secret_name, namespace).metadata.uid
-            == protected_uids["source_tls_secret"]
-        )
-        assert (
-            core.read_namespaced_secret(sync_user_secret_name, namespace).metadata.uid
-            == protected_uids["sync_user_secret"]
-        )
-        assert (
-            core.read_namespaced_config_map(CA_CONFIGMAP_NAME, namespace).metadata.uid == protected_uids["ca_configmap"]
+            protected_search_input_uids(
+                mcc.core_v1_api(),
+                namespace,
+                source_tls_secret_name,
+                sync_user_secret_name,
+                CA_CONFIGMAP_NAME,
+            )
+            == protected_uids
         )

@@ -952,21 +952,35 @@ def wait_for_resource_recreated(read_fn: Callable[[], Any], old_uid: str, what: 
 
 
 def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
-    def deleted() -> tuple[bool, str]:
-        try:
-            mdbs.load()
-            return False, f"MongoDBSearch {mdbs.name} still present"
-        except client.exceptions.ApiException as exc:
-            if exc.status == 404:
-                return True, f"MongoDBSearch {mdbs.name} deleted"
-            raise
+    wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
 
-    run_periodically(
-        deleted,
-        timeout=timeout,
-        sleep_time=5,
-        msg=f"MongoDBSearch {mdbs.name} deletion",
-    )
+
+def protected_search_input_uids(
+    core_v1: Any,
+    namespace: str,
+    source_tls_secret_name: str,
+    sync_user_secret_name: str,
+    ca_configmap_name: str,
+) -> dict[str, str]:
+    def uid(resource: Any, what: str) -> str:
+        value = resource.metadata.uid
+        assert value, f"{what} has no UID"
+        return value
+
+    return {
+        "source_tls_secret": uid(
+            core_v1.read_namespaced_secret(source_tls_secret_name, namespace),
+            f"Secret {source_tls_secret_name}",
+        ),
+        "sync_user_secret": uid(
+            core_v1.read_namespaced_secret(sync_user_secret_name, namespace),
+            f"Secret {sync_user_secret_name}",
+        ),
+        "ca_configmap": uid(
+            core_v1.read_namespaced_config_map(ca_configmap_name, namespace),
+            f"ConfigMap {ca_configmap_name}",
+        ),
+    }
 
 
 def assert_search_artifacts_present(
