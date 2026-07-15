@@ -284,6 +284,16 @@ functions:
         - ${workdir}/bin
       command: scripts/dev/setup_chart_testing_cli.sh
 
+  setup_prek: &setup_prek
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      binary: scripts/evergreen/setup_prek.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -293,6 +303,7 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/setup_yq.sh
     - *setup_chart_testing_cli
+    - *setup_prek
     - command: subprocess.exec
       type: test
       params:
@@ -300,7 +311,17 @@ functions:
           - ${workdir}/bin
           - ${workdir}/venv/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
-        binary: scripts/evergreen/check_precommit.sh
+        binary: scripts/evergreen/check_precommit.sh --full
+
+  test_bash:
+    - command: subprocess.exec
+      type: test
+      params:
+        add_to_path:
+          - ${workdir}/bin
+          - ${workdir}/venv/bin
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/test/bash/run.sh
 
   # Configures docker authentication to ECR and RH registries.
   setup_building_host:
@@ -583,7 +604,7 @@ functions:
           - --image
           - mongodb-enterprise-server
           - --submit
-          - ${preflight_submit}
+          - "false"
 
   # publish_helm_chart packages and publishes the MCK helm chart to the OCI container registry
   publish_helm_chart:
@@ -721,6 +742,11 @@ functions:
         binary: scripts/evergreen/e2e/e2e.sh
 
   e2e_test_perf:
+    # Perf tasks provision and roll many deployments; the 300-deployment task exceeds the
+    # global 2h exec_timeout_secs. Raise the limit for perf tasks only.
+    - command: timeout.update
+      params:
+        exec_timeout_secs: 14400
     - command: subprocess.exec
       type: test
       retry_on_failure: true
@@ -956,5 +982,6 @@ functions:
           - EVERGREEN_USER
           - EVERGREEN_API_KEY
           - SLACK_WEBHOOK_URL
+          - HONEYCOMB_API_KEY
           - version_id
         binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py

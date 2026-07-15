@@ -1,6 +1,6 @@
-// Package cli builds the cobra command tree for mckctl.
+// Package cli builds the cobra command tree for mckci.
 //
-// NewRoot is the single entry point: cmd/mckctl/main.go calls it, and tests
+// NewRoot is the single entry point: cmd/mckci/main.go calls it, and tests
 // instantiate fresh root commands per case. Subcommands register themselves
 // here in NewRoot; their implementations live in sibling files (one file per
 // subcommand) so they stay independently testable.
@@ -15,9 +15,9 @@ import (
 // without shared global cobra state.
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
-		Use:          "mckctl",
+		Use:          "mckci",
 		Short:        "MCK developer tooling",
-		Long:         "mckctl centralizes MCK developer tooling so it can be invoked identically from local shells, GitHub Actions, and Evergreen.",
+		Long:         "mckci centralizes MCK developer tooling so it can be invoked identically from local shells, GitHub Actions, and Evergreen.",
 		SilenceUsage: true,
 		// No subcommand selected: print help and succeed instead of returning
 		// flag.ErrHelp (which would otherwise propagate as exit 1 from main).
@@ -27,6 +27,7 @@ func NewRoot() *cobra.Command {
 	}
 
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newReleaseCmd())
 
 	return root
 }

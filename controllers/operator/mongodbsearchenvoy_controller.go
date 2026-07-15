@@ -531,6 +531,10 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 	_, err = controllerutil.CreateOrUpdate(ctx, c, dep, func() error {
 		dep.Labels = labels
 
+		podAnnotations := merge.StringToStringMap(dep.Spec.Template.Annotations, map[string]string{
+			envoyConfigHashAnnotation: configHash,
+		})
+
 		dep.Spec = appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
@@ -538,10 +542,8 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: podLabels,
-					Annotations: map[string]string{
-						envoyConfigHashAnnotation: configHash,
-					},
+					Labels:      podLabels,
+					Annotations: podAnnotations,
 				},
 				Spec: buildEnvoyPodSpec(search, clusterIndex, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
 			},

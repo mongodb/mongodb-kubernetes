@@ -404,3 +404,32 @@ func TestOpsManager_RunValidations_InvalidPreRelease(t *testing.T) {
 	assert.Equal(t, uint64(5), version.Minor)
 	assert.Equal(t, uint64(0), version.Patch)
 }
+
+func TestWarnMonitoringAgentStartupParameters(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().Build()
+	om.Spec.AppDB.MonitoringAgent.StartupParameters = mdbv1.StartupParameters{"key": "value"}
+
+	results := om.RunValidations()
+
+	warnings := warningsFromResults(results)
+	assert.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "startupOptions is deprecated")
+}
+
+func TestWarnMonitoringAgentStartupParameters_NoWarnWhenEmpty(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().Build()
+
+	results := om.RunValidations()
+
+	assert.Empty(t, warningsFromResults(results))
+}
+
+func warningsFromResults(results []v1.ValidationResult) []string {
+	var warnings []string
+	for _, r := range results {
+		if r.Level == v1.WarningLevel {
+			warnings = append(warnings, r.Msg)
+		}
+	}
+	return warnings
+}

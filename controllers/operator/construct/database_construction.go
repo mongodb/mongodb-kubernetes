@@ -62,7 +62,6 @@ const (
 
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
-	LogFileAutomationAgentStderrEnv  = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
@@ -963,10 +962,8 @@ func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar
 	logFileWithoutExt := logFileName[0 : len(logFileName)-len(logFileExt)]
 
 	verboseLogFile := fmt.Sprintf("%s%s-verbose%s", logFileDir, logFileWithoutExt, logFileExt)
-	stderrLogFile := fmt.Sprintf("%s%s-stderr%s", logFileDir, logFileWithoutExt, logFileExt)
 	return []corev1.EnvVar{
 		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
-		{Name: LogFileAutomationAgentStderrEnv, Value: stderrLogFile},
 		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
 	}
 }

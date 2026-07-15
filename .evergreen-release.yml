@@ -424,5 +424,13 @@ buildvariants:
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
+    # Gate the chart release on the container images being published. A chart must
+    # never reference an operator/agent image that hasn't been pushed yet.
+    # patch_optional keeps this ordering only when release_images actually runs, so
+    # a future publish-only flow (no image rebuild) won't be blocked by it.
+    depends_on:
+      - name: "*"
+        variant: release_images
+        patch_optional: true
     tasks:
       - name: release_chart_to_oci_registry
