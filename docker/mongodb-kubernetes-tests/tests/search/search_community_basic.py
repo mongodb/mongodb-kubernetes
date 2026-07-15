@@ -69,7 +69,12 @@ def mdbs(namespace: str) -> MongoDBSearch:
 
     try_load(resource)
     resource["spec"]["clusters"][0]["statefulSet"] = {
-        "metadata": {"labels": {CUSTOM_STATEFULSET_LABEL: CUSTOM_STATEFULSET_LABEL_VALUE}},
+        "metadata": {
+            "labels": {
+                CUSTOM_STATEFULSET_LABEL: CUSTOM_STATEFULSET_LABEL_VALUE,
+                "component": "bogus",
+            }
+        },
         "spec": {},
     }
     resource["spec"]["clusters"][0]["advancedMongotConfigs"] = ADVANCED_MONGOT_CONFIGS
@@ -114,6 +119,30 @@ def test_search_statefulset_preserves_custom_and_protected_labels(namespace: str
     assert sts.metadata.labels["mongodb.com/search-namespace"] == namespace
     assert sts.metadata.labels["mongodb.com/search-uid"] == mdbs["metadata"]["uid"]
     assert sts.metadata.labels["component"] == "mongot"
+
+
+@mark.e2e_search_community_basic
+def test_search_statefulset_restores_removed_owner_label(namespace: str, mdbs: MongoDBSearch):
+    apps = client.AppsV1Api()
+    sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    patched = apps.patch_namespaced_stateful_set(
+        sts_name,
+        namespace,
+        {"metadata": {"labels": {"mongodb.com/search-name": None}}},
+    )
+    assert "mongodb.com/search-name" not in (patched.metadata.labels or {})
+
+    run_periodically(
+        lambda: (
+            (apps.read_namespaced_stateful_set(sts_name, namespace).metadata.labels or {}).get(
+                "mongodb.com/search-name"
+            )
+            == mdbs.name
+        ),
+        timeout=300,
+        sleep_time=5,
+        msg=f"StatefulSet {namespace}/{sts_name} Search owner label restoration",
+    )
 
 
 @mark.e2e_search_community_basic

@@ -11,6 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
+from tests.common.search.connectivity import wait_for_resource_deleted
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import (
     metrics_forwarder_configmap_name,
@@ -192,7 +193,34 @@ def test_disable_metrics_forwarder(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_metrics_forwarder_replicaset
 def test_deleteing_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
+    ensure_nested_objects(mdbs, ["spec", "observability", "metricsForwarder"])
+    mdbs["spec"]["observability"]["metricsForwarder"]["mode"] = "enabled"
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+
+    def metrics_forwarder_running():
+        mdbs.reload()
+        status = mdbs.get_metrics_forwarder_status()
+        return status is not None and status.get("phase") == Phase.Running.name
+
+    run_periodically(metrics_forwarder_running, timeout=120, interval=10)
+
+    deployment_name = metrics_forwarder_deployment_name(MDB_RESOURCE_NAME)
+    configmap_name = metrics_forwarder_configmap_name(MDB_RESOURCE_NAME)
+    apps = client.AppsV1Api()
+    core = client.CoreV1Api()
+    apps.read_namespaced_deployment(deployment_name, mdbs.namespace)
+    core.read_namespaced_config_map(configmap_name, mdbs.namespace)
+
     mdbs.delete()
 
     tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
     tester.assert_mongot_hosts_converged(set())
+    wait_for_resource_deleted(
+        lambda: apps.read_namespaced_deployment(deployment_name, mdbs.namespace),
+        f"metrics-forwarder Deployment {mdbs.namespace}/{deployment_name}",
+    )
+    wait_for_resource_deleted(
+        lambda: core.read_namespaced_config_map(configmap_name, mdbs.namespace),
+        f"metrics-forwarder ConfigMap {mdbs.namespace}/{configmap_name}",
+    )

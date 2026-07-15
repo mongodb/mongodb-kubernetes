@@ -47,6 +47,7 @@ from tests.common.search.connectivity import (
     protected_search_input_uids,
     wait_for_mongot_pvcs_deleted,
     wait_for_resource_deleted,
+    wait_for_resource_recreated,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
@@ -766,6 +767,7 @@ def test_named_single_cluster_shape_no_owner_refs_and_cleanup(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     mdb: MongoDBMulti,
+    mdbs: MongoDBSearch,
     ca_configmap: str,
 ):
     target_cluster = member_cluster_clients[0]
@@ -844,6 +846,37 @@ def test_named_single_cluster_shape_no_owner_refs_and_cleanup(
 
     pvcs_before = mongot_data_pvc_names(namespace, sts_name, api_client=target_cluster.api_client)
     assert pvcs_before, f"expected at least one mongot data PVC for {sts_name} before delete"
+
+    main_cm_name = search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, target_cluster_index)
+    main_envoy_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, target_cluster_index)
+    main_tls_secret_name = search_resource_names.operator_managed_tls_secret_name(MDBS_RESOURCE_NAME)
+    apps = target_cluster.apps_v1_api()
+    core = target_cluster.core_v1_api()
+    old_cm_uid = target_cluster.read_namespaced_config_map(main_cm_name, namespace).metadata.uid
+    old_envoy_uid = apps.read_namespaced_deployment(main_envoy_name, namespace).metadata.uid
+    old_tls_secret_uid = core.read_namespaced_secret(main_tls_secret_name, namespace).metadata.uid
+
+    core.delete_namespaced_config_map(main_cm_name, namespace)
+    apps.delete_namespaced_deployment(main_envoy_name, namespace)
+    core.delete_namespaced_secret(main_tls_secret_name, namespace)
+
+    wait_for_resource_recreated(
+        lambda: target_cluster.read_namespaced_config_map(main_cm_name, namespace),
+        old_cm_uid,
+        f"mongot ConfigMap {main_cm_name} in {target_cluster_name}",
+    )
+    wait_for_resource_recreated(
+        lambda: apps.read_namespaced_deployment(main_envoy_name, namespace),
+        old_envoy_uid,
+        f"Envoy Deployment {main_envoy_name} in {target_cluster_name}",
+    )
+    wait_for_resource_recreated(
+        lambda: core.read_namespaced_secret(main_tls_secret_name, namespace),
+        old_tls_secret_uid,
+        f"operator-managed TLS secret {main_tls_secret_name} in {target_cluster_name}",
+    )
+    assert_deployment_ready_in_cluster(apps, name=main_envoy_name, namespace=namespace)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
     named_single.delete()
     wait_for_search_deleted(named_single, timeout=600)
