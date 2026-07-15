@@ -907,6 +907,11 @@ func (r *MongoDBSearchReconcileHelper) deploymentReadiness(ctx context.Context, 
 	if dep.Status.ReadyReplicas < desired {
 		return workflow.Pending("%s deployment %s not ready: %d/%d replicas ready", kind, name, dep.Status.ReadyReplicas, desired)
 	}
+	// UpdatedReplicas and ReadyReplicas both reach desired even during a stuck rollout (new-spec pod created but unschedulable
+	// while the old pod stays Ready); only UnavailableReplicas reflects the pending surge pod.
+	if dep.Status.UnavailableReplicas > 0 {
+		return workflow.Pending("%s deployment %s rollout in progress: %d unavailable replica(s)", kind, name, dep.Status.UnavailableReplicas)
+	}
 	return workflow.OK()
 }
 
