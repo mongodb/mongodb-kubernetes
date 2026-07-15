@@ -40,8 +40,10 @@ class SwitchProjectHelper:
 
     def test_switch_project(self):
         password_check_required = self.authentication_mechanism in ["MONGODB-CR", "SCRAM-SHA-256"]
+        original_tester = self.resource.get_automation_config_tester()
+        original_auth_key = original_tester.get_auth_key()
+        original_automation_agent_password = ""
         if password_check_required:
-            original_tester = self.resource.get_automation_config_tester()
             original_automation_agent_password = original_tester.get_automation_agent_password()
         original_configmap = read_configmap(namespace=self.namespace, name="my-project")
         new_project_name = f"{self.namespace}-second"
@@ -57,12 +59,16 @@ class SwitchProjectHelper:
         self.resource["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
         self.resource.update()
         self.resource.assert_reaches_phase(Phase.Running, timeout=600)
+        switched_tester = self.resource.get_automation_config_tester()
+        switched_auth_key = switched_tester.get_auth_key()
         if password_check_required:
-            switched_tester = self.resource.get_automation_config_tester()
             switched_automation_agent_password = switched_tester.get_automation_agent_password()
             assert (
                 original_automation_agent_password == switched_automation_agent_password
             ), "The automation agent password changed after switching the project."
+        assert (
+            original_auth_key == switched_auth_key
+        ), "The auth.key (keyfile contents) changed after switching the project."
 
     def test_ops_manager_state_with_users(self, user_name: str, expected_roles: set, expected_users: int):
         tester = self.resource.get_automation_config_tester()

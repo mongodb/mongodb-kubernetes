@@ -229,6 +229,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	// Pre-seed the target project's Automation Config from the prior project
+	// before any pod mutation, so agents switching to the new GROUP_ID find the
+	// same topology and auth.key already in place.
+	if err := connection.EnsureTargetAutomationConfigSeeded(conn, rs.Status.ProjectId, projectConfig, credsConfig, reconciler.omConnectionFactory, log); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
+
 	// === 2. Auth and Certificates
 	// Get certificate paths for later use
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)

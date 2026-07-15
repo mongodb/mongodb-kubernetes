@@ -79,3 +79,46 @@ func EnsureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 	}
 	return err
 }
+
+// EnsureTargetAutomationConfigSeeded copies the full Automation Config from the
+// source project (sourceProjectID) into the target project (targetConn) before
+// any StatefulSet is mutated to point at the new project. The target AC version
+// is preserved. If sourceProjectID is empty or already equals the target group,
+// or the target already has processes, it is a no-op.
+func EnsureTargetAutomationConfigSeeded(targetConn om.Connection, sourceProjectID string, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, log *zap.SugaredLogger) error {
+	if sourceProjectID == "" || sourceProjectID == targetConn.GroupID() {
+		return nil
+	}
+
+	targetAC, err := targetConn.ReadAutomationConfig()
+	if err != nil {
+		return xerrors.Errorf("failed to read target project automation config: %w", err)
+	}
+	if targetAC.Deployment.NumberOfProcesses() > 0 {
+		return nil
+	}
+
+	sourceConn := connectionFunc(&om.OMContext{
+		GroupID:                    sourceProjectID,
+		GroupName:                  projectConfig.ProjectName,
+		OrgID:                      projectConfig.OrgID,
+		BaseURL:                    projectConfig.BaseURL,
+		PublicKey:                  credentials.PublicAPIKey,
+		PrivateKey:                 credentials.PrivateAPIKey,
+		AllowInvalidSSLCertificate: !projectConfig.SSLRequireValidMMSServerCertificates,
+		CACertificate:              projectConfig.SSLMMSCAConfigMapContents,
+	})
+
+	sourceAC, err := sourceConn.ReadAutomationConfig()
+	if err != nil {
+		return xerrors.Errorf("failed to read source project automation config: %w", err)
+	}
+
+	sourceAC.Deployment["version"] = targetAC.Deployment.Version()
+	if err := targetConn.UpdateAutomationConfig(sourceAC, log); err != nil {
+		return xerrors.Errorf("failed to seed target project automation config: %w", err)
+	}
+
+	log.Infof("Seeded target project %s automation config from source project %s", targetConn.GroupID(), sourceProjectID)
+	return nil
+}
