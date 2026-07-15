@@ -33,6 +33,7 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -613,6 +614,58 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 
 			assertServiceBasicProperties(t, svc, mdbSearch)
 			assertServicePorts(t, svc, tc.expectedPorts)
+		})
+	}
+}
+
+func TestStatefulSetOverridePreservesProtectedSearchLabels(t *testing.T) {
+	tests := []struct {
+		name        string
+		clusterName string
+		wantCluster string
+	}{
+		{name: "member cluster restores cluster label", clusterName: "member-a", wantCluster: "member-a"},
+		{name: "legacy single cluster removes injected cluster label"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(search *searchv1.MongoDBSearch) {
+				search.UID = "search-uid"
+				search.Spec.Clusters = []searchv1.ClusterSpec{{
+					Name: tc.clusterName,
+					StatefulSetConfiguration: &v1.StatefulSetConfiguration{
+						MetadataWrapper: v1.StatefulSetMetadataWrapper{
+							Labels: map[string]string{
+								"custom-label":                            "custom-value",
+								khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+								khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+								khandler.MongoDBSearchOwnerUIDLabel:       "wrong-uid",
+								khandler.MongoDBSearchClusterNameLabel:    "wrong-cluster",
+								khandler.MongoDBSearchComponentLabel:      "wrong-component",
+							},
+						},
+					},
+				}}
+			})
+			sizing := search.EffectiveClusters()[0]
+			sts := statefulset.New(
+				CreateSearchStatefulSetFunc(search, sizing, "test-search-search-0", search.Namespace, "test-search-search-0-svc", "test-search-search-0-config", map[string]string{"app": "test-search-search-0"}, "mongot:latest", false),
+				StatefulSetOverrideModification(sizing.StatefulSetConfiguration),
+				withSearchOwnerLabels(search, tc.clusterName),
+			)
+
+			assert.Equal(t, "custom-value", sts.Labels["custom-label"])
+			assert.Equal(t, search.Name, sts.Labels[khandler.MongoDBSearchOwnerNameLabel])
+			assert.Equal(t, search.Namespace, sts.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+			assert.Equal(t, string(search.UID), sts.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+			if tc.wantCluster == "" {
+				assert.NotContains(t, sts.Labels, khandler.MongoDBSearchClusterNameLabel)
+			} else {
+				assert.Equal(t, tc.wantCluster, sts.Labels[khandler.MongoDBSearchClusterNameLabel])
+			}
+			assert.Equal(t, mongotComponent, sts.Labels[khandler.MongoDBSearchComponentLabel])
+			require.Len(t, sts.OwnerReferences, 1)
+			assert.Equal(t, search.UID, sts.OwnerReferences[0].UID)
 		})
 	}
 }
@@ -2594,13 +2647,80 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 	assert.True(t, status.IsOK(), "Expected status to be OK when all secrets exist")
 }
 
+func TestReconcile_IngressTLSSecretIdentity(t *testing.T) {
+	shardName := "shard-0"
+	tests := []struct {
+		name  string
+		setup func(*searchv1.MongoDBSearch) (SearchSourceDBResource, client.Object, types.NamespacedName, types.NamespacedName)
+	}{
+		{
+			name: "replica set",
+			setup: func(search *searchv1.MongoDBSearch) (SearchSourceDBResource, client.Object, types.NamespacedName, types.NamespacedName) {
+				mdbc := newTestMongoDBCommunity("test-mongodb", search.Namespace)
+				return NewCommunityResourceSearchSource(mdbc), mdbc, search.TLSSecretNamespacedName(), search.TLSOperatorSecretNamespacedName()
+			},
+		},
+		{
+			name: "sharded",
+			setup: func(search *searchv1.MongoDBSearch) (SearchSourceDBResource, client.Object, types.NamespacedName, types.NamespacedName) {
+				source := &mockShardedSource{
+					shardNames: []string{shardName},
+					hostSeeds: map[string][]string{
+						shardName: {"shard-0-0.shard-0.test-ns.svc.cluster.local:27017"},
+					},
+				}
+				return source, nil, search.TLSSecretForClusterShard(0, shardName), search.TLSOperatorSecretForClusterShard(0, shardName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.UID = "search-uid"
+				s.Spec.Security = searchv1.Security{
+					TLS: &searchv1.TLS{
+						CertsSecretPrefix: "my-prefix",
+					},
+				}
+			})
+			source, sourceObject, sourceSecretName, operatorSecretName := tc.setup(search)
+			sourceSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: sourceSecretName.Name, Namespace: sourceSecretName.Namespace},
+				Data: map[string][]byte{
+					"tls.crt": []byte("cert-data"),
+					"tls.key": []byte("key-data"),
+				},
+			}
+			objects := []client.Object{search, sourceSecret}
+			if sourceObject != nil {
+				objects = append(objects, sourceObject)
+			}
+			fakeClient := newTestFakeClient(objects...)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, nil)
+
+			helper.reconcile(t.Context(), zap.S())
+
+			operatorSecret, err := fakeClient.GetSecret(t.Context(), operatorSecretName)
+			require.NoError(t, err)
+			require.Len(t, operatorSecret.OwnerReferences, 1)
+			assert.Equal(t, search.UID, operatorSecret.OwnerReferences[0].UID)
+			assert.Equal(t, mongotComponent, operatorSecret.Labels[khandler.MongoDBSearchComponentLabel])
+			assert.Equal(t, search.Name, operatorSecret.Labels[khandler.MongoDBSearchOwnerNameLabel])
+			assert.Equal(t, search.Namespace, operatorSecret.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+			assert.Equal(t, string(search.UID), operatorSecret.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+			assert.NotContains(t, operatorSecret.Labels, khandler.MongoDBSearchClusterNameLabel)
+		})
+	}
+}
+
 func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.NoError(t, err)
 
 	// Apply modifications and verify no changes
@@ -2641,7 +2761,7 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tls must be enabled")
 }
@@ -2666,8 +2786,14 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.NoError(t, err)
+	operatorSecret, err := fakeClient.GetSecret(t.Context(), search.X509OperatorManagedSecret())
+	require.NoError(t, err)
+	require.Len(t, operatorSecret.OwnerReferences, 1)
+	assert.Equal(t, search.Name, operatorSecret.OwnerReferences[0].Name)
+	assert.Equal(t, search.Name, operatorSecret.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, operatorSecret.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
 
 	// Apply mongot modification to a config with both ReplicaSet and Router (sharded scenario)
 	config := &mongot.Config{
@@ -2765,7 +2891,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret, keyPasswordSecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.NoError(t, err)
 
 	// Verify mongot config has key password path
@@ -3071,6 +3197,7 @@ func TestCleanupStaleShardResources(t *testing.T) {
 
 func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
+	search.UID = "search-uid"
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
 	fakeClient := newTestFakeClient(search, mdbc)
 
@@ -3103,6 +3230,14 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-0-svc", svc.Spec.Selector["app"])
 	assert.Equal(t, "test-search-search-0-svc", svc.Labels["app"])
 	assert.Empty(t, svc.Labels["shard"])
+	assert.Equal(t, search.Name, svc.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, svc.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), svc.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, mongotComponent, svc.Labels[khandler.MongoDBSearchComponentLabel])
+	assert.NotContains(t, svc.Labels, khandler.MongoDBSearchClusterNameLabel)
+	assert.True(t, slices.ContainsFunc(svc.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name && ref.UID == search.UID
+	}))
 
 	portMap := make(map[string]int32)
 	for _, p := range svc.Spec.Ports {
@@ -3120,6 +3255,11 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-ns", sts.Namespace)
 	assert.Equal(t, "test-search-search-0-svc", sts.Labels["app"])
 	assert.Empty(t, sts.Labels["shard"])
+	assert.Equal(t, search.Name, sts.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, sts.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), sts.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, mongotComponent, sts.Labels[khandler.MongoDBSearchComponentLabel])
+	assert.NotContains(t, sts.Labels, khandler.MongoDBSearchClusterNameLabel)
 
 	// Owner-ref back to the MongoDBSearch CR drives PVC reclaim via GC on CR delete.
 	assert.True(t, slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
@@ -3133,6 +3273,14 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 
 	assert.Equal(t, "test-search-search-0-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
+	assert.Equal(t, search.Name, cm.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, cm.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, mongotComponent, cm.Labels[khandler.MongoDBSearchComponentLabel])
+	assert.NotContains(t, cm.Labels, khandler.MongoDBSearchClusterNameLabel)
+	assert.True(t, slices.ContainsFunc(cm.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name && ref.UID == search.UID
+	}))
 }
 
 type fakeExternalSource struct {

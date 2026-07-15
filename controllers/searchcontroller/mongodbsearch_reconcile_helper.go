@@ -126,14 +126,7 @@ func NewMongoDBSearchReconcileHelper(
 // don't cross cluster boundaries; labels are the only path back from a member
 // resource to its central CR (for watch routing and label-based GC).
 func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[string]string {
-	labels := map[string]string{
-		khandler.MongoDBSearchOwnerNameLabel:      search.Name,
-		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
-	}
-	if clusterName != "" {
-		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
-	}
-	return labels
+	return khandler.MongoDBSearchManagedLabels(search, "", "", clusterName)
 }
 
 // withSearchOwnerLabels merges the search-owner labels into the STS ObjectMeta
@@ -141,12 +134,9 @@ func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[s
 // existing STS); the pod-routing labels stay in the unit's podLabels.
 func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
 	return func(set *appsv1.StatefulSet) {
-		if set.Labels == nil {
-			set.Labels = map[string]string{}
-		}
-		for k, v := range searchOwnerLabels(search, clusterName) {
-			set.Labels[k] = v
-		}
+		protected := searchOwnerLabels(search, clusterName)
+		protected[khandler.MongoDBSearchComponentLabel] = mongotComponent
+		set.Labels = khandler.ReapplyProtectedSearchLabels(set.Labels, protected)
 	}
 }
 
@@ -668,22 +658,26 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		}
 	}
 
+	tlsSecretLabels := searchOwnerLabels(r.mdbSearch, unit.clusterName)
+	ingressTLSSecretLabels := maps.Clone(tlsSecretLabels)
+	ingressTLSSecretLabels[componentLabelKey] = mongotComponent
+
 	// Per-unit ingress TLS: each shard may have its own secret, so this cannot
 	// be hoisted out of the loop.
-	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unitClient, unit.tlsResource)
+	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unitClient, unit.tlsResource, ingressTLSSecretLabels)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Per-unit egress TLS (SCRAM CA + optional client cert): uses unitClient so the
 	// operator-managed secret is created on the cluster where mongot pods run.
-	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx, unitClient)
+	egressTlsMongotModification, egressTlsStsModification, err := r.ensureEgressTlsConfig(ctx, unitClient, tlsSecretLabels)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Per-unit x509 client cert: uses unitClient for the same reason as egress TLS.
-	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx, unitClient)
+	x509MongotModification, x509StsModification, err := r.ensureX509ClientCertConfig(ctx, unitClient, tlsSecretLabels)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -730,7 +724,6 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		unitClient,
 		unit.stsName,
 		stsFunc,
-		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
 		mods.passwordAuthSts,
 		configHashModification,
 		mods.keyfileSts,
@@ -738,7 +731,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		egressTlsStsModification,
 		x509StsModification,
 		mods.embeddingConfigSts,
-		stsOverride, // must be last: see StatefulSetOverrideModification
+		stsOverride,
+		withSearchOwnerLabels(r.mdbSearch, unit.clusterName),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1029,7 +1023,10 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		expected map[string]bool
 		kind     string
 	}{
-		{func() client.ObjectList { return &appsv1.StatefulSetList{} }, client.MatchingLabels(searchOwnerLabels(r.mdbSearch, "")), expectedSTS, "StatefulSet"},
+		{func() client.ObjectList { return &appsv1.StatefulSetList{} }, client.MatchingLabels{
+			khandler.MongoDBSearchOwnerNameLabel:      r.mdbSearch.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: r.mdbSearch.Namespace,
+		}, expectedSTS, "StatefulSet"},
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: proxyServiceComponent}, expectedProxy, "proxy Service"},
 		{func() client.ObjectList { return &corev1.ServiceList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedHeadless, "headless Service"},
 		{func() client.ObjectList { return &corev1.ConfigMapList{} }, client.MatchingLabels{componentLabelKey: mongotComponent}, expectedConfig, "ConfigMap"},
@@ -1383,7 +1380,7 @@ func mongotServicePorts(search *searchv1.MongoDBSearch) []corev1.ServicePort {
 const (
 	appLabelKey           = "app"
 	shardLabelKey         = "shard"
-	componentLabelKey     = "component"
+	componentLabelKey     = khandler.MongoDBSearchComponentLabel
 	proxyServiceComponent = "search-proxy"
 	// mongotComponent is the component-label value on the per-shard mongot headless
 	// Service and ConfigMap (the StatefulSet is swept by owner label instead).
@@ -1696,12 +1693,12 @@ func setupMongotContainerArgsForAPIKeys() container.Modification {
 // ensureIngressTlsConfig processes TLS configuration for any mongot deployment.
 // For non-sharded deployments, pass r.mdbSearch as the tlsResource.
 // For sharded deployments, pass a perShardTLSResource adapter.
-func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, tlsResource tls.TLSConfigurableResource) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, tlsResource tls.TLSConfigurableResource, labels map[string]string) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.Security.TLS == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
 
-	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, tlsResource)
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, tlsResource, labels, tlsResource.GetOwnerReferences())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1775,7 +1772,7 @@ func (x *x509AuthResource) TLSOperatorSecretNamespacedName() types.NamespacedNam
 
 // ensureX509ClientCertConfig processes x509 client certificate configuration for the sync source in case of mongot to mongod communication.
 // When x509 is configured, it replaces username/password auth with x509 certificate auth.
-func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Context, kubeClient kubernetesClient.Client) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string) (mongot.Modification, statefulset.Modification, error) {
 	if !r.mdbSearch.IsX509Auth() {
 		return mongot.NOOP(), statefulset.NOOP(), nil
 	}
@@ -1788,7 +1785,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	}
 
 	x509Resource := &x509AuthResource{MongoDBSearch: r.mdbSearch}
-	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource)
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource, labels, x509Resource.GetOwnerReferences())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1884,7 +1881,7 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
-func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client) (mongot.Modification, statefulset.Modification, error) {
+func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string) (mongot.Modification, statefulset.Modification, error) {
 	tlsSourceConfig := r.db.TLSConfig()
 	if tlsSourceConfig == nil {
 		return mongot.NOOP(), statefulset.NOOP(), nil
@@ -1896,7 +1893,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	scramKeyPasswordSecret := r.mdbSearch.ScramKeyFilePasswordSecret()
 	if r.mdbSearch.HasScramClientCert() {
 		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
-		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource)
+		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource, labels, scramCertResource.GetOwnerReferences())
 		if err != nil {
 			return nil, nil, err
 		}

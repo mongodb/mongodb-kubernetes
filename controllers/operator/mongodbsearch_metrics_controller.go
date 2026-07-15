@@ -1008,6 +1008,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 			dep.Labels = merge.StringToStringMap(dep.Labels, deploymentOverride.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, deploymentOverride.MetadataWrapper.Annotations)
 		}
+		dep.Labels = khandler.ReapplyProtectedSearchLabels(dep.Labels, labels)
 
 		if clusterName == "" {
 			return controllerutil.SetOwnerReference(search, dep, c.Scheme())
@@ -1123,16 +1124,7 @@ func metricsForwarderResourceRequirements(search *searchv1.MongoDBSearch) corev1
 // metricsForwarderLabelsForCluster returns resource labels including cross-cluster enqueue labels.
 // clusterName=="" (single-cluster/central): cluster-name label is omitted.
 func metricsForwarderLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
-	labels := map[string]string{
-		"app":                                search.MetricsForwarderDeploymentNameForCluster(clusterIndex),
-		"component":                          metricsForwarderLabelName,
-		khandler.MongoDBSearchOwnerNameLabel: search.Name,
-		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
-	}
-	if clusterName != "" {
-		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
-	}
-	return labels
+	return khandler.MongoDBSearchManagedLabels(search, search.MetricsForwarderDeploymentNameForCluster(clusterIndex), metricsForwarderLabelName, clusterName)
 }
 
 func metricsForwarderPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {

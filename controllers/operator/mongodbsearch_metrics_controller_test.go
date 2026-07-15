@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -362,16 +363,27 @@ func TestBuildMetricsForwarderPodSpec_ContainerArgs(t *testing.T) {
 
 func TestMetricsForwarderLabels(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "my-search", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: "my-search", Namespace: "ns", UID: "search-uid"},
 	}
 
 	labels := metricsForwarderLabels(search)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", labels["app"])
-	assert.Equal(t, metricsForwarderLabelName, labels["component"])
+	assert.Equal(t, metricsForwarderLabelName, labels[khandler.MongoDBSearchComponentLabel])
+	assert.Equal(t, "my-search", labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.NotContains(t, labels, khandler.MongoDBSearchClusterNameLabel)
+
+	memberLabels := metricsForwarderLabelsForCluster(search, "us-east", 3)
+	assert.Equal(t, search.MetricsForwarderDeploymentNameForCluster(3), memberLabels["app"])
+	assert.Equal(t, "my-search", memberLabels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, "ns", memberLabels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), memberLabels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, "us-east", memberLabels[khandler.MongoDBSearchClusterNameLabel])
 
 	podLabels := metricsForwarderPodLabels(search)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", podLabels["app"])
-	assert.NotContains(t, podLabels, "component")
+	assert.NotContains(t, podLabels, khandler.MongoDBSearchComponentLabel)
 }
 
 func TestMetricsForwarderResourceRequirements_Defaults(t *testing.T) {
@@ -471,6 +483,42 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 	// Container preserved
 	assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 	assert.Equal(t, testDefaultImage, dep.Spec.Template.Spec.Containers[0].Image)
+}
+
+func TestEnsureMetricsForwarderDeployment_OverridePreservesProtectedSearchLabels(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns", UID: "search-uid"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Observability: searchv1.ObservabilityConfig{
+				MetricsForwarder: searchv1.MetricsForwarderConfig{
+					Deployment: &v1.DeploymentConfiguration{
+						MetadataWrapper: v1.DeploymentMetadataWrapper{
+							Labels: map[string]string{
+								"custom-label":                            "custom-value",
+								khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+								khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+								khandler.MongoDBSearchOwnerUIDLabel:       "wrong-uid",
+								khandler.MongoDBSearchClusterNameLabel:    "wrong-cluster",
+								khandler.MongoDBSearchComponentLabel:      "wrong-component",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	r, kubeClient := newMetricsForwarderReconciler(testDefaultImage)
+
+	require.NoError(t, r.ensureMetricsForwarderDeployment(t.Context(), search, []byte("config"), "group", "agent-key", "", "member-a", 2, r.kubeClient, zap.S()))
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, kubeClient.Get(t.Context(), types.NamespacedName{Name: search.MetricsForwarderDeploymentNameForCluster(2), Namespace: search.Namespace}, dep))
+	assert.Equal(t, "custom-value", dep.Labels["custom-label"])
+	assert.Equal(t, search.Name, dep.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, dep.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), dep.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, "member-a", dep.Labels[khandler.MongoDBSearchClusterNameLabel])
+	assert.Equal(t, metricsForwarderLabelName, dep.Labels[khandler.MongoDBSearchComponentLabel])
 }
 
 func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) {

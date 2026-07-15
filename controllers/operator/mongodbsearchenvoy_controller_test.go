@@ -916,12 +916,14 @@ func TestLoadBalancerNamesForCluster_IndexBased(t *testing.T) {
 }
 
 func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
-	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"}}
 
 	// Single-cluster: cluster-name label must be absent; app label uses index 0.
 	single := envoyLabelsForCluster(search, "", 0)
 	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), single[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, labelName, single[khandler.MongoDBSearchComponentLabel])
 	_, hasCluster := single[khandler.MongoDBSearchClusterNameLabel]
 	assert.False(t, hasCluster)
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), single["app"])
@@ -930,8 +932,44 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	mc := envoyLabelsForCluster(search, "us-east-k8s", 3)
 	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), mc[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, labelName, mc[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, "us-east-k8s", mc[khandler.MongoDBSearchClusterNameLabel])
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(3), mc["app"])
+}
+
+func TestEnsureDeployment_OverridePreservesProtectedSearchLabels(t *testing.T) {
+	scheme := envoyTestScheme(t)
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(kubeClient, "envoy:latest", nil, "")
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"},
+	}
+	managedLB := &searchv1.ManagedLBConfig{
+		Deployment: &v1.DeploymentConfiguration{
+			MetadataWrapper: v1.DeploymentMetadataWrapper{
+				Labels: map[string]string{
+					"custom-label":                            "custom-value",
+					khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+					khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+					khandler.MongoDBSearchOwnerUIDLabel:       "wrong-uid",
+					khandler.MongoDBSearchClusterNameLabel:    "wrong-cluster",
+					khandler.MongoDBSearchComponentLabel:      "wrong-component",
+				},
+			},
+		},
+	}
+
+	require.NoError(t, r.ensureDeployment(t.Context(), search, `{"x":1}`, "member-a", 2, managedLB, r.kubeClient, nil, zap.S()))
+
+	dep := &appsv1.Deployment{}
+	require.NoError(t, kubeClient.Get(t.Context(), types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(2), Namespace: search.Namespace}, dep))
+	assert.Equal(t, "custom-value", dep.Labels["custom-label"])
+	assert.Equal(t, search.Name, dep.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, dep.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, string(search.UID), dep.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+	assert.Equal(t, "member-a", dep.Labels[khandler.MongoDBSearchClusterNameLabel])
+	assert.Equal(t, labelName, dep.Labels[khandler.MongoDBSearchComponentLabel])
 }
 
 // --- envoy replicas defaulting ------------------------------------------
