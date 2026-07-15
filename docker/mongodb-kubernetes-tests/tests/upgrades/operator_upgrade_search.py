@@ -16,7 +16,12 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import mongot_data_pvc_names
+from tests.common.search.connectivity import (
+    mongot_data_pvc_names,
+    wait_for_mongot_pvcs_deleted,
+    wait_for_resource_deleted,
+    wait_for_search_deleted,
+)
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import (
     SearchDeploymentHelper,
@@ -643,3 +648,45 @@ class TestOperatorUpgrade:
             )
             == migration_snapshot["search_index_names"]
         )
+
+    def test_delete_adopted_search_cleans_managed_resources(
+        self,
+        namespace: str,
+        mdb: MongoDB,
+        mdbs: MongoDBSearch,
+        mongot_user: MongoDBUser,
+        migration_snapshot: dict[str, Any],
+    ):
+        apps = client.AppsV1Api()
+        core = client.CoreV1Api()
+        managed_resources = _managed_search_resources(namespace)
+        _assert_current_metadata(managed_resources, migration_snapshot["search_uid"], namespace)
+        readers = {
+            client.V1StatefulSet: apps.read_namespaced_stateful_set,
+            client.V1Deployment: apps.read_namespaced_deployment,
+            client.V1Service: core.read_namespaced_service,
+            client.V1ConfigMap: core.read_namespaced_config_map,
+            client.V1Secret: core.read_namespaced_secret,
+        }
+        resources = [
+            (
+                key,
+                lambda reader=readers[type(resource)], name=resource.metadata.name: reader(name, namespace),
+            )
+            for key, (resource, _) in managed_resources.items()
+        ]
+
+        mdbs.delete()
+        wait_for_search_deleted(mdbs, timeout=600)
+        for what, read in resources:
+            wait_for_resource_deleted(read, what, timeout=600)
+        for shard_name in _shard_names():
+            wait_for_mongot_pvcs_deleted(
+                namespace,
+                search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name),
+                timeout=300,
+            )
+
+        source_objects = _source_objects(namespace, mdb, mongot_user)
+        assert {key: _uid(resource) for key, resource in source_objects.items()} == migration_snapshot["source_uids"]
+        assert {key: resource.data for key, resource in source_objects.items()} == migration_snapshot["source_data"]
