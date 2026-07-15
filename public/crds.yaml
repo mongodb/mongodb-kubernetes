@@ -6653,9 +6653,9 @@ spec:
                     type: integer
                   monitoringAgent:
                     description: |-
-                      Specify configuration like startup flags just for the MonitoringAgent.
-                      These take precedence over
-                      the flags set in AutomationAgent
+                      Deprecated: this field has no effect. The monitoring agent now runs inside the
+                      automation agent. Configure agent options, including log level and rotation, via
+                      spec.appDB.agent. Remove this field from your configuration.
                     properties:
                       startupOptions:
                         additionalProperties:

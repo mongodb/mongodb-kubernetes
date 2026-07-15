@@ -43,7 +43,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agent"
-	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scram"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -68,14 +67,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
-type agentType string
-
 const (
 	appdbCAFilePath              = "/var/lib/mongodb-automation/secrets/ca/ca-pem"
 	appDBACConfigMapVersionField = "version"
 
-	monitoring agentType = "MONITORING"
-	automation agentType = "AUTOMATION"
+	// OM canonical defaults; monitoring module's own default is 0 (no rotation).
+	defaultMonitoringLogRotateSizeMB  = 1000
+	defaultMonitoringLogRotateTimeHrs = 24
+
+	monitoringAgentLogFile = "/var/log/mongodb-mms-automation/monitoring-agent.log"
 
 	// Used to note that for this particular case it is not necessary to pass
 	// the hash of the Prometheus certificate. This is to avoid having to
@@ -487,7 +487,7 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, ops
 		return true, nil
 	}
 
-	desiredAc, err := r.buildAppDbAutomationConfig(ctx, opsManager, automation, UnusedPrometheusConfiguration, memberCluster.Name, log)
+	desiredAc, err := r.buildAppDbAutomationConfig(ctx, opsManager, nil, UnusedPrometheusConfiguration, memberCluster.Name, log)
 	if err != nil {
 		return false, xerrors.Errorf("error building AppDB Automation Config: %w", err)
 	}
@@ -607,15 +607,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, agentVersion)
 		}
 	} else {
-		// instead of using a hard-coded monitoring version, we use the "newest" one based on the release.json.
-		// This ensures we need to care less about CVEs compared to the prior older hardcoded versions.
-		legacyMonitoringAgentVersion, err := r.getLegacyMonitoringAgentVersion(ctx, opsManager, log)
-		if err != nil {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error reading monitoring agent version: %w", err)), log, appDbStatusOption)
-		}
-
-		appdbOpts.LegacyMonitoringAgentImage = images.ContainerImage(r.imageUrls, util.AgentImageEnv, legacyMonitoringAgentVersion)
-
 		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1
 		// In non-static containers we don't ask OM for the correct version, therefore we just rely on the provided
 		// environment variable.
@@ -662,7 +653,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, allStatefulSetsExist, appdbOpts)
+			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExist, appdbOpts)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
@@ -764,24 +755,8 @@ func (r *ReconcileAppDbReplicaSet) getNameOfFirstMemberCluster() string {
 	return firstMemberClusterName
 }
 
-// getLegacyMonitoringAgentVersion partially duplicates the functionality in (r *ReconcileCommonController).getAgentVersion to avoid
-// changing the signature of the general function that is used in static container setups as this method only considers the non-static
-// OpsManager. This should also make it easier to remove when switching to one architecture for containers.
-func (r *ReconcileAppDbReplicaSet) getLegacyMonitoringAgentVersion(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	m, err := agentVersionManagement.GetAgentVersionManager()
-	if err != nil || m == nil {
-		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
-	}
-	if agentVersion, err := m.GetAgentVersion(nil, opsManager.Spec.Version, true); err != nil {
-		log.Errorf("Failed to get the agent version from the Agent Version manager: %s", err)
-		return "", xerrors.Errorf("Failed to get the agent version from the Agent Version manager: %w", err)
-	} else {
-		return agentVersion, nil
-	}
-}
-
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
-	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, appdbOpts)
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
+	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, podVars, appdbOpts)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -794,10 +769,10 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGo
 	return r.allAgentsReachedGoalState(ctx, opsManager, configVersion, log)
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, appdbOpts construct.AppDBStatefulSetOptions) (int, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigOnHealthyClusters(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, appdbOpts construct.AppDBStatefulSetOptions) (int, workflow.Status) {
 	configVersions := map[int]struct{}{}
 	for _, memberCluster := range r.GetHealthyMemberClusters() {
-		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, appdbOpts.PrometheusTLSCertHash, memberCluster, log); !workflowStatus.IsOK() {
+		if configVersion, workflowStatus := r.deployAutomationConfig(ctx, opsManager, podVars, appdbOpts.PrometheusTLSCertHash, memberCluster, log); !workflowStatus.IsOK() {
 			return 0, workflowStatus
 		} else {
 			log.Infof("Deployed Automation Config version: %d in cluster: %s", configVersion, memberCluster.Name)
@@ -1084,7 +1059,7 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Conte
 	return latestAc, nil
 }
 
-func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, acType agentType, prometheusCertHash string, memberClusterName string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
+func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, prometheusCertHash string, memberClusterName string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
 
@@ -1098,9 +1073,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	// the existing automation config is required as we compare it against what we build to determine
 	// if we need to increment the version.
 	secretName := rs.AutomationConfigSecretName()
-	if acType == monitoring {
-		secretName = rs.MonitoringAutomationConfigSecretName()
-	}
 
 	existingAutomationConfig, err := r.getExistingAutomationConfig(ctx, opsManager, secretName)
 	if err != nil {
@@ -1116,15 +1088,9 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	}
 	certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
 
-	prometheusModification := automationconfig.NOOP()
-	if acType == automation {
-		// There are 2 agents running in the AppDB Pods, we will configure Prometheus
-		// only on the Automation Agent.
-		prometheusModification, err = buildPrometheusModification(ctx, r.SecretClient, opsManager, prometheusCertHash)
-		if err != nil {
-			log.Errorf("Could not enable Prometheus: %s", err)
-		}
-
+	prometheusModification, err := buildPrometheusModification(ctx, r.SecretClient, opsManager, prometheusCertHash)
+	if err != nil {
+		log.Errorf("Could not enable Prometheus: %s", err)
 	}
 
 	processList := r.generateProcessList(opsManager)
@@ -1190,19 +1156,24 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 				systemLog = opsManager.Spec.AppDB.AutomationAgent.Mongod.SystemLog
 			}
 
-			if acType == automation {
-				if opsManager.Spec.AppDB.AutomationAgent.Mongod.HasLoggingConfigured() {
-					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.Mongod.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
-				} else {
-					automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
-				}
+			if opsManager.Spec.AppDB.AutomationAgent.Mongod.HasLoggingConfigured() {
+				automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.Mongod.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
+			} else {
+				automationconfig.ConfigureAgentConfiguration(systemLog, opsManager.Spec.AppDB.AutomationAgent.LogRotate, opsManager.Spec.AppDB.AutomationAgent.Mongod.AuditLogRotate, p)
 			}
 		}).
 		AddModifications(func(automationConfig *automationconfig.AutomationConfig) {
-			if acType == monitoring {
-				configureMonitoring(automationConfig, log, rs.GetSecurity().IsTLSEnabled())
-				automationConfig.ReplicaSets = []automationconfig.ReplicaSet{}
-				automationConfig.Processes = []automationconfig.Process{}
+			if construct.ShouldEnableMonitoring(podVars) {
+				configureMonitoring(
+					automationConfig, log,
+					rs.GetSecurity().IsTLSEnabled(),
+					podVars.ProjectID,
+					podVars.AgentAPIKey,
+					podVars.SSLRequireValidMMSServerCertificates,
+					opsManager.Spec.AppDB.AutomationAgent.MonitoringAgent.LogRotate,
+				)
+			} else {
+				automationConfig.MonitoringVersions = []automationconfig.MonitoringVersion{}
 			}
 			setBaseUrlForAgents(automationConfig, opsManager.CentralURL())
 		}).
@@ -1228,38 +1199,33 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		return automationconfig.AutomationConfig{}, err
 	}
 
-	if acType == automation && opsManager.Spec.AppDB.AutomationConfigOverride != nil {
+	if opsManager.Spec.AppDB.AutomationConfigOverride != nil {
 		acToMerge := overrideToAutomationConfig(*opsManager.Spec.AppDB.AutomationConfigOverride)
 		ac = merge.AutomationConfigs(ac, acToMerge)
 	}
 
-	// this is for logging automation config, ignoring monitoring as it doesn't contain any processes)
-	if acType == automation {
-		processHostnames := util.Transform(ac.Processes, func(obj automationconfig.Process) string {
-			return obj.HostName
-		})
+	processHostnames := util.Transform(ac.Processes, func(obj automationconfig.Process) string {
+		return obj.HostName
+	})
 
-		var replicaSetMembers []string
-		if len(ac.ReplicaSets) > 0 {
-			replicaSetMembers = util.Transform(ac.ReplicaSets[0].Members, func(member automationconfig.ReplicaSetMember) string {
-				return fmt.Sprintf("{Id=%d, Host=%s}", member.Id, member.Host)
-			})
-		}
-		log.Debugf("Created automation config object (in-memory) for cluster=%s, total process count=%d, process hostnames=%+v, replicaset config=%+v", memberClusterName, replicasThisReconciliation, processHostnames, replicaSetMembers)
+	var replicaSetMembers []string
+	if len(ac.ReplicaSets) > 0 {
+		replicaSetMembers = util.Transform(ac.ReplicaSets[0].Members, func(member automationconfig.ReplicaSetMember) string {
+			return fmt.Sprintf("{Id=%d, Host=%s}", member.Id, member.Host)
+		})
 	}
+	log.Debugf("Created automation config object (in-memory) for cluster=%s, total process count=%d, process hostnames=%+v, replicaset config=%+v", memberClusterName, replicasThisReconciliation, processHostnames, replicaSetMembers)
 
 	// this is for force reconfigure. This sets "currentVersion: -1" in automation config
 	// when forceReconfig is triggered.
-	if acType == automation {
-		if shouldPerformForcedReconfigure(opsManager.Annotations) {
-			log.Debug("Performing forced reconfigure of AppDB")
-			builder.SetForceReconfigureToVersion(-1)
+	if shouldPerformForcedReconfigure(opsManager.Annotations) {
+		log.Debug("Performing forced reconfigure of AppDB")
+		builder.SetForceReconfigureToVersion(-1)
 
-			ac, err = builder.Build()
-			if err != nil {
-				log.Errorf("failed to build AC: %w", err)
-				return ac, err
-			}
+		ac, err = builder.Build()
+		if err != nil {
+			log.Errorf("failed to build AC: %v", err)
+			return ac, err
 		}
 	}
 
@@ -1445,36 +1411,65 @@ func setBaseUrlForAgents(ac *automationconfig.AutomationConfig, url string) {
 	}
 }
 
-func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool) {
+func toMonitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automationconfig.MonitoringLogRotate {
+	if lr != nil {
+		return &automationconfig.MonitoringLogRotate{
+			SizeThresholdMB:  lr.SizeThresholdMB,
+			TimeThresholdHrs: lr.TimeThresholdHrs,
+		}
+	}
+	return &automationconfig.MonitoringLogRotate{
+		SizeThresholdMB:  defaultMonitoringLogRotateSizeMB,
+		TimeThresholdHrs: defaultMonitoringLogRotateTimeHrs,
+	}
+}
+
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool, logRotate *mdbv1.LogRotateForBackupAndMonitoring) {
+	if projectID == "" || agentAPIKey == "" {
+		ac.MonitoringVersions = []automationconfig.MonitoringVersion{}
+		return
+	}
 	if len(ac.Processes) == 0 {
 		return
 	}
 
+	lr := toMonitoringLogRotate(logRotate)
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
 		hostname := p.HostName
 		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
 
+		params := map[string]string{}
+		if tls {
+			for k, v := range om.NewTLSParams(appdbCAFilePath, pemKeyFile) {
+				params[k] = v
+			}
+			if requireValidCert {
+				params["sslRequireValidMMSServerCertificates"] = "true"
+			} else {
+				params["sslRequireValidMMSServerCertificates"] = "false"
+			}
+		} else {
+			om.ClearTLSParams(params)
+		}
+
 		foundIdx := slices.IndexFunc(monitoringVersions, func(m automationconfig.MonitoringVersion) bool {
 			return m.Hostname == hostname
 		})
-
 		if foundIdx == -1 {
 			mv := automationconfig.MonitoringVersion{
-				Hostname: hostname,
-				Name:     om.MonitoringAgentDefaultVersion,
-			}
-			if tls {
-				mv.AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
+				Hostname:         hostname,
+				Name:             om.MonitoringAgentDefaultVersion,
+				AdditionalParams: params,
+				LogRotate:        lr,
+				LogPath:          monitoringAgentLogFile,
 			}
 			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
 			monitoringVersions = append(monitoringVersions, mv)
 		} else {
-			if tls {
-				monitoringVersions[foundIdx].AdditionalParams = om.NewTLSParams(appdbCAFilePath, pemKeyFile)
-			} else {
-				om.ClearTLSParams(monitoringVersions[foundIdx].AdditionalParams)
-			}
+			monitoringVersions[foundIdx].AdditionalParams = params
+			monitoringVersions[foundIdx].LogRotate = lr
+			monitoringVersions[foundIdx].LogPath = monitoringAgentLogFile
 		}
 	}
 	ac.MonitoringVersions = monitoringVersions
@@ -1758,9 +1753,14 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error adding preferred hostnames: %w", err)
 	}
 
-	return env.PodEnvVars{User: conn.PublicKey(), ProjectID: conn.GroupID(), SSLProjectConfig: env.SSLProjectConfig{
-		SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
-	}}, nil
+	return env.PodEnvVars{
+		User:        conn.PublicKey(),
+		ProjectID:   conn.GroupID(),
+		AgentAPIKey: agentApiKey,
+		SSLProjectConfig: env.SSLProjectConfig{
+			SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
+		},
+	}, nil
 }
 
 func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMap(ctx context.Context, opsManager *omv1.MongoDBOpsManager, projectID string) error {
@@ -1826,13 +1826,27 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 		return env.PodEnvVars{}, xerrors.Errorf("error reading credentials: %w", err)
 	}
 
-	return env.PodEnvVars{
+	podVars := env.PodEnvVars{
 		User:      cred.PublicAPIKey,
 		ProjectID: projectId,
 		SSLProjectConfig: env.SSLProjectConfig{
 			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),
 		},
-	}, nil
+	}
+
+	var appdbSecretPath string
+	if r.VaultClient != nil {
+		appdbSecretPath = r.VaultClient.AppDBSecretPath()
+	}
+
+	agentAPIKey, err := r.getMemberCluster(r.getNameOfFirstMemberCluster()).SecretClient.ReadSecretKey(
+		ctx, kube.ObjectKey(om.Namespace, agents.ApiKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
+	if err != nil {
+		log.Warnf("Agent API key for project %s not readable yet (%v); AppDB monitoring will be configured once it is available", projectId, err)
+		return podVars, nil
+	}
+	podVars.AgentAPIKey = agentAPIKey
+	return podVars, nil
 }
 
 func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Context, cmName string, opsManager *omv1.MongoDBOpsManager, version int, memberCluster multicluster.MemberCluster) workflow.Status {
@@ -1852,10 +1866,10 @@ func (r *ReconcileAppDbReplicaSet) publishACVersionAsConfigMap(ctx context.Conte
 
 // deployAutomationConfig updates the Automation Config secret if necessary and waits for the pods to fall to "not ready"
 // In this case the next StatefulSet update will be safe as the rolling upgrade will wait for the pods to get ready
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, prometheusCertHash string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) (int, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, prometheusCertHash string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) (int, workflow.Status) {
 	rs := opsManager.Spec.AppDB
 
-	config, err := r.buildAppDbAutomationConfig(ctx, opsManager, automation, prometheusCertHash, memberCluster.Name, log)
+	config, err := r.buildAppDbAutomationConfig(ctx, opsManager, podVars, prometheusCertHash, memberCluster.Name, log)
 	if err != nil {
 		return 0, workflow.Failed(err)
 	}
@@ -1868,32 +1882,7 @@ func (r *ReconcileAppDbReplicaSet) deployAutomationConfig(ctx context.Context, o
 		return 0, workflowStatus
 	}
 
-	monitoringAc, err := r.buildAppDbAutomationConfig(ctx, opsManager, monitoring, UnusedPrometheusConfiguration, memberCluster.Name, log)
-	if err != nil {
-		return 0, workflow.Failed(err)
-	}
-
-	if err := r.deployMonitoringAgentAutomationConfig(ctx, opsManager, memberCluster, log); err != nil {
-		return 0, workflow.Failed(err)
-	}
-
-	if workflowStatus := r.publishACVersionAsConfigMap(ctx, opsManager.Spec.AppDB.MonitoringAutomationConfigConfigMapName(), opsManager, monitoringAc.Version, memberCluster); !workflowStatus.IsOK() {
-		return 0, workflowStatus
-	}
-
 	return configVersion, workflow.OK()
-}
-
-// deployMonitoringAgentAutomationConfig deploys the monitoring agent's automation config.
-func (r *ReconcileAppDbReplicaSet) deployMonitoringAgentAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) error {
-	config, err := r.buildAppDbAutomationConfig(ctx, opsManager, monitoring, UnusedPrometheusConfiguration, memberCluster.Name, log)
-	if err != nil {
-		return err
-	}
-	if _, err = r.publishAutomationConfig(ctx, opsManager, config, opsManager.Spec.AppDB.MonitoringAutomationConfigSecretName(), memberCluster.SecretClient); err != nil {
-		return err
-	}
-	return nil
 }
 
 // GetAppDBUpdateStrategyType returns the update strategy type the AppDB Statefulset needs to be configured with.
@@ -1927,12 +1916,6 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 		if !memberCluster.Healthy {
 			// do not proceed if this is unhealthy cluster
 			continue
-		}
-
-		// in the case of an upgrade from the 1 to 3 container architecture, when the stateful set is updated before the agent automation config
-		// the monitoring agent automation config needs to exist for the volumes to mount correctly.
-		if err := r.deployMonitoringAgentAutomationConfig(ctx, opsManager, memberCluster, log); err != nil {
-			return workflow.Failed(err)
 		}
 
 		updateStrategy := r.GetAppDBUpdateStrategyType(opsManager)
