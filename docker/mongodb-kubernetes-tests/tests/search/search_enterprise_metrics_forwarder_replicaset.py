@@ -134,6 +134,10 @@ def test_metrics_forwarder_status(om: MongoDBOpsManager, mdbs: MongoDBSearch):
 
     run_periodically(check_metrics_forwarder_status, timeout=120, interval=10)
 
+    # Per-cluster surface: single-cluster + managed LB + metrics forwarder enabled, so the
+    # one status.clusters entry must report search, loadBalancer AND metricsForwarder Running.
+    mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True, expect_metrics_forwarder=True)
+
     tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
     tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
 
@@ -189,6 +193,16 @@ def test_disable_metrics_forwarder(mdbs: MongoDBSearch):
             return e.status == 404
 
     run_periodically(check_configmap_deleted, timeout=60, interval=5)
+
+    # Per-cluster surface: with the forwarder disabled, the metricsForwarder sub-phase must
+    # drop out of status.clusters (search + loadBalancer stay Running).
+    def check_per_cluster_metrics_forwarder_absent():
+        mdbs.reload()
+        cs = mdbs.get_cluster_status(0)
+        return cs is not None and not cs.get("metricsForwarder")
+
+    run_periodically(check_per_cluster_metrics_forwarder_absent, timeout=120, interval=10)
+    mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True, expect_metrics_forwarder=False)
 
 
 @mark.e2e_search_enterprise_metrics_forwarder_replicaset

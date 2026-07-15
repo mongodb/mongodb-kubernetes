@@ -911,6 +911,14 @@ def test_verify_lb_status(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_q2_mc_rs_steady
+def test_verify_per_cluster_status(mdbs: MongoDBSearch):
+    """Real multi-cluster: status.clusters has ONE entry per member cluster, each
+    with search and loadBalancer sub-phases Running, and index values matching the
+    spec.clusters[] pins."""
+    mdbs.assert_cluster_statuses(expected_count=len(MEMBERS_PER_CLUSTER), expect_managed_lb=True)
+
+
+@mark.e2e_search_q2_mc_rs_steady
 def test_patch_per_cluster_mongot_host(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -1259,6 +1267,145 @@ def test_per_cluster_vector_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $vectorSearch query to succeed",
         )
+
+
+# Larger than any node in the e2e kind clusters — guarantees Unschedulable.
+UNSCHEDULABLE_MEMORY = "10000Gi"
+STATUS_DEGRADE_TIMEOUT = 300
+STATUS_RECOVER_TIMEOUT = 600
+
+# Fault targets are spec.clusters[] LIST POSITIONS.
+MONGOT_FAULT_POS = 0
+ENVOY_FAULT_POS = 1
+
+
+def _cluster_index_at(mdbs: MongoDBSearch, list_pos: int) -> int:
+    """The index pin of the spec.clusters[] entry at the given list position."""
+    mdbs.load()
+    clusters = mdbs["spec"]["clusters"]
+    return clusters[list_pos].get("index", list_pos)
+
+
+def _set_mongot_memory_request(mdbs: MongoDBSearch, list_pos: int, memory: str | None) -> None:
+    """Set (memory != None) or clear spec.clusters[list_pos].resourceRequirements.requests.memory."""
+    mdbs.load()
+    cluster = mdbs["spec"]["clusters"][list_pos]
+    if memory is None:
+        cluster.pop("resourceRequirements", None)
+    else:
+        cluster["resourceRequirements"] = {"requests": {"memory": memory}}
+    mdbs.update()
+
+
+def _delete_mongot_pods_for_cluster(
+    mdbs: MongoDBSearch,
+    cluster_index: int,
+    member_cluster_clients: List[MultiClusterClient],
+) -> None:
+    """Delete the mongot StatefulSet pods for a cluster so the STS recreates them from the
+    current template, if the pods are stuck in pending STS would not updated them."""
+    sts_prefix = f"{MDBS_RESOURCE_NAME}-search-{cluster_index}-"
+    for mcc in member_cluster_clients:
+        if mcc.cluster_index != cluster_index:
+            continue
+        core = mcc.core_v1_api()
+        for pod in core.list_namespaced_pod(mdbs.namespace).items:
+            name = pod.metadata.name
+            if name.startswith(sts_prefix) and not name.startswith(f"{sts_prefix}lb"):
+                logger.info(f"deleting wedged mongot pod {name} in cluster {mcc.cluster_name}")
+                core.delete_namespaced_pod(name, mdbs.namespace)
+
+
+def _set_envoy_memory_request(mdbs: MongoDBSearch, list_pos: int, memory: str | None) -> None:
+    """Set (memory != None) or clear the managed Envoy memory request for spec.clusters[list_pos]
+    to simulate a faulty envoy deployment. Keeps the default RollingUpdate strategy so the test
+    exercises the production rollout case (old pod Ready while the new one is unschedulable).
+    """
+    mdbs.load()
+    managed = mdbs["spec"]["clusters"][list_pos]["loadBalancer"]["managed"]
+    if memory is None:
+        managed.pop("resourceRequirements", None)
+    else:
+        managed["resourceRequirements"] = {"requests": {"memory": memory}}
+    mdbs.update()
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_mongot_fault_degrades_only_that_clusters_search(mdbs: MongoDBSearch):
+    """Unschedulable mongot on the specific cluster -> only that cluster's `search` sub-phase leaves
+    Running with a message; its `loadBalancer` sub-phase and the other cluster stay Running."""
+    faulted_ci = _cluster_index_at(mdbs, MONGOT_FAULT_POS)
+    other_ci = _cluster_index_at(mdbs, ENVOY_FAULT_POS)
+    _set_mongot_memory_request(mdbs, MONGOT_FAULT_POS, UNSCHEDULABLE_MEMORY)
+
+    # Affected cluster's SEARCH degrades and carries a message.
+    mdbs.wait_for_cluster_search_phase(faulted_ci, Phase.Pending, expect_message=True, timeout=STATUS_DEGRADE_TIMEOUT)
+
+    # The SAME cluster's LB is untouched (still Running, no message)...
+    lb = mdbs.get_cluster_status(faulted_ci) or {}
+    assert (
+        lb.get("loadBalancer") == "Running"
+    ), f"cluster {faulted_ci}: loadBalancer should stay Running during a mongot fault, got {lb.get('loadBalancer')!r}"
+    assert not lb.get("loadBalancerMessage"), f"cluster {faulted_ci}: loadBalancerMessage should stay empty"
+
+    # Other cluster is fully Running — making sure statuses are reflected per cluster properly.
+    other = mdbs.get_cluster_status(other_ci) or {}
+    assert other.get("search") == "Running", (
+        f"cluster {other_ci}: search should stay Running while only cluster "
+        f"{faulted_ci} is faulted, got {other.get('search')!r}"
+    )
+    assert other.get("loadBalancer") == "Running", f"cluster {other_ci}: loadBalancer should stay Running"
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_mongot_fault_recovers(mdbs: MongoDBSearch, member_cluster_clients: List[MultiClusterClient]):
+    """Reverting the mongot request transitions the fault cluster's `search` sub-phase back
+    to Running and clears its message.
+    """
+    faulted_ci = _cluster_index_at(mdbs, MONGOT_FAULT_POS)
+    _set_mongot_memory_request(mdbs, MONGOT_FAULT_POS, None)
+    _delete_mongot_pods_for_cluster(mdbs, faulted_ci, member_cluster_clients)
+    mdbs.wait_for_cluster_search_phase(faulted_ci, Phase.Running, expect_message=False, timeout=STATUS_RECOVER_TIMEOUT)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=STATUS_RECOVER_TIMEOUT)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_envoy_fault_degrades_only_that_clusters_lb(mdbs: MongoDBSearch):
+    """Unschedulable Envoy on the fault cluster -> that cluster's `loadBalancer` sub-phase
+    leaves Running with a message; its `search` sub-phase and the other cluster stay Running."""
+    faulted_ci = _cluster_index_at(mdbs, ENVOY_FAULT_POS)
+    other_ci = _cluster_index_at(mdbs, MONGOT_FAULT_POS)
+    _set_envoy_memory_request(mdbs, ENVOY_FAULT_POS, UNSCHEDULABLE_MEMORY)
+
+    # Affected cluster's LB half degrades and carries a message.
+    mdbs.wait_for_cluster_lb_phase(faulted_ci, Phase.Pending, expect_message=True, timeout=STATUS_DEGRADE_TIMEOUT)
+
+    # The SAME cluster's search is untouched (still Running, no message)...
+    search = mdbs.get_cluster_status(faulted_ci) or {}
+    assert (
+        search.get("search") == "Running"
+    ), f"cluster {faulted_ci}: search should stay Running during an Envoy fault, got {search.get('search')!r}"
+    assert not search.get("searchMessage"), f"cluster {faulted_ci}: searchMessage should stay empty"
+
+    # The OTHER cluster is fully Running.
+    other = mdbs.get_cluster_status(other_ci) or {}
+    assert other.get("search") == "Running", f"cluster {other_ci}: search should stay Running"
+    assert other.get("loadBalancer") == "Running", (
+        f"cluster {other_ci}: loadBalancer should stay Running while only cluster "
+        f"{faulted_ci} Envoy is faulted, got {other.get('loadBalancer')!r}"
+    )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_envoy_fault_recovers(mdbs: MongoDBSearch):
+    """Reverting the Envoy request transitions the fault cluster's `loadBalancer` sub-phase
+    back to Running and clears its message; the whole resource returns to Running."""
+    faulted_ci = _cluster_index_at(mdbs, ENVOY_FAULT_POS)
+    _set_envoy_memory_request(mdbs, ENVOY_FAULT_POS, None)
+    mdbs.wait_for_cluster_lb_phase(faulted_ci, Phase.Running, expect_message=False, timeout=STATUS_RECOVER_TIMEOUT)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=STATUS_RECOVER_TIMEOUT)
+    # Final: every cluster fully Running again.
+    mdbs.assert_cluster_statuses(expected_count=len(MEMBERS_PER_CLUSTER), expect_managed_lb=True)
 
 
 @mark.e2e_search_q2_mc_rs_steady

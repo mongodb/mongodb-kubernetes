@@ -553,8 +553,6 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	}
 
 	if a.AutomationConfigSecretName != "" {
-		// There are two different type of annotations here: for the automation agent
-		// and for the monitoring agent.
 		acSecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AutomationConfigSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-"+a.AgentType] = acSecretPath
 		annotations["vault.hashicorp.com/agent-inject-file-"+a.AgentType] = a.AutomationConfigPath
