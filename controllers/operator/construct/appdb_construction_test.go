@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -15,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -95,6 +97,123 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 	assert.NotNil(t, stsB.Spec.Replicas)
 	assert.Equal(t, int32(1), *stsB.Spec.Replicas)
 	assert.NotEmpty(t, stsB.Spec.ServiceName)
+}
+
+func TestAppDbStatefulSet_SingleAgentContainer(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
+
+	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	containerNames := make([]string, 0)
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		containerNames = append(containerNames, c.Name)
+	}
+	assert.Contains(t, containerNames, util.AgentContainerName)
+	assert.NotContains(t, containerNames, monitoringAgentContainerName)
+}
+
+func TestAppDbStatefulSet_SingleAgentContainer_MonitoringDisabled(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		assert.NotEqual(t, monitoringAgentContainerName, c.Name)
+	}
+}
+
+func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
+
+	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+	command := agent.Command[len(agent.Command)-1]
+	assert.Contains(t, command, "-mmsGroupId=proj-123")
+	assert.Contains(t, command, "-mmsApiKey=${AGENT_API_KEY}")
+	assert.Contains(t, command, `AGENT_API_KEY="$(cat /mongodb-automation/agent-api-key/agentApiKey)"`)
+
+	assert.NotNil(t, findVolumeByName(sts.Spec.Template.Spec.Volumes, AgentAPIKeyVolumeName),
+		"agent-api-key volume must be present when monitoring is enabled")
+	assert.True(t, containerMountsVolume(agent.VolumeMounts, AgentAPIKeyVolumeName),
+		"agent container must mount the agent-api-key volume when monitoring is enabled")
+}
+
+func TestAppDbStatefulSet_NoMonitoringCredentialsWhenDisabled(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	// nil podVars => ShouldEnableMonitoring returns false
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+	command := agent.Command[len(agent.Command)-1]
+	assert.NotContains(t, command, "-mmsGroupId=")
+	assert.NotContains(t, command, "-mmsApiKey=")
+	assert.NotContains(t, command, "AGENT_API_KEY=")
+
+	assert.Nil(t, findVolumeByName(sts.Spec.Template.Spec.Volumes, AgentAPIKeyVolumeName),
+		"agent-api-key volume must be absent when monitoring is disabled")
+	assert.False(t, containerMountsVolume(agent.VolumeMounts, AgentAPIKeyVolumeName),
+		"agent container must not mount the agent-api-key volume when monitoring is disabled")
+}
+
+func findContainerByName(t *testing.T, containers []corev1.Container, name string) corev1.Container {
+	t.Helper()
+	for _, c := range containers {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("container %q not found", name)
+	return corev1.Container{}
+}
+
+func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {
+	for i := range volumes {
+		if volumes[i].Name == name {
+			return &volumes[i]
+		}
+	}
+	return nil
+}
+
+func containerMountsVolume(mounts []corev1.VolumeMount, name string) bool {
+	for _, m := range mounts {
+		if m.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAppDbStatefulSet_UserTemplateMonitoringContainerStripped(t *testing.T) {
+	monitoringContainer := corev1.Container{Name: monitoringAgentContainerName}
+	podTemplate := corev1.PodTemplateSpec{}
+	podTemplate.Spec.Containers = []corev1.Container{monitoringContainer}
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	om.Spec.AppDB.PodSpec.PodTemplateWrapper = v1.PodTemplateSpecWrapper{
+		PodTemplate: &podTemplate,
+	}
+
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	for _, c := range sts.Spec.Template.Spec.Containers {
+		assert.NotEqual(t, monitoringAgentContainerName, c.Name, "monitoring container should be stripped from user template")
+	}
 }
 
 // TestAppDbStatefulSet_MultiClusterIdentity verifies that in multi-cluster mode the AppDB

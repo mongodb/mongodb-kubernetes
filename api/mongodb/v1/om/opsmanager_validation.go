@@ -267,6 +267,25 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if len(os.AppDB.MonitoringAgent.StartupParameters) > 0 {
+		return v1.OpsManagerResourceValidationWarning("spec.appDB.monitoringAgent.startupOptions is deprecated and has no effect; the monitoring agent now runs inside the automation agent. Configure agent options, including log level and rotation, via spec.appDB.agent and remove spec.appDB.monitoringAgent from your configuration", status.AppDb)
+	}
+	return v1.ValidationSuccess()
+}
+
+func warnMonitoringAgentContainer(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if os.AppDB.PodSpec == nil || os.AppDB.PodSpec.PodTemplateWrapper.PodTemplate == nil {
+		return v1.ValidationSuccess()
+	}
+	for _, c := range os.AppDB.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers {
+		if c.Name == "mongodb-agent-monitoring" {
+			return v1.OpsManagerResourceValidationWarning("spec.appDB.podSpec.podTemplate contains a deprecated 'mongodb-agent-monitoring' container; it will be removed automatically — remove it from your configuration", status.AppDb)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
@@ -283,6 +302,8 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validateBackupS3Stores,
 		featureCompatibilityVersionValidation,
 		validateAppDBUniqueExternalDomains,
+		warnMonitoringAgentStartupParameters,
+		warnMonitoringAgentContainer,
 	}
 
 	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{

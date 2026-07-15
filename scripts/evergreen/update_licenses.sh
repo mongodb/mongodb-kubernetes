@@ -42,5 +42,6 @@ process_licenses() {
 
 process_licenses "${REPO_DIR}"
 process_licenses "${REPO_DIR}/cmd/kubectl-mongodb"
+process_licenses "${REPO_DIR}/mongodb-community-operator/cmd/readiness"
 
 echo "License processing complete for all modules."

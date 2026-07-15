@@ -12,6 +12,7 @@ import sys
 from typing import List
 
 from agent_matrix import get_supported_version_for_image
+from git import Repo
 from helm_files_handler import (
     get_value_in_yaml_file,
     set_value_in_yaml_file,
@@ -19,6 +20,9 @@ from helm_files_handler import (
     update_community_agent_image_in_file,
     update_community_agent_image_in_go_file,
 )
+
+from scripts.release.constants import DEFAULT_RELEASE_INITIAL_VERSION, DEFAULT_REPOSITORY_PATH
+from scripts.release.version import find_previous_version
 
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
@@ -46,6 +50,11 @@ def main() -> int:
 
     operator_version = release["mongodbOperator"]
 
+    repo = Repo(DEFAULT_REPOSITORY_PATH)
+    old_operator_version = find_previous_version(
+        repo=repo, initial_commit_sha=None, initial_version=DEFAULT_RELEASE_INITIAL_VERSION
+    ).name
+
     for k in release:
         if k in RELEASE_JSON_TO_HELM_KEY:
             update_all_helm_values_files(RELEASE_JSON_TO_HELM_KEY[k], release[k])
@@ -54,7 +63,7 @@ def main() -> int:
 
     update_helm_charts(operator_version, release, agent_version)
     update_community_manifests(agent_version)
-    update_cluster_service_version(operator_version)
+    update_cluster_service_version(operator_version, old_operator_version)
 
     return 0
 
@@ -99,14 +108,13 @@ def update_helm_charts(operator_version, release, agent_version):
     set_value_in_yaml_file("helm_chart/values.yaml", "community.agent.version", agent_version)
 
 
-def update_cluster_service_version(operator_version):
+def update_cluster_service_version(operator_version: str, old_operator_version: str):
     container_image_value = get_value_in_yaml_file(
         "config/manifests/bases/mongodb-kubernetes.clusterserviceversion.yaml",
         "metadata.annotations.containerImage",
     )
 
     image_parts = container_image_value.split(":")
-    old_operator_version = image_parts[-1]
     image_repo = ":".join(image_parts[:-1])
 
     if old_operator_version != operator_version:

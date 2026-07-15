@@ -260,16 +260,15 @@ const (
 	DefaultS3MaxConnections = 50
 
 	// Ops Manager related constants
-	OmPropertyPrefix                   = "OM_PROP_"
-	MmsJvmParamEnvVar                  = "CUSTOM_JAVA_MMS_UI_OPTS"
-	BackupDaemonJvmParamEnvVar         = "CUSTOM_JAVA_DAEMON_OPTS"
-	GenKeyPath                         = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion                    = "5.0"
-	AppDBAutomationConfigKey           = "cluster-config.json"
-	AppDBMonitoringAutomationConfigKey = "monitoring-cluster-config.json"
-	DefaultAppDbPasswordKey            = "password"
-	AppDbConnectionStringKey           = "connectionString"
-	AppDbProjectIdKey                  = "projectId"
+	OmPropertyPrefix           = "OM_PROP_"
+	MmsJvmParamEnvVar          = "CUSTOM_JAVA_MMS_UI_OPTS"
+	BackupDaemonJvmParamEnvVar = "CUSTOM_JAVA_DAEMON_OPTS"
+	GenKeyPath                 = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion            = "5.0"
+	AppDBAutomationConfigKey   = "cluster-config.json"
+	DefaultAppDbPasswordKey    = "password"
+	AppDbConnectionStringKey   = "connectionString"
+	AppDbProjectIdKey          = "projectId"
 	// Immutable backups were introduced in 8.0.19
 	// This variable is used for validating the OM version when an s3 store with object lock is configured
 	MinimumVersionImmutableBackup = "8.0.19"
