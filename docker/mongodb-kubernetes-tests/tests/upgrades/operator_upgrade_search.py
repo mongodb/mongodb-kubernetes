@@ -2,6 +2,7 @@ import json
 from copy import deepcopy
 from typing import Any
 
+import pymongo.errors
 from kubernetes import client
 from kubetester import run_periodically, try_load
 from kubetester.kubetester import fixture as yaml_fixture
@@ -422,6 +423,23 @@ class TestDeployOnMongoDBKubernetes190:
         sample_movies_helper.restore_sample_database()
 
     def test_create_search_index(self, sample_movies_helper: SampleMoviesSearchHelper):
+        def search_commands_enabled():
+            try:
+                sample_movies_helper.search_tester.get_search_indexes(
+                    sample_movies_helper.db_name, sample_movies_helper.col_name
+                )
+                return True
+            except pymongo.errors.OperationFailure as error:
+                if error.code != 31082:
+                    raise
+                return False, str(error)
+
+        run_periodically(
+            search_commands_enabled,
+            timeout=300,
+            sleep_time=5,
+            msg="mongos Search commands to become available",
+        )
         sample_movies_helper.create_search_index()
 
     def test_search_query_before_upgrade(self, sample_movies_helper: SampleMoviesSearchHelper):
