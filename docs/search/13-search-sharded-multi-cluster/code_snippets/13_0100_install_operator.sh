@@ -1,7 +1,6 @@
 echo "Configuring multi-cluster service accounts and roles..."
 
-KUBECONFIG="${MDB_PLUGIN_KUBECONFIG:-${KUBECONFIG:-${HOME}/.kube/config}}" \
-  kubectl mongodb multicluster setup \
+kubectl mongodb multicluster setup \
   --central-cluster="${K8S_CTX_0}" \
   --member-clusters="${K8S_CTX_0},${K8S_CTX_1}" \
   --member-cluster-namespace="${MDB_NS}" \

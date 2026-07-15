@@ -10,7 +10,7 @@ for collection_and_index in "movies default" "embedded_movies vector_index"; do
       -- mongosh "${user_conn}" --quiet --eval "
         const indexes = db.getSiblingDB('sample_mflix').${collection}.getSearchIndexes();
         print(indexes.find(index => index.name === '${index_name}')?.status);
-      " | tail -1)"
+      " | tail -1 || true)"
 
     [[ "${status}" == "READY" ]] && break
     sleep 10

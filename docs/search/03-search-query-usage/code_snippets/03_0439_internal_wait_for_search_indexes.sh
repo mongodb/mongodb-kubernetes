@@ -9,7 +9,7 @@ for collection_and_index in "${indexes[@]}"; do
       -- mongosh "${MDB_CONNECTION_STRING}" --quiet --eval "
         const indexes = db.getSiblingDB('sample_mflix').${collection}.getSearchIndexes();
         print(indexes.find(index => index.name === '${index_name}')?.status);
-      " | tail -1)"
+      " | tail -1 || true)"
 
     [[ "${status}" == "READY" ]] && break
     sleep 10

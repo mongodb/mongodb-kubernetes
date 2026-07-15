@@ -45,12 +45,43 @@ export K8S_CTX="${K8S_CTX_0}"
 
 ${test_dir}/test.sh
 
-# Phase 3: per-cluster query verification — prove each member cluster serves
-# $search/$vectorSearch. Reuse scenario 03's execute snippets, re-pointed at each
-# cluster's own node via directConnection (the cluster-0 tools pod reaches them
-# over the mesh). Reuse the per-cluster host vars that env_variables_e2e_private.sh
-# exports (same values Phase 2 connects to). K8S_CTX stays K8S_CTX_0 (tools pod +
-# CA live there).
+assert_search_results() {
+  kubectl exec -i --context "${K8S_CTX}" -n "${MDB_NS}" mongodb-tools-pod -- \
+    mongosh --quiet "${MDB_CONNECTION_STRING}" <<'MONGOSH'
+const sampleDb = db.getSiblingDB("sample_mflix");
+const textResults = sampleDb.movies.aggregate([
+  { $search: { text: { query: "baseball", path: "plot" } } },
+  { $limit: 1 }
+]);
+if (!textResults.hasNext()) {
+  throw new Error("internal text search assertion returned no documents");
+}
+
+const queryVector = sampleDb.embedded_movies.findOne(
+  { plot_embedding_voyage_3_large: { $exists: true } },
+  { plot_embedding_voyage_3_large: 1 }
+).plot_embedding_voyage_3_large;
+const vectorResults = sampleDb.embedded_movies.aggregate([
+  {
+    $vectorSearch: {
+      index: "vector_index",
+      path: "plot_embedding_voyage_3_large",
+      queryVector,
+      numCandidates: 50,
+      limit: 1
+    }
+  }
+]);
+if (!vectorResults.hasNext()) {
+  throw new Error("internal vector search assertion returned no documents");
+}
+MONGOSH
+}
+
+# Phase 3 proves that a MongoDB member in each cluster can execute Search
+# queries through cluster 0's stable proxy target. The cluster-0 tools pod
+# reaches each member over the mesh. K8S_CTX stays K8S_CTX_0 because the tools
+# pod and CA live there.
 # Invoke via 'bash -e' rather than the run/run_for_output framework: its skip-log
 # is keyed on snippet name, so a second run() of the same snippet would no-op.
 for ci in 0 1; do
@@ -60,4 +91,5 @@ for ci in 0 1; do
   echo "Phase 3: verifying search from cluster ${ci} (${member})"
   bash -e ./docs/search/03-search-query-usage/code_snippets/03_0450_execute_search_query.sh
   bash -e ./docs/search/03-search-query-usage/code_snippets/03_0455_execute_vector_search_query.sh
+  assert_search_results
 done

@@ -6,7 +6,9 @@
 # It can be run manually or as part of automated E2E testing.
 #
 # Usage:
-#   ./test.sh                    # Run with env_variables.sh
+#   source env_variables.sh
+#   source env_variables_internal.sh
+#   ./test.sh
 #
 # For E2E testing, env_variables_e2e_private.sh is sourced automatically
 # by the test runner.
@@ -52,7 +54,7 @@ run 12_0310_internal_create_mongodb_mc_rs.sh
 run_for_output 12_0315_internal_wait_for_rs.sh
 
 # Create users AFTER the cluster is ready (MongoDBUser CRDs reference it)
-run 12_0316_internal_create_mongodb_users.sh
+run 12_0315a_internal_create_mongodb_users.sh
 run 12_0316_create_search_sync_secret.sh
 
 # ============================================================================
@@ -81,5 +83,7 @@ run_for_output 12_0326_internal_verify_envoy_deployment.sh
 
 # Show all running pods
 run_for_output 12_0330_show_running_pods.sh
+
+echo "To clean up, run: ./code_snippets/12_9010_internal_delete_namespace.sh"
 
 cd - || true

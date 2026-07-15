@@ -1,10 +1,10 @@
 echo "Creating TLS certificates for managed load balancer (Envoy)..."
 
-for i in 0 1; do
-  lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${i}-cert"
-  lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${i}-client-cert"
+for ci in 0 1; do
+  lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-cert"
+  lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-client-cert"
 
-  echo "Creating LB server certificate for cluster ${i}..."
+  echo "Creating LB server certificate for cluster ${ci}..."
   kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -27,7 +27,7 @@ spec:
 EOF
   echo "  [ok] LB server certificate requested: ${lb_server_cert}"
 
-  echo "Creating LB client certificate for cluster ${i}..."
+  echo "Creating LB client certificate for cluster ${ci}..."
   kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f - <<EOF
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -52,9 +52,9 @@ EOF
 done
 
 echo "Waiting for LB certificates to be ready..."
-for i in 0 1; do
-  lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${i}-cert"
-  lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${i}-client-cert"
+for ci in 0 1; do
+  lb_server_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-cert"
+  lb_client_cert="${MDB_TLS_CERT_SECRET_PREFIX}-${MDB_SEARCH_RESOURCE_NAME}-search-lb-${ci}-client-cert"
   kubectl wait --for=condition=Ready certificate/"${lb_server_cert}" \
     -n "${MDB_NS}" \
     --context "${K8S_CTX_0}" \

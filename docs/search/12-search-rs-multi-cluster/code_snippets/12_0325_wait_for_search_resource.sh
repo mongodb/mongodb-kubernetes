@@ -11,8 +11,10 @@ echo "[ok] MongoDBSearch '${MDB_SEARCH_RESOURCE_NAME}' is Running"
 
 echo ""
 echo "MongoDBSearch pods per member cluster:"
+ci=0
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   echo "== ${ctx} =="
   kubectl get pods -n "${MDB_NS}" --context "${ctx}" \
-    -l "app.kubernetes.io/component=mongot"
+    -l "app=${MDB_SEARCH_RESOURCE_NAME}-search-${ci}-svc"
+  ci=$((ci + 1))
 done

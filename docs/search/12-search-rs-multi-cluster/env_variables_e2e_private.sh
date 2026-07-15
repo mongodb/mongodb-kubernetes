@@ -22,13 +22,13 @@ export K8S_CTX_1
 # test-pod flow uses, the node IP is reachable BOTH from pods (the kind
 # interconnect routes via node IPs) and from this host (docker bridge) -- the
 # plugin itself talks to the API servers from the host while it runs.
-MDB_PLUGIN_KUBECONFIG="${PROJECT_DIR}/.generated/snippets_plugin_kubeconfig"
-cp "${KUBECONFIG:-${HOME}/.kube/config}" "${MDB_PLUGIN_KUBECONFIG}"
+plugin_kubeconfig="${PROJECT_DIR}/.generated/snippets_plugin_kubeconfig"
+cp "${KUBECONFIG:-${HOME}/.kube/config}" "${plugin_kubeconfig}"
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   node_ip=$(kubectl get nodes --context "${ctx}" -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-  kubectl config --kubeconfig "${MDB_PLUGIN_KUBECONFIG}" set "clusters.${ctx}.server" "https://${node_ip}:6443"
+  kubectl config --kubeconfig "${plugin_kubeconfig}" set "clusters.${ctx}.server" "https://${node_ip}:6443"
 done
-export MDB_PLUGIN_KUBECONFIG
+export KUBECONFIG="${plugin_kubeconfig}"
 
 OPERATOR_ADDITIONAL_HELM_VALUES="$(get_operator_helm_values | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES

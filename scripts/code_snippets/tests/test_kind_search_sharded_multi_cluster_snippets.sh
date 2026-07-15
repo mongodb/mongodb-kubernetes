@@ -46,12 +46,43 @@ export K8S_CTX="${K8S_CTX_0}"
 
 ${test_dir}/test.sh
 
-# Phase 3: per-cluster query verification — prove each member cluster's mongos
-# serves $search/$vectorSearch. Reuse scenario 08's execute snippets, re-pointed
-# at each cluster's own mongos via directConnection (the cluster-0 tools pod
-# reaches them over the mesh). Reuse the per-cluster mongos host vars that
-# env_variables_e2e_private.sh exports (same values Phase 2 connects to). K8S_CTX
-# stays K8S_CTX_0 (tools pod + CA live there).
+assert_search_results() {
+  kubectl exec -i mongodb-tools -n "${MDB_NS}" --context "${K8S_CTX}" -- \
+    mongosh --quiet "${MDB_USER_CONNECTION_STRING}" <<'MONGOSH'
+const sampleDb = db.getSiblingDB("sample_mflix");
+const textResults = sampleDb.movies.aggregate([
+  { $search: { text: { query: "baseball", path: "plot" } } },
+  { $limit: 1 }
+]);
+if (!textResults.hasNext()) {
+  throw new Error("internal text search assertion returned no documents");
+}
+
+const queryVector = sampleDb.embedded_movies.findOne(
+  { plot_embedding_voyage_3_large: { $exists: true } },
+  { plot_embedding_voyage_3_large: 1 }
+).plot_embedding_voyage_3_large;
+const vectorResults = sampleDb.embedded_movies.aggregate([
+  {
+    $vectorSearch: {
+      index: "vector_index",
+      path: "plot_embedding_voyage_3_large",
+      queryVector,
+      numCandidates: 50,
+      limit: 1
+    }
+  }
+]);
+if (!vectorResults.hasNext()) {
+  throw new Error("internal vector search assertion returned no documents");
+}
+MONGOSH
+}
+
+# Phase 3 proves that a mongos in each cluster can execute Search queries
+# through cluster 0's stable proxy targets. The cluster-0 tools pod reaches
+# both mongos processes over the mesh. K8S_CTX stays K8S_CTX_0 because the
+# tools pod and CA live there.
 # Invoke via 'bash -e' rather than the run/run_for_output framework: its skip-log
 # is keyed on snippet name, so a second run() of the same snippet would no-op.
 for ci in 0 1; do
@@ -61,4 +92,5 @@ for ci in 0 1; do
   echo "Phase 3: verifying search from cluster ${ci} mongos (${mongos})"
   bash -e ./docs/search/08-search-sharded-query-usage/code_snippets/08_0450_execute_search_query.sh
   bash -e ./docs/search/08-search-sharded-query-usage/code_snippets/08_0455_execute_vector_search_query.sh
+  assert_search_results
 done

@@ -76,11 +76,17 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      # The single-cluster task group includes Community scenarios that pull
+      # these images directly, so they must be explicit patch dependencies.
       - name: build_readiness_probe_image
         variant: init_test_run
       - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_test_image
+        variant: init_test_run
+      # The multi-cluster variant downloads this artifact directly. This adds
+      # no build latency because build_test_image already depends on it.
+      - name: build_kubectl_mongodb_plugin
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run

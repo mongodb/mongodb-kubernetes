@@ -10,6 +10,8 @@ reconfigure the source MongoDB deployment.
   reachable from both Kubernetes clusters.
 - Two Kubernetes contexts connected by a service mesh that provides
   cross-cluster Service DNS and connectivity.
+- The namespace snippets use Istio's injection label. Adjust that label when
+  using another service mesh.
 - `kubectl`, Helm, the `kubectl-mongodb` plugin, `jq`, and cert-manager.
 - A `search-sync-source` user on the source deployment with the
   `searchCoordinator` role. Set `MDB_SEARCH_SYNC_USER_PASSWORD` to that user's
@@ -39,22 +41,27 @@ proxy.
 2. In Ops Manager, open **Deployment > Processes** and click **Modify** for
    each `mongod` in the replica set.
 3. Under **Advanced Configuration Options**, click **Add Option**, select
-   `setParameter`, and add both of these parameters:
+   `setParameter`, and add these parameters:
 
    | Parameter | Value |
    |-----------|-------|
    | `mongotHost` | `${MDB_PROXY_HOST_0}` |
    | `searchIndexManagementHostAndPort` | `${MDB_PROXY_HOST_0}` |
+   | `searchTLSMode` | `requireTLS` |
+   | `useGrpcForSearch` | `true` |
+   | `skipAuthenticationToMongot` | `false` |
+   | `skipAuthenticationToSearchIndexManagementServer` | `false` |
 
-   Enter the expanded value from `env_variables.sh`, not the variable name.
+   Enter the expanded values from `env_variables.sh`, not the variable names.
 4. Click **Save**, review the changes, and deploy the updated configuration.
 
 Ops Manager applies `setParameter` startup options to the processes it manages.
 See [Advanced Options for MongoDB Deployments](https://www.mongodb.com/docs/ops-manager/current/reference/deployment-advanced-options/).
 
-All replica-set members use cluster 0's proxy because the source deployment
-has one shared value for each Search parameter. Members in cluster 1 therefore
-send Search traffic across the service mesh to cluster 0.
+These snippets deliberately use one stable Search target: all replica-set
+members send Search traffic across the service mesh to cluster 0's proxy.
+Cluster 1's Search stack is a warm standby. Ops Manager's per-process
+configuration can instead target each member at its local cluster proxy.
 
 ## Deploy MongoDB Search
 

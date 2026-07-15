@@ -6,7 +6,7 @@ export MDB_NS="mongodb"
 
 # Existing external sharded cluster and the MongoDBSearch resource to create.
 export MDB_EXTERNAL_CLUSTER_NAME="mdb-mc-sh"
-export MDB_SEARCH_RESOURCE_NAME="${MDB_EXTERNAL_CLUSTER_NAME}-search"
+export MDB_SEARCH_RESOURCE_NAME="ext-sh"
 
 # Existing shard replica-set names. Change these defaults when your deployment
 # uses different names.
@@ -33,6 +33,7 @@ export MDB_TLS_CA_ISSUER="my-ca-issuer"
 
 # MongoDB Search configuration.
 export MDB_MONGOT_REPLICAS_PER_CLUSTER=1
+# Managed Envoy port (operator default; do not change).
 export ENVOY_PROXY_PORT="27028"
 export MDB_PROXY_HOST_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"
 export MDB_PROXY_HOST_SHARD_0="${MDB_SEARCH_RESOURCE_NAME}-search-0-${MDB_EXTERNAL_SHARD_0_NAME}-proxy-svc.${MDB_NS}.svc.cluster.local:${ENVOY_PROXY_PORT}"

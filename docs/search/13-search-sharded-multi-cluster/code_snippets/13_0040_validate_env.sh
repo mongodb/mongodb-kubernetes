@@ -41,7 +41,7 @@ fi
 
 missing_contexts=()
 for ctx in "${K8S_CTX_0:-}" "${K8S_CTX_1:-}"; do
-  if [[ -n "${ctx}" ]] && ! kubectl config get-contexts "${ctx}" &>/dev/null; then
+  if [[ -n "${ctx}" ]] && [[ "${ctx}" != "<"* ]] && ! kubectl config get-contexts "${ctx}" &>/dev/null; then
     missing_contexts+=("${ctx}")
   fi
 done
