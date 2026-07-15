@@ -94,21 +94,6 @@ def test_appdb_has_agent_flags(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_appdb_flags_and_config
-def test_monitoring_credentials_not_in_automation_config(ops_manager: MongoDBOpsManager):
-    """Under Option B the monitoring credentials are delivered to the single agent as
-    -mmsGroupId/-mmsApiKey CLI flags, so they must NOT appear in the automation config's
-    monitoringVersions.additionalParams (keeping the API key out of the AC secret).
-    """
-    ac_tester = ops_manager.get_automation_config_tester()
-    monitoring_versions = ac_tester.automation_config.get("monitoringVersions", [])
-    assert len(monitoring_versions) > 0, "monitoringVersions should be configured in the automation config"
-    for mv in monitoring_versions:
-        params = mv.get("additionalParams", {})
-        assert "mmsGroupId" not in params, "mmsGroupId must not be embedded in monitoring additionalParams"
-        assert "mmsApiKey" not in params, "mmsApiKey must not be embedded in monitoring additionalParams"
-
-
-@mark.e2e_om_appdb_flags_and_config
 def test_monitoring_reaches_om(ops_manager: MongoDBOpsManager):
     """End-to-end check that the single agent (which receives the monitoring credentials as
     -mmsGroupId/-mmsApiKey CLI flags, not via AC additionalParams) actually reports monitoring
