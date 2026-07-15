@@ -107,6 +107,53 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
 	})
 
+	t.Run("no-op mutation adopts legacy metadata without changing state", func(t *testing.T) {
+		c := mock.NewEmptyFakeClientBuilder().Build()
+		legacyState, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"legacy-shard"}})
+		require.NoError(t, err)
+		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      stateCMName.Name,
+				Namespace: stateCMName.Namespace,
+				Labels: map[string]string{
+					khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+					khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind: "MongoDBSearch",
+					Name: search.Name,
+					UID:  search.UID,
+				}},
+			},
+			Data: map[string]string{searchStateKey: string(legacyState)},
+		}))
+
+		state, err := MutateSearchState(ctx, kubernetesClient.NewClient(c), search, func(*SearchDeploymentState) bool {
+			return false
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"legacy-shard"}, state.RoutingReadyMongotGroups)
+
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, c.Get(ctx, stateCMName, cm))
+		assert.Empty(t, cm.OwnerReferences)
+		assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+		assert.Equal(t, string(legacyState), cm.Data[searchStateKey])
+	})
+
+	t.Run("no-op mutation does not create missing state", func(t *testing.T) {
+		c := mock.NewEmptyFakeClientBuilder().Build()
+		state, err := MutateSearchState(ctx, kubernetesClient.NewClient(c), search, func(*SearchDeploymentState) bool {
+			return false
+		})
+		require.NoError(t, err)
+		assert.Empty(t, state.RoutingReadyMongotGroups)
+
+		cm := &corev1.ConfigMap{}
+		err = c.Get(ctx, stateCMName, cm)
+		assert.True(t, apierrors.IsNotFound(err))
+	})
+
 	t.Run("uid mismatch resets stale state before mutate", func(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		staleState, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stale-shard"}})

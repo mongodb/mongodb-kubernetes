@@ -1021,10 +1021,7 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
-      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
-      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
-      # - e2e_operator_upgrade_search
+      - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -1052,10 +1049,7 @@ task_groups:
     <<: *setup_and_teardown_task_cloudqa
     tasks:
       - e2e_operator_upgrade_replica_set
-      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
-      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
-      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
-      # - e2e_operator_upgrade_search
+      - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd

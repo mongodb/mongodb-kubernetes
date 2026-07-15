@@ -1002,10 +1002,11 @@ def install_official_operator(
     """
     Installs the Operator from the official Helm Chart.
 
-    The version installed is always the latest version published as a Helm Chart.
+    custom_operator_version pins the exact published chart/CRD/operator bundle.
     """
+    version = custom_operator_version or "latest released"
     logger.debug(
-        f"Installing latest released {'multi' if is_multi_cluster() else 'single'} cluster operator from helm charts"
+        f"Installing {version} {'multi' if is_multi_cluster() else 'single'} cluster operator from helm charts"
     )
 
     # When running in Openshift "managedSecurityContext" will be true.
@@ -1110,6 +1111,7 @@ def install_official_operator(
             helm_args=helm_args,
             helm_chart_path=helm_chart_path,
             name=operator_name,
+            operator_version=custom_operator_version,
         ).install(custom_operator_version=custom_operator_version)
 
 

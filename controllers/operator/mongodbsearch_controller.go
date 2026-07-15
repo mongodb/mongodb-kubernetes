@@ -225,7 +225,10 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
+	// Adopt state written by GA releases even when its data needs no change.
+	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(*searchcontroller.SearchDeploymentState) bool {
+		return false
+	})
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)
 	}
