@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"golang.org/x/xerrors"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -50,6 +54,15 @@ func searchStateFromCM(cm *corev1.ConfigMap) (*SearchDeploymentState, error) {
 	return state, nil
 }
 
+func searchStateUIDMatchesOrMissing(cm *corev1.ConfigMap, search *searchv1.MongoDBSearch) bool {
+	recordedUID, ok := cm.Labels[khandler.MongoDBSearchOwnerUIDLabel]
+	if ok {
+		return recordedUID == string(search.UID)
+	}
+	controller := metav1.GetControllerOf(cm)
+	return controller == nil || controller.UID == search.UID
+}
+
 // ReadSearchState reads the per-CR state ConfigMap, treating NotFound as fresh
 // state. Strictly read-only: it never creates or updates the ConfigMap, so it is
 // safe to call from controllers that must not write state (e.g. the Envoy
@@ -66,6 +79,9 @@ func ReadSearchState(
 		}
 		return nil, err
 	}
+	if !searchStateUIDMatchesOrMissing(cm, search) {
+		return NewSearchDeploymentState(), nil
+	}
 	return searchStateFromCM(cm)
 }
 
@@ -73,7 +89,10 @@ func ReadSearchState(
 // search state ConfigMap: a stale base yields 409 Conflict and the reconcile
 // requeues, instead of silently losing a concurrent write (do NOT replace this
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
-// true when the state changed and must be persisted.
+// true when the state changed and must be persisted. If the ConfigMap has an
+// explicit search-uid label that does not match this CR's UID, state is reset
+// before mutate runs. State without that label is adopted unless its controller
+// owner reference explicitly belongs to a previous CR UID.
 func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
 	cmName := SearchStateCMName(search)
 	cm := &corev1.ConfigMap{}
@@ -90,7 +109,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		newCM := configmap.Builder().
 			SetName(cmName).
 			SetNamespace(search.Namespace).
-			SetLabels(search.GetOwnerLabels()).
+			SetLabels(searchOwnerLabels(search, "")).
 			SetOwnerReferences(kube.BaseOwnerReference(search)).
 			SetDataField(searchStateKey, string(data)).
 			Build()
@@ -99,18 +118,48 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		return nil, err
 	}
 
-	state, err := searchStateFromCM(cm)
-	if err != nil {
-		return nil, err
+	uidMatches := searchStateUIDMatchesOrMissing(cm, search)
+	state := NewSearchDeploymentState()
+	if uidMatches {
+		state, err = searchStateFromCM(cm)
+		if err != nil {
+			return nil, err
+		}
 	}
-	if !mutate(state) {
+
+	stateChanged := mutate(state)
+	metadataChanged := false
+	// Adopt legacy metadata without replacing an existing controller owner reference.
+	if !slices.ContainsFunc(cm.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == search.UID
+	}) {
+		cm.OwnerReferences = append(cm.OwnerReferences, metav1.OwnerReference{
+			APIVersion: v1.SchemeGroupVersion.String(),
+			Kind:       "MongoDBSearch",
+			Name:       search.Name,
+			UID:        search.UID,
+		})
+		metadataChanged = true
+	}
+	if cm.Labels == nil {
+		cm.Labels = map[string]string{}
+	}
+	for key, value := range searchOwnerLabels(search, "") {
+		if cm.Labels[key] != value {
+			cm.Labels[key] = value
+			metadataChanged = true
+		}
+	}
+
+	if !stateChanged && uidMatches && !metadataChanged {
 		return state, nil
 	}
+
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, err
 	}
-	if cm.Data == nil {
+	if cm.Data == nil || !uidMatches {
 		cm.Data = map[string]string{}
 	}
 	cm.Data[searchStateKey] = string(data)

@@ -683,7 +683,7 @@ func (o metricsForwarderStateOwner) GetOwnerLabels() map[string]string {
 }
 
 func (r *MongoDBSearchMetricsForwarderReconciler) openTopologyStateStore(search *searchv1.MongoDBSearch) *StateStore[searchTopologyState] {
-	return NewStateStore[searchTopologyState](metricsForwarderStateOwner{MongoDBSearch: search}, search.GetOwnerReferences(), r.kubeClient)
+	return NewStateStore[searchTopologyState](metricsForwarderStateOwner{MongoDBSearch: search}, search.GetOwnerReferences(), r.kubeClient, string(search.UID))
 }
 
 // reconcileTopologyState reconciles the topology state for one cluster work item: it detects

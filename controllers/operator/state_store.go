@@ -19,7 +19,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 )
 
-const stateKey = "state"
+const (
+	stateKey         = "state"
+	stateOwnerUIDKey = "ownerUID"
+)
 
 // StateStore is a wrapper for a custom, per-resource deployment state required for the operator to reconciler the resource correctly.
 // It handles serialization/deserialization of any deployment state structure of type S.
@@ -29,9 +32,11 @@ type StateStore[S any] struct {
 	resourceName    string
 	ownerLabels     map[string]string
 	ownerReferences []metav1.OwnerReference
+	ownerUID        string
 	client          kubernetesClient.Client
 
-	data map[string]string
+	data                map[string]string
+	readOwnerReferences []metav1.OwnerReference
 }
 
 // NewStateStore constructs a new instance of the StateStore.
@@ -39,12 +44,13 @@ type StateStore[S any] struct {
 // designed to be thread safe.
 // - owner provides the namespace, name, and labels for the config map
 // - ownerReferences are set on the config map to enable garbage collection when the owner is deleted
-func NewStateStore[S any](owner v1.ResourceOwner, ownerReferences []metav1.OwnerReference, client kubernetesClient.Client) *StateStore[S] {
+func NewStateStore[S any](owner v1.ResourceOwner, ownerReferences []metav1.OwnerReference, client kubernetesClient.Client, ownerUID string) *StateStore[S] {
 	return &StateStore[S]{
 		namespace:       owner.GetNamespace(),
 		resourceName:    owner.GetName(),
 		ownerLabels:     owner.GetOwnerLabels(),
 		ownerReferences: ownerReferences,
+		ownerUID:        ownerUID,
 		client:          client,
 		data:            map[string]string{},
 	}
@@ -57,10 +63,18 @@ func (s *StateStore[S]) read(ctx context.Context) error {
 	}
 
 	s.data = cm.Data
+	s.readOwnerReferences = append([]metav1.OwnerReference(nil), cm.OwnerReferences...)
 	return nil
 }
 
 func (s *StateStore[S]) write(ctx context.Context, log *zap.SugaredLogger) error {
+	if s.data == nil {
+		s.data = map[string]string{}
+	}
+	if s.ownerUID != "" {
+		s.data[stateOwnerUIDKey] = s.ownerUID
+	}
+
 	dataCM := configmap.Builder().
 		SetName(s.getStateConfigMapName()).
 		SetLabels(s.ownerLabels).
@@ -91,6 +105,9 @@ func (s *StateStore[S]) ReadState(ctx context.Context) (*S, error) {
 	if err := s.read(ctx); err != nil {
 		return nil, err
 	}
+	if s.isStaleOwnerUID() {
+		return nil, errors.NewNotFound(schema.GroupResource{}, s.getStateConfigMapName())
+	}
 
 	// Deserialize the state
 	if ok, err := s.getDataValue(stateKey, state); err != nil {
@@ -101,6 +118,32 @@ func (s *StateStore[S]) ReadState(ctx context.Context) (*S, error) {
 	} else {
 		return state, nil
 	}
+}
+
+func (s *StateStore[S]) isStaleOwnerUID() bool {
+	if s.ownerUID == "" {
+		return false
+	}
+	recordedUID, ok := s.data[stateOwnerUIDKey]
+	if ok {
+		return recordedUID != s.ownerUID
+	}
+	for _, expected := range s.ownerReferences {
+		if expected.Controller == nil || !*expected.Controller || string(expected.UID) != s.ownerUID {
+			continue
+		}
+		for _, actual := range s.readOwnerReferences {
+			// Released 1.9.x state can have blank GVK fields after typed reads; any populated field must still match.
+			if actual.Controller != nil && *actual.Controller &&
+				(actual.APIVersion == "" || actual.APIVersion == expected.APIVersion) &&
+				(actual.Kind == "" || actual.Kind == expected.Kind) &&
+				actual.Name == expected.Name &&
+				actual.UID == expected.UID {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *StateStore[S]) getDataValue(key string, obj any) (bool, error) {

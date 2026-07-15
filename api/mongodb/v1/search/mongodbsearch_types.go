@@ -861,7 +861,7 @@ func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	ownerReference := *metav1.NewControllerRef(s, schema.GroupVersionKind{
 		Group:   v1.SchemeGroupVersion.Group,
 		Version: v1.SchemeGroupVersion.Version,
-		Kind:    s.Kind,
+		Kind:    s.GetKind(),
 	})
 	return []metav1.OwnerReference{ownerReference}
 }

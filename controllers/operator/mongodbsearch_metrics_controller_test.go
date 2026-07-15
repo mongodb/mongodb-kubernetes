@@ -187,12 +187,17 @@ func newTestTopologyStateConfigMap(t *testing.T, search *searchv1.MongoDBSearch,
 	state := searchTopologyState{Clusters: map[string]clusterTopologyState{"": clusterState}}
 	stateJSON, err := json.Marshal(state)
 	require.NoError(t, err)
+	data := map[string]string{stateKey: string(stateJSON)}
+	if search.UID != "" {
+		data[stateOwnerUIDKey] = string(search.UID)
+	}
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
 			Namespace: search.Namespace,
+			Labels:    metricsForwarderLabels(search),
 		},
-		Data: map[string]string{stateKey: string(stateJSON)},
+		Data: data,
 	}
 }
 
@@ -222,6 +227,186 @@ func getTopologyState(t *testing.T, c client.Client, search *searchv1.MongoDBSea
 	var state searchTopologyState
 	require.NoError(t, json.Unmarshal([]byte(cm.Data[stateKey]), &state))
 	return state.Clusters[""]
+}
+
+func TestOpenTopologyStateStore_UIDSemantics(t *testing.T) {
+	tests := []struct {
+		name          string
+		recordedUID   *string
+		wantNotFound  bool
+		writeReplicas int
+	}{
+		{name: "missing marker adopts legacy state", writeReplicas: 4},
+		{name: "matching marker preserves state", recordedUID: ptr.To("search-uid"), writeReplicas: 4},
+		{name: "mismatched marker resets state", recordedUID: ptr.To("old-search-uid"), wantNotFound: true, writeReplicas: 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+			search.UID = "search-uid"
+			storedState := searchTopologyState{Clusters: map[string]clusterTopologyState{"": {Replicas: 3}}}
+			stateJSON, err := json.Marshal(storedState)
+			require.NoError(t, err)
+			data := map[string]string{stateKey: string(stateJSON)}
+			if tc.recordedUID != nil {
+				data[stateOwnerUIDKey] = *tc.recordedUID
+			}
+			stateOwnerUID := search.UID
+			if tc.wantNotFound {
+				stateOwnerUID = "old-search-uid"
+			}
+			stateCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+					Namespace: search.Namespace,
+					Labels:    metricsForwarderLabels(search),
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion:         "mongodb.com/v1",
+						Kind:               "MongoDBSearch",
+						Name:               search.Name,
+						UID:                stateOwnerUID,
+						Controller:         ptr.To(true),
+						BlockOwnerDeletion: ptr.To(true),
+					}},
+				},
+				Data: data,
+			}
+
+			r, c := newMetricsForwarderReconciler(testDefaultImage, search, stateCM)
+			store := r.openTopologyStateStore(search)
+			state, err := store.ReadState(ctx)
+			if tc.wantNotFound {
+				require.Error(t, err)
+				assert.True(t, apierrors.IsNotFound(err))
+				state = &searchTopologyState{Clusters: map[string]clusterTopologyState{}}
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, 3, state.Clusters[""].Replicas)
+			}
+
+			state.Clusters[""] = clusterTopologyState{Replicas: tc.writeReplicas}
+			require.NoError(t, store.WriteState(ctx, state, zap.S()))
+
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, c.Get(ctx, types.NamespacedName{
+				Namespace: search.Namespace,
+				Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+			}, cm))
+			assert.Equal(t, string(search.UID), cm.Data[stateOwnerUIDKey])
+			assert.Equal(t, tc.writeReplicas, getTopologyState(t, c, search).Replicas)
+			assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+			require.Len(t, cm.OwnerReferences, 1)
+			assert.Equal(t, search.UID, cm.OwnerReferences[0].UID)
+		})
+	}
+}
+
+func TestOpenTopologyStateStore_RejectsMarkerlessForeignOwner(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "new-search-uid"
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{
+		PendingHostDeletions: []string{"old-search-pod-0"},
+	})
+	delete(stateCM.Data, stateOwnerUIDKey)
+	stateCM.OwnerReferences = search.GetOwnerReferences()
+	stateCM.OwnerReferences[0].UID = "old-search-uid"
+
+	r, _ := newMetricsForwarderReconciler(testDefaultImage, search, stateCM)
+	_, err := r.openTopologyStateStore(search).ReadState(t.Context())
+
+	require.True(t, apierrors.IsNotFound(err), err)
+}
+
+func TestOpenTopologyStateStore_MarkerlessOwnerIdentity(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutateOwner func(*metav1.OwnerReference)
+		wantAdopt   bool
+	}{
+		{name: "exact owner", wantAdopt: true},
+		{name: "legacy empty kind and API version", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.Kind = ""
+			owner.APIVersion = ""
+		}, wantAdopt: true},
+		{name: "legacy empty kind", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.Kind = ""
+		}, wantAdopt: true},
+		{name: "legacy empty API version", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.APIVersion = ""
+		}, wantAdopt: true},
+		{name: "wrong non-empty kind", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.Kind = "MongoDB"
+		}},
+		{name: "wrong non-empty API version", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.APIVersion = "mongodb.com/v2"
+		}},
+		{name: "wrong name", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.Name = "other-search"
+		}},
+		{name: "wrong UID", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.UID = "old-search-uid"
+		}},
+		{name: "non-controller owner", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.Controller = ptr.To(false)
+		}},
+		{name: "owner without controller marker", mutateOwner: func(owner *metav1.OwnerReference) {
+			owner.Controller = nil
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+			search.UID = "search-uid"
+			stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{
+				PendingHostDeletions:   []string{"removed-pod-0"},
+				HostDeletionReadyAfter: map[string]int64{"removed-pod-0": 0},
+			})
+			delete(stateCM.Data, stateOwnerUIDKey)
+			stateCM.OwnerReferences = search.GetOwnerReferences()
+			if tc.mutateOwner != nil {
+				tc.mutateOwner(&stateCM.OwnerReferences[0])
+			}
+			r, _ := newMetricsForwarderReconciler(testDefaultImage, search, stateCM)
+
+			state, err := r.openTopologyStateStore(search).ReadState(t.Context())
+
+			if !tc.wantAdopt {
+				require.True(t, apierrors.IsNotFound(err), err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []string{"removed-pod-0"}, state.Clusters[""].PendingHostDeletions)
+			assert.Equal(t, map[string]int64{"removed-pod-0": 0}, state.Clusters[""].HostDeletionReadyAfter)
+		})
+	}
+}
+
+func TestStateStoreEmptyOwnerUIDPreservesExistingSemantics(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "search-uid"
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{Replicas: 3})
+	delete(stateCM.Data, stateOwnerUIDKey)
+	stateCM.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: "mongodb.com/v2",
+		Kind:       "MongoDB",
+		Name:       "other-owner",
+		UID:        "other-uid",
+		Controller: ptr.To(false),
+	}}
+	_, c := newMetricsForwarderReconciler(testDefaultImage, search, stateCM)
+	store := NewStateStore[searchTopologyState](
+		metricsForwarderStateOwner{MongoDBSearch: search},
+		search.GetOwnerReferences(),
+		kubernetesClient.NewClient(c),
+		"",
+	)
+
+	state, err := store.ReadState(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, 3, state.Clusters[""].Replicas)
 }
 
 func reconcileMetricsForwarder(t *testing.T, r *MongoDBSearchMetricsForwarderReconciler, namespace, name string) reconcile.Result {

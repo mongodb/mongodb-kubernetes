@@ -201,7 +201,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
 	r.deploymentState = NewOMDeploymentState()
 
-	r.stateStore = NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), reconciler.client)
+	r.stateStore = NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), reconciler.client, "")
 	if err := r.stateStore.read(ctx); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// If the deployment state config map is missing, then it might be either:
