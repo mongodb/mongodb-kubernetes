@@ -15,12 +15,14 @@ var flags struct {
 	memberCluster          string
 	memberClusterNamespace string
 	watchedNamespaces      string
+	imagePullSecrets       string
 }
 
 func init() {
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "Name of the member cluster; used in RBAC resource names (mck-member-<cluster-name>-*) and as the cluster identity. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster where the operator will manage workloads. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.watchedNamespaces, "watched-namespaces", "", "Comma-separated namespaces the operator should watch on this member cluster. [optional, default: --member-cluster-namespace]")
+	GenerateMemberResourcesCmd.Flags().StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "Name of an existing image pull Secret to set on the member-cluster workload ServiceAccounts, for pulling images from a private registry. The Secret must already exist in the workload namespace on the member cluster. [optional]")
 }
 
 // GenerateMemberResourcesCmd renders member-cluster RBAC from the embedded Helm chart.
@@ -43,7 +45,7 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-
 			return err
 		}
 
-		out, err := memberresources.Render(flags.memberCluster, flags.memberClusterNamespace, watched)
+		out, err := memberresources.Render(flags.memberCluster, flags.memberClusterNamespace, watched, flags.imagePullSecrets)
 		if err != nil {
 			return err
 		}

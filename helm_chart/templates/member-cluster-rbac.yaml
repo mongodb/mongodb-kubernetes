@@ -42,10 +42,6 @@ metadata:
   namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- if .Values.registry.imagePullSecrets }}
-imagePullSecrets:
-  - name: {{ .Values.registry.imagePullSecrets }}
-{{- end }}
 ---
 # Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
 # longer auto-created, so we create one explicitly for the operator to authenticate with.

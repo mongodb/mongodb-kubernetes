@@ -201,7 +201,7 @@ func TestRender(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Render(clusterName, memberNs, tc.watched)
+			out, err := Render(clusterName, memberNs, tc.watched, "")
 			require.NoError(t, err, "render failed")
 			resources := parseResources(t, out)
 
@@ -219,6 +219,11 @@ func TestRender(t *testing.T) {
 					roleRefKind, _, _ := unstructured.NestedString(r.Object, "roleRef", "kind")
 					assert.Equal(t, tc.wantRoleKind, roleRefKind, "%s/%s roleRef.kind", r.GetKind(), r.GetName())
 				}
+				// Without an imagePullSecrets argument, no ServiceAccount should carry one.
+				if r.GetKind() == "ServiceAccount" {
+					_, found, _ := unstructured.NestedSlice(r.Object, "imagePullSecrets")
+					assert.False(t, found, "%s/%s should have no imagePullSecrets by default", r.GetKind(), r.GetName())
+				}
 			}
 		})
 	}
@@ -227,8 +232,46 @@ func TestRender(t *testing.T) {
 func TestRender_RequiresClusterName(t *testing.T) {
 	// Render itself renders whatever it is given; the required-name guard lives in the chart
 	// template, so an empty cluster name must surface as a render error.
-	_, err := Render("", "mongodb", []string{"mongodb"})
+	_, err := Render("", "mongodb", []string{"mongodb"}, "")
 	require.Error(t, err, "expected an error when the cluster name is empty")
+}
+
+// TestRender_ImagePullSecrets asserts that a non-empty imagePullSecrets argument is set on
+// the workload ServiceAccounts only (the operator's own member SA carries no image pull
+// secret, since it is not used to pull workload images).
+func TestRender_ImagePullSecrets(t *testing.T) {
+	const clusterName = "cluster-east"
+	const memberNs = "mongodb"
+	n := expectedNames(clusterName)
+
+	out, err := Render(clusterName, memberNs, []string{memberNs}, "my-pull-secret")
+	require.NoError(t, err, "render failed")
+	resources := parseResources(t, out)
+
+	workloadSAs := map[string]bool{
+		n.workloadAppdbSA:      true,
+		n.workloadDatabaseSA:   true,
+		n.workloadOpsManagerSA: true,
+	}
+
+	var sawWorkloadSA int
+	for _, r := range resources {
+		if r.GetKind() != "ServiceAccount" {
+			continue
+		}
+		pullSecrets, _, err := unstructured.NestedSlice(r.Object, "imagePullSecrets")
+		require.NoError(t, err, "%s/%s reading imagePullSecrets", r.GetKind(), r.GetName())
+
+		if workloadSAs[r.GetName()] {
+			sawWorkloadSA++
+			require.Len(t, pullSecrets, 1, "%s/%s imagePullSecrets", r.GetKind(), r.GetName())
+			name, _, _ := unstructured.NestedString(pullSecrets[0].(map[string]any), "name")
+			assert.Equal(t, "my-pull-secret", name, "%s/%s imagePullSecrets[0].name", r.GetKind(), r.GetName())
+		} else if r.GetName() == n.operatorSA {
+			assert.Empty(t, pullSecrets, "%s/%s should have no imagePullSecrets", r.GetKind(), r.GetName())
+		}
+	}
+	assert.Equal(t, len(workloadSAs), sawWorkloadSA, "expected to see all workload ServiceAccounts")
 }
 
 // TestEmbeddedChartMatchesDisk is the drift guard: every file the plugin embeds must
@@ -293,7 +336,7 @@ func TestHelmTemplateParity(t *testing.T) {
 	const clusterName = "cluster-east"
 	names := expectedNames(clusterName)
 
-	embeddedOut, err := Render(clusterName, "mongodb", []string{"mongodb"})
+	embeddedOut, err := Render(clusterName, "mongodb", []string{"mongodb"}, "")
 	require.NoError(t, err, "embedded render failed")
 
 	helmResources := kindNames(parseResources(t, stdout.String()))

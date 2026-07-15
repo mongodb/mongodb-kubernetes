@@ -36,8 +36,9 @@ var memberTemplates = []string{
 }
 
 // Render renders the member-cluster templates from the embedded chart with the given
-// member-cluster values and returns the concatenated YAML.
-func Render(clusterName, namespace string, watchedNamespaces []string) (string, error) {
+// member-cluster values and returns the concatenated YAML. When imagePullSecrets is
+// non-empty, it is set as the workload ServiceAccounts' imagePullSecrets.
+func Render(clusterName, namespace string, watchedNamespaces []string, imagePullSecrets string) (string, error) {
 	chrt, err := loadEmbeddedChart()
 	if err != nil {
 		return "", xerrors.Errorf("loading embedded chart: %w", err)
@@ -52,6 +53,11 @@ func Render(clusterName, namespace string, watchedNamespaces []string) (string, 
 			"namespace":      namespace,
 			"watchNamespace": strings.Join(watchedNamespaces, ","),
 		},
+	}
+	if imagePullSecrets != "" {
+		values["registry"] = map[string]any{
+			"imagePullSecrets": imagePullSecrets,
+		}
 	}
 
 	renderValues, err := chartutil.ToRenderValues(chrt, values, chartutil.ReleaseOptions{
