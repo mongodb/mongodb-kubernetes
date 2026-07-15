@@ -45,10 +45,10 @@ prek:
 	@[ -f "$(PREK)" ] || scripts/evergreen/setup_prek.sh
 
 precommit: prek
-	@ source scripts/dev/set_env_context.sh && prek -a
+	@ scripts/evergreen/check_precommit.sh
 
 precommit-full: prek
-	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true prek -a
+	@ scripts/evergreen/check_precommit.sh --full
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
