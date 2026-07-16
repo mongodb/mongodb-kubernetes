@@ -581,7 +581,7 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 }
 
 func isInLocalMode() bool {
-	return operatorEnvironments[1] == env.ReadOrPanic(util.OmOperatorEnv)
+	return operatorEnvironments[1] == env.ReadOrDefault(util.OmOperatorEnv, util.OperatorEnvironmentProd.String())
 }
 
 // setupWebhook sets up the validation webhook for MongoDB resources in order
@@ -690,9 +690,9 @@ func getOperatorEnv() util.OperatorEnvironment {
 	if !validateOperatorEnv(operatorEnv) {
 		operatorEnvOnce.Do(func() {
 			golog.Printf("Configured environment %s, not recognized. Must be one of %v", operatorEnv, operatorEnvironments)
-			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentDev)
+			golog.Printf("Using default environment, %s, instead", util.OperatorEnvironmentProd)
 		})
-		operatorEnv = util.OperatorEnvironmentDev
+		operatorEnv = util.OperatorEnvironmentProd
 	}
 	return operatorEnv
 }
