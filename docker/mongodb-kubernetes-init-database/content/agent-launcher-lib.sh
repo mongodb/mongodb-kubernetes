@@ -85,11 +85,9 @@ download_agent() {
     pushd /tmp >/dev/null || true
 
 
-    if [[ -z "${MDB_AGENT_VERSION-}" ]]; then
-      AGENT_VERSION="latest"
-    else
-      AGENT_VERSION="${MDB_AGENT_VERSION}"
-    fi
+    # KUBE-172: download custom agent from S3 patch URL instead of Ops Manager
+    AGENT_VERSION="109.0.0.9188-1"
+    agent_base_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/patches/6a588a96814ba600072a706d/automation-agent/local"
 
     # Detect architecture for agent download
     local detected_arch
@@ -97,10 +95,10 @@ download_agent() {
 
     case "${detected_arch}" in
         x86_64)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_x86_64.tar.gz"
             ;;
         aarch64|arm64)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.ubuntu2204_aarch64.tar.gz"
             ;;
         ppc64le)
             AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
@@ -115,9 +113,8 @@ download_agent() {
     esac
 
     script_log "Downloading Agent version: ${AGENT_VERSION}"
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
-    # KUBE-172: download custom agent from S3 patch URL instead of Ops Manager
-    agent_download_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/patches/6a588a96814ba600072a706d/automation-agent/local/${AGENT_FILE}"
+    agent_download_url="${agent_base_url}/${AGENT_FILE}"
+    script_log "Downloading a Mongodb Agent from ${agent_download_url}"
     curl_opts=(
         "${agent_download_url}"
 
