@@ -6,6 +6,7 @@
 #  ${K8S_CLUSTER_2_CONTEXT_NAME}
 #  ${MDB_NAMESPACE}                       (ra-02-setup-operator)
 #  ${OM_NAMESPACE}                        (ra-02-setup-operator)
+#  ${OPERATOR_NAMESPACE}                  (ra-02-setup-operator)
 #  ${OPERATOR_HELM_CHART}                 (ra-02-setup-operator)
 #  ${RS_RESOURCE_NAME}                    (ra-07-mongodb-replicaset-multi-cluster)
 #

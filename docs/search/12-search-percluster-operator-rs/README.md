@@ -1,38 +1,21 @@
 # MongoDB Search, Operator-Per-Cluster with a Unified CR (Multi-Cluster Replica Set)
 
-This guide deploys **MongoDB Search** against a **multi-cluster MongoDB replica set** (`MongoDBMultiCluster`) using the **operator-per-cluster with a unified CR** deployment model: one identical `MongoDBSearch` manifest, applied independently to every member cluster, each running its own dedicated operator instance.
+This guide deploys **MongoDB Search** against a **multi-cluster MongoDB replica set** (a `MongoDBMultiCluster` custom resource, "CR") using the **operator-per-cluster with a unified CR** deployment model: one identical `MongoDBSearch` manifest, applied independently to every member cluster, each running its own dedicated operator instance.
 
 > **INTERNAL AUDIENCE ONLY.** This is not public documentation. The only publicly-documented multi-cluster pattern is **hub-and-spoke** (one central operator holding kubeconfig clients for every member cluster) -- see `public/architectures/ra-01` through `ra-12`. Operator-per-cluster is a Search-specific, already-implemented, e2e-tested deployment model, but it is intentionally not exposed in customer-facing docs. This scenario exists for TSEs, Solutions Architects, and Consulting Engineers who need to build, reproduce, or debug it.
 
-## Recognizing This Deployment Model
-
-If you're looking at a customer's cluster and need to tell whether they're running hub-and-spoke or operator-per-cluster, check for these signals:
-
-| Signal | Hub-and-spoke | Operator-per-cluster |
-|--------|---------------|-----------------------|
-| `OPERATOR_CLUSTER_NAME` env var on the operator Deployment | Absent | Set, to that cluster's own name |
-| Helm value `operator.clusterIdentity.clusterName` | Empty / unset | Set per release |
-| Number of operator Helm releases across the fleet | 1 (on the central cluster) | N (one per member cluster) |
-| `MongoDBSearch` CR | Exists only on the central cluster | Identical copy exists on every member cluster |
-| Resource names | `<name>-search-0-...` (single, implicit index 0) | `<name>-search-<idx>-...` with idx matching each cluster |
-| Kubeconfig Secret for member-cluster access | Present (`multiCluster.clusters` wiring) | Absent -- Search never needs one |
-
-Quick check from a member cluster:
-
-```bash
-kubectl get deployment -n "${MDB_NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].env[?(@.name=="OPERATOR_CLUSTER_NAME")].value}{"\n"}{end}'
-```
-
-If a Deployment prints a non-empty value in the second column, that operator instance is running in operator-per-cluster mode.
-
 ## How It Works
 
-The customer authors **one** `MongoDBSearch` YAML whose `spec.clusters[]` lists **every** member cluster (each entry has a `name` and a pinned, distinct `index`), and applies that identical YAML to every physical cluster. Each cluster runs its own operator instance, installed with Helm value `operator.clusterIdentity.clusterName=<that cluster's name>` (rendered as env `OPERATOR_CLUSTER_NAME` -- `helm_chart/values.yaml:31-37`, `helm_chart/templates/operator.yaml:234-237`).
+**The model in one sentence:** every cluster gets the same `MongoDBSearch` CR and its own operator; each operator narrows the CR down to its own cluster's entry and manages only that; nothing coordinates across clusters.
+
+The customer authors **one** `MongoDBSearch` YAML whose `spec.clusters[]` lists **every** member cluster (each entry has a `name` and a pinned, distinct `index`), and applies that identical YAML to every physical cluster. Each cluster runs its own operator instance, installed with Helm value `operator.clusterIdentity.clusterName=<that cluster's name>` (rendered as env `OPERATOR_CLUSTER_NAME` -- `helm_chart/values.yaml:31-37`, `helm_chart/templates/operator.yaml:234-236`).
+
+An operator works in a **reconcile loop**: on a timer and on every relevant change, it re-reads the CR (the desired state), compares it against what actually exists in its cluster, and makes reality match -- repeatedly and idempotently. That also means a component that writes a wrong status once will keep re-writing it on every pass; that's the flap Step 5 exists to prevent.
 
 On every reconcile, each operator:
 
-1. Runs `ValidateOperatorPerClusterIndices()` (`api/mongodb/v1/search/mongodbsearch_types.go:1349`) against the **full, un-narrowed** spec -- every `spec.clusters[]` entry must carry a distinct `index`, or the CR goes `Invalid`.
-2. Calls `LocalizeToCluster(operatorClusterName)` (same file, `:1367`), which narrows `spec.Clusters` down to the single entry whose `name` matches this operator's own cluster identity. If no entry matches, the operator logs and skips:
+1. Runs `ValidateOperatorPerClusterIndices()` (`api/mongodb/v1/search/mongodbsearch_types.go:1403`) against the **full, un-narrowed** spec -- every `spec.clusters[]` entry must carry a distinct `index`, or the CR goes `Invalid`.
+2. Calls `LocalizeToCluster(operatorClusterName)` (same file, `:1421`), which narrows `spec.Clusters` down to the single entry whose `name` matches this operator's own cluster identity. If no entry matches, the operator logs and skips:
    > `spec.clusters does not list this operator's cluster %q; skipping (another operator owns this CR)`
    (`controllers/operator/mongodbsearch_controller.go:81`)
 3. Reconciles as if it were managing a single-cluster `MongoDBSearch` -- it only ever creates or touches resources named with its own pinned index.
@@ -40,6 +23,10 @@ On every reconcile, each operator:
 There is no cross-cluster coordination, no shared status, and no kubeconfig Secret for Search: each of the N `MongoDBSearch` objects (one per cluster, same name and namespace, but living in a different cluster's etcd) has its own independent `.status.phase`.
 
 Search uses this model -- and no other CRD does -- because mongot is co-located with the replica-set members it indexes: each cluster's mongod only ever needs to reach the mongot running in that **same** cluster, so there is no cross-cluster search traffic to route and no need for Search's operator to hold kubeconfig access to every member cluster.
+
+Between each cluster's mongod and its mongot sits a small proxy tier the operator manages: a stable **proxy Service** backed by an **Envoy** Deployment. mongod is pointed at the proxy Service rather than at mongot pods directly because the Service name stays valid across mongot restarts and rescaling, and Envoy terminates TLS in front of mongot (in the sharded variant it also routes each connection to the right per-shard mongot group by SNI).
+
+Two mongod server parameters make a mongod actually use Search: `mongotHost`, where it sends `$search`/`$vectorSearch` query traffic, and `searchIndexManagementHostAndPort`, where it sends index-management commands like `createSearchIndex`. Both must point at the mongod's **own cluster's** proxy Service. No `MongoDBMultiCluster` CR field can express that per-cluster value, so this guide sets both directly in the **Ops Manager Automation Config** -- the JSON document Ops Manager pushes to every automation agent, telling it exactly how to run each mongod process. Values written there live in OM, not in any CR, so the operator never sees them and never reverts them (Step 12).
 
 ### Hub-and-Spoke vs. Operator-Per-Cluster
 
@@ -70,36 +57,36 @@ config:
 ---
 graph TD
     subgraph c0["Cluster 0 (index 0)"]
-        op0["Search Operator\nOPERATOR_CLUSTER_NAME=cluster-0"]
+        op0["Search Operator<br/>OPERATOR_CLUSTER_NAME=cluster-0"]
         rs0(["mongod (local RS members)"])
         ps0["mdb-mc-search-0-proxy-svc"]
-        envoy0["mdb-mc-search-lb-0\n(Envoy)"]
-        mongot0["mdb-mc-search-0\n(mongot StatefulSet)"]
+        envoy0["mdb-mc-search-lb-0<br/>(Envoy)"]
+        mongot0["mdb-mc-search-0<br/>(mongot StatefulSet)"]
     end
 
     subgraph c1["Cluster 1 (index 1)"]
-        op1["Search Operator\nOPERATOR_CLUSTER_NAME=cluster-1"]
+        op1["Search Operator<br/>OPERATOR_CLUSTER_NAME=cluster-1"]
         rs1(["mongod (local RS members)"])
         ps1["mdb-mc-search-1-proxy-svc"]
-        envoy1["mdb-mc-search-lb-1\n(Envoy)"]
-        mongot1["mdb-mc-search-1\n(mongot StatefulSet)"]
+        envoy1["mdb-mc-search-lb-1<br/>(Envoy)"]
+        mongot1["mdb-mc-search-1<br/>(mongot StatefulSet)"]
     end
 
     subgraph c2["Cluster 2 (index 2)"]
-        op2["Search Operator\nOPERATOR_CLUSTER_NAME=cluster-2"]
+        op2["Search Operator<br/>OPERATOR_CLUSTER_NAME=cluster-2"]
         rs2(["mongod (local RS members)"])
         ps2["mdb-mc-search-2-proxy-svc"]
-        envoy2["mdb-mc-search-lb-2\n(Envoy)"]
-        mongot2["mdb-mc-search-2\n(mongot StatefulSet)"]
+        envoy2["mdb-mc-search-lb-2<br/>(Envoy)"]
+        mongot2["mdb-mc-search-2<br/>(mongot StatefulSet)"]
     end
 
     rs0 -- "mTLS, local only" --> ps0 --> envoy0 --> mongot0
     rs1 -- "mTLS, local only" --> ps1 --> envoy1 --> mongot1
     rs2 -- "mTLS, local only" --> ps2 --> envoy2 --> mongot2
 
-    op0 -. "applies the SAME CR,\nnarrows to index 0" .-> mongot0
-    op1 -. "applies the SAME CR,\nnarrows to index 1" .-> mongot1
-    op2 -. "applies the SAME CR,\nnarrows to index 2" .-> mongot2
+    op0 -. "applies the SAME CR,<br/>narrows to index 0" .-> mongot0
+    op1 -. "applies the SAME CR,<br/>narrows to index 1" .-> mongot1
+    op2 -. "applies the SAME CR,<br/>narrows to index 2" .-> mongot2
 
     style rs0 fill:#00684A,stroke:#fff,color:#fff
     style rs1 fill:#00684A,stroke:#fff,color:#fff
@@ -122,6 +109,27 @@ graph TD
 ```
 
 Notice there are no arrows between clusters for Search traffic: a cluster's mongod only ever dials its own cluster's proxy Service.
+
+## Recognizing This Deployment Model
+
+If you're looking at a customer's cluster and need to tell whether they're running hub-and-spoke or operator-per-cluster, check for these signals:
+
+| Signal | Hub-and-spoke | Operator-per-cluster |
+|--------|---------------|-----------------------|
+| `OPERATOR_CLUSTER_NAME` env var on the operator Deployment | Absent | Set, to that cluster's own name |
+| Helm value `operator.clusterIdentity.clusterName` | Empty / unset | Set per release |
+| Number of operator Helm releases across the fleet | 1 (on the central cluster) | N (one per member cluster) |
+| `MongoDBSearch` CR | Exists only on the central cluster | Identical copy exists on every member cluster |
+| Resource names | `<name>-search-0-...` (single, implicit index 0) | `<name>-search-<idx>-...` with idx matching each cluster |
+| Kubeconfig Secret for member-cluster access | Present (`multiCluster.clusters` wiring) | Absent -- Search never needs one |
+
+Quick check from a member cluster:
+
+```bash
+kubectl get deployment -n "${MDB_NAMESPACE}" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].env[?(@.name=="OPERATOR_CLUSTER_NAME")].value}{"\n"}{end}'
+```
+
+If a Deployment prints a non-empty value in the second column, that operator instance is running in operator-per-cluster mode.
 
 ## Resource-Name Decode Table
 
@@ -173,10 +181,18 @@ If you don't have GKE access, `scripts/dev/recreate_kind_clusters.sh` and `scrip
 ```bash
 cd docs/search/12-search-percluster-operator-rs
 
+# Prerequisite env files first, in this order, in the SAME shell (this
+# scenario's env file reads ${K8S_CLUSTER_0_CONTEXT_NAME} and friends at
+# source time). On kind, replace the ra-01 line with your own context exports.
+source ../../../public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+source ../../../public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
+source ../../../public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
+source ../../../public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh
+
 # Edit env_variables.sh -- cluster identities, resource names, credentials
 vi env_variables.sh
 
-# Source the environment variables (after ra-01..ra-07's own env_variables.sh)
+# Then this scenario's own variables
 source env_variables.sh
 ```
 
@@ -236,6 +252,8 @@ Snippet: [12_0100_install_percluster_search_operator.sh](code_snippets/12_0100_i
 
 `ra-02`'s central operator watches `mongodbsearch` in this namespace by default (`operator.watchedResources` in `helm_chart/values.yaml`), and it has no cluster identity -- so on every reconcile of a CR with more than one `spec.clusters[]` entry it **writes status `Invalid`** ("multi-cluster MongoDBSearch is not supported yet") before skipping, fighting the per-cluster Search operator that owns the CR and writes `Running`. This step narrows the central operator to every resource except `mongodbsearch` (a `helm upgrade --reuse-values`, so nothing else about the release changes; `mongodbmulticluster` stays auto-watched via `multiCluster.clusters`, so the `ra-07` source is unaffected). To revert later, run the same command with the chart's default list (append `mongodbsearch`).
 
+You'll know it worked when the central operator's args no longer list `mongodbsearch`: `kubectl get deploy mongodb-kubernetes-operator-multi-cluster -n ${OPERATOR_NAMESPACE} -o yaml | grep watch-resource` -- and the `Running`/`Invalid` status flap stops once the Search CRs exist.
+
 ```bash
 ./code_snippets/12_0110_stop_central_operator_watching_search.sh
 ```
@@ -270,7 +288,7 @@ Snippet: [12_0310_create_sync_source_user.sh](code_snippets/12_0310_create_sync_
 
 #### Step 8: Create the mongot TLS Certificate
 
-The mongot TLS Secret has a **cluster-invariant name** (`{prefix}-{name}-search-cert`) and **cluster-invariant content**: it is issued exactly ONCE, on cluster 0, with SANs covering ALL 3 clusters' `-search-<idx>-svc` and `-search-<idx>-proxy-svc` names, and that same Secret is then copied verbatim into clusters 1 and 2. This mirrors `test_create_search_tls_certificate` in `tests/multicluster_search/simulated_mc_rs.py` exactly -- a per-cluster cert with only-local SANs is not the tested path and is not what this snippet does. Getting the union of SANs wrong (e.g. only covering the cluster you're currently testing) is the most common first-deploy failure mode.
+The mongot TLS Secret has a **cluster-invariant name** (`{prefix}-{name}-search-cert`) and **cluster-invariant content**: it is issued exactly ONCE, on cluster 0, with SANs (Subject Alternative Names -- the hostnames the certificate is valid for) covering ALL 3 clusters' `-search-<idx>-svc` and `-search-<idx>-proxy-svc` names, and that same Secret is then copied verbatim into clusters 1 and 2. This mirrors `test_create_search_tls_certificate` in `tests/multicluster_search/simulated_mc_rs.py` exactly -- a per-cluster cert with only-local SANs is not the tested path and is not what this snippet does. Getting the union of SANs wrong (e.g. only covering the cluster you're currently testing) is the most common first-deploy failure mode.
 
 ```bash
 ./code_snippets/12_0316a_create_mongot_tls_certificate.sh
@@ -333,6 +351,8 @@ Snippet: [12_0320_create_mongodb_search_resource.sh](code_snippets/12_0320_creat
 
 #### Step 11: Wait for MongoDBSearch to Reach Running in Every Cluster
 
+Expect a few minutes per cluster (image pulls dominate on first deploy); the snippet waits up to 10 minutes per cluster before giving up.
+
 ```bash
 ./code_snippets/12_0325_wait_for_search_resources.sh
 ```
@@ -360,6 +380,8 @@ Snippet: [12_0400_configure_percluster_mongot_host.sh](code_snippets/12_0400_con
 #### Step 13: Verify Per-Cluster Resources and Isolation
 
 Confirms each cluster only created its own index-suffixed resources, its `MongoDBSearch.status.phase` is independently `Running`, and no foreign cluster's resources leaked in.
+
+This step is read-only and safe to re-run at any time -- use it as your state snapshot when coming back to a deployment after an interruption.
 
 ```bash
 ./code_snippets/12_0410_verify_percluster_resources.sh
@@ -438,9 +460,12 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 | `MongoDBSearch` CR exists in a cluster but the operator never creates anything | `spec.clusters[]` doesn't list this cluster's name, or a typo in `operator.clusterIdentity.clusterName` | Operator log: `spec.clusters does not list this operator's cluster "<name>"; skipping (another operator owns this CR)` |
 | `.status.phase` flaps between `Running` and `Invalid` ("multi-cluster MongoDBSearch is not supported yet: spec.clusters must contain a single entry") | The `ra-02` central hub-and-spoke operator still watches `mongodbsearch` in this namespace -- it has no cluster identity, so it marks any multi-entry `spec.clusters[]` CR `Invalid` on every reconcile, racing the per-cluster operator's `Running` writes | Step 5 (`12_0110`): remove `mongodbsearch` from the central operator's `operator.watchedResources`; confirm with `kubectl get deploy mongodb-kubernetes-operator-multi-cluster -n ${OPERATOR_NAMESPACE} -o yaml \| grep watch-resource` |
 | Phase `Invalid` | `spec.clusters[]` missing/empty, or an entry has no `index`, or two entries share an `index` | `kubectl describe mongodbsearch`; exact messages from `ValidateOperatorPerClusterIndices`: `"running one operator per cluster requires spec.clusters to be set"`, `"running one operator per cluster requires index on every spec.clusters[] entry (missing on ...)"`, `"index N is set on more than one spec.clusters[] entry (... and ...); pinned indices must be distinct"` |
-| Everything created, but `mongot` pods sit `PodInitializing`/`CrashLoopBackOff` in one cluster | A customer-replicated Secret or ConfigMap (password, mongot TLS cert, source CA) is missing in THAT cluster -- there is no operator replication | Operator log line `MongoDBSearch missing customer-replicated secrets` with a `missing: [...]` list per cluster (`controllers/searchcontroller/secrets_presence.go`). This is a **log-only diagnostic requeue every 30s** -- it does not gate `.status.phase`, so a stuck-but-not-Failed phase elsewhere is a separate symptom to chase. **Known quirk:** the source CA ConfigMap's name can appear in this "missing" list even when the ConfigMap exists -- the check does a Secret `Get` against that name, not a ConfigMap `Get`. Safe to disregard for that one entry. |
+| Everything created, but `mongot` pods sit `PodInitializing`/`CrashLoopBackOff` in one cluster | A customer-replicated Secret or ConfigMap (password, mongot TLS cert, source CA) is missing in THAT cluster -- there is no operator replication | Operator log line `MongoDBSearch missing customer-replicated secrets` with a `missing: [...]` list per cluster (`controllers/searchcontroller/secrets_presence.go`). This is a **log-only diagnostic requeue every 30s** -- it does not gate `.status.phase`, so a stuck-but-not-Failed phase elsewhere is a separate symptom to chase. |
+| The source CA ConfigMap's name keeps appearing in that `missing: [...]` list even though the ConfigMap exists | The presence check does a Secret `Get` for every listed name, including the CA ConfigMap's -- a ConfigMap can never satisfy it | Confirm the ConfigMap exists in that cluster and disregard that one entry; only chase names that are real Secrets |
 | Search works in cluster A, returns nothing (or times out) in cluster B | B's mongod still points `mongotHost` at the WRONG proxy (stale/never-patched OM Automation Config), or B's mongot TLS cert SANs don't cover B's own `-search-B-svc`/`-search-B-proxy-svc` names | `cat /data/automation-mongod.conf` in a B mongod pod, check `setParameter.mongotHost`; `openssl s_client -connect <B proxy-svc>:27028 -servername <B proxy-svc FQDN>` for a TLS/SAN mismatch |
+| CR `Running` everywhere, but queries return nothing in EVERY cluster and index counts stay at 0 | mongot syncs from the seed list of RS member FQDNs spanning all clusters; if the service mesh doesn't resolve or route another cluster's Service names, that sync silently fails while the CR stays `Running` -- easy to misread as the mongotHost/SAN row above | mongot pod logs for `no such host` / connection timeouts on `<RS_RESOURCE_NAME>-<idx>-<member>-svc...` names; from a tools pod, `nslookup` another cluster's member Service FQDN -- the mesh must pass the `ra-04` connectivity check |
 | A cluster's LB (Envoy) pod is `CrashLoopBackOff` / fails TLS handshake, but no "missing secret" log line appears | LB server/client certs (`{prefix}-{name}-search-lb-{idx}-cert`/`-client-cert`) are **not** covered by the secrets-presence diagnostic at all -- their absence surfaces as a mount/handshake failure, not a logged gap | `kubectl describe pod` on the Envoy pod for volume-mount errors; `kubectl logs` for TLS errors |
+| Step 12 exits with `om-svc-ext has no LoadBalancer IP yet` | Ops Manager's external Service is `type: LoadBalancer` and the IP never got assigned -- no MetalLB on kind, or the cloud LB is still provisioning/out of quota | `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's |
 | Old StatefulSet/Service left behind after changing a cluster's `index` | `index` is a pinned, effectively-immutable identifier baked into every resource name; changing it does not rename or garbage-collect the old-indexed resources | `kubectl get sts,svc,deploy -n ${MDB_NAMESPACE}` for orphans at the old index; delete them manually |
 | CR rejected with a duplicate-hostname validation error | Two `spec.clusters[].loadBalancer.managed.externalHostname` values are identical -- every cluster's hostname must be distinct (SNI) | `ManagedLBConfig.ExternalHostname` doc comment in `mongodbsearch_types.go`: "In multi-cluster deployments, every cluster's hostname must be distinct." |
 
@@ -454,6 +479,11 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 | **Cluster identity** | The value of `operator.clusterIdentity.clusterName` (env `OPERATOR_CLUSTER_NAME`) that scopes an operator instance to one `spec.clusters[]` entry |
 | **`LocalizeToCluster`** | The Go method that narrows an operator's in-memory view of `spec.clusters[]` down to its own entry every reconcile |
 | **Hub-and-spoke** | The alternative multi-cluster pattern (every other CRD) -- one central operator with kubeconfig clients for every member cluster |
+| **Central operator** | The hub-and-spoke operator installed by `ra-02` on cluster 0; in this scenario it keeps managing the source `MongoDBMultiCluster` while the per-cluster operators own Search |
+| **Member cluster** | One of the Kubernetes clusters participating in the multi-cluster deployment (contexts `K8S_CLUSTER_0/1/2_CONTEXT_NAME`) |
+| **Automation Config** | The JSON document Ops Manager pushes to each automation agent describing exactly how to run every mongod process; Step 12 writes `mongotHost` there, outside any CR |
+| **Seed list** | `spec.source.external.hostAndPorts` -- the replica-set member addresses mongot connects to for syncing data from the source |
+| **SAN** | Subject Alternative Name -- a hostname a TLS certificate is valid for; Search certs must list every cluster's service names (see Step 8) |
 | **SNI** | Server Name Indication -- the TLS extension Envoy uses to route incoming connections by hostname, one filter chain per cluster |
 | **mTLS** | Mutual TLS -- both sides of a connection present and verify a certificate |
 | **mongot** | The MongoDB Search server process that indexes data and serves `$search`/`$vectorSearch` queries |
