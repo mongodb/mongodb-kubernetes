@@ -28,7 +28,7 @@ to consume `MemberCluster` CRs (keeping a legacy fallback), then the legacy path
 | # | Slice | Jira | Status | Notes |
 |---|-------|------|--------|-------|
 | 1 | `generate-member-resources` command | CLOUDP-423293 | in progress | Embeds the Helm chart (Helm SDK); gated member-cluster RBAC templates; renders to stdout. Front-loads the Helm-SDK dependency risk. |
-| 2 | `generate-member-registration` command | CLOUDP-423293 | todo | Reads an SA token from a member cluster; emits a credential Secret + `MemberCluster` CR. No Helm SDK. |
+| 2 | `generate-member-registration` command | CLOUDP-423293 | in progress | Reads an SA token from a member cluster; emits a credential Secret + `MemberCluster` CR. No Helm SDK. |
 | 3 | Operator `MemberCluster` wiring + watch | _tbd_ | todo | Build the per-cluster client map from `MemberCluster` CRs + credential Secrets. **End goal: reactive add/remove, no restart** (mechanism is an open question — feasibility spike at slice-3 planning). Keeps a legacy fallback tagged `TODO(m1kola): slice-3`. |
 | 4 | RBAC validation | _tbd_ | todo | `RBACValid` condition validated against the `mongodb.com/rbac-version` annotation emitted by slice 1; startup gate + periodic re-check. |
 | 5 | Migrate MC E2E to new tooling | _tbd_ | todo | Switch the two `conftest.py` fixtures + direct callers. Apply the generated RBAC to **every** member cluster including central (do not `skip_central_cluster`) — validates the additive apply. |
