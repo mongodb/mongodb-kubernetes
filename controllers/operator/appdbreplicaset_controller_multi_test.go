@@ -75,7 +75,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 		})
 
 	opsManager := builder.Build()
-	appdb := opsManager.Spec.AppDB
+	appdb := *opsManager.Spec.AppDB
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
@@ -98,8 +98,8 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	// secrets and config maps created by the operator shouldn't be created in central cluster
 	centralClusterChecks.checkSecretNotFound(ctx, appdb.AutomationConfigSecretName())
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.AutomationConfigConfigMapName())
-	centralClusterChecks.checkSecretNotFound(ctx, monitoringAutomationConfigSecretName(appdb))
-	centralClusterChecks.checkConfigMapNotFound(ctx, monitoringAutomationConfigConfigMapName(appdb))
+	centralClusterChecks.checkSecretNotFound(ctx, monitoringAutomationConfigSecretName(&appdb))
+	centralClusterChecks.checkConfigMapNotFound(ctx, monitoringAutomationConfigConfigMapName(&appdb))
 	centralClusterChecks.checkSecretNotFound(ctx, pemSecretName)
 	centralClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 	centralClusterChecks.checkConfigMapNotFound(ctx, appdb.ProjectIDConfigMapName())
@@ -108,8 +108,8 @@ func TestAppDB_MultiCluster(t *testing.T) {
 		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, opsManager.Namespace, memberClusterMap[clusterSpecItem.ClusterName])
 		memberClusterChecks.checkAutomationConfigSecret(ctx, appdb.AutomationConfigSecretName())
 		memberClusterChecks.checkAutomationConfigConfigMap(ctx, appdb.AutomationConfigConfigMapName())
-		memberClusterChecks.checkSecretNotFound(ctx, monitoringAutomationConfigSecretName(appdb))
-		memberClusterChecks.checkConfigMapNotFound(ctx, monitoringAutomationConfigConfigMapName(appdb))
+		memberClusterChecks.checkSecretNotFound(ctx, monitoringAutomationConfigSecretName(&appdb))
+		memberClusterChecks.checkConfigMapNotFound(ctx, monitoringAutomationConfigConfigMapName(&appdb))
 		memberClusterChecks.checkTLSCAConfigMap(ctx, caConfigMapName)
 		// TLS secret should not be replicated, only PEM secret
 		memberClusterChecks.checkSecretNotFound(ctx, tlsCertSecretName)
@@ -665,7 +665,7 @@ func TestAppDB_MultiCluster_ClusterMapping(t *testing.T) {
 		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster)
 
 	opsManager := builder.Build()
-	appdb := opsManager.Spec.AppDB
+	appdb := *opsManager.Spec.AppDB
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
@@ -786,7 +786,7 @@ func TestAppDB_MultiCluster_ClusterMappingMigrationToDeploymentState(t *testing.
 	opsManager := builder.Build()
 	lastAppliedMongoDBVersion := "5.0"
 	opsManager.Annotations = map[string]string{annotations.LastAppliedMongoDBVersion: lastAppliedMongoDBVersion}
-	appdb := opsManager.Spec.AppDB
+	appdb := *opsManager.Spec.AppDB
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 
@@ -846,7 +846,7 @@ func TestAppDB_MultiCluster_KeepUpdatingLegacyState(t *testing.T) {
 		SetAppDbVersion(expectedLastAppliedMongoDBVersion)
 
 	opsManager := builder.Build()
-	appdb := opsManager.Spec.AppDB
+	appdb := *opsManager.Spec.AppDB
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters[1:], omConnectionFactory)
 

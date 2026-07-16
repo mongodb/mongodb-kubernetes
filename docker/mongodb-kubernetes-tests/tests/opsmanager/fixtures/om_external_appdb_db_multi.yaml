@@ -1,0 +1,25 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  # must match the "<om-name>-db" naming convention required by
+  # spec.externalApplicationDatabaseRef (see MongoDBOpsManagerReconciler.validateExternalAppDBReference)
+  name: om-external-appdb-db
+spec:
+  version: 4.4.20-ent
+  type: ReplicaSet
+  role: AppDB
+  opsManager:
+    configMapRef:
+      name: om-external-appdb-db-config
+  credentials: my-credentials
+  persistent: true
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]
+      ignoreUnknownUsers: true
+  # populated at runtime with the real member-cluster names/counts (see
+  # tests/opsmanager/external_appdb_helpers.py:appdb_role_resource), mirroring
+  # tests/multicluster_search/fixtures/simulated-mc-mongodb.yaml
+  clusterSpecList: []

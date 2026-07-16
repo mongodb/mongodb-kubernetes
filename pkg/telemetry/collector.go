@@ -311,7 +311,10 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 		for _, item := range omList.Items {
 			// Detect enterprise
 			omClusters := len(item.Spec.ClusterSpecList)
-			appDBClusters := len(item.Spec.AppDB.ClusterSpecList)
+			var appDBClusters int
+			if item.Spec.ExternalApplicationDatabaseRef == nil {
+				appDBClusters = len(item.Spec.AppDB.ClusterSpecList)
+			}
 			properties := DeploymentUsageSnapshotProperties{
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,

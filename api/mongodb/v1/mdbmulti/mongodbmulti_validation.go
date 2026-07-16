@@ -44,6 +44,7 @@ func (m *MongoDBMultiCluster) ProcessValidationsOnReconcile(old *MongoDBMultiClu
 func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.ValidationResult {
 	multiClusterValidators := []func(ms MongoDBMultiSpec) v1.ValidationResult{
 		validateUniqueExternalDomains,
+		appDBRoleRequiresMinimumMembers,
 	}
 
 	// shared validators between MongoDBMulti and AppDB
@@ -109,6 +110,19 @@ func validateUniqueExternalDomains(ms MongoDBMultiSpec) v1.ValidationResult {
 				"Check if all spec.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.", externalDomain)
 		}
 		present[externalDomain] = struct{}{}
+	}
+	return v1.ValidationSuccess()
+}
+
+// appDBRoleRequiresMinimumMembers checks that resources with spec.role: AppDB have at least 3
+// members (summed across all member clusters), matching the requirement the internal
+// Application Database hardcodes unconditionally.
+func appDBRoleRequiresMinimumMembers(ms MongoDBMultiSpec) v1.ValidationResult {
+	if ms.Role != mdbv1.RoleAppDB {
+		return v1.ValidationSuccess()
+	}
+	if ms.Replicas() < 3 {
+		return v1.ValidationError("spec.clusterSpecList members must sum to >= 3 when spec.role is AppDB")
 	}
 	return v1.ValidationSuccess()
 }

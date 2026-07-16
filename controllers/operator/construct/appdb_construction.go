@@ -362,7 +362,7 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
 func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
-	appDb := &opsManager.Spec.AppDB
+	appDb := opsManager.Spec.AppDB
 
 	var podSpec *corev1.PodTemplateSpec
 	if appDb.PodSpec != nil && appDb.PodSpec.PodTemplateWrapper.PodTemplate != nil {

@@ -55,14 +55,12 @@ func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 }
 
 func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	version := os.AppDB.GetMongoDBVersion()
-	v, err := semver.Make(version)
-	if err != nil {
-		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err), status.AppDb)
+	if os.ExternalApplicationDatabaseRef != nil {
+		return v1.ValidationSuccess()
 	}
-	fourZero, _ := semver.Make("4.0.0")
-	if v.LT(fourZero) {
-		return v1.OpsManagerResourceValidationError("the version of Application Database must be >= 4.0", status.AppDb)
+	version := os.AppDB.GetMongoDBVersion()
+	if _, err := semver.Make(version); err != nil {
+		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err), status.AppDb)
 	}
 
 	return v1.ValidationSuccess()

@@ -16,7 +16,7 @@ type OpsManagerBuilder struct {
 }
 
 func NewOpsManagerBuilder() *OpsManagerBuilder {
-	return &OpsManagerBuilder{}
+	return &OpsManagerBuilder{om: MongoDBOpsManager{Spec: MongoDBOpsManagerSpec{AppDB: &AppDBSpec{}}}}
 }
 
 func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
@@ -24,6 +24,9 @@ func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
 }
 
 func NewOpsManagerBuilderFromResource(resource MongoDBOpsManager) *OpsManagerBuilder {
+	if resource.Spec.AppDB == nil {
+		resource.Spec.AppDB = &AppDBSpec{}
+	}
 	return &OpsManagerBuilder{om: resource}
 }
 

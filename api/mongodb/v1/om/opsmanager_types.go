@@ -117,8 +117,17 @@ type MongoDBOpsManagerSpec struct {
 
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
-	AdminSecret string    `json:"adminCredentials,omitempty"`
-	AppDB       AppDBSpec `json:"applicationDatabase"`
+	AdminSecret string `json:"adminCredentials,omitempty"`
+
+	// AppDB configures the internally-managed Application Database. Required unless
+	// ExternalApplicationDatabaseRef is set, in which case it may be omitted entirely.
+	// +optional
+	AppDB *AppDBSpec `json:"applicationDatabase,omitempty"`
+
+	// ExternalApplicationDatabaseRef references a MongoDB or MongoDBMultiCluster resource
+	// to use as this Ops Manager's AppDB, instead of the internally-managed one.
+	// +optional
+	ExternalApplicationDatabaseRef *ExternalApplicationDatabaseRef `json:"externalApplicationDatabaseRef,omitempty"`
 
 	Logging *Logging `json:"logging,omitempty"`
 	// Custom JVM parameters passed to the Ops Manager JVM
@@ -161,6 +170,21 @@ type MongoDBOpsManagerSpec struct {
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+}
+
+// ExternalApplicationDatabaseRef references the MongoDB/MongoDBMultiCluster resource
+// playing the AppDB role for this Ops Manager instance.
+type ExternalApplicationDatabaseRef struct {
+	// Name of the MongoDB or MongoDBMultiCluster resource to use as the external AppDB.
+	// Must be in the same namespace as the MongoDBOpsManager resource, and named
+	// <MongoDBOpsManager name>-db.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Kind of the referenced resource.
+	// +kubebuilder:validation:Enum=MongoDB;MongoDBMultiCluster
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
 }
 
 type Logging struct {
@@ -639,6 +663,9 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.Backup.Members = 1
 	}
 
+	if om.Spec.AppDB == nil {
+		om.Spec.AppDB = &AppDBSpec{}
+	}
 	om.Spec.AppDB.Security = ensureSecurityWithSCRAM(om.Spec.AppDB.Security)
 
 	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)

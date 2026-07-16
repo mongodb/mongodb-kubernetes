@@ -424,23 +424,29 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	emptyResult, _ := workflow.OK().ReconcileResult()
 	retryResult := reconcile.Result{Requeue: true}
 
-	// TODO: make SetupCommonWatchers support opsmanager watcher setup
-	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
-	// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
-	appDBReplicaSet := opsManager.Spec.AppDB
-	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
+	var appDbReconciler AppDBReconciler
+	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		appDbReconciler = r.createNewExternalAppDBReconciler(log)
+	} else {
+		var appDbReconcilerErr error
+		appDbReconciler, appDbReconcilerErr = r.createNewAppDBReconciler(ctx, opsManager, log)
+		if appDbReconcilerErr != nil {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
+		}
 
-	// We need to remove the watches on the top of the reconcile since we might add resources with the same key below.
+		// TODO: make SetupCommonWatchers support opsmanager watcher setup
+		// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
+		// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
+		r.SetupCommonWatchers(opsManager.Spec.AppDB, nil, nil, opsManager.Spec.AppDB.GetName())
+	}
+
+	// These watches cover OpsManager's own TLS certificate and backup-referenced MongoDB
+	// resources — neither is AppDB-mode-specific, so they run for both internal and
+	// external AppDB.
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
 	}
-	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
-
-	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
-	if err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
-	}
 
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
 	if err != nil || (result != emptyResult && result != retryResult) {
@@ -492,12 +498,14 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	if vault.IsVaultSecretBackend() {
 		vaultMap := make(map[string]string)
 		for _, s := range opsManager.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), appDBReplicaSet.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), opsManager.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
-		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), appDBReplicaSet.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		if opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+			for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
+				path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), opsManager.Namespace, s)
+				vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+			}
 		}
 
 		for k, val := range vaultMap {
@@ -921,9 +929,13 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 	// update the central URL
 	setConfigProperty(reconcilerHelper.opsManager, util.MmsCentralUrlPropKey, reconcilerHelper.opsManager.CentralURL(), log)
 
+	// TODO(CLOUDP-TBD): reflects internal AppDB's TLS setting even in external-AppDB mode —
+	// same deferred TLS/CA parity gap as opsmanager_construction.go's AppDBTlsCAConfigMapName.
 	if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
 		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
 	}
+	// TODO(CLOUDP-TBD): same deferred TLS/CA parity gap — GetCAConfigMapName() is computed from
+	// the internal AppDB spec even in external-AppDB mode.
 	if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
 		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
 	}
@@ -1891,6 +1903,92 @@ func (r *OpsManagerReconciler) buildOMS3Config(ctx context.Context, opsManager *
 	return r.buildMongoDbOMS3Config(ctx, opsManager, config, isOpLog)
 }
 
+// ExpectedAppDBResourceName returns the naming convention required for a MongoDB/MongoDBMultiCluster resource
+// referenced via spec.externalApplicationDatabaseRef: "<om-name>-db".
+func ExpectedAppDBResourceName(om *omv1.MongoDBOpsManager) string {
+	return om.Name + "-db"
+}
+
+// stripInternalAppDBOwnerReferencesFromSecretsAndConfigMaps removes the MongoDBOpsManager's
+// OwnerReference from every Secret and ConfigMap internal AppDB management previously created and
+// owned, so deleting the MongoDBOpsManager resource later doesn't cascade-delete objects the
+// referenced MongoDB/MongoDBMultiCluster resource (or the operator, on its behalf) now depends on.
+//
+// Central-cluster objects (single copy regardless of AppDB member cluster topology): the shared
+// mongodb-ops-manager password secret, the deployment-state ConfigMap (see StateStore.write), the
+// legacy cluster-mapping ConfigMap, and the legacy last-applied-member-spec ConfigMap.
+//
+// Per-member-cluster objects (one copy per healthy AppDB member cluster, written to that
+// cluster's client): the project-ID ConfigMap and the automation-config-version ConfigMap.
+// healthyMemberClusters must be the AppDB's
+// own healthy member cluster list (ReconcileAppDbReplicaSet.GetHealthyMemberClusters), not the
+// operator-wide set of registered member clusters, so we don't fail on clusters this AppDB
+// doesn't actually run on.
+func (r *OpsManagerReconciler) stripInternalAppDBOwnerReferencesFromSecretsAndConfigMaps(ctx context.Context, opsManager *omv1.MongoDBOpsManager, healthyMemberClusters []multicluster.MemberCluster) error {
+	appDBSpec := opsManager.Spec.AppDB
+
+	if err := stripOwnerReferenceFromSecret(ctx, r.client, opsManager.Namespace, appDBSpec.GetOpsManagerUserPasswordSecretName()); err != nil {
+		return err
+	}
+
+	stateConfigMapName := fmt.Sprintf("%s-state", appDBSpec.GetName())
+	for _, cmName := range []string{stateConfigMapName, appDBSpec.ClusterMappingConfigMapName(), appDBSpec.LastAppliedMemberSpecConfigMapName()} {
+		if err := stripOwnerReferenceFromConfigMap(ctx, r.client, opsManager.Namespace, cmName); err != nil {
+			return err
+		}
+	}
+
+	for _, memberCluster := range healthyMemberClusters {
+		for _, cmName := range []string{appDBSpec.ProjectIDConfigMapName(), appDBSpec.AutomationConfigConfigMapName()} {
+			if err := stripOwnerReferenceFromConfigMapUsingClient(ctx, memberCluster.Client, opsManager.Namespace, cmName); err != nil {
+				return xerrors.Errorf("failed to strip OwnerReferences from ConfigMap %s in cluster %q: %w", cmName, memberCluster.Name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func stripOwnerReferenceFromSecret(ctx context.Context, c kubernetesClient.Client, namespace, name string) error {
+	s := corev1.Secret{}
+	if err := c.Get(ctx, kube.ObjectKey(namespace, name), &s); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+		return xerrors.Errorf("failed to fetch Secret %s: %w", name, err)
+	}
+	if len(s.OwnerReferences) == 0 {
+		return nil
+	}
+	s.OwnerReferences = nil
+	if err := c.Update(ctx, &s); err != nil {
+		return xerrors.Errorf("failed to strip OwnerReferences from Secret %s: %w", name, err)
+	}
+	return nil
+}
+
+func stripOwnerReferenceFromConfigMap(ctx context.Context, c kubernetesClient.Client, namespace, name string) error {
+	return stripOwnerReferenceFromConfigMapUsingClient(ctx, c, namespace, name)
+}
+
+func stripOwnerReferenceFromConfigMapUsingClient(ctx context.Context, c client.Client, namespace, name string) error {
+	cm := corev1.ConfigMap{}
+	if err := c.Get(ctx, kube.ObjectKey(namespace, name), &cm); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+		return xerrors.Errorf("failed to fetch ConfigMap %s: %w", name, err)
+	}
+	if len(cm.OwnerReferences) == 0 {
+		return nil
+	}
+	cm.OwnerReferences = nil
+	if err := c.Update(ctx, &cm); err != nil {
+		return xerrors.Errorf("failed to strip OwnerReferences from ConfigMap %s: %w", name, err)
+	}
+	return nil
+}
+
 // getMongoDbForS3Config returns the referenced MongoDB resource which should be used when configuring the backup config.
 func (r *OpsManagerReconciler) getMongoDbForS3Config(ctx context.Context, opsManager *omv1.MongoDBOpsManager, config omv1.S3Config) (S3ConfigGetter, workflow.Status) {
 	mongodb, mongodbMulti := &mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}
@@ -2047,12 +2145,13 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		}
 	}
 
-	if opsManager.Spec.AppDB.IsMultiCluster() {
+	if opsManager.Spec.ExternalApplicationDatabaseRef == nil && opsManager.Spec.AppDB.IsMultiCluster() {
 		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
 		if err != nil {
 			log.Errorf("Error initializing AppDB reconciler helper: %s", err)
 			return
 		}
+
 		for _, memberCluster := range appDbHelper.GetHealthyMemberClusters() {
 			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
 				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())

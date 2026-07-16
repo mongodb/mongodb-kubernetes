@@ -1,0 +1,22 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  # must match the "<om-name>-db" naming convention required by
+  # spec.externalApplicationDatabaseRef (see MongoDBOpsManagerReconciler.validateExternalAppDBReference)
+  name: om-external-appdb-db
+spec:
+  members: 3
+  version: 4.4.20-ent
+  type: ReplicaSet
+  role: AppDB
+  opsManager:
+    configMapRef:
+      name: om-external-appdb-db-config
+  credentials: my-credentials
+  persistent: true
+  security:
+    authentication:
+      enabled: true
+      modes: ["SCRAM"]
+      ignoreUnknownUsers: true

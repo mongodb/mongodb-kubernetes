@@ -1855,6 +1855,10 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 		SetServiceName(serviceName).
 		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimTemplates()).
 		SetReplicas(startingMembers).
+		// the operator sets the OM OwnerReference on the AppDB StatefulSet it creates
+		// (AppDBOwnerReferenceForMemberCluster); without it the re-adoption gate reads the
+		// StatefulSet as mid-migration and blocks ReconcileAppDB.
+		SetOwnerReference(kube.BaseOwnerReference(opsManager)).
 		Build()
 
 	assert.NoError(t, err)
@@ -2115,10 +2119,99 @@ func TestMonitoringAgentStartupParametersIgnored(t *testing.T) {
 // monitoringAutomationConfigSecretName / monitoringAutomationConfigConfigMapName reproduce the
 // names of the pre-single-agent monitoring automation config resources. The operator no longer
 // creates these; the helpers exist only so tests can assert their absence (or exercise legacy paths).
-func monitoringAutomationConfigSecretName(appdb omv1.AppDBSpec) string {
+func monitoringAutomationConfigSecretName(appdb *omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-config"
 }
 
-func monitoringAutomationConfigConfigMapName(appdb omv1.AppDBSpec) string {
+func monitoringAutomationConfigConfigMapName(appdb *omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-automation-config-version"
+}
+
+func TestReconcileAppDbReplicaSet_BuildAppDBConnectionURL(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().Build()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	appDbReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, zap.S())
+	require.NoError(t, err)
+
+	connString, err := appDbReconciler.BuildAppDBConnectionURL(ctx, testOm, zap.S())
+	require.NoError(t, err)
+	assert.Contains(t, connString, util.OpsManagerMongoDBUserName)
+}
+
+func TestReAdoptInternalAppDBIfNeeded(t *testing.T) {
+	tests := []struct {
+		name string
+		// sts builds the pre-existing AppDB StatefulSet; nil means it doesn't exist (Fresh Start).
+		sts                       func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet
+		omUID                     types.UID
+		expectedAdopted           bool
+		expectedOwned             bool
+		expectedAnnotationPresent bool
+	}{
+		{
+			name: "blocks without annotation",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).SetOwnerReferences(nil).Build()
+			},
+			expectedAdopted: false,
+		},
+		{
+			name: "adopts and clears annotation when annotated",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+					SetOwnerReferences(nil).
+					SetAnnotations(map[string]string{appDBMigrationReadyAnnotation: "true"}).Build()
+			},
+			expectedAdopted: true,
+			expectedOwned:   true,
+		},
+		{
+			// Annotation is left stale to prove the short-circuit doesn't even look at it once
+			// ownership matches. Real UID needed: the UID-match short-circuit requires non-empty
+			// UIDs, matching real apiserver-issued objects.
+			name:  "short-circuits when already owned",
+			omUID: types.UID("test-om-uid"),
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+					SetOwnerReferences(kube.BaseOwnerReference(testOm)).
+					SetAnnotations(map[string]string{appDBMigrationReadyAnnotation: "true"}).Build()
+			},
+			expectedAdopted:           true,
+			expectedOwned:             true,
+			expectedAnnotationPresent: true,
+		},
+		{
+			name:            "fresh start, no StatefulSet yet",
+			expectedAdopted: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().SetName("test-om").Build()
+			testOm.UID = tt.omUID
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+			require.NoError(t, err)
+			if tt.sts != nil {
+				sts := tt.sts(testOm)
+				require.NoError(t, kubeClient.Create(ctx, &sts))
+			}
+
+			adopted, err := reconciler.reAdoptInternalAppDBIfNeeded(ctx, testOm)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedAdopted, adopted)
+
+			if tt.sts != nil {
+				result := appsv1.StatefulSet{}
+				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &result))
+				assert.Equal(t, tt.expectedOwned, len(result.OwnerReferences) > 0)
+				assert.Equal(t, tt.expectedAnnotationPresent, len(result.Annotations[appDBMigrationReadyAnnotation]) > 0)
+			}
+		})
+	}
 }

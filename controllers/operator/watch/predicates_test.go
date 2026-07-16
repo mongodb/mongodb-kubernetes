@@ -16,6 +16,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 )
 
+const vaultSecretBackendEnvVar = "SECRET_BACKEND"
+
 func TestPredicatesForUser(t *testing.T) {
 	t.Run("No reconciliation for MongoDBUser if statuses are not equal", func(t *testing.T) {
 		oldUser := &user.MongoDBUser{
@@ -48,6 +50,13 @@ func TestPredicatesForOpsManager(t *testing.T) {
 		newOm := oldOm.DeepCopy()
 		newOm.Spec.Replicas = 2
 		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
+	})
+	t.Run("No reconciliation for MongoDBOpsManager with ExternalApplicationDatabaseRef when vault backend and nothing meaningful changed", func(t *testing.T) {
+		t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
+		oldOm := omv1.NewOpsManagerBuilder().Build()
+		oldOm.Spec.ExternalApplicationDatabaseRef = &omv1.ExternalApplicationDatabaseRef{Name: "external-appdb"}
+		newOm := oldOm.DeepCopy()
+		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
 	})
 }
 

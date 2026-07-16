@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -1287,7 +1289,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 	spec := omv1.MongoDBOpsManagerSpec{
 		Version:     "7.0.0",
-		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
+		AppDB:       omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
 	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-om", Namespace: mock.TestNamespace}}
@@ -1398,6 +1400,126 @@ func addAppDBTLSResources(ctx context.Context, client client.Client, secretName 
 
 	certSecret.Data = certs
 	_ = client.Create(ctx, certSecret)
+}
+
+func withExternalAppDBRef(om *omv1.MongoDBOpsManager, ref *omv1.ExternalApplicationDatabaseRef) *omv1.MongoDBOpsManager {
+	om.Spec.ExternalApplicationDatabaseRef = ref
+	return om
+}
+
+func TestExpectedAppDBResourceName(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().SetName("my-om").Build()
+	assert.Equal(t, "my-om-db", ExpectedAppDBResourceName(testOm))
+}
+
+func TestOpsManagerReconcile_ExternalAppDBRef_SkipsInternalAppDBReconciliation(t *testing.T) {
+	ctx := context.Background()
+
+	externalAppDB := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		Build()
+	externalAppDB.Spec.Role = mdbv1.RoleAppDB
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+		Name: "test-om-db",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	appDBSts := appsv1.StatefulSet{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	assert.True(t, apiErrors.IsNotFound(err), "expected internal AppDB StatefulSet to not be created, got err=%v", err)
+}
+
+func TestOpsManagerReconcile_NoExternalAppDBRef_StillReconcilesInternalAppDB(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		AddOplogStoreConfig("oplog-store-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	require.Nil(t, testOm.Spec.ExternalApplicationDatabaseRef)
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+	appDBSts := appsv1.StatefulSet{}
+	err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	require.NoError(t, err, "internal AppDB StatefulSet should still be created when externalApplicationDatabaseRef is not set")
+}
+
+func TestOpsManagerReconcile_InvalidExternalAppDBRef_FailsReconcile(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+		Name: "wrong-name",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, res)
+
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assert.Equal(t, status.PhaseFailed, testOm.GetPhase())
+
+	appDBSts := appsv1.StatefulSet{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	assert.True(t, apiErrors.IsNotFound(err), "expected internal AppDB StatefulSet to not be created when validation fails")
+}
+
+func TestReconcile_ExternalAppDBRef_NeverCreatesInternalPasswordSecret(t *testing.T) {
+	ctx := context.Background()
+
+	externalAppDB := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		SetMembers(3).
+		Build()
+	externalAppDB.Spec.Role = mdbv1.RoleAppDB
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+		Name: "test-om-db",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+	require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+		SetNamespace(testOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "test-password").
+		Build()))
+
+	_, _ = reconciler.Reconcile(ctx, requestFromObject(testOm))
+
+	// the shared password secret ("test-om-db-om-password") is the same secret
+	// GetOpsManagerUserPasswordSecretName() would compute for internal AppDB, since
+	// externalApplicationDatabaseRef.Name is required to equal AppDBSpec.Name(). If
+	// ensureAppDbPassword had run unconditionally, it would either overwrite this
+	// value or fail to find automation-config resources it expects — asserting the
+	// pre-seeded password is unchanged proves that internal path never ran.
+	assert.Equal(t, testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), omv1.OpsManagerUserPasswordSecretName("test-om-db"),
+		"test assumption: internal and shared password secret names must coincide")
+
+	result := corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, omv1.OpsManagerUserPasswordSecretName("test-om-db")), &result))
+	assert.Equal(t, "test-password", string(result.Data[util.OpsManagerPasswordKey]))
 }
 
 func addOMTLSResources(ctx context.Context, client client.Client, secretName string) {

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>d3_reverse_migration</title>
+  <!--
+    MongoDB brand fonts. Lexend Deca (body) and Source Code Pro (mono)
+    are pulled from the @fontsource jsDelivr mirror (versioned, stable
+    URL — same pinning rationale as the Excalidraw bundle below) and
+    registered under Excalidraw's hardcoded canvas font names
+    "Helvetica" (fontFamily 2) and "Cascadia" (fontFamily 3) so the
+    canvas measureText/fillText calls resolve to the brand fonts.
+
+    We register the fonts *programmatically* via FontFace.load() in the
+    bootstrap script below (rather than via @font-face CSS) so the load
+    is fully synchronised with the canvas-measurement code path:
+    Excalidraw's convertToExcalidrawElements runs measureText
+    immediately on call, so it must observe the loaded font NOW, not
+    "eventually". CSS @font-face + document.fonts.load() works in a
+    real browser tab but headless Chrome with --dump-dom captures the
+    DOM before async font fetches resolve, leaving canvas with system
+    fallback metrics. FontFace + document.fonts.add() with awaited
+    .load() is deterministic.
+
+    If jsDelivr is offline the fetch throws, the catch block falls
+    through, and Excalidraw renders with system Helvetica/Cascadia
+    (i.e. pre-fix behaviour) instead of hanging.
+  -->
+  <style>
+    html,body,#root{margin:0;padding:0;height:100%;width:100%;overflow:hidden;font-family:"Helvetica",system-ui}
+    #canonical{display:none}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <pre id="canonical"></pre>
+  <!--
+    Scene JSON is embedded in a non-executing <script type="application/json">
+    block instead of inline `const scene = …;`. Two reasons:
+      1. Defends against `</script>` injection: when JSON contains literal
+         `</script>` (possible inside text labels), inline-JS embedding
+         breaks out of the script block. JSON-script-tag embedding does not
+         execute the contents, and JSON.stringify of `<` is `<` not escaped,
+         but the parser only stops at the literal closing tag of the JSON
+         block. We still escape `</` defensively in the Python writer.
+      2. Stable extraction: diff_scene reads this exact tag by id, so the
+         baseline parser is decoupled from the rendering script.
+  -->
+  <script id="diagram-scene" type="application/json">{"type": "excalidraw", "version": 2, "source": "mck-dev diagram skill", "elements": [{"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "pad1", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": -70, "y": -100, "strokeColor": "transparent", "backgroundColor": "transparent", "width": 1, "height": 1, "seed": 1013354705, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491422, "link": null, "locked": false}, {"type": "text", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "t2", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 60, "y": -20, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 657.3156127929688, "height": 25.299999999999997, "seed": 262430911, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491425, "link": null, "locked": false, "fontSize": 22, "fontFamily": 2, "text": "Procedure 3 \u2014 Reverse Migration (external AppDB -> internal)", "textAlign": "left", "verticalAlign": "top", "containerId": null, "originalText": "Procedure 3 \u2014 Reverse Migration (external AppDB -> internal)", "lineHeight": 1.15, "baseline": 20}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r3", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 60, "y": 20, "strokeColor": "#00684A", "backgroundColor": "#F9EBFF", "width": 1400, "height": 70, "seed": 1943948977, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "cpBdiEt-bBbHZbbyxPAur"}], "updated": 1783587491425, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r4", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 60, "y": 140, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 620, "height": 60, "seed": 2063069407, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "qsZj07CWFZxijPK0ELNx9"}], "updated": 1783587491425, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r5", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 60, "y": 230, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 620, "height": 70, "seed": 1164136593, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "5oaLoP5ZWybm5UbvEcVEA"}], "updated": 1783587491425, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r6", "fillStyle": "solid", "strokeWidth": 1.5, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 60, "y": 320, "strokeColor": "#00684A", "backgroundColor": "#00ED64", "width": 620, "height": 60, "seed": 832863487, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "w4Fbw18K5D8tjja_zDER-"}], "updated": 1783587491425, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a7", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 370, "y": 200.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 30, "seed": 112006769, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491425, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 29]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a8", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 370, "y": 300.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 20, "seed": 1462404383, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 19]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r9", "fillStyle": "solid", "strokeWidth": 1.5, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 60, "y": 400, "strokeColor": "#00684A", "backgroundColor": "#00ED64", "width": 620, "height": 60, "seed": 1786978385, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "ujpzaQsv6nFq3C-_r_AZZ"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a10", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 370, "y": 380.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 20, "seed": 1257933119, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 19]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r11", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 60, "y": 480, "strokeColor": "#001E2B", "backgroundColor": "#FFFFFF", "width": 620, "height": 60, "seed": 1589440049, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "6Zd_go7BeNWeanMXw4T_C"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a12", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 370, "y": 460.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 20, "seed": 712313183, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 19]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r13", "fillStyle": "solid", "strokeWidth": 1.5, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 760, "y": 320, "strokeColor": "#001E2B", "backgroundColor": "#FFFFFF", "width": 220, "height": 90, "seed": 708968465, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "x_YaAuxldMYMUCSlUmazC"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a14", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 680.5, "y": 265.5, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 80, "height": 80, "seed": 317359487, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "KdNFDduRRp2QVUByTza0m"}], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [79, 79]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a15", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 799.5, "y": 409.5, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 80, "height": 60, "seed": 1258935793, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "xNCFSkQNnh0cgkA5QPy5L"}], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [-79, -59]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r16", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1040, "y": 320, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 460, "height": 70, "seed": 597392799, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "gcLCFF9tXEFkcdznZdu0T"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "diamond", "version": 2, "versionNonce": 586335199, "isDeleted": false, "id": "d17", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1120, "y": 440, "strokeColor": "#001E2B", "backgroundColor": "#FFFFFF", "width": 300, "height": 124, "seed": 337375185, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "3HmO0-QdxPpDK8ygWTSvS"}], "updated": 1783587491430, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r18", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1040, "y": 570, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 460, "height": 90, "seed": 1069052351, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "bgyyMysGxluAmFFUd3lon"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r19", "fillStyle": "solid", "strokeWidth": 1.5, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1040, "y": 670, "strokeColor": "#00684A", "backgroundColor": "#00ED64", "width": 460, "height": 90, "seed": 193973681, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "-VIjNWrncmvAcTxIse6Hk"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a20", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 980.5, "y": 364.5, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 60, "height": 10, "seed": 274850271, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "oL_A5_vxXiE4u2WMMyUBG"}], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [59, -9]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a21", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1270, "y": 390.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 50, "seed": 143454097, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 49]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a22", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1270, "y": 530.5, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 0, "height": 40, "seed": 1185435135, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "2CU4LgcwURIIB8GY4ernr"}], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 39]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a23", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1270, "y": 660.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 10, "seed": 290116977, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 9]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a24", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "dashed", "roughness": 0, "opacity": 100, "angle": 0, "x": 1500.5, "y": 485, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 100, "height": 0, "seed": 495728159, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "oBBGN3WAsIEXSxMt_AId4"}], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [99, 0]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r25", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1600, "y": 450, "strokeColor": "#001E2B", "backgroundColor": "#FFFFFF", "width": 260, "height": 70, "seed": 2031157073, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "aoZOdptcXVXeopzyoYoFA"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a26", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "dashed", "roughness": 0, "opacity": 100, "angle": 0, "x": 1730, "y": 449.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 95, "seed": 469637695, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, -94]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a27", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "dashed", "roughness": 0, "opacity": 100, "angle": 0, "x": 1729.5, "y": 355, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 230, "height": 0, "seed": 1043787057, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "vWvM_cBnlq1mEN8_46tAe"}], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [-229, 0]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r28", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 400, "y": 890, "strokeColor": "#00684A", "backgroundColor": "#F9EBFF", "width": 640, "height": 60, "seed": 383679071, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "_qMGeKKhAORAKtCn5EROI"}], "updated": 1783587491426, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a29", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1139.5, "y": 760.5, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 420, "height": 130, "seed": 673455889, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [-419, 129]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "pad30", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1920, "y": 1010, "strokeColor": "transparent", "backgroundColor": "transparent", "width": 1, "height": 1, "seed": 1929238143, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491426, "link": null, "locked": false}, {"type": "text", "version": 2, "versionNonce": 656191135, "isDeleted": false, "id": "cpBdiEt-bBbHZbbyxPAur", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 417.83233642578125, "y": 27.400000000000002, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 684.3353271484375, "height": 55.199999999999996, "seed": 626005233, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491427, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Trigger: user deletes the MongoDB CR + removes spec.externalApplicationDatabaseRef\nfrom the OM CR (companion actions). CR has mongodb.com/appdb-detach finalizer,\nso deletionTimestamp is set but the object stays in etcd until finalizer cleanup completes", "textAlign": "center", "verticalAlign": "middle", "containerId": "r3", "originalText": "Trigger: user deletes the MongoDB CR + removes spec.externalApplicationDatabaseRef\nfrom the OM CR (companion actions). CR has mongodb.com/appdb-detach finalizer,\nso deletionTimestamp is set but the object stays in etcd until finalizer cleanup completes", "lineHeight": 1.15, "baseline": 52}, {"type": "text", "version": 2, "versionNonce": 2112586431, "isDeleted": false, "id": "qsZj07CWFZxijPK0ELNx9", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 275.0400924682617, "y": 151.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 189.91981506347656, "height": 36.8, "seed": 1765953233, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491427, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Finalizer blocks deletion:\nfinalizer cleanup begins", "textAlign": "center", "verticalAlign": "middle", "containerId": "r4", "originalText": "Finalizer blocks deletion:\nfinalizer cleanup begins", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 403362527, "isDeleted": false, "id": "5oaLoP5ZWybm5UbvEcVEA", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 266.4880905151367, "y": 246.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 207.02381896972656, "height": 36.8, "seed": 1251101873, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491428, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Strip own OwnerReference\nfrom the StatefulSet", "textAlign": "center", "verticalAlign": "middle", "containerId": "r5", "originalText": "Strip own OwnerReference\nfrom the StatefulSet", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 772480767, "isDeleted": false, "id": "w4Fbw18K5D8tjja_zDER-", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 251.5521011352539, "y": 331.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 236.8957977294922, "height": 36.8, "seed": 1625788049, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491429, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Annotate StatefulSet:\nappdb-migration-ready: \"true\"", "textAlign": "center", "verticalAlign": "middle", "containerId": "r6", "originalText": "Annotate StatefulSet:\nappdb-migration-ready: \"true\"", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 309126943, "isDeleted": false, "id": "ujpzaQsv6nFq3C-_r_AZZ", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 242.03211212158203, "y": 411.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 255.93577575683594, "height": 36.8, "seed": 1660523633, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491429, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Remove finalizer -> MongoDB CR\ndeletion completes", "textAlign": "center", "verticalAlign": "middle", "containerId": "r9", "originalText": "Remove finalizer -> MongoDB CR\ndeletion completes", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 1939909439, "isDeleted": false, "id": "6Zd_go7BeNWeanMXw4T_C", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 163.76821899414062, "y": 491.6, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 412.46356201171875, "height": 36.8, "seed": 1150279249, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491429, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "No connection-string secret to clean up (this CR\nnever had one); password was never a separate copy", "textAlign": "center", "verticalAlign": "middle", "containerId": "r11", "originalText": "No connection-string secret to clean up (this CR\nnever had one); password was never a separate copy", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 1577511775, "isDeleted": false, "id": "x_YaAuxldMYMUCSlUmazC", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 826.4480361938477, "y": 337.4, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 87.10392761230469, "height": 55.199999999999996, "seed": 344058929, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491429, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "AppDB\nStatefulSet\n(shared)", "textAlign": "center", "verticalAlign": "middle", "containerId": "r13", "originalText": "AppDB\nStatefulSet\n(shared)", "lineHeight": 1.15, "baseline": 52}, {"type": "text", "version": 2, "versionNonce": 2112890751, "isDeleted": false, "id": "KdNFDduRRp2QVUByTza0m", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 696.4660263061523, "y": 296.95, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 47.06794738769531, "height": 16.099999999999998, "seed": 448216593, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491430, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "detach", "textAlign": "center", "verticalAlign": "middle", "containerId": "a14", "originalText": "detach", "lineHeight": 1.15, "baseline": 13}, {"type": "text", "version": 2, "versionNonce": 563928991, "isDeleted": false, "id": "xNCFSkQNnh0cgkA5QPy5L", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 729.0950393676758, "y": 371.95, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 61.80992126464844, "height": 16.099999999999998, "seed": 908547057, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491430, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "annotate", "textAlign": "center", "verticalAlign": "middle", "containerId": "a15", "originalText": "annotate", "lineHeight": 1.15, "baseline": 13}, {"type": "text", "version": 2, "versionNonce": 2067633087, "isDeleted": false, "id": "gcLCFF9tXEFkcdznZdu0T", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1106.4481353759766, "y": 336.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 327.1037292480469, "height": 36.8, "seed": 2061086161, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491430, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "OM controller sees\nexternalApplicationDatabaseRef removed", "textAlign": "center", "verticalAlign": "middle", "containerId": "r16", "originalText": "OM controller sees\nexternalApplicationDatabaseRef removed", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 1299393937, "isDeleted": false, "id": "3HmO0-QdxPpDK8ygWTSvS", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1210.4275512695312, "y": 476.125, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 119.1448974609375, "height": 51.75, "seed": 266718129, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491430, "link": null, "locked": false, "fontSize": 15, "fontFamily": 2, "text": "migration-ready\nannotation \npresent?", "textAlign": "center", "verticalAlign": "middle", "containerId": "d17", "originalText": "migration-ready\nannotation present?", "lineHeight": 1.15, "baseline": 49}, {"type": "text", "version": 2, "versionNonce": 448353137, "isDeleted": false, "id": "bgyyMysGxluAmFFUd3lon", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1099.7041320800781, "y": 578.2, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 340.59173583984375, "height": 73.6, "seed": 1489825791, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491430, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Set own OwnerReference back on STS,\nclear annotation, resume ReconcileAppDB()\n+ SetupCommonWatchers, tear down watch\non the (now-deleted) external CR", "textAlign": "center", "verticalAlign": "middle", "containerId": "r18", "originalText": "Set own OwnerReference back on STS,\nclear annotation, resume ReconcileAppDB()\n+ SetupCommonWatchers, tear down watch\non the (now-deleted) external CR", "lineHeight": 1.15, "baseline": 70}, {"type": "text", "version": 2, "versionNonce": 201309521, "isDeleted": false, "id": "-VIjNWrncmvAcTxIse6Hk", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1071.7681884765625, "y": 678.2, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 396.463623046875, "height": 73.6, "seed": 114071583, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Read password via existing ensureAppDbPassword\nlogic -> same shared secret, no rotation.\nConnection string now computed the internal way\nagain (buildMongoConnectionUrl).", "textAlign": "center", "verticalAlign": "middle", "containerId": "r19", "originalText": "Read password via existing ensureAppDbPassword\nlogic -> same shared secret, no rotation.\nConnection string now computed the internal way\nagain (buildMongoConnectionUrl).", "lineHeight": 1.15, "baseline": 70}, {"type": "text", "version": 2, "versionNonce": 1084091185, "isDeleted": false, "id": "oL_A5_vxXiE4u2WMMyUBG", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 976.6170272827148, "y": 351.95, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 66.76594543457031, "height": 16.099999999999998, "seed": 48380991, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "re-adopt?", "textAlign": "center", "verticalAlign": "middle", "containerId": "a20", "originalText": "re-adopt?", "lineHeight": 1.15, "baseline": 13}, {"type": "text", "version": 2, "versionNonce": 16473361, "isDeleted": false, "id": "2CU4LgcwURIIB8GY4ernr", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1258.5480117797852, "y": 541.95, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 22.903976440429688, "height": 16.099999999999998, "seed": 284056671, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "yes", "textAlign": "center", "verticalAlign": "middle", "containerId": "a22", "originalText": "yes", "lineHeight": 1.15, "baseline": 13}, {"type": "text", "version": 2, "versionNonce": 479171313, "isDeleted": false, "id": "oBBGN3WAsIEXSxMt_AId4", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1541.530014038086, "y": 476.95, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 16.939971923828125, "height": 16.099999999999998, "seed": 616659071, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "no", "textAlign": "center", "verticalAlign": "middle", "containerId": "a24", "originalText": "no", "lineHeight": 1.15, "baseline": 13}, {"type": "text", "version": 2, "versionNonce": 132254929, "isDeleted": false, "id": "aoZOdptcXVXeopzyoYoFA", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1629.4960861206055, "y": 466.6, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 201.00782775878906, "height": 36.8, "seed": 1679560863, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Blocked: keep skipping\nReconcileAppDB, requeue", "textAlign": "center", "verticalAlign": "middle", "containerId": "r25", "originalText": "Blocked: keep skipping\nReconcileAppDB, requeue", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 982141617, "isDeleted": false, "id": "vWvM_cBnlq1mEN8_46tAe", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 1598.655014038086, "y": 346.95, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 32.689971923828125, "height": 16.099999999999998, "seed": 1756275903, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "retry", "textAlign": "center", "verticalAlign": "middle", "containerId": "a27", "originalText": "retry", "lineHeight": 1.15, "baseline": 13}, {"type": "text", "version": 2, "versionNonce": 1294978193, "isDeleted": false, "id": "_qMGeKKhAORAKtCn5EROI", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 505.30418395996094, "y": 901.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 429.3916320800781, "height": 36.8, "seed": 1108980959, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587491431, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Internal AppDB management resumes; StatefulSet pod\ntemplate rewritten back to internal AppDB's shape", "textAlign": "center", "verticalAlign": "middle", "containerId": "r28", "originalText": "Internal AppDB management resumes; StatefulSet pod\ntemplate rewritten back to internal AppDB's shape", "lineHeight": 1.15, "baseline": 33}], "appState": {"viewBackgroundColor": "#ffffff", "gridSize": null}, "files": {}}</script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+          integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+          integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
+          crossorigin="anonymous"></script>
+  <script>window.EXCALIDRAW_ASSET_PATH="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+  <script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"
+          integrity="sha384-2RnaDBiRrWXqT5k4HtP4X4gh/ukRFg9zn1Sjt+JeYQOUWSYYnN1tKE4FL9QA3Wdl"
+          crossorigin="anonymous"></script>
+  <script>
+    // Resolve `fixedPoint` arrow bindings to concrete x/y/width/height/points
+    // geometry. Excalidraw treats bindings as advisory — they update arrow
+    // endpoints when a bound shape MOVES, but on a fresh mount the arrow is
+    // drawn from its literal x/y + points. If the author supplied
+    // `x: 0, y: 0, points: [[0,0],[40,0]]` and trusted the bindings to
+    // position the arrow, the result is a 40-px line at canvas (0,0) — i.e.
+    // off-screen and invisible. This shim runs before mount/canonicalize and
+    // rewrites such arrows to the real geometry inferred from the bound
+    // shapes. Polyline arrows (3+ points) are left alone: a bend pattern is
+    // intentional geometry that we shouldn't flatten.
+    function resolveFixedPointArrows(els) {
+      const byId = Object.create(null);
+      for (const e of els) byId[e.id] = e;
+      return els.map(e => {
+        if (e.type !== "arrow") return e;
+        const sb = e.startBinding, eb = e.endBinding;
+        const sFP = sb && Array.isArray(sb.fixedPoint) ? sb.fixedPoint : null;
+        const eFP = eb && Array.isArray(eb.fixedPoint) ? eb.fixedPoint : null;
+        if (!sFP || !eFP) return e;
+        const src = byId[sb.elementId], dst = byId[eb.elementId];
+        if (!src || !dst) return e;
+        if (typeof src.x !== "number" || typeof dst.x !== "number") return e;
+        // Skip polylines — they have intentional geometry.
+        if (Array.isArray(e.points) && e.points.length > 2) return e;
+        const sx = src.x + (src.width || 0) * sFP[0];
+        const sy = src.y + (src.height || 0) * sFP[1];
+        const ex = dst.x + (dst.width || 0) * eFP[0];
+        const ey = dst.y + (dst.height || 0) * eFP[1];
+        return Object.assign({}, e, {
+          x: sx, y: sy,
+          width: ex - sx, height: ey - sy,
+          points: [[0, 0], [ex - sx, ey - sy]],
+        });
+      });
+    }
+
+    // Brand fonts to register under Excalidraw's hardcoded family names.
+    // Each entry is [family-name-Excalidraw-asks-for, weight, woff2 URL].
+    // Three Lexend Deca weights cover the body-text range Excalidraw
+    // emits at fontSize 14-28; one Source Code Pro Medium covers
+    // monospace. Add more here if the diagrams ever need extra weights.
+    // Excalidraw's getFontString() produces e.g. "16px Cascadia" with no
+    // weight token, which the CSS font shorthand parses as
+    // font-weight:normal (400). The FontFaceSet then looks for a 400
+    // face under that family name; if there isn't one, it can fall back
+    // to a system match instead of stretching our 500. Register all four
+    // weights at the same URL (the woff2 itself is one weight; CSS just
+    // points multiple FontFace entries at the same source) so any
+    // Excalidraw weight request matches.
+    const LEXEND = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-400-normal.woff2";
+    const LEXEND_300 = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-300-normal.woff2";
+    const LEXEND_500 = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-500-normal.woff2";
+    const SCP = "https://cdn.jsdelivr.net/npm/@fontsource/source-code-pro@5.1.0/files/source-code-pro-latin-500-normal.woff2";
+    const BRAND_FONTS = [
+      ["Helvetica", "300", LEXEND_300],
+      ["Helvetica", "400", LEXEND],
+      ["Helvetica", "500", LEXEND_500],
+      // Source Code Pro Medium covers all canvas-asks-for-Cascadia
+      // weights — Excalidraw never goes mono+bold, but registering 400
+      // and 500 against the same woff2 is a belt-and-braces guard
+      // against the FontFaceSet resolving 400 to a system fallback.
+      ["Cascadia",  "400", SCP],
+      ["Cascadia",  "500", SCP],
+    ];
+
+    async function loadBrandFonts() {
+      // Per-font fetch+load+add, all in parallel. We collect the loaded
+      // FontFace instances so the caller could inspect them; don't fail
+      // the whole batch if one URL is unreachable — render with whatever
+      // we got and let the rest fall back to system fonts.
+      const tasks = BRAND_FONTS.map(async ([family, weight, url]) => {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) return null;
+          const buf = await resp.arrayBuffer();
+          const ff = new FontFace(family, buf, { weight });
+          await ff.load();
+          document.fonts.add(ff);
+          return ff;
+        } catch (_) {
+          return null;
+        }
+      });
+      // Hard cap: don't let the brand-font fetch block the render forever
+      // if the CDN is down. 6s is well above a warm-cache load (<300ms
+      // total) and still under Chrome's 30s virtual-time-budget for
+      // canonicalize. After the timeout we proceed with whatever fonts
+      // managed to register; missing fonts fall through to system
+      // Helvetica/Cascadia (i.e. pre-fix behaviour, not a hard fail).
+      await Promise.race([
+        Promise.all(tasks),
+        new Promise(r => setTimeout(r, 6000)),
+      ]);
+    }
+
+    (async () => {
+      // Brand fonts must be loaded BEFORE convertToExcalidrawElements is
+      // called below, because that function runs Canvas2D measureText
+      // synchronously to compute text bounding boxes. If the font isn't
+      // registered with the FontFaceSet at measure time, measureText
+      // falls back to system Helvetica/Cascadia (typically much narrower
+      // than Lexend Deca / Source Code Pro), the bounding box is too
+      // small, and text clips on the user's first save when the real
+      // font finally loads and re-flows.
+      await loadBrandFonts();
+
+      const scene = JSON.parse(document.getElementById("diagram-scene").textContent);
+      // Normalize compact/shorthand elements (labeled shapes, etc.) into
+      // Excalidraw's canonical form via the library's own helper. This splits
+      // `{label}` rectangles into shape + bound text, measures text geometry
+      // with Canvas 2D (pixel-accurate), and fills in bookkeeping fields.
+      // Scenes that are already normalized pass through unchanged.
+      const pseudoTypes = new Set(["cameraUpdate", "restoreCheckpoint", "delete"]);
+      const rawReal = (scene.elements || []).filter(e => !pseudoTypes.has(e.type));
+      // `convertToExcalidrawElements` expects skeleton input (shapes with a
+      // `label: {...}` shorthand). Running it over already-canonical elements
+      // (shape + separate text with `containerId`) clobbers the container
+      // binding, so labels end up left-aligned against the box edge. Detect
+      // skeleton form by presence of the `label` shorthand key.
+      // Resolve placeholder arrow geometry from fixedPoint bindings BEFORE
+      // convertToExcalidrawElements runs — the converter consumes
+      // `fixedPoint` and rewrites bindings into the internal `focus`/`gap`
+      // form, after which the shim has nothing to read. Runs in both
+      // canonicalize and render branches: if the arrow is bound but its
+      // x/y/points haven't been set, this is the only place it gets correct
+      // geometry before paint.
+      const skeletonResolved = resolveFixedPointArrows(rawReal);
+
+      const isSkeleton = skeletonResolved.some(e => e && typeof e.label === "object" && e.label !== null);
+      let normalizedElements = (isSkeleton && ExcalidrawLib.convertToExcalidrawElements)
+        ? ExcalidrawLib.convertToExcalidrawElements(skeletonResolved, { regenerateIds: false })
+        : skeletonResolved;
+
+      const params = new URLSearchParams(location.search);
+      // Canonicalize mode: run the scene through convertToExcalidrawElements
+      // + restoreElements (which fills in all default bookkeeping fields, the
+      // way Excalidraw's "Save to..." does), stuff the result into #canonical
+      // as JSON text, and skip the React mount entirely. The parent Python
+      // process reads it back via --dump-dom.
+      if (params.get("canonicalize") === "1") {
+        const restored = ExcalidrawLib.restoreElements
+          ? ExcalidrawLib.restoreElements(normalizedElements, null)
+          : normalizedElements;
+        const canonical = {
+          type: "excalidraw",
+          version: 2,
+          source: "mck-dev diagram skill",
+          elements: restored,
+          appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+          files: {},
+        };
+        document.getElementById("canonical").textContent = JSON.stringify(canonical);
+      } else {
+        // Query params for viewport control:
+        //   ?zoom=1.5           absolute zoom factor (1 = 100%)
+        //   ?fit=0.9            fit-to-viewport with this zoom multiplier (default 0.9)
+        //   ?cx=400&cy=300      scene-space coords to center on viewport (requires zoom)
+        //   ?ui=0               hide the Excalidraw editor UI for clean screenshots
+        const qZoom = parseFloat(params.get("zoom"));
+        const qFit  = parseFloat(params.get("fit"));
+        const qCx   = parseFloat(params.get("cx"));
+        const qCy   = parseFloat(params.get("cy"));
+        const hideUI = params.get("ui") === "0";
+        const App = () => {
+          return React.createElement("div", {style: {height: "100vh"}},
+            React.createElement(ExcalidrawLib.Excalidraw, {
+              initialData: {
+                elements: normalizedElements,
+                appState: {viewBackgroundColor: "#ffffff"},
+              },
+              UIOptions: hideUI ? { canvasActions: { changeViewBackgroundColor:false, clearCanvas:false, export:false, loadScene:false, saveToActiveFile:false, theme:false, saveAsImage:false }, welcomeScreen:false, tools:{image:false} } : undefined,
+              viewModeEnabled: hideUI,
+              excalidrawAPI: (api) => {
+                setTimeout(() => {
+                  if (!isNaN(qZoom)) {
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const els = normalizedElements.filter(e => !e.isDeleted && typeof e.x === "number");
+                    const xs = els.map(e => e.x), ys = els.map(e => e.y);
+                    const xe = els.map(e => e.x + (e.width||0)), ye = els.map(e => e.y + (e.height||0));
+                    const bx = (Math.min(...xs) + Math.max(...xe)) / 2;
+                    const by = (Math.min(...ys) + Math.max(...ye)) / 2;
+                    const cx = isNaN(qCx) ? bx : qCx;
+                    const cy = isNaN(qCy) ? by : qCy;
+                    api.updateScene({ appState: {
+                      zoom: { value: qZoom },
+                      scrollX: W / (2 * qZoom) - cx,
+                      scrollY: H / (2 * qZoom) - cy,
+                    }});
+                  } else {
+                    // Manual bounding-box fit. scrollToContent({fitToViewport})
+                    // produces NaN zoom on some hand-written scenes (blank canvas
+                    // with "NaN%" zoom indicator); compute zoom + scroll ourselves
+                    // from explicit x/y/width/height, which never NaNs.
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const els = normalizedElements.filter(e => !e.isDeleted && typeof e.x === "number");
+                    if (els.length === 0) return;
+                    const xs = els.map(e => e.x), ys = els.map(e => e.y);
+                    const xe = els.map(e => e.x + (e.width||0)), ye = els.map(e => e.y + (e.height||0));
+                    const minX = Math.min(...xs), minY = Math.min(...ys);
+                    const maxX = Math.max(...xe), maxY = Math.max(...ye);
+                    const contentW = Math.max(1, maxX - minX);
+                    const contentH = Math.max(1, maxY - minY);
+                    const fit = isNaN(qFit) ? 0.9 : qFit;
+                    const zoom = Math.min(W / contentW, H / contentH) * fit;
+                    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+                    api.updateScene({ appState: {
+                      zoom: { value: zoom },
+                      scrollX: W / (2 * zoom) - cx,
+                      scrollY: H / (2 * zoom) - cy,
+                    }});
+                  }
+                }, 50);
+              }
+            })
+          );
+        };
+        ReactDOM.createRoot(document.getElementById("root"))
+          .render(React.createElement(App));
+      }
+    })();
+  </script>
+</body>
+</html>

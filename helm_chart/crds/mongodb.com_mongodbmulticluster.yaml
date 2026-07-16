@@ -656,6 +656,15 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              role:
+                description: |-
+                  Role marks this resource as playing a special role for another MongoDB
+                  Kubernetes resource. Currently only AppDB is supported, marking this
+                  resource as the externally-managed Application Database for a
+                  MongoDBOpsManager resource.
+                enum:
+                - AppDB
+                type: string
               security:
                 properties:
                   authentication:

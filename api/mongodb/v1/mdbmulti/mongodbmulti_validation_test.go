@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 var (
@@ -125,6 +127,72 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 
 	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.NoError(t, err)
+}
+
+// appDBRoleReadyMultiReplicaSet builds a MongoDBMultiCluster with spec.role: AppDB and every
+// AppDB requirement satisfied (SCRAM enabled, ignoreUnknownUsers true, 3 members summed across
+// ClusterSpecList, version 4.0.0).
+func appDBRoleReadyMultiReplicaSet() *MongoDBMultiCluster {
+	mrs := DefaultMultiReplicaSetBuilder().
+		SetVersion("4.0.0").
+		SetClusterSpecList([]string{"cluster-1", "cluster-2"}).
+		Build()
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-1", Members: 2},
+		{ClusterName: "cluster-2", Members: 1},
+	}
+	mrs.Spec.Role = mdbv1.RoleAppDB
+	mrs.Spec.Security.Authentication.Enabled = true
+	mrs.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{mdbv1.AuthMode(util.SCRAM)}
+	mrs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	return mrs
+}
+
+func TestMongoDBMulti_AppDBRoleValidation(t *testing.T) {
+	tests := []struct {
+		name                 string
+		mutate               func(mrs *MongoDBMultiCluster)
+		expectedErrorMessage string
+	}{
+		{
+			name: "role not set - other invalid fields are ignored",
+			mutate: func(mrs *MongoDBMultiCluster) {
+				mrs.Spec.Role = ""
+				mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{{ClusterName: "cluster-1", Members: 1}}
+				mrs.Spec.Security.Authentication = nil
+			},
+		},
+		{
+			name: "role AppDB with fewer than 3 total members across ClusterSpecList",
+			mutate: func(mrs *MongoDBMultiCluster) {
+				mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
+					{ClusterName: "cluster-1", Members: 1},
+					{ClusterName: "cluster-2", Members: 1},
+				}
+			},
+			expectedErrorMessage: "spec.clusterSpecList members must sum to >= 3 when spec.role is AppDB",
+		},
+		{
+			name:   "role AppDB with 3 total members across ClusterSpecList - everything satisfied",
+			mutate: func(mrs *MongoDBMultiCluster) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs := appDBRoleReadyMultiReplicaSet()
+			tt.mutate(mrs)
+
+			err := mrs.ProcessValidationsOnReconcile(nil)
+
+			if tt.expectedErrorMessage != "" {
+				require.Error(t, err)
+				assert.EqualError(t, err, tt.expectedErrorMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func createTestKubeConfigAndSetEnv(t *testing.T) *os.File {

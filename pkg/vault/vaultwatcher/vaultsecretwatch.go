@@ -75,13 +75,15 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 			if triggeredReconciliation {
 				break
 			}
-			for _, secretName := range om.Spec.AppDB.GetSecretsMountedIntoPod() {
-				path := fmt.Sprintf("%s/%s/%s", vaultClient.AppDBSecretMetadataPath(), om.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
+			if om.Spec.ExternalApplicationDatabaseRef == nil {
+				for _, secretName := range om.Spec.AppDB.GetSecretsMountedIntoPod() {
+					path := fmt.Sprintf("%s/%s/%s", vaultClient.AppDBSecretMetadataPath(), om.Namespace, secretName)
+					latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
 
-				if latestResourceVersion > currentResourceVersion {
-					watchChannel <- event.GenericEvent{Object: &omList.Items[n]}
-					break
+					if latestResourceVersion > currentResourceVersion {
+						watchChannel <- event.GenericEvent{Object: &omList.Items[n]}
+						break
+					}
 				}
 			}
 		}

@@ -2120,6 +2120,15 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              role:
+                description: |-
+                  Role marks this resource as playing a special role for another MongoDB
+                  Kubernetes resource. Currently only AppDB is supported, marking this
+                  resource as the externally-managed Application Database for a
+                  MongoDBOpsManager resource.
+                enum:
+                - AppDB
+                type: string
               security:
                 properties:
                   authentication:
@@ -4133,6 +4142,15 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              role:
+                description: |-
+                  Role marks this resource as playing a special role for another MongoDB
+                  Kubernetes resource. Currently only AppDB is supported, marking this
+                  resource as the externally-managed Application Database for a
+                  MongoDBOpsManager resource.
+                enum:
+                - AppDB
+                type: string
               security:
                 properties:
                   authentication:
@@ -6548,6 +6566,9 @@ spec:
                   has the fields: "Username", "Password", "FirstName", "LastName"
                 type: string
               applicationDatabase:
+                description: |-
+                  AppDB configures the internally-managed Application Database. Required unless
+                  ExternalApplicationDatabaseRef is set, in which case it may be omitted entirely.
                 properties:
                   additionalMongodConfig:
                     description: |-
@@ -8094,6 +8115,27 @@ spec:
                 description: The configuration properties passed to Ops Manager/Backup
                   Daemon
                 type: object
+              externalApplicationDatabaseRef:
+                description: |-
+                  ExternalApplicationDatabaseRef references a MongoDB or MongoDBMultiCluster resource
+                  to use as this Ops Manager's AppDB, instead of the internally-managed one.
+                properties:
+                  kind:
+                    description: Kind of the referenced resource.
+                    enum:
+                    - MongoDB
+                    - MongoDBMultiCluster
+                    type: string
+                  name:
+                    description: |-
+                      Name of the MongoDB or MongoDBMultiCluster resource to use as the external AppDB.
+                      Must be in the same namespace as the MongoDBOpsManager resource, and named
+                      <MongoDBOpsManager name>-db.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
               externalConnectivity:
                 description: |-
                   MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
@@ -8258,7 +8300,6 @@ spec:
               version:
                 type: string
             required:
-            - applicationDatabase
             - version
             type: object
           status:

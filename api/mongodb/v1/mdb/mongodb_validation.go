@@ -20,6 +20,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
+// RoleAppDB is the only supported value for spec.role, marking a MongoDB/MongoDBMultiCluster
+// resource as the externally-managed Application Database for a MongoDBOpsManager resource.
+const RoleAppDB = "AppDB"
+
 type MongoDBValidator struct{}
 
 var _ admission.CustomValidator = &MongoDBValidator{}
@@ -423,6 +427,40 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// appDBRoleRequiresScram checks that resources with spec.role: AppDB satisfy the same
+// authentication requirements the internal Application Database hardcodes unconditionally:
+// SCRAM authentication enabled and ignoreUnknownUsers set to true.
+// The minimum member count requirement is validated separately per resource kind (MongoDB,
+// MongoDBMultiCluster), since member count is not part of DbCommonSpec.
+func appDBRoleRequiresScram(d DbCommonSpec) v1.ValidationResult {
+	if d.Role != RoleAppDB {
+		return v1.ValidationSuccess()
+	}
+
+	authSpec := d.Security.Authentication
+	if authSpec == nil || !authSpec.Enabled || !IsAuthPresent(authSpec.Modes, util.SCRAM) {
+		return v1.ValidationError("spec.security.authentication must have SCRAM enabled when spec.role is AppDB")
+	}
+
+	if !authSpec.IgnoreUnknownUsers {
+		return v1.ValidationError("spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB")
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// appDBRoleRequiresMinimumMembers checks that resources with spec.role: AppDB have at least 3
+// members, matching the requirement the internal Application Database hardcodes unconditionally.
+func appDBRoleRequiresMinimumMembers(ms MongoDbSpec) v1.ValidationResult {
+	if ms.Role != RoleAppDB {
+		return v1.ValidationSuccess()
+	}
+	if ms.Members < 3 {
+		return v1.ValidationError("spec.members must be >= 3 when spec.role is AppDB")
+	}
+	return v1.ValidationSuccess()
+}
+
 func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResult {
 	validators := []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -436,6 +474,7 @@ func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResul
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
 		featureCompatibilityVersionValidation,
+		appDBRoleRequiresScram,
 	}
 
 	validators = append(validators, oidcAuthValidators(db)...)
@@ -476,6 +515,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
+		appDBRoleRequiresMinimumMembers,
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{

@@ -728,3 +728,85 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		})
 	}
 }
+
+// appDBRoleReadyReplicaSet builds a ReplicaSet with spec.role: AppDB and every AppDB
+// requirement satisfied (SCRAM enabled, ignoreUnknownUsers true, 3 members, version 4.0.0).
+func appDBRoleReadyReplicaSet() *MongoDB {
+	rs := NewReplicaSetBuilder().
+		SetVersion("4.0.0").
+		SetMembers(3).
+		EnableAuth([]AuthMode{AuthMode(util.SCRAM)}).
+		EnableAgentAuth(util.SCRAM).
+		Build()
+	rs.Spec.Role = RoleAppDB
+	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+		ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+	}
+	return rs
+}
+
+func TestMongoDB_AppDBRoleValidation(t *testing.T) {
+	tests := []struct {
+		name                 string
+		mutate               func(rs *MongoDB)
+		expectedErrorMessage string
+	}{
+		{
+			name: "role not set - other invalid fields are ignored",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.Role = ""
+				rs.Spec.Members = 1
+				rs.Spec.Security.Authentication = nil
+			},
+		},
+		{
+			name: "role AppDB missing SCRAM",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.Security.Authentication.Modes = []AuthMode{AuthMode(util.MONGODBCR)}
+				rs.Spec.Security.Authentication.Agents.Mode = util.MONGODBCR
+			},
+			expectedErrorMessage: "spec.security.authentication must have SCRAM enabled when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB missing ignoreUnknownUsers",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.Security.Authentication.IgnoreUnknownUsers = false
+			},
+			expectedErrorMessage: "spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB with fewer than 3 members",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.Members = 2
+			},
+			expectedErrorMessage: "spec.members must be >= 3 when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB with version below 4.0.0 is no longer restricted",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.Version = "3.6.0"
+			},
+		},
+		{
+			name:   "role AppDB with everything satisfied",
+			mutate: func(rs *MongoDB) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := appDBRoleReadyReplicaSet()
+			tt.mutate(rs)
+
+			err := rs.ProcessValidationsOnReconcile(nil)
+
+			if tt.expectedErrorMessage != "" {
+				require.Error(t, err)
+				assert.EqualError(t, err, tt.expectedErrorMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

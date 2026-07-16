@@ -251,7 +251,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 
 	opsManager := builder.Build()
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
-	appDB := opsManager.Spec.AppDB
+	appDB := *opsManager.Spec.AppDB
 
 	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 
@@ -351,7 +351,7 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 
 	opsManager := builder.Build()
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
-	appDB := opsManager.Spec.AppDB
+	appDB := *opsManager.Spec.AppDB
 
 	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 

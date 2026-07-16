@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -34,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -52,10 +54,12 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	util_int "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -172,6 +176,147 @@ func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
 	return nil
 }
 
+// ensureAppDBRoleUser mirrors the internal AppDB reconciler's ensureAppDbPassword
+// (appdbreplicaset_controller.go:1595) + AppDBSpec.GetAuthUsers (appdb_types.go:200-236),
+// relocated here for role: AppDB CRs so both internal and external AppDB share the
+// exact same password secret and user shape.
+//
+// The password secret name is computed directly from this CR's own name (mdb.Name is
+// already required to equal <om-name>-db by the naming convention, the exact same
+// value AppDBSpec.Name() produces for internal AppDB) — no suffix-stripping or
+// OM-name derivation is performed.
+func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+
+	secretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
+	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
+
+	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to check for existing password secret: %w", err)
+	}
+
+	password := existingData[util.OpsManagerPasswordKey]
+	if password == "" {
+		password, err = generate.RandomFixedLengthStringOfSize(20)
+		if err != nil {
+			return xerrors.Errorf("failed to generate password: %w", err)
+		}
+
+		newSecret := secret.Builder().
+			SetName(secretName).
+			SetNamespace(mdb.Namespace).
+			SetField(util.OpsManagerPasswordKey, password).
+			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
+			Build()
+
+		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
+			return xerrors.Errorf("failed to create password secret: %w", err)
+		}
+	}
+
+	// Inject the synthetic mongodb-ops-manager user directly into OM's automation
+	// config via the same read-modify-write mechanism MongoDBUserReconciler already
+	// uses (handleScramShaUser, mongodbuser_controller.go:369) — the generic MongoDB
+	// controller has no local automation-config builder to merge a user into; it
+	// pushes auth to OM via the OM connection. ac.Auth.EnsureUser
+	// (controllers/om/automation_config.go:342) is idempotent, safe to call every
+	// reconcile.
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		omUser := om.MongoDBUser{
+			Username:                   util.OpsManagerMongoDBUserName,
+			Database:                   util.DefaultUserDatabase,
+			Roles:                      []*om.Role{},
+			AuthenticationRestrictions: []string{},
+			Mechanisms:                 []string{},
+		}
+		for _, role := range []string{"readWriteAnyDatabase", "dbAdminAnyDatabase", "clusterMonitor", "backup", "restore", "hostManager"} {
+			omUser.AddRole(&om.Role{Role: role, Database: "admin"})
+		}
+		if err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
+			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
+		}
+		ac.Auth.EnsureUser(omUser)
+		return nil
+	}, r.log)
+}
+
+// checkAdoptionGate implements the two-signal takeover gate described in Procedure 2 of the
+// AppDB-CR-reference design: adoption of a foreign StatefulSet (one that doesn't already carry
+// this CR's own OwnerReference) is blocked unless the OM controller's appDBMigrationReadyAnnotation
+// is present AND the foreign OwnerReference is gone. Either signal alone is not sufficient — this
+// guards against ever adopting a StatefulSet the OM controller hasn't actually finished detaching.
+// Returns (blocked, error); re-evaluated fresh every reconcile, no state is persisted.
+func (r *ReplicaSetReconcilerHelper) checkAdoptionGate(ctx context.Context, mdb *mdbv1.MongoDB) (bool, error) {
+	sts := appsv1.StatefulSet{}
+	err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts)
+	if errors.IsNotFound(err) {
+		return false, nil // Fresh Start: no existing StatefulSet, no adoption gate applies
+	}
+	if err != nil {
+		return false, xerrors.Errorf("failed to check existing StatefulSet: %w", err)
+	}
+
+	for _, ref := range sts.OwnerReferences {
+		if mdb.UID != "" && ref.UID == mdb.UID {
+			return false, nil // already owned by this CR, not a foreign StatefulSet
+		}
+	}
+
+	annotationReady := sts.Annotations[appDBMigrationReadyAnnotation] == trueString
+	foreignOwnerRefGone := len(sts.OwnerReferences) == 0
+
+	return !annotationReady || !foreignOwnerRefGone, nil
+}
+
+// appDBDetachFinalizer gates deletion of any MongoDB CR with spec.role: AppDB so that its
+// StatefulSet's OwnerReference can be safely stripped before the CR (and its OwnerReference
+// with it) actually disappears. See Procedure 3 (reverse migration) in the AppDB-CR-reference
+// design for why this can't be done by simply unsetting spec.role and leaving the CR in place.
+const appDBDetachFinalizer = "mongodb.com/appdb-detach"
+
+// ensureAppDBFinalizer registers appDBDetachFinalizer on AppDB-role MongoDB CRs only; ordinary
+// replica sets never get it, since they have no reverse-migration cleanup to gate.
+func (r *ReplicaSetReconcilerHelper) ensureAppDBFinalizer(ctx context.Context, mdb *mdbv1.MongoDB) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+	if controllerutil.ContainsFinalizer(mdb, appDBDetachFinalizer) {
+		return nil
+	}
+	controllerutil.AddFinalizer(mdb, appDBDetachFinalizer)
+	return r.reconciler.client.Update(ctx, mdb)
+}
+
+// cleanupAppDBFinalizer mirrors the OM controller's detach sequence in reverse (Procedure 3,
+// steps 3a-3c): strip this CR's own OwnerReference from the StatefulSet, annotate it ready for
+// the OM controller to re-adopt, then remove the finalizer so deletion of the CR can complete.
+// The finalizer is only removed once the strip+annotate step has succeeded, so a crash between
+// them simply causes this whole sequence to re-run, in full, on the next reconcile.
+func (r *ReplicaSetReconcilerHelper) cleanupAppDBFinalizer(ctx context.Context, mdb *mdbv1.MongoDB) error {
+	sts := appsv1.StatefulSet{}
+	err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts)
+	if err != nil && !errors.IsNotFound(err) {
+		return xerrors.Errorf("failed to fetch StatefulSet during finalizer cleanup: %w", err)
+	}
+
+	if err == nil {
+		sts.OwnerReferences = nil
+		if sts.Annotations == nil {
+			sts.Annotations = map[string]string{}
+		}
+		sts.Annotations[appDBMigrationReadyAnnotation] = trueString
+		if err := r.reconciler.client.Update(ctx, &sts); err != nil {
+			return xerrors.Errorf("failed to strip OwnerReference and annotate during finalizer cleanup: %w", err)
+		}
+	}
+
+	controllerutil.RemoveFinalizer(mdb, appDBDetachFinalizer)
+	return r.reconciler.client.Update(ctx, mdb)
+}
+
 // updateStatus is a pass-through method that calls the reconciler updateStatus.
 // In the future (multi-cluster epic), this will be enhanced to write deployment state to ConfigMap after every status
 // update (similar to sharded cluster pattern), but for now it just delegates to maintain the same architecture.
@@ -196,6 +341,17 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
 
+	// Procedure 3 (reverse migration): finalizer cleanup runs before anything else in Reconcile,
+	// ahead of establishing the OM connection and the other AppDB-specific calls below (ensureAppDBRoleUser,
+	// checkAdoptionGate) — those are only meaningful for a CR that continues to exist, and cleanup
+	// itself needs no OM connectivity, only k8s client access to this CR's own StatefulSet.
+	if !rs.DeletionTimestamp.IsZero() && rs.Spec.Role == mdbv1.RoleAppDB && controllerutil.ContainsFinalizer(rs, appDBDetachFinalizer) {
+		if err := r.cleanupAppDBFinalizer(ctx, rs); err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
+		return reconcile.Result{}, nil
+	}
+
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
@@ -212,6 +368,24 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, status)
+	}
+
+	if err := r.ensureAppDBRoleUser(ctx, rs, conn); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
+
+	if err := r.ensureAppDBFinalizer(ctx, rs); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
+
+	if rs.Spec.Role == mdbv1.RoleAppDB {
+		blocked, err := r.checkAdoptionGate(ctx, rs)
+		if err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
+		if blocked {
+			return r.updateStatus(ctx, workflow.Pending("waiting for Ops Manager to finish detaching AppDB StatefulSet %s", rs.Name))
+		}
 	}
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)

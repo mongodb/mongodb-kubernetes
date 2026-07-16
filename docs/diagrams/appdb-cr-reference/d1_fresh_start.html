@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>d1_fresh_start</title>
+  <!--
+    MongoDB brand fonts. Lexend Deca (body) and Source Code Pro (mono)
+    are pulled from the @fontsource jsDelivr mirror (versioned, stable
+    URL — same pinning rationale as the Excalidraw bundle below) and
+    registered under Excalidraw's hardcoded canvas font names
+    "Helvetica" (fontFamily 2) and "Cascadia" (fontFamily 3) so the
+    canvas measureText/fillText calls resolve to the brand fonts.
+
+    We register the fonts *programmatically* via FontFace.load() in the
+    bootstrap script below (rather than via @font-face CSS) so the load
+    is fully synchronised with the canvas-measurement code path:
+    Excalidraw's convertToExcalidrawElements runs measureText
+    immediately on call, so it must observe the loaded font NOW, not
+    "eventually". CSS @font-face + document.fonts.load() works in a
+    real browser tab but headless Chrome with --dump-dom captures the
+    DOM before async font fetches resolve, leaving canvas with system
+    fallback metrics. FontFace + document.fonts.add() with awaited
+    .load() is deterministic.
+
+    If jsDelivr is offline the fetch throws, the catch block falls
+    through, and Excalidraw renders with system Helvetica/Cascadia
+    (i.e. pre-fix behaviour) instead of hanging.
+  -->
+  <style>
+    html,body,#root{margin:0;padding:0;height:100%;width:100%;overflow:hidden;font-family:"Helvetica",system-ui}
+    #canonical{display:none}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <pre id="canonical"></pre>
+  <!--
+    Scene JSON is embedded in a non-executing <script type="application/json">
+    block instead of inline `const scene = …;`. Two reasons:
+      1. Defends against `</script>` injection: when JSON contains literal
+         `</script>` (possible inside text labels), inline-JS embedding
+         breaks out of the script block. JSON-script-tag embedding does not
+         execute the contents, and JSON.stringify of `<` is `<` not escaped,
+         but the parser only stops at the literal closing tag of the JSON
+         block. We still escape `</` defensively in the Python writer.
+      2. Stable extraction: diff_scene reads this exact tag by id, so the
+         baseline parser is decoupled from the rendering script.
+  -->
+  <script id="diagram-scene" type="application/json">{"type": "excalidraw", "version": 2, "source": "mck-dev diagram skill", "elements": [{"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "pad1", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": -70, "y": -90, "strokeColor": "transparent", "backgroundColor": "transparent", "width": 1, "height": 1, "seed": 686077325, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484625, "link": null, "locked": false}, {"type": "text", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "t2", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 60, "y": -10, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 300.91180419921875, "height": 27.599999999999998, "seed": 1293219267, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484628, "link": null, "locked": false, "fontSize": 24, "fontFamily": 2, "text": "Procedure 1 \u2014 Fresh Start", "textAlign": "left", "verticalAlign": "top", "containerId": null, "originalText": "Procedure 1 \u2014 Fresh Start", "lineHeight": 1.15, "baseline": 22}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r3", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 80, "y": 60, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 420, "height": 80, "seed": 1932557293, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "vZ3oCGJZdZmNDNNFFTf6K"}], "updated": 1783587484628, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r4", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 80, "y": 170, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 420, "height": 90, "seed": 1930904931, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "mdIZ-MFBpUerDgq2B18dU"}], "updated": 1783587484628, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r5", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 80, "y": 280, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 420, "height": 90, "seed": 1626633805, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "W3f_lsEHzFaumYd6MJE7o"}], "updated": 1783587484628, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r6", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 80, "y": 390, "strokeColor": "#00684A", "backgroundColor": "#E3FCF7", "width": 420, "height": 90, "seed": 795779331, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "IHsjv1WGThXkDCADlU5we"}], "updated": 1783587484628, "link": null, "locked": false}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r7", "fillStyle": "solid", "strokeWidth": 1.5, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 80, "y": 500, "strokeColor": "#00684A", "backgroundColor": "#00ED64", "width": 420, "height": 90, "seed": 1024074925, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "Wfuasmgqs_gL560R82CV4"}], "updated": 1783587484628, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a8", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 290, "y": 140.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 30, "seed": 194611363, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484628, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 29]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a9", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 290, "y": 260.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 20, "seed": 991627021, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484628, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 19]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a10", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 290, "y": 370.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 20, "seed": 1564900419, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484628, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 19]]}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a11", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 290, "y": 480.5, "strokeColor": "#001E2B", "backgroundColor": "transparent", "width": 0, "height": 20, "seed": 1570807149, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484628, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [0, 19]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "r12", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 600, "y": 390, "strokeColor": "#00684A", "backgroundColor": "#F9EBFF", "width": 420, "height": 200, "seed": 1079245795, "groupIds": [], "frameId": null, "roundness": {"type": 3}, "boundElements": [{"type": "text", "id": "nw-Wpna5VsVbUgLxppC6M"}], "updated": 1783587484628, "link": null, "locked": false}, {"type": "arrow", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "a13", "fillStyle": "solid", "strokeWidth": 1, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 500.5, "y": 544.5, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 100, "height": 55, "seed": 467953613, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [{"type": "text", "id": "4BHzK4HsBpCSxCbLJ-rDB"}], "updated": 1783587484628, "link": null, "locked": false, "startBinding": null, "endBinding": null, "lastCommittedPoint": null, "startArrowhead": null, "endArrowhead": "triangle", "points": [[0, 0], [99, -54]]}, {"type": "rectangle", "version": 1, "versionNonce": 0, "isDeleted": false, "id": "pad14", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 0, "opacity": 100, "angle": 0, "x": 1060, "y": 610, "strokeColor": "transparent", "backgroundColor": "transparent", "width": 1, "height": 1, "seed": 1355843459, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484628, "link": null, "locked": false}, {"type": "text", "version": 2, "versionNonce": 620404515, "isDeleted": false, "id": "vZ3oCGJZdZmNDNNFFTf6K", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 126.5521240234375, "y": 81.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 326.895751953125, "height": 36.8, "seed": 1207952941, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484629, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "User creates MongoDB/MongoDBMulti CR\nspec.role: AppDB", "textAlign": "center", "verticalAlign": "middle", "containerId": "r3", "originalText": "User creates MongoDB/MongoDBMulti CR\nspec.role: AppDB", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 121684675, "isDeleted": false, "id": "mdIZ-MFBpUerDgq2B18dU", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 163.09609985351562, "y": 187.4, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 253.80780029296875, "height": 55.199999999999996, "seed": 886872205, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484630, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Webhook validation:\nSCRAM + ignoreUnknownUsers +\nmembers >= 3 + version >= 4.0.0", "textAlign": "center", "verticalAlign": "middle", "containerId": "r4", "originalText": "Webhook validation:\nSCRAM + ignoreUnknownUsers +\nmembers >= 3 + version >= 4.0.0", "lineHeight": 1.15, "baseline": 52}, {"type": "text", "version": 2, "versionNonce": 1883337315, "isDeleted": false, "id": "W3f_lsEHzFaumYd6MJE7o", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 130.9681396484375, "y": 306.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 318.063720703125, "height": 36.8, "seed": 473169645, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484630, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "StatefulSet ownership check:\nno StatefulSet exists -> no adoption gate", "textAlign": "center", "verticalAlign": "middle", "containerId": "r5", "originalText": "StatefulSet ownership check:\nno StatefulSet exists -> no adoption gate", "lineHeight": 1.15, "baseline": 33}, {"type": "text", "version": 2, "versionNonce": 1087057411, "isDeleted": false, "id": "IHsjv1WGThXkDCADlU5we", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 148.296142578125, "y": 407.4, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 283.40771484375, "height": 55.199999999999996, "seed": 1150261581, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484630, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Ensure mongodb-ops-manager user:\ngenerate password, create secret,\ninject user into automation config", "textAlign": "center", "verticalAlign": "middle", "containerId": "r6", "originalText": "Ensure mongodb-ops-manager user:\ngenerate password, create secret,\ninject user into automation config", "lineHeight": 1.15, "baseline": 52}, {"type": "text", "version": 2, "versionNonce": 1004303779, "isDeleted": false, "id": "Wfuasmgqs_gL560R82CV4", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 125.82415771484375, "y": 517.4, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 328.3516845703125, "height": 55.199999999999996, "seed": 1732831149, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484630, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "Create StatefulSet (own OwnerReference).\nNo connection-string secret of its own\nis ever created by this CR.", "textAlign": "center", "verticalAlign": "middle", "containerId": "r7", "originalText": "Create StatefulSet (own OwnerReference).\nNo connection-string secret of its own\nis ever created by this CR.", "lineHeight": 1.15, "baseline": 52}, {"type": "text", "version": 2, "versionNonce": 1084475715, "isDeleted": false, "id": "nw-Wpna5VsVbUgLxppC6M", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 620.3921813964844, "y": 425.6, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 379.21563720703125, "height": 128.79999999999998, "seed": 1451846157, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484631, "link": null, "locked": false, "fontSize": 16, "fontFamily": 2, "text": "OM controller (order-independent):\nset externalApplicationDatabaseRef\n-> validate name == <om-name>-db\n-> validate role: AppDB + version >= 4.0.0\n-> fetch target CR, call BuildConnectionString()\n-> write result into Primary OM's own fixed secret\n-> establish watch on the CR itself", "textAlign": "center", "verticalAlign": "middle", "containerId": "r12", "originalText": "OM controller (order-independent):\nset externalApplicationDatabaseRef\n-> validate name == <om-name>-db\n-> validate role: AppDB + version >= 4.0.0\n-> fetch target CR, call BuildConnectionString()\n-> write result into Primary OM's own fixed secret\n-> establish watch on the CR itself", "lineHeight": 1.15, "baseline": 125}, {"type": "text", "version": 2, "versionNonce": 1149216995, "isDeleted": false, "id": "4BHzK4HsBpCSxCbLJ-rDB", "fillStyle": "solid", "strokeWidth": 2, "strokeStyle": "solid", "roughness": 1, "opacity": 100, "angle": 0, "x": 525.2690277099609, "y": 509.45, "strokeColor": "#00684A", "backgroundColor": "transparent", "width": 49.461944580078125, "height": 16.099999999999998, "seed": 1665835117, "groupIds": [], "frameId": null, "roundness": null, "boundElements": [], "updated": 1783587484632, "link": null, "locked": false, "fontSize": 14, "fontFamily": 2, "text": "fetches", "textAlign": "center", "verticalAlign": "middle", "containerId": "a13", "originalText": "fetches", "lineHeight": 1.15, "baseline": 13}], "appState": {"viewBackgroundColor": "#ffffff", "gridSize": null}, "files": {}}</script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+          integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+          integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
+          crossorigin="anonymous"></script>
+  <script>window.EXCALIDRAW_ASSET_PATH="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+  <script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"
+          integrity="sha384-2RnaDBiRrWXqT5k4HtP4X4gh/ukRFg9zn1Sjt+JeYQOUWSYYnN1tKE4FL9QA3Wdl"
+          crossorigin="anonymous"></script>
+  <script>
+    // Resolve `fixedPoint` arrow bindings to concrete x/y/width/height/points
+    // geometry. Excalidraw treats bindings as advisory — they update arrow
+    // endpoints when a bound shape MOVES, but on a fresh mount the arrow is
+    // drawn from its literal x/y + points. If the author supplied
+    // `x: 0, y: 0, points: [[0,0],[40,0]]` and trusted the bindings to
+    // position the arrow, the result is a 40-px line at canvas (0,0) — i.e.
+    // off-screen and invisible. This shim runs before mount/canonicalize and
+    // rewrites such arrows to the real geometry inferred from the bound
+    // shapes. Polyline arrows (3+ points) are left alone: a bend pattern is
+    // intentional geometry that we shouldn't flatten.
+    function resolveFixedPointArrows(els) {
+      const byId = Object.create(null);
+      for (const e of els) byId[e.id] = e;
+      return els.map(e => {
+        if (e.type !== "arrow") return e;
+        const sb = e.startBinding, eb = e.endBinding;
+        const sFP = sb && Array.isArray(sb.fixedPoint) ? sb.fixedPoint : null;
+        const eFP = eb && Array.isArray(eb.fixedPoint) ? eb.fixedPoint : null;
+        if (!sFP || !eFP) return e;
+        const src = byId[sb.elementId], dst = byId[eb.elementId];
+        if (!src || !dst) return e;
+        if (typeof src.x !== "number" || typeof dst.x !== "number") return e;
+        // Skip polylines — they have intentional geometry.
+        if (Array.isArray(e.points) && e.points.length > 2) return e;
+        const sx = src.x + (src.width || 0) * sFP[0];
+        const sy = src.y + (src.height || 0) * sFP[1];
+        const ex = dst.x + (dst.width || 0) * eFP[0];
+        const ey = dst.y + (dst.height || 0) * eFP[1];
+        return Object.assign({}, e, {
+          x: sx, y: sy,
+          width: ex - sx, height: ey - sy,
+          points: [[0, 0], [ex - sx, ey - sy]],
+        });
+      });
+    }
+
+    // Brand fonts to register under Excalidraw's hardcoded family names.
+    // Each entry is [family-name-Excalidraw-asks-for, weight, woff2 URL].
+    // Three Lexend Deca weights cover the body-text range Excalidraw
+    // emits at fontSize 14-28; one Source Code Pro Medium covers
+    // monospace. Add more here if the diagrams ever need extra weights.
+    // Excalidraw's getFontString() produces e.g. "16px Cascadia" with no
+    // weight token, which the CSS font shorthand parses as
+    // font-weight:normal (400). The FontFaceSet then looks for a 400
+    // face under that family name; if there isn't one, it can fall back
+    // to a system match instead of stretching our 500. Register all four
+    // weights at the same URL (the woff2 itself is one weight; CSS just
+    // points multiple FontFace entries at the same source) so any
+    // Excalidraw weight request matches.
+    const LEXEND = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-400-normal.woff2";
+    const LEXEND_300 = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-300-normal.woff2";
+    const LEXEND_500 = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-500-normal.woff2";
+    const SCP = "https://cdn.jsdelivr.net/npm/@fontsource/source-code-pro@5.1.0/files/source-code-pro-latin-500-normal.woff2";
+    const BRAND_FONTS = [
+      ["Helvetica", "300", LEXEND_300],
+      ["Helvetica", "400", LEXEND],
+      ["Helvetica", "500", LEXEND_500],
+      // Source Code Pro Medium covers all canvas-asks-for-Cascadia
+      // weights — Excalidraw never goes mono+bold, but registering 400
+      // and 500 against the same woff2 is a belt-and-braces guard
+      // against the FontFaceSet resolving 400 to a system fallback.
+      ["Cascadia",  "400", SCP],
+      ["Cascadia",  "500", SCP],
+    ];
+
+    async function loadBrandFonts() {
+      // Per-font fetch+load+add, all in parallel. We collect the loaded
+      // FontFace instances so the caller could inspect them; don't fail
+      // the whole batch if one URL is unreachable — render with whatever
+      // we got and let the rest fall back to system fonts.
+      const tasks = BRAND_FONTS.map(async ([family, weight, url]) => {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) return null;
+          const buf = await resp.arrayBuffer();
+          const ff = new FontFace(family, buf, { weight });
+          await ff.load();
+          document.fonts.add(ff);
+          return ff;
+        } catch (_) {
+          return null;
+        }
+      });
+      // Hard cap: don't let the brand-font fetch block the render forever
+      // if the CDN is down. 6s is well above a warm-cache load (<300ms
+      // total) and still under Chrome's 30s virtual-time-budget for
+      // canonicalize. After the timeout we proceed with whatever fonts
+      // managed to register; missing fonts fall through to system
+      // Helvetica/Cascadia (i.e. pre-fix behaviour, not a hard fail).
+      await Promise.race([
+        Promise.all(tasks),
+        new Promise(r => setTimeout(r, 6000)),
+      ]);
+    }
+
+    (async () => {
+      // Brand fonts must be loaded BEFORE convertToExcalidrawElements is
+      // called below, because that function runs Canvas2D measureText
+      // synchronously to compute text bounding boxes. If the font isn't
+      // registered with the FontFaceSet at measure time, measureText
+      // falls back to system Helvetica/Cascadia (typically much narrower
+      // than Lexend Deca / Source Code Pro), the bounding box is too
+      // small, and text clips on the user's first save when the real
+      // font finally loads and re-flows.
+      await loadBrandFonts();
+
+      const scene = JSON.parse(document.getElementById("diagram-scene").textContent);
+      // Normalize compact/shorthand elements (labeled shapes, etc.) into
+      // Excalidraw's canonical form via the library's own helper. This splits
+      // `{label}` rectangles into shape + bound text, measures text geometry
+      // with Canvas 2D (pixel-accurate), and fills in bookkeeping fields.
+      // Scenes that are already normalized pass through unchanged.
+      const pseudoTypes = new Set(["cameraUpdate", "restoreCheckpoint", "delete"]);
+      const rawReal = (scene.elements || []).filter(e => !pseudoTypes.has(e.type));
+      // `convertToExcalidrawElements` expects skeleton input (shapes with a
+      // `label: {...}` shorthand). Running it over already-canonical elements
+      // (shape + separate text with `containerId`) clobbers the container
+      // binding, so labels end up left-aligned against the box edge. Detect
+      // skeleton form by presence of the `label` shorthand key.
+      // Resolve placeholder arrow geometry from fixedPoint bindings BEFORE
+      // convertToExcalidrawElements runs — the converter consumes
+      // `fixedPoint` and rewrites bindings into the internal `focus`/`gap`
+      // form, after which the shim has nothing to read. Runs in both
+      // canonicalize and render branches: if the arrow is bound but its
+      // x/y/points haven't been set, this is the only place it gets correct
+      // geometry before paint.
+      const skeletonResolved = resolveFixedPointArrows(rawReal);
+
+      const isSkeleton = skeletonResolved.some(e => e && typeof e.label === "object" && e.label !== null);
+      let normalizedElements = (isSkeleton && ExcalidrawLib.convertToExcalidrawElements)
+        ? ExcalidrawLib.convertToExcalidrawElements(skeletonResolved, { regenerateIds: false })
+        : skeletonResolved;
+
+      const params = new URLSearchParams(location.search);
+      // Canonicalize mode: run the scene through convertToExcalidrawElements
+      // + restoreElements (which fills in all default bookkeeping fields, the
+      // way Excalidraw's "Save to..." does), stuff the result into #canonical
+      // as JSON text, and skip the React mount entirely. The parent Python
+      // process reads it back via --dump-dom.
+      if (params.get("canonicalize") === "1") {
+        const restored = ExcalidrawLib.restoreElements
+          ? ExcalidrawLib.restoreElements(normalizedElements, null)
+          : normalizedElements;
+        const canonical = {
+          type: "excalidraw",
+          version: 2,
+          source: "mck-dev diagram skill",
+          elements: restored,
+          appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+          files: {},
+        };
+        document.getElementById("canonical").textContent = JSON.stringify(canonical);
+      } else {
+        // Query params for viewport control:
+        //   ?zoom=1.5           absolute zoom factor (1 = 100%)
+        //   ?fit=0.9            fit-to-viewport with this zoom multiplier (default 0.9)
+        //   ?cx=400&cy=300      scene-space coords to center on viewport (requires zoom)
+        //   ?ui=0               hide the Excalidraw editor UI for clean screenshots
+        const qZoom = parseFloat(params.get("zoom"));
+        const qFit  = parseFloat(params.get("fit"));
+        const qCx   = parseFloat(params.get("cx"));
+        const qCy   = parseFloat(params.get("cy"));
+        const hideUI = params.get("ui") === "0";
+        const App = () => {
+          return React.createElement("div", {style: {height: "100vh"}},
+            React.createElement(ExcalidrawLib.Excalidraw, {
+              initialData: {
+                elements: normalizedElements,
+                appState: {viewBackgroundColor: "#ffffff"},
+              },
+              UIOptions: hideUI ? { canvasActions: { changeViewBackgroundColor:false, clearCanvas:false, export:false, loadScene:false, saveToActiveFile:false, theme:false, saveAsImage:false }, welcomeScreen:false, tools:{image:false} } : undefined,
+              viewModeEnabled: hideUI,
+              excalidrawAPI: (api) => {
+                setTimeout(() => {
+                  if (!isNaN(qZoom)) {
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const els = normalizedElements.filter(e => !e.isDeleted && typeof e.x === "number");
+                    const xs = els.map(e => e.x), ys = els.map(e => e.y);
+                    const xe = els.map(e => e.x + (e.width||0)), ye = els.map(e => e.y + (e.height||0));
+                    const bx = (Math.min(...xs) + Math.max(...xe)) / 2;
+                    const by = (Math.min(...ys) + Math.max(...ye)) / 2;
+                    const cx = isNaN(qCx) ? bx : qCx;
+                    const cy = isNaN(qCy) ? by : qCy;
+                    api.updateScene({ appState: {
+                      zoom: { value: qZoom },
+                      scrollX: W / (2 * qZoom) - cx,
+                      scrollY: H / (2 * qZoom) - cy,
+                    }});
+                  } else {
+                    // Manual bounding-box fit. scrollToContent({fitToViewport})
+                    // produces NaN zoom on some hand-written scenes (blank canvas
+                    // with "NaN%" zoom indicator); compute zoom + scroll ourselves
+                    // from explicit x/y/width/height, which never NaNs.
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const els = normalizedElements.filter(e => !e.isDeleted && typeof e.x === "number");
+                    if (els.length === 0) return;
+                    const xs = els.map(e => e.x), ys = els.map(e => e.y);
+                    const xe = els.map(e => e.x + (e.width||0)), ye = els.map(e => e.y + (e.height||0));
+                    const minX = Math.min(...xs), minY = Math.min(...ys);
+                    const maxX = Math.max(...xe), maxY = Math.max(...ye);
+                    const contentW = Math.max(1, maxX - minX);
+                    const contentH = Math.max(1, maxY - minY);
+                    const fit = isNaN(qFit) ? 0.9 : qFit;
+                    const zoom = Math.min(W / contentW, H / contentH) * fit;
+                    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+                    api.updateScene({ appState: {
+                      zoom: { value: zoom },
+                      scrollX: W / (2 * zoom) - cx,
+                      scrollY: H / (2 * zoom) - cy,
+                    }});
+                  }
+                }, 50);
+              }
+            })
+          );
+        };
+        ReactDOM.createRoot(document.getElementById("root"))
+          .render(React.createElement(App));
+      }
+    })();
+  </script>
+</body>
+</html>

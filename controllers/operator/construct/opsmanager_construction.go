@@ -280,9 +280,13 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
-		OwnerName:               opsManager.Name,
-		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
+		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
+		OwnerName:           opsManager.Name,
+		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
+		// TODO(CLOUDP-TBD): AppDBTlsCAConfigMapName is computed from the internal AppDB spec
+		// even in external-AppDB mode, so OM/BackupDaemon won't trust the external CR's actual
+		// CA. Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not
+		// fixed here.
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Namespace:               opsManager.Namespace,

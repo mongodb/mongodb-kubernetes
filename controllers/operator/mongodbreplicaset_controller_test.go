@@ -27,6 +27,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
@@ -45,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -1303,6 +1305,11 @@ func (b *ReplicaSetBuilder) SetAuthentication(auth *mdbv1.Authentication) *Repli
 	return b
 }
 
+func (b *ReplicaSetBuilder) SetRole(role string) *ReplicaSetBuilder {
+	b.Spec.Role = role
+	return b
+}
+
 func (b *ReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *ReplicaSetBuilder {
 	if b.Spec.Security == nil {
 		b.Spec.Security = &mdbv1.Security{}
@@ -1407,6 +1414,16 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	if len(annotationsOverride) > 0 {
 		b.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride
 	}
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetFinalizers(finalizers []string) *ReplicaSetBuilder {
+	b.Finalizers = finalizers
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetDeletionTimestamp(t metav1.Time) *ReplicaSetBuilder {
+	b.DeletionTimestamp = &t
 	return b
 }
 
@@ -1643,4 +1660,247 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(newPinnedSearch()).Build()
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
+}
+
+func TestEnsureAppDBRoleUser_CreatesSharedPasswordSecret(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	err := helper.ensureAppDBRoleUser(ctx, mdb, conn)
+	assert.NoError(t, err)
+
+	sec := corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName(mdb.Name)), &sec)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, sec.Data[util.OpsManagerPasswordKey])
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+	require.NotNil(t, createdUser)
+	assert.Equal(t, util.OpsManagerMongoDBUserName, createdUser.Username)
+	assertAppDBRoleUserRolesAndCreds(t, createdUser)
+}
+
+func TestEnsureAppDBRoleUser_ReusesExistingPassword(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	existing := secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName("my-om-db")).
+		SetNamespace(mdb.Namespace).
+		SetField(util.OpsManagerPasswordKey, "pre-existing-password").
+		Build()
+	require.NoError(t, kubeClient.CreateSecret(ctx, existing))
+
+	err := helper.ensureAppDBRoleUser(ctx, mdb, conn)
+	assert.NoError(t, err)
+
+	result := corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName("my-om-db")), &result))
+	assert.Equal(t, "pre-existing-password", string(result.Data[util.OpsManagerPasswordKey]))
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+	require.NotNil(t, createdUser)
+	assertAppDBRoleUserRolesAndCreds(t, createdUser)
+}
+
+// expectedAppDBRoleUserRoles mirrors the roles granted to the AppDB Ops Manager user in
+// AppDBSpec.GetAuthUsers (api/mongodb/v1/om/appdb_types.go).
+var expectedAppDBRoleUserRoles = []*om.Role{
+	{Role: "readWriteAnyDatabase", Database: "admin"},
+	{Role: "dbAdminAnyDatabase", Database: "admin"},
+	{Role: "clusterMonitor", Database: "admin"},
+	{Role: "backup", Database: "admin"},
+	{Role: "restore", Database: "admin"},
+	{Role: "hostManager", Database: "admin"},
+}
+
+// someOtherOwnerReference builds an OwnerReference belonging to a different object than the
+// one under test (e.g. the MongoDBOpsManager CR that used to own the internal AppDB StatefulSet),
+// used to simulate a "foreign" StatefulSet that has not yet been detached.
+func someOtherOwnerReference() []metav1.OwnerReference {
+	return []metav1.OwnerReference{
+		{
+			APIVersion: "mongodb.com/v1",
+			Kind:       "MongoDBOpsManager",
+			Name:       "some-other-owner",
+			UID:        types.UID(uuid.New().String()),
+			Controller: ptr.To(true),
+		},
+	}
+}
+
+// StatefulSetBuilder builds appsv1.StatefulSet fixtures for adoption-gate tests.
+type StatefulSetBuilder struct {
+	sts appsv1.StatefulSet
+}
+
+func DefaultStatefulSetBuilder() *StatefulSetBuilder {
+	return &StatefulSetBuilder{sts: appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: mock.TestNamespace},
+		// Spec.Replicas must be non-nil: the fake client's Get interceptor
+		// (mock.markStatefulSetsReady) unconditionally dereferences it.
+		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+	}}
+}
+
+func (b *StatefulSetBuilder) SetName(name string) *StatefulSetBuilder {
+	b.sts.Name = name
+	return b
+}
+
+func (b *StatefulSetBuilder) SetOwnerReferences(refs []metav1.OwnerReference) *StatefulSetBuilder {
+	b.sts.OwnerReferences = refs
+	return b
+}
+
+func (b *StatefulSetBuilder) SetAnnotations(annotations map[string]string) *StatefulSetBuilder {
+	b.sts.Annotations = annotations
+	return b
+}
+
+func (b *StatefulSetBuilder) Build() appsv1.StatefulSet {
+	return b.sts
+}
+
+func TestAdoptionGate_BlocksWithoutAnnotation(t *testing.T) {
+	ctx := context.Background()
+	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+		SetOwnerReferences(someOtherOwnerReference()).Build() // foreign STS, no annotation
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	assert.NoError(t, err)
+	assert.True(t, blocked)
+}
+
+func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) {
+	ctx := context.Background()
+	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+		SetOwnerReferences(someOtherOwnerReference()).
+		SetAnnotations(map[string]string{appDBMigrationReadyAnnotation: "true"}).Build()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	assert.NoError(t, err)
+	assert.True(t, blocked, "must stay blocked while the foreign OwnerReference is still present, even with the annotation")
+}
+
+func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
+	ctx := context.Background()
+	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+		SetOwnerReferences(nil).
+		SetAnnotations(map[string]string{appDBMigrationReadyAnnotation: "true"}).Build()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	assert.NoError(t, err)
+	assert.False(t, blocked)
+}
+
+func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("fresh-start-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, _, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	assert.NoError(t, err)
+	assert.False(t, blocked, "Fresh Start: no StatefulSet exists yet, no adoption gate applies")
+}
+
+func TestAppDBFinalizer_AddedWhenRoleSet(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	err := helper.ensureAppDBFinalizer(ctx, mdb)
+	assert.NoError(t, err)
+
+	result := mdbv1.MongoDB{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
+	assert.Contains(t, result.Finalizers, appDBDetachFinalizer)
+}
+
+func TestAppDBFinalizer_NotAddedForOrdinaryReplicaSet(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("ordinary-rs").Build() // no role set
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	err := helper.ensureAppDBFinalizer(ctx, mdb)
+	assert.NoError(t, err)
+
+	result := mdbv1.MongoDB{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
+	assert.NotContains(t, result.Finalizers, appDBDetachFinalizer)
+}
+
+func TestAppDBFinalizerCleanup_StripsOwnerReferenceAnnotatesAndRemovesFinalizer(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
+		SetFinalizers([]string{appDBDetachFinalizer}).
+		SetDeletionTimestamp(metav1.Now()).Build()
+	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+		SetOwnerReferences(kube.BaseOwnerReference(mdb)).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	err := helper.cleanupAppDBFinalizer(ctx, mdb)
+	assert.NoError(t, err)
+
+	resultSts := appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, "my-om-db"), &resultSts))
+	assert.Empty(t, resultSts.OwnerReferences)
+	assert.Equal(t, "true", resultSts.Annotations[appDBMigrationReadyAnnotation])
+
+	updatedMdb := mdbv1.MongoDB{}
+	getErr := kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &updatedMdb)
+	assert.True(t, apiErrors.IsNotFound(getErr), "finalizer removal should let deletion complete")
+}
+
+func assertAppDBRoleUserRolesAndCreds(t *testing.T, createdUser *om.MongoDBUser) {
+	assert.ElementsMatch(t, expectedAppDBRoleUserRoles, createdUser.Roles)
+	require.NotNil(t, createdUser.ScramSha256Creds)
+	require.NotNil(t, createdUser.ScramSha1Creds)
+}
+
+func TestEnsureAppDBRoleUser_NoOpWhenRoleNotSet(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-plain-rs").Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	err := helper.ensureAppDBRoleUser(ctx, mdb, conn)
+	assert.NoError(t, err)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+	assert.Nil(t, createdUser)
+
+	sec := corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName(mdb.Name)), &sec)
+	assert.True(t, apiErrors.IsNotFound(err))
 }
