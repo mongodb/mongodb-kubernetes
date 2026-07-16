@@ -116,8 +116,10 @@ download_agent() {
 
     script_log "Downloading Agent version: ${AGENT_VERSION}"
     script_log "Downloading a Mongodb Agent from ${base_url:?}"
+    # KUBE-172: download custom agent from S3 patch URL instead of Ops Manager
+    agent_download_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/patches/6a588a96814ba600072a706d/automation-agent/local/${AGENT_FILE}"
     curl_opts=(
-        "${base_url}/download/agent/automation/${AGENT_FILE}"
+        "${agent_download_url}"
 
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
