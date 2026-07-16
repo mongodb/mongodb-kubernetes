@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import pymongo
 import pymongo.errors
@@ -20,6 +20,9 @@ from kubetester.kubetester import run_periodically
 from pymongo.read_preferences import Nearest
 from tests import test_logger
 from tests.common.search.search_tester import SearchTester
+
+if TYPE_CHECKING:
+    from kubetester.mongodb_search import MongoDBSearch
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -39,6 +42,9 @@ FAILURE_SEARCH_NOT_ENABLED = "search_not_enabled"
 # only an explicit index-state rejection proves the bad Ready-while-syncing mode.
 FAILURE_MONGOT_UNREACHABLE = "mongot_unreachable"
 FAILURE_OTHER = "other"
+
+SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
+SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
 
 _CURSOR_LOST_MESSAGE_RE = re.compile(
     r"cursor id .*?(not found|was killed)|remote error from mongot|rst_stream",
@@ -894,14 +900,9 @@ def wait_for_mongot_pvcs_deleted(
     named ``<template>-<sts>-<ordinal>``, so we match on the ``-<sts>-`` infix.
     ``api_client`` must target the cluster hosting the STS.
     """
-    core = client.CoreV1Api(api_client=api_client)
 
     def deleted() -> tuple[bool, str]:
-        remaining = [
-            pvc.metadata.name
-            for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
-            if f"-{sts_name}-" in f"-{pvc.metadata.name}"
-        ]
+        remaining = mongot_data_pvc_names(namespace, sts_name, api_client=api_client)
         return not remaining, ("all deleted" if not remaining else f"remaining={remaining}")
 
     run_periodically(
@@ -910,6 +911,79 @@ def wait_for_mongot_pvcs_deleted(
         sleep_time=sleep_time,
         msg=f"mongot PVCs for STS {sts_name} to be deleted",
     )
+
+
+def _search_owned_top_level_resources(
+    apps_v1: Any,
+    core_v1: Any,
+    namespace: str,
+    search_name: str,
+) -> dict[str, list[Any]]:
+    selector = f"{SEARCH_OWNER_NAME_LABEL}={search_name},{SEARCH_OWNER_NAMESPACE_LABEL}={namespace}"
+    return {
+        "StatefulSet": apps_v1.list_namespaced_stateful_set(namespace, label_selector=selector).items,
+        "Deployment": apps_v1.list_namespaced_deployment(namespace, label_selector=selector).items,
+        "Service": core_v1.list_namespaced_service(namespace, label_selector=selector).items,
+        "ConfigMap": core_v1.list_namespaced_config_map(namespace, label_selector=selector).items,
+        "Secret": core_v1.list_namespaced_secret(namespace, label_selector=selector).items,
+    }
+
+
+def wait_for_search_owned_resources_deleted(
+    apps_v1: Any,
+    core_v1: Any,
+    namespace: str,
+    search_name: str,
+    *,
+    where: str,
+    timeout: int = 600,
+) -> None:
+    def deleted() -> tuple[bool, str]:
+        resources = _search_owned_top_level_resources(apps_v1, core_v1, namespace, search_name)
+        remaining = [
+            f"{kind}/{resource.metadata.name}(uid={resource.metadata.uid})"
+            for kind, items in resources.items()
+            for resource in items
+        ]
+        return not remaining, f"{where}: remaining={remaining}"
+
+    run_periodically(
+        deleted,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{where} Search-owned top-level resource cleanup",
+    )
+
+
+def mongot_data_pvc_names(
+    namespace: str,
+    sts_name: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> list[str]:
+    core = client.CoreV1Api(api_client=api_client)
+    return [
+        pvc.metadata.name
+        for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
+        if f"-{sts_name}-" in f"-{pvc.metadata.name}"
+    ]
+
+
+def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: int = 300) -> None:
+    def deleted() -> tuple[bool, str]:
+        try:
+            read_fn()
+            return False, f"{what} still present"
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return True, f"{what} deleted"
+            raise
+
+    run_periodically(deleted, timeout=timeout, sleep_time=5, msg=f"{what} cleanup")
+
+
+def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
+    wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
 
 
 def hard_kill_pods_by_label(
