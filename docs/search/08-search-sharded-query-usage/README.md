@@ -1,8 +1,9 @@
-# Sharded MongoDB Search — Query Usage
+# Run MongoDB Search Queries on a Sharded Cluster
 
-Use this module to import sample data, build Search/Vector Search indexes, and run query snippets against a sharded MongoDB Search deployment.
+Use these snippets to import sample data, create Search and Vector Search indexes,
+and run queries against a MongoDB Search deployment for a sharded cluster.
 
-Run this query module after one of these infrastructure modules:
+Run these query snippets after you complete one of these deployment scenarios:
 
 - [`07-search-external-sharded-mongod-managed-lb`](../07-search-external-sharded-mongod-managed-lb/)
 - [`09-search-sharded-mongod-managed-lb`](../09-search-sharded-mongod-managed-lb/)
@@ -10,13 +11,14 @@ Run this query module after one of these infrastructure modules:
 
 ## Environment handoff
 
-Scenarios 07 and 09 already export the variables required by this module:
+Scenarios 07 and 09 export the variables required by these snippets:
 
 ```bash
 ( cd ../08-search-sharded-query-usage && ./test.sh )
 ```
 
-After scenario 13 reports `MongoDBSearch` in `Running`, run this module from the central cluster context:
+After scenario 13 reports `MongoDBSearch` in `Running`, run these query snippets
+from the central cluster context:
 
 ```bash
 export K8S_CTX="${K8S_CTX_0}"
@@ -26,16 +28,16 @@ export K8S_CTX="${K8S_CTX_0}"
 ( cd ../08-search-sharded-query-usage && ./test.sh )
 ```
 
-## Required variable contract
+## Required variables
 
 | Variable | Description |
 |---|---|
 | `K8S_CTX` | Kubernetes context where the tools pod runs |
 | `MDB_NS` | Namespace containing MongoDBSearch resources |
 | `MDB_VERSION` | MongoDB version used for tools pod image |
-| `MDB_ADMIN_CONNECTION_STRING` | Admin connection string for import/sharding operations |
+| `MDB_ADMIN_CONNECTION_STRING` | Administrator connection string used to import and shard data |
 | `MDB_USER_CONNECTION_STRING` | User connection string for query snippets |
-| `MDB_CONNECTION_STRING` (fallback) | Used if admin/user strings are not provided |
+| `MDB_CONNECTION_STRING` (fallback) | Used if administrator and user connection strings are not provided |
 | `MDB_TLS_CA_CONFIGMAP` | CA ConfigMap mounted into the tools pod (`/tls/ca.crt`) |
 
 ## Quick run
