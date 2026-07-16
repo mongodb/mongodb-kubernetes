@@ -75,10 +75,6 @@ operator:
   additionalArguments: []
 
   webhook:
-    # Controls whether the helm chart will install cluster role allowing to create ValidatingWebhookConfiguration. Default: true.
-    # Without the permissions, the operator will log errors when trying to configure admission webhooks, but will work correctly nonetheless.
-    installClusterRole: true
-
     # registerConfiguration setting (default: true) controls if the operator should automatically register ValidatingWebhookConfiguration and if required for it cluster-wide roles should be installed.
     # DO NOT disable this setting if installing via helm. This setting is used for OLM installations.
     #
