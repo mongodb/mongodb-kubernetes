@@ -30,7 +30,7 @@ prepare_snippets
 
 run 13_0040_validate_env.sh
 run 13_0045_create_namespaces.sh
-run 13_0046_internal_create_image_pull_secrets.sh
+run 13_0046_create_image_pull_secrets.sh
 
 run_for_output 13_0100_install_operator.sh
 run_for_output 13_0110_stop_central_operator_watching_search.sh
@@ -78,7 +78,7 @@ run_for_output 13_0330_configure_om_automation_config.sh
 # VERIFICATION
 # ============================================================================
 
-run_for_output 13_0335_internal_verify_per_cluster_deployment.sh
+run_for_output 13_0335_verify_per_cluster_deployment.sh
 
 # ============================================================================
 # OPTIONAL: PER-SHARD SIZING OVERRIDE

@@ -151,10 +151,10 @@ Also creates image pull secrets in every cluster when a private container regist
 
 ```bash
 ./code_snippets/13_0045_create_namespaces.sh
-./code_snippets/13_0046_internal_create_image_pull_secrets.sh
+./code_snippets/13_0046_create_image_pull_secrets.sh
 ```
 
-Snippets: [13_0045_create_namespaces.sh](code_snippets/13_0045_create_namespaces.sh), [13_0046_internal_create_image_pull_secrets.sh](code_snippets/13_0046_internal_create_image_pull_secrets.sh)
+Snippets: [13_0045_create_namespaces.sh](code_snippets/13_0045_create_namespaces.sh), [13_0046_create_image_pull_secrets.sh](code_snippets/13_0046_create_image_pull_secrets.sh)
 
 #### Step 3: Install a Distinct Search Operator in Every Cluster
 
@@ -326,10 +326,10 @@ Snippet: [13_0330_configure_om_automation_config.sh](code_snippets/13_0330_confi
 Confirms each cluster's operator only created resources for its own index, that `.status` is independent per cluster (no cross-cluster aggregation), and that each cluster's Envoy config contains no reference to the other cluster's resources:
 
 ```bash
-./code_snippets/13_0335_internal_verify_per_cluster_deployment.sh
+./code_snippets/13_0335_verify_per_cluster_deployment.sh
 ```
 
-Snippet: [13_0335_internal_verify_per_cluster_deployment.sh](code_snippets/13_0335_internal_verify_per_cluster_deployment.sh)
+Snippet: [13_0335_verify_per_cluster_deployment.sh](code_snippets/13_0335_verify_per_cluster_deployment.sh)
 
 This scenario stops at infrastructure verification — it does not load sample data or run `$search` queries. For that pattern (data import, index creation, deterministic query assertions), see [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/), applied through whichever cluster is currently `TARGET_CLUSTER_INDEX`'s mongos.
 
@@ -348,10 +348,10 @@ Snippet: [13_0340_apply_shard_overrides.sh](code_snippets/13_0340_apply_shard_ov
 ### Cleanup
 
 ```bash
-./code_snippets/13_9010_internal_delete_resources.sh
+./code_snippets/13_9010_delete_resources.sh
 ```
 
-Snippet: [13_9010_internal_delete_resources.sh](code_snippets/13_9010_internal_delete_resources.sh)
+Snippet: [13_9010_delete_resources.sh](code_snippets/13_9010_delete_resources.sh)
 
 This removes the MongoDBSearch resource and the per-cluster Search operator release from both clusters, and the sharded source MongoDB from cluster 0.
 
