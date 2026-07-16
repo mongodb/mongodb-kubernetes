@@ -60,7 +60,10 @@ class Operator(object):
             helm_args = {}
 
         helm_args["namespace"] = namespace
-        helm_args["operator.env"] = "dev"
+        if helm_args.get("customEnvVars"):
+            helm_args["customEnvVars"] += "\&OPERATOR_ENV=dev"
+        else:
+            helm_args["customEnvVars"] = "OPERATOR_ENV=dev"
 
         # the import is done here to prevent circular dependency
         from tests.conftest import local_operator
