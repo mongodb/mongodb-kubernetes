@@ -27,6 +27,11 @@ om_ca_cert=$(kubectl get configmap ca-issuer -n "${OM_NAMESPACE}" \
 # accessed from inside the cluster or exposed through a properly named endpoint.
 om_ip_address=$(kubectl get svc om-svc-ext -n "${OM_NAMESPACE}" \
   --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+if [[ -z "${om_ip_address}" ]]; then
+  echo "Error: om-svc-ext has no LoadBalancer IP yet -- without it every OM call below fails." >&2
+  echo "Check the LB provisioner (cloud LB / MetalLB on kind) and re-run once the IP is assigned." >&2
+  exit 1
+fi
 om_base_url="https://${om_ip_address}:8443/api/public/v1.0"
 
 om_request() {
@@ -66,6 +71,7 @@ ac_path="/groups/${project_id}/automationConfig"
 #   {MDB_RESOURCE_NAME}-mongos-{pod}        -> that cluster's routerHostname (cluster-level proxy)
 #   {MDB_RESOURCE_NAME}-config-{member}     -> untouched (config servers don't talk to mongot)
 #   {MDB_RESOURCE_NAME}-{shardIdx}-{member} -> that cluster's per-shard proxy-svc
+# shellcheck disable=SC2016
 patch_filter='
   ($mdb + "-") as $prefix
   | def patch:
@@ -96,7 +102,7 @@ patched_ac=$(echo "${ac}" | jq \
 
 changed=$(diff <(echo "${ac}" | jq -S '.processes[].args2_6.setParameter') \
                <(echo "${patched_ac}" | jq -S '.processes[].args2_6.setParameter') | grep -c '^[<>]' || true)
-test "${changed}" -gt 0 || { echo "ERROR: no AC processes matched ${MDB_RESOURCE_NAME}-* naming; got: $(echo "${ac}" | jq -r '[.processes[].name]')" >&2; exit 1; }
+test "${changed}" -gt 0 || { echo "ERROR: the patch changed nothing -- either no AC process matched ${MDB_RESOURCE_NAME}-* naming (got: $(echo "${ac}" | jq -r '[.processes[].name]')), or every process already points at TARGET_CLUSTER_INDEX=${TARGET_CLUSTER_INDEX}" >&2; exit 1; }
 
 # The operator re-asserts EXTERNALLY_MANAGED_LOCK on every reconcile, so clear
 # it and PUT in immediate succession; retry a few times if a reconcile in
@@ -118,6 +124,7 @@ for attempt in $(seq 1 "${attempts}"); do
 done
 
 echo "Waiting for agents to apply the new goal state..."
+behind=1
 for _ in $(seq 1 60); do
   status=$(om_request GET "/groups/${project_id}/automationStatus")
   goal=$(echo "${status}" | jq -r '.goalVersion')
@@ -125,5 +132,10 @@ for _ in $(seq 1 60); do
   [[ "${behind}" -eq 0 ]] && break
   sleep 5
 done
+if [[ "${behind}" -ne 0 ]]; then
+  echo "Error: the agents did not reach the new automation goal within 5 minutes -- stop here." >&2
+  echo "Inspect the automation agent logs before continuing." >&2
+  exit 1
+fi
 
 echo "[ok] mongod/mongos processes now point mongotHost at search cluster index ${TARGET_CLUSTER_INDEX}'s proxy endpoints"

@@ -3,15 +3,17 @@ echo "Index creation itself exercises the 12_0400 wiring: the mongod that receiv
 echo "createSearchIndex forwards it to searchIndexManagementHostAndPort -- its own"
 echo "cluster's local proxy -- and the metadata then replicates to every mongot."
 
+# Safe to re-run: createSearchIndex errors on an existing index, so each
+# creation is skipped when an index of that name is already there.
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
   mongosh --quiet "${MDB_CONNECTION_STRING}" \
     --eval "use sample_search" \
-    --eval 'db.movies.createSearchIndex("default", { mappings: { dynamic: true } });' \
-    --eval 'db.movies.createSearchIndex("vector_index", "vectorSearch", { fields: [ { type: "vector", path: "vec", numDimensions: 8, similarity: "cosine" } ] });'
+    --eval 'db.movies.getSearchIndexes().some(ix => ix.name == "default") || db.movies.createSearchIndex("default", { mappings: { dynamic: true } });' \
+    --eval 'db.movies.getSearchIndexes().some(ix => ix.name == "vector_index") || db.movies.createSearchIndex("vector_index", "vectorSearch", { fields: [ { type: "vector", path: "vec", numDimensions: 8, similarity: "cosine" } ] });'
 
 echo "Waiting for both indexes to reach READY (index metadata + initial sync on every mongot)..."
 ready=0
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   ready=$(kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
     mongosh --quiet "${MDB_CONNECTION_STRING}" \
       --eval "use sample_search" \
