@@ -143,6 +143,8 @@ To run all steps automatically:
 ./code_snippets/13_0040_validate_env.sh
 ```
 
+Snippet: [13_0040_validate_env.sh](code_snippets/13_0040_validate_env.sh)
+
 #### Step 2: Create the Namespace in Every Cluster
 
 Also creates image pull secrets in every cluster when a private container registry is configured; skipped automatically otherwise.
@@ -152,6 +154,8 @@ Also creates image pull secrets in every cluster when a private container regist
 ./code_snippets/13_0046_internal_create_image_pull_secrets.sh
 ```
 
+Snippets: [13_0045_create_namespaces.sh](code_snippets/13_0045_create_namespaces.sh), [13_0046_internal_create_image_pull_secrets.sh](code_snippets/13_0046_internal_create_image_pull_secrets.sh)
+
 #### Step 3: Install a Distinct Search Operator in Every Cluster
 
 `K8S_CLUSTER_0` already runs ra-02's central operator in this namespace (it will manage the sharded source below), so the Search operator is a **second, independent Helm release** (`SEARCH_OPERATOR_RELEASE_NAME`), with `operator.clusterIdentity.clusterName` pinned to that cluster and `operator.watchedResources={mongodbsearch}` so it never touches `MongoDB` objects:
@@ -159,6 +163,8 @@ Also creates image pull secrets in every cluster when a private container regist
 ```bash
 ./code_snippets/13_0100_install_operator.sh
 ```
+
+Snippet: [13_0100_install_operator.sh](code_snippets/13_0100_install_operator.sh)
 
 > The central operator does **not** safely ignore this scenario's CR by default: its reconcile gate (`mongodbsearch_controller.go`) **writes status `Invalid`** ("multi-cluster MongoDBSearch is not supported yet") on any CR with more than one `spec.clusters[]` entry before skipping it, and ra-02's install watches `mongodbsearch` in this namespace by default. Left as-is, it fights the per-cluster Search operator over cluster 0's CR status (`Invalid` ↔ `Running` flapping). Step 3b removes `mongodbsearch` from the central operator's watched resources to resolve this.
 
@@ -170,6 +176,8 @@ Narrows ra-02's central operator to every resource except `mongodbsearch` (a `he
 ./code_snippets/13_0110_stop_central_operator_watching_search.sh
 ```
 
+Snippet: [13_0110_stop_central_operator_watching_search.sh](code_snippets/13_0110_stop_central_operator_watching_search.sh)
+
 ### Deploy the Sharded Source (Cluster 0 Only)
 
 This scenario builds its own sharded MongoDB rather than depending on a prerequisite architecture, because the tested topology pins the source to one cluster. If you already have an equivalent sharded MongoDB, skip to Step 8. Ops Manager itself is a prerequisite (`ra-06`, above) — nothing here creates an OM project or API credentials; the Automation Config step (Step 15) derives everything it needs from what `ra-06` already left in the cluster.
@@ -180,6 +188,8 @@ This scenario builds its own sharded MongoDB rather than depending on a prerequi
 ./code_snippets/13_0201_install_cert_manager.sh
 ```
 
+Snippet: [13_0201_install_cert_manager.sh](code_snippets/13_0201_install_cert_manager.sh)
+
 #### Step 5: Configure TLS Prerequisites and the CA ConfigMap
 
 Bootstraps a self-signed CA chain, then writes one ConfigMap with three keys serving two different consumers: the source MongoDB's own `security.tls.ca` (key `ca-pem`) and MongoDBSearch's `spec.source.external.tls.ca` (key `ca.crt` — this is a ConfigMap, not a Secret, despite what some older docs in this repo say). It's created in **both** clusters since cluster 1's Search operator also needs it locally.
@@ -189,11 +199,15 @@ Bootstraps a self-signed CA chain, then writes one ConfigMap with three keys ser
 ./code_snippets/13_0203_create_ca_configmap.sh
 ```
 
+Snippets: [13_0202_configure_tls_prerequisites.sh](code_snippets/13_0202_configure_tls_prerequisites.sh), [13_0203_create_ca_configmap.sh](code_snippets/13_0203_create_ca_configmap.sh)
+
 #### Step 6: Generate the Source's TLS Certificates
 
 ```bash
 ./code_snippets/13_0210_generate_source_tls_certificates.sh
 ```
+
+Snippet: [13_0210_generate_source_tls_certificates.sh](code_snippets/13_0210_generate_source_tls_certificates.sh)
 
 #### Step 7: Create the Sharded MongoDB Source and Wait
 
@@ -204,6 +218,8 @@ A plain, single-cluster `type: ShardedCluster` MongoDB (2 shards, 1 mongod per s
 ./code_snippets/13_0225_wait_for_sharded_source.sh
 ```
 
+Snippets: [13_0220_create_sharded_mongodb_source.sh](code_snippets/13_0220_create_sharded_mongodb_source.sh), [13_0225_wait_for_sharded_source.sh](code_snippets/13_0225_wait_for_sharded_source.sh)
+
 ### Sync-Source User and Customer-Replicated Secrets
 
 #### Step 8: Create the Sync-Source User
@@ -212,6 +228,8 @@ A plain, single-cluster `type: ShardedCluster` MongoDB (2 shards, 1 mongod per s
 ./code_snippets/13_0300_create_sync_source_user.sh
 ```
 
+Snippet: [13_0300_create_sync_source_user.sh](code_snippets/13_0300_create_sync_source_user.sh)
+
 #### Step 9: Replicate the Sync-Source Password to Every Search Cluster
 
 `spec.source.passwordSecretRef` is **cluster-invariant** — the operator's secrets-presence check expects the identical secret name in every member cluster, and nothing copies it there for you:
@@ -219,6 +237,8 @@ A plain, single-cluster `type: ShardedCluster` MongoDB (2 shards, 1 mongod per s
 ```bash
 ./code_snippets/13_0301_replicate_sync_source_secret.sh
 ```
+
+Snippet: [13_0301_replicate_sync_source_secret.sh](code_snippets/13_0301_replicate_sync_source_secret.sh)
 
 ### TLS Certificates for MongoDBSearch (Per Cluster, Per Shard)
 
@@ -230,6 +250,8 @@ One cert-manager `Certificate` per **(cluster index, shard)** pair — 2 cluster
 ./code_snippets/13_0310_create_mongot_tls_certificates.sh
 ```
 
+Snippet: [13_0310_create_mongot_tls_certificates.sh](code_snippets/13_0310_create_mongot_tls_certificates.sh)
+
 #### Step 11: Create Load Balancer TLS Certificates
 
 One server + one client certificate **per cluster** (not per shard — see the resource-name table above): each cluster's single Envoy Deployment fronts every shard in that cluster via SNI, so it only needs one identity.
@@ -238,6 +260,8 @@ One server + one client certificate **per cluster** (not per shard — see the r
 ./code_snippets/13_0311_create_lb_tls_certificates.sh
 ```
 
+Snippet: [13_0311_create_lb_tls_certificates.sh](code_snippets/13_0311_create_lb_tls_certificates.sh)
+
 #### Step 12: Replicate Cluster-1 Secrets
 
 Because cert-manager only ran on cluster 0, every secret named for cluster index 1 was actually created *there*. Copy those four secrets (2 mongot certs + LB server + LB client) into cluster 1; cluster 0's own secrets are already in the right place and need no copy:
@@ -245,6 +269,8 @@ Because cert-manager only ran on cluster 0, every secret named for cluster index
 ```bash
 ./code_snippets/13_0312_replicate_tls_secrets.sh
 ```
+
+Snippet: [13_0312_replicate_tls_secrets.sh](code_snippets/13_0312_replicate_tls_secrets.sh)
 
 ### Deploy MongoDB Search
 
@@ -256,11 +282,15 @@ The identical rendered YAML is applied to both clusters. Both clusters declare t
 ./code_snippets/13_0320_create_mongodb_search_resource.sh
 ```
 
+Snippet: [13_0320_create_mongodb_search_resource.sh](code_snippets/13_0320_create_mongodb_search_resource.sh)
+
 #### Step 14: Wait for MongoDBSearch in Every Cluster
 
 ```bash
 ./code_snippets/13_0325_wait_for_search_resource.sh
 ```
+
+Snippet: [13_0325_wait_for_search_resource.sh](code_snippets/13_0325_wait_for_search_resource.sh)
 
 ### Route the Source at One Search Cluster
 
@@ -276,6 +306,8 @@ Every shard's mongod processes are pointed at the target cluster's per-shard pro
 ./code_snippets/13_0330_configure_om_automation_config.sh
 ```
 
+Snippet: [13_0330_configure_om_automation_config.sh](code_snippets/13_0330_configure_om_automation_config.sh)
+
 #### Step 15b (Optional): Flip to the Other Cluster
 
 Re-export `TARGET_CLUSTER_INDEX` and re-run the same script — no other change is needed. This is the operational lever this deployment model gives you: cluster 1's mongot groups have been Running the whole time (Step 13 applied to both clusters), so this is a live traffic cutover, not a cold start.
@@ -284,6 +316,8 @@ Re-export `TARGET_CLUSTER_INDEX` and re-run the same script — no other change 
 export TARGET_CLUSTER_INDEX="${MDBS_CLUSTER_1_INDEX}"
 ./code_snippets/13_0330_configure_om_automation_config.sh
 ```
+
+Snippet: [13_0330_configure_om_automation_config.sh](code_snippets/13_0330_configure_om_automation_config.sh)
 
 ### Verify the Deployment
 
@@ -294,6 +328,8 @@ Confirms each cluster's operator only created resources for its own index, that 
 ```bash
 ./code_snippets/13_0335_internal_verify_per_cluster_deployment.sh
 ```
+
+Snippet: [13_0335_internal_verify_per_cluster_deployment.sh](code_snippets/13_0335_internal_verify_per_cluster_deployment.sh)
 
 This scenario stops at infrastructure verification — it does not load sample data or run `$search` queries. For that pattern (data import, index creation, deterministic query assertions), see [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/), applied through whichever cluster is currently `TARGET_CLUSTER_INDEX`'s mongos.
 
@@ -307,11 +343,15 @@ This scenario stops at infrastructure verification — it does not load sample d
 ./code_snippets/13_0340_apply_shard_overrides.sh
 ```
 
+Snippet: [13_0340_apply_shard_overrides.sh](code_snippets/13_0340_apply_shard_overrides.sh)
+
 ### Cleanup
 
 ```bash
 ./code_snippets/13_9010_internal_delete_resources.sh
 ```
+
+Snippet: [13_9010_internal_delete_resources.sh](code_snippets/13_9010_internal_delete_resources.sh)
 
 This removes the MongoDBSearch resource and the per-cluster Search operator release from both clusters, and the sharded source MongoDB from cluster 0.
 

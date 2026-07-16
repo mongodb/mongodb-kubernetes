@@ -200,6 +200,8 @@ Run these steps in order after sourcing `env_variables.sh`.
 ./code_snippets/12_0040_validate_env.sh
 ```
 
+Snippet: [12_0040_validate_env.sh](code_snippets/12_0040_validate_env.sh)
+
 #### Step 2: Create Namespaces in Every Member Cluster
 
 `ra-02` already creates `MDB_NAMESPACE`; this is idempotent and here for standalone reproducibility.
@@ -207,6 +209,8 @@ Run these steps in order after sourcing `env_variables.sh`.
 ```bash
 ./code_snippets/12_0045_create_namespaces.sh
 ```
+
+Snippet: [12_0045_create_namespaces.sh](code_snippets/12_0045_create_namespaces.sh)
 
 #### Step 3: Create Image Pull Secrets in Every Member Cluster
 
@@ -216,6 +220,8 @@ Only required for private container registries; skipped automatically otherwise.
 ./code_snippets/12_0046_create_image_pull_secrets.sh
 ```
 
+Snippet: [12_0046_create_image_pull_secrets.sh](code_snippets/12_0046_create_image_pull_secrets.sh)
+
 #### Step 4: Install the Per-Cluster Search Operator
 
 Installs a **second, distinct** Helm release into every member cluster -- `operator.clusterIdentity.clusterName` pins each release to that cluster's identity, and `operator.watchedResources={mongodbsearch}` scopes it to Search only. `operator.createResourcesServiceAccountsAndRoles=false` avoids re-rendering the ServiceAccounts/Roles `ra-02`'s `kubectl mongodb multicluster setup` already created.
@@ -224,6 +230,8 @@ Installs a **second, distinct** Helm release into every member cluster -- `opera
 ./code_snippets/12_0100_install_percluster_search_operator.sh
 ```
 
+Snippet: [12_0100_install_percluster_search_operator.sh](code_snippets/12_0100_install_percluster_search_operator.sh)
+
 #### Step 5: Stop the Central Operator Watching MongoDBSearch
 
 `ra-02`'s central operator watches `mongodbsearch` in this namespace by default (`operator.watchedResources` in `helm_chart/values.yaml`), and it has no cluster identity -- so on every reconcile of a CR with more than one `spec.clusters[]` entry it **writes status `Invalid`** ("multi-cluster MongoDBSearch is not supported yet") before skipping, fighting the per-cluster Search operator that owns the CR and writes `Running`. This step narrows the central operator to every resource except `mongodbsearch` (a `helm upgrade --reuse-values`, so nothing else about the release changes; `mongodbmulticluster` stays auto-watched via `multiCluster.clusters`, so the `ra-07` source is unaffected). To revert later, run the same command with the chart's default list (append `mongodbsearch`).
@@ -231,6 +239,8 @@ Installs a **second, distinct** Helm release into every member cluster -- `opera
 ```bash
 ./code_snippets/12_0110_stop_central_operator_watching_search.sh
 ```
+
+Snippet: [12_0110_stop_central_operator_watching_search.sh](code_snippets/12_0110_stop_central_operator_watching_search.sh)
 
 ### Create the Source CA ConfigMap
 
@@ -242,6 +252,8 @@ Installs a **second, distinct** Helm release into every member cluster -- `opera
 ./code_snippets/12_0303_create_source_ca_configmap.sh
 ```
 
+Snippet: [12_0303_create_source_ca_configmap.sh](code_snippets/12_0303_create_source_ca_configmap.sh)
+
 ### Create the Sync-Source User
 
 #### Step 7: Create the search-sync-source User and Replicate Its Password
@@ -251,6 +263,8 @@ The `MongoDBUser` CRD is applied once, through the **central** operator that man
 ```bash
 ./code_snippets/12_0310_create_sync_source_user.sh
 ```
+
+Snippet: [12_0310_create_sync_source_user.sh](code_snippets/12_0310_create_sync_source_user.sh)
 
 ### Search TLS Certificates
 
@@ -262,6 +276,8 @@ The mongot TLS Secret has a **cluster-invariant name** (`{prefix}-{name}-search-
 ./code_snippets/12_0316a_create_mongot_tls_certificate.sh
 ```
 
+Snippet: [12_0316a_create_mongot_tls_certificate.sh](code_snippets/12_0316a_create_mongot_tls_certificate.sh)
+
 #### Step 9: Create Per-Cluster Load Balancer TLS Certificates
 
 LB certificates get a **distinct secret name per cluster index** -- each cluster's own Envoy Deployment presents its own server certificate. Like the mongot cert, all of them are issued from cert-manager on cluster 0 (mirroring `test_deploy_lb_certificates` in the same e2e module, which also never switches API client per cluster); every server cert's SANs cover the union of all 3 clusters' proxy-svc FQDNs. Only the resulting Secret pair is then copied out -- to just the cluster that owns that index.
@@ -269,6 +285,8 @@ LB certificates get a **distinct secret name per cluster index** -- each cluster
 ```bash
 ./code_snippets/12_0316b_create_lb_tls_certificates.sh
 ```
+
+Snippet: [12_0316b_create_lb_tls_certificates.sh](code_snippets/12_0316b_create_lb_tls_certificates.sh)
 
 ### Deploy the Unified MongoDBSearch CR
 
@@ -311,11 +329,15 @@ spec:
 ./code_snippets/12_0320_create_mongodb_search_resource.sh
 ```
 
+Snippet: [12_0320_create_mongodb_search_resource.sh](code_snippets/12_0320_create_mongodb_search_resource.sh)
+
 #### Step 11: Wait for MongoDBSearch to Reach Running in Every Cluster
 
 ```bash
 ./code_snippets/12_0325_wait_for_search_resources.sh
 ```
+
+Snippet: [12_0325_wait_for_search_resources.sh](code_snippets/12_0325_wait_for_search_resources.sh)
 
 ### Configure Per-Cluster mongotHost
 
@@ -331,6 +353,8 @@ spec:
 ./code_snippets/12_0400_configure_percluster_mongot_host.sh
 ```
 
+Snippet: [12_0400_configure_percluster_mongot_host.sh](code_snippets/12_0400_configure_percluster_mongot_host.sh)
+
 ### Verify the Deployment
 
 #### Step 13: Verify Per-Cluster Resources and Isolation
@@ -340,6 +364,8 @@ Confirms each cluster only created its own index-suffixed resources, its `MongoD
 ```bash
 ./code_snippets/12_0410_verify_percluster_resources.sh
 ```
+
+Snippet: [12_0410_verify_percluster_resources.sh](code_snippets/12_0410_verify_percluster_resources.sh)
 
 ### Functional Verification
 
@@ -353,6 +379,8 @@ A plain `readWriteAnyDatabase` user, applied once through the **central** operat
 ./code_snippets/12_0500_create_search_admin_user.sh
 ```
 
+Snippet: [12_0500_create_search_admin_user.sh](code_snippets/12_0500_create_search_admin_user.sh)
+
 #### Step 15: Run a mongodb-tools Pod in Every Member Cluster
 
 A small `mongodb-community-server` pod per cluster with `mongosh` and the source CA mounted at `/tls/ca.crt`. The remaining steps run from inside these pods because the seed-list and proxy-service FQDNs only resolve in-cluster.
@@ -360,6 +388,8 @@ A small `mongodb-community-server` pod per cluster with `mongosh` and the source
 ```bash
 ./code_snippets/12_0510_run_mongodb_tools_pods.sh
 ```
+
+Snippet: [12_0510_run_mongodb_tools_pods.sh](code_snippets/12_0510_run_mongodb_tools_pods.sh)
 
 #### Step 16: Insert Sample Data
 
@@ -369,6 +399,8 @@ A small deterministic dataset (text fields for `$search`, 8-dimension vectors fo
 ./code_snippets/12_0520_insert_sample_data.sh
 ```
 
+Snippet: [12_0520_insert_sample_data.sh](code_snippets/12_0520_insert_sample_data.sh)
+
 #### Step 17: Create the Search Indexes and Wait for READY
 
 Creates one dynamic-mapping `$search` index and one `vectorSearch` index, then polls until both report `READY`. Index creation itself exercises Step 12's wiring: the mongod receiving `createSearchIndex` forwards it to its own cluster's proxy (`searchIndexManagementHostAndPort`). The snippet stops with an error if the indexes aren't `READY` within 5 minutes -- don't continue past that; check the mongot pod logs instead.
@@ -376,6 +408,8 @@ Creates one dynamic-mapping `$search` index and one `vectorSearch` index, then p
 ```bash
 ./code_snippets/12_0530_create_search_indexes.sh
 ```
+
+Snippet: [12_0530_create_search_indexes.sh](code_snippets/12_0530_create_search_indexes.sh)
 
 #### Step 18: Query Every Cluster's Local Member
 
@@ -385,6 +419,8 @@ For each cluster: connect **directly** to that cluster's own replica-set member 
 ./code_snippets/12_0540_query_search_percluster.sh
 ```
 
+Snippet: [12_0540_query_search_percluster.sh](code_snippets/12_0540_query_search_percluster.sh)
+
 ### Cleanup (Manual Only)
 
 > **WARNING:** deletes the `MongoDBSearch` resource and the per-cluster Search operator release from every member cluster. Does not touch the source `MongoDBMultiCluster`, the central operator, or namespaces (those belong to `ra-02`/`ra-07`).
@@ -392,6 +428,8 @@ For each cluster: connect **directly** to that cluster's own replica-set member 
 ```bash
 ./code_snippets/12_9010_delete_resources.sh
 ```
+
+Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh)
 
 ## Troubleshooting
 
