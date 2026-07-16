@@ -23,6 +23,7 @@ from tests.common.search.search_tester import SearchTester
 
 if TYPE_CHECKING:
     from kubetester.mongodb_search import MongoDBSearch
+    from kubetester.multicluster_client import MultiClusterClient
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -984,6 +985,101 @@ def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: in
 
 def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
     wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
+
+
+def protected_search_input_uids(
+    core_v1: Any,
+    namespace: str,
+    source_tls_secret_name: str,
+    sync_user_secret_name: str,
+    ca_configmap_name: str,
+    *,
+    additional_secret_names: tuple[str, ...] = (),
+) -> dict[str, str]:
+    def uid(resource: Any, what: str) -> str:
+        value = resource.metadata.uid
+        assert value, f"{what} has no UID"
+        return value
+
+    uids = {
+        "source_tls_secret": uid(
+            core_v1.read_namespaced_secret(source_tls_secret_name, namespace),
+            f"Secret {source_tls_secret_name}",
+        ),
+        "sync_user_secret": uid(
+            core_v1.read_namespaced_secret(sync_user_secret_name, namespace),
+            f"Secret {sync_user_secret_name}",
+        ),
+        "ca_configmap": uid(
+            core_v1.read_namespaced_config_map(ca_configmap_name, namespace),
+            f"ConfigMap {ca_configmap_name}",
+        ),
+    }
+    uids.update(
+        {
+            f"secret/{name}": uid(core_v1.read_namespaced_secret(name, namespace), f"Secret {name}")
+            for name in additional_secret_names
+        }
+    )
+    return uids
+
+
+def search_artifact_uids(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    names: dict[str, str],
+) -> dict[str, str]:
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+    resources = {
+        f"StatefulSet/{names['sts']}": mcc.read_namespaced_stateful_set(names["sts"], namespace),
+        f"Service/{names['svc']}": mcc.read_namespaced_service(names["svc"], namespace),
+        f"Service/{names['proxy']}": mcc.read_namespaced_service(names["proxy"], namespace),
+        f"ConfigMap/{names['mongot_cm']}": mcc.read_namespaced_config_map(names["mongot_cm"], namespace),
+        f"Deployment/{names['envoy_deployment']}": apps.read_namespaced_deployment(
+            names["envoy_deployment"], namespace
+        ),
+        f"ConfigMap/{names['envoy_cm']}": mcc.read_namespaced_config_map(names["envoy_cm"], namespace),
+        f"Secret/{names['operator_tls_secret']}": core.read_namespaced_secret(names["operator_tls_secret"], namespace),
+    }
+    pvc_names = mongot_data_pvc_names(namespace, names["sts"], api_client=mcc.api_client)
+    assert pvc_names, f"[{mcc.cluster_name}] expected mongot data PVCs for {names['sts']}"
+    resources.update(
+        {
+            f"PersistentVolumeClaim/{name}": core.read_namespaced_persistent_volume_claim(name, namespace)
+            for name in pvc_names
+        }
+    )
+
+    uids = {what: resource.metadata.uid for what, resource in resources.items()}
+    assert all(uids.values()), f"[{mcc.cluster_name}] Search artifact without UID: {uids}"
+    return uids
+
+
+def wait_for_search_artifacts_deleted(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    sts_name: str,
+    search_name: str,
+    *,
+    timeout: int = 600,
+) -> None:
+    """Label-scoped absence is the authoritative cleanup assertion; the exact-name
+    STS check on top catches accidental label stripping on the primary artifact."""
+    wait_for_resource_deleted(
+        lambda: mcc.read_namespaced_stateful_set(sts_name, namespace),
+        f"STS {sts_name} in {mcc.cluster_name}",
+        timeout=timeout,
+    )
+    wait_for_mongot_pvcs_deleted(namespace, sts_name, api_client=mcc.api_client, timeout=300)
+    wait_for_search_owned_resources_deleted(
+        mcc.apps_v1_api(),
+        mcc.core_v1_api(),
+        namespace,
+        search_name,
+        where=mcc.cluster_name,
+        timeout=timeout,
+    )
 
 
 def hard_kill_pods_by_label(
