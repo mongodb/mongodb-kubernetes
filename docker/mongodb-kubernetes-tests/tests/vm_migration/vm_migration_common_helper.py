@@ -267,7 +267,9 @@ def _first_shard_on_vms(mdb_migration: MongoDB) -> tuple[str, str]:
 
 def assert_migration_tool_version_annotation(generated_cr: dict, version: str) -> None:
     assert MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION in generated_cr["metadata"]["annotations"]
-    assert generated_cr["metadata"]["annotations"][MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION] == version
+    # Not exact equality because annotation contains commit_sha_short in case of staging environment.
+    # version contains the complete commit sha
+    assert generated_cr["metadata"]["annotations"][MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION] in version
 
 
 def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
