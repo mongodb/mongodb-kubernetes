@@ -11,7 +11,7 @@ from opentelemetry import trace
 from lib.base_logger import logger
 
 SIGNING_IMAGE_URI = os.environ.get(
-    "SIGNING_IMAGE_URI", "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign"
+    "SIGNING_IMAGE_URI", "901841024863.dkr.ecr.us-east-1.amazonaws.com/release-infrastructure/garasign-cosign"
 )
 
 RETRYABLE_ERRORS = [500, 502, 503, 504, 429, "timeout", "WARNING"]
@@ -67,16 +67,13 @@ def run_command_with_retries(command, retries=6, base_delay=10):
                 raise
 
 
-def mongodb_artifactory_login() -> None:
-    command = [
-        "docker",
-        "login",
-        "--password-stdin",
-        "--username",
-        os.environ.get("ARTIFACTORY_USERNAME", "mongodb-enterprise-kubernetes-operator"),
-        "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign",
-    ]
-    subprocess.run(command, input=os.environ["ARTIFACTORY_PASSWORD"].encode("utf-8"), check=True)
+def docker_login_to_ecr(registry: str = "901841024863.dkr.ecr.us-east-1.amazonaws.com") -> None:
+    region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+    password = get_ecr_login_password(region)
+    if password is None:
+        raise RuntimeError(f"Failed to get ECR login password for {registry}")
+    command = ["docker", "login", "--username", "AWS", "--password-stdin", registry]
+    subprocess.run(command, input=password.encode("utf-8"), check=True)
 
 
 def get_ecr_login_password(region: str) -> Optional[str]:

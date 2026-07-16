@@ -10,6 +10,9 @@ variables:
       - cognito_workload_user_id
       - ARTIFACTORY_PASSWORD
       - ARTIFACTORY_USERNAME
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
       - GRS_PASSWORD
       - GRS_USERNAME
       - OVERRIDE_VERSION_ID
@@ -630,6 +633,10 @@ functions:
           PLATFORM: ${platform}
 
   pipeline:
+    - command: ec2.assume_role
+      display_name: Assume DevProd Platforms ECR readonly IAM role
+      params:
+        role_arn: ${devprod_platforms_ecr_readonly_role_arn}
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -975,6 +982,10 @@ functions:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
+    - command: ec2.assume_role
+      display_name: Assume DevProd Platforms ECR readonly IAM role
+      params:
+        role_arn: ${devprod_platforms_ecr_readonly_role_arn}
     - command: subprocess.exec
       type: setup
       params:
@@ -993,6 +1004,9 @@ functions:
           - OPERATOR_VERSION
           - STAGING_VERSION_OVERRIDE
           - SKIP_GITHUB_RELEASE_UPLOAD
+          - AWS_ACCESS_KEY_ID
+          - AWS_SECRET_ACCESS_KEY
+          - AWS_SESSION_TOKEN
         env:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}

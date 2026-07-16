@@ -17,7 +17,7 @@ from lib.base_logger import logger
 from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
 from scripts.release.agent.validation import generate_agent_build_args, generate_tools_build_args
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_signing import mongodb_artifactory_login, sign_image, verify_signature
+from scripts.release.build.image_signing import docker_login_to_ecr, sign_image, verify_signature
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -90,8 +90,8 @@ def build_image(
     )
 
     if build_configuration.sign:
-        logger.info("Logging in MongoDB Artifactory for Garasign image")
-        mongodb_artifactory_login()
+        logger.info("Logging in to MongoDB DevProd Platforms ECR for Garasign image")
+        docker_login_to_ecr()
         logger.info("Signing image")
         for registry in registries:
             sign_image(registry, build_configuration.version)

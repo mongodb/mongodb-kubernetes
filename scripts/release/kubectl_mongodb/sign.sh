@@ -16,10 +16,7 @@ SIGNING_ENVFILE="${TMPDIR}/signing-envfile"
 GRS_USERNAME=${GRS_USERNAME}
 GRS_PASSWORD=${GRS_PASSWORD}
 PKCS11_URI=${PKCS11_URI}
-ARTIFACTORY_URL=${ARTIFACTORY_URL}
 SIGNING_IMAGE_URI=${SIGNING_IMAGE_URI}
-ARTIFACTORY_PASSWORD=${ARTIFACTORY_PASSWORD}
-ARTIFACTORY_USERNAME=${ARTIFACTORY_USERNAME}
 
 echo "Signing artifact ${ARTIFACT} and saving signature bundle to ${SIGNATURE_BUNDLE}"
 
@@ -29,8 +26,19 @@ echo "Signing artifact ${ARTIFACT} and saving signature bundle to ${SIGNATURE_BU
   echo "PKCS11_URI=${PKCS11_URI}";
 } > "${SIGNING_ENVFILE}"
 
-echo "Logging in artifactory.corp"
-echo "${ARTIFACTORY_PASSWORD}" | docker login --password-stdin --username "${ARTIFACTORY_USERNAME}" "${ARTIFACTORY_URL}"
+# SIGNING_IMAGE_URI's registry is controlled by an Evergreen project expansion, so this
+# transparently supports either registry depending on what that expansion is set to.
+SIGNING_REGISTRY="${SIGNING_IMAGE_URI%%/*}"
+if [[ "${SIGNING_REGISTRY}" == *.amazonaws.com ]]; then
+  echo "Logging in to ${SIGNING_REGISTRY} (ECR)"
+  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${SIGNING_REGISTRY}"
+else
+  ARTIFACTORY_URL=${ARTIFACTORY_URL}
+  ARTIFACTORY_PASSWORD=${ARTIFACTORY_PASSWORD}
+  ARTIFACTORY_USERNAME=${ARTIFACTORY_USERNAME}
+  echo "Logging in artifactory.corp"
+  echo "${ARTIFACTORY_PASSWORD}" | docker login --password-stdin --username "${ARTIFACTORY_USERNAME}" "${ARTIFACTORY_URL}"
+fi
 
 echo "Signing artifact"
 echo "Envfile is ${SIGNING_ENVFILE}"
