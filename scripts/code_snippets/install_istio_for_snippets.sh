@@ -6,13 +6,15 @@
 # shared self-signed root CA, remote secrets for cross-cluster discovery, and
 # the DNS proxy (ISTIO_META_DNS_CAPTURE).
 #
-# Why: the docs scenarios rely on the mesh prerequisite that injected pods
-# resolve Services existing in only one cluster (om-svc in ra-06, checked by
-# ra-04). Istio 1.16 cannot provide that on the current kind node images,
-# and the e2e tests never notice because the operator mirrors its services
-# into every cluster. Only this snippets suite needs the mesh DNS, so the
-# tooling default stays untouched and the reinstall is scoped to the
-# clusters of this task.
+# Why: the docs scenarios assume a mesh close to what customers actually run,
+# and 1.16 is years behind. (The reinstall was introduced chasing the mesh
+# prerequisite that injected pods resolve Services existing in only one
+# cluster -- om-svc in ra-06, checked by ra-04 -- but the Evergreen task
+# hosts turned out unable to provide that with ANY istio version; see the
+# ra-04 note in tests/test_kind_search_percluster_snippets.sh. The e2e tests
+# never notice because the operator mirrors its services into every cluster.)
+# The reinstall is scoped to the clusters of this task; the tooling default
+# stays untouched.
 #
 # Modeled on multi_cluster/tools/install_istio.sh, with the istioctl syntax
 # of current releases (uninstall and create-remote-secret are no longer
