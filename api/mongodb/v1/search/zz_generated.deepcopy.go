@@ -67,6 +67,11 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 		*out = new(mongodbv1.Persistence)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.NodeAffinity != nil {
+		in, out := &in.NodeAffinity, &out.NodeAffinity
+		*out = new(v1.NodeAffinity)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.StatefulSetConfiguration != nil {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
 		*out = (*in).DeepCopy()
@@ -742,6 +747,11 @@ func (in *ShardOverride) DeepCopyInto(out *ShardOverride) {
 	if in.Persistence != nil {
 		in, out := &in.Persistence, &out.Persistence
 		*out = new(mongodbv1.Persistence)
+		(*in).DeepCopyInto(*out)
+	}
+	if in.NodeAffinity != nil {
+		in, out := &in.NodeAffinity, &out.NodeAffinity
+		*out = new(v1.NodeAffinity)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.StatefulSetConfiguration != nil {

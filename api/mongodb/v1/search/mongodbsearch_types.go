@@ -265,6 +265,10 @@ type ClusterSpec struct {
 	// Persistence configures this cluster's mongot persistent volume. Defaults to 10GB if unset.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// NodeAffinity can be used to configure mongot pod's node affinity or pod's spec.affinity.nodeAffinity field.
+	// A spec.clusters[].statefulSet override of nodeAffinity, takes precedence over this field.
+	// +optional
+	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
 	// StatefulSetConfiguration is applied to this cluster's mongot StatefulSet at the end of the
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
@@ -302,8 +306,8 @@ func (c ClusterSpec) ResolveIndex() int {
 }
 
 // ShardOverride sizes specific shards within the enclosing cluster differently
-// from the cluster default. Replicas, ResourceRequirements, Persistence and
-// JVMFlags replace the cluster value for the named shards when set;
+// from the cluster default. Replicas, ResourceRequirements, Persistence,
+// JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
 // StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
 // inherit the cluster value.
 type ShardOverride struct {
@@ -322,6 +326,9 @@ type ShardOverride struct {
 	// Persistence replaces the cluster's mongot persistent volume config for these shards.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// NodeAffinity replaces the cluster's mongot node affinity for these shards.
+	// +optional
+	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
@@ -1131,7 +1138,7 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 // ResolveSizingForClusterShard returns the effective sizing for one
 // (cluster, shard) cell: the named cluster's ClusterSpec with the matching
 // shardOverride (if any) layered on top. Replicas, ResourceRequirements,
-// Persistence and JVMFlags are replaced when the override sets them;
+// Persistence, NodeAffinity and JVMFlags are replaced when the override sets them;
 // StatefulSetConfiguration is deep-merged onto the cluster value. An empty
 // shardName (replica-set sources) or a cluster without a matching override
 // returns the cluster spec.
@@ -1159,6 +1166,9 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 	}
 	if override.Persistence != nil {
 		resolved.Persistence = override.Persistence
+	}
+	if override.NodeAffinity != nil {
+		resolved.NodeAffinity = override.NodeAffinity
 	}
 	if len(override.JVMFlags) > 0 {
 		resolved.JVMFlags = override.JVMFlags

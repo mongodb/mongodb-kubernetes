@@ -163,6 +163,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 				// required). A clusters[].statefulSet affinity override replaces this term.
 				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
+				nodeAffinityModification(sizing.NodeAffinity),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
@@ -181,6 +182,16 @@ func withDataPVCRetentionPolicy() statefulset.Modification {
 			WhenScaled:  appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
 		}
 	}
+}
+
+// nodeAffinityModification sets the mongot pod template's node affinity from the
+// resolved clusters[].nodeAffinity (with any shardOverrides[].nodeAffinity already
+// layered in).
+func nodeAffinityModification(nodeAffinity *corev1.NodeAffinity) podtemplatespec.Modification {
+	if nodeAffinity == nil {
+		return podtemplatespec.NOOP()
+	}
+	return podtemplatespec.WithNodeAffinity(nodeAffinity.DeepCopy())
 }
 
 // StatefulSetOverrideModification applies the resolved clusters[].statefulSet, with any
