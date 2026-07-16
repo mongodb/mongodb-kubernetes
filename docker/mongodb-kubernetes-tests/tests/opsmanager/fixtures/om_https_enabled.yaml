@@ -18,6 +18,18 @@ spec:
 
   statefulSet:
     spec:
+      # Persist the conf directory on a PVC (documented override of the default
+      # emptyDir mount). This makes conf-mms.properties survive pod recreation,
+      # matching the customer topology of KUBE-141: disabling TLS must not leave
+      # a stale mms.https.PEMKeyFile behind or Ops Manager can never boot again.
+      volumeClaimTemplates:
+        - metadata:
+            name: om-conf
+          spec:
+            accessModes: [ "ReadWriteOnce" ]
+            resources:
+              requests:
+                storage: 1Gi
       template:
         spec:
           volumes:
@@ -28,6 +40,8 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
+                - name: om-conf
+                  mountPath: /mongodb-ops-manager/conf
 
           # The initContainers will download the require 4.2+ and 4.4+ versions of MongoDB
           # allowing Ops Manager to act as download endpoint for the automation agent
