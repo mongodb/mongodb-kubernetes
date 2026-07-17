@@ -224,3 +224,40 @@ users:
 
 	return file
 }
+
+func TestMongoDBMulti_RoleImmutable(t *testing.T) {
+	// roleImmutable message; computed here to keep the expectation in one place
+	const immutableError = "spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
+
+	buildMrs := func(role string) *MongoDBMultiCluster {
+		if role == mdbv1.RoleAppDB {
+			return appDBRoleReadyMultiReplicaSet()
+		}
+		return DefaultMultiReplicaSetBuilder().SetClusterSpecList([]string{"cluster-1"}).Build()
+	}
+
+	tests := []struct {
+		name          string
+		oldRole       string
+		newRole       string
+		expectedError string
+	}{
+		{name: "removing role AppDB is rejected", oldRole: mdbv1.RoleAppDB, newRole: "", expectedError: immutableError},
+		{name: "adding role AppDB is rejected", oldRole: "", newRole: mdbv1.RoleAppDB, expectedError: immutableError},
+		{name: "unchanged role AppDB is allowed", oldRole: mdbv1.RoleAppDB, newRole: mdbv1.RoleAppDB},
+		{name: "unchanged empty role is allowed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldMrs := buildMrs(tt.oldRole)
+			newMrs := buildMrs(tt.newRole)
+
+			_, err := validator.ValidateUpdate(ctx, oldMrs, newMrs)
+			if tt.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.expectedError)
+			}
+		})
+	}
+}

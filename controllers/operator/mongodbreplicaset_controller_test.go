@@ -49,6 +49,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -1662,6 +1663,77 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
 }
 
+func TestEnsureAppDBRoleKeyfile(t *testing.T) {
+	const sharedKey = "shared-keyfile-contents"
+	const projectGeneratedKey = "project-generated-key"
+
+	tests := []struct {
+		name        string
+		role        string
+		existingKey string // pre-seeded "<name>-keyfile" secret contents; "" = secret absent
+		projectKey  string // pre-existing project automation-config key; "" = none
+	}{
+		{name: "existing secret overrides a differing project key", role: mdbv1.RoleAppDB, existingKey: sharedKey, projectKey: projectGeneratedKey},
+		{name: "existing secret with matching project key stays in place", role: mdbv1.RoleAppDB, existingKey: sharedKey, projectKey: sharedKey},
+		{name: "absent secret is seeded from the project key", role: mdbv1.RoleAppDB, projectKey: projectGeneratedKey},
+		{name: "absent secret and no project key: key generated and persisted", role: mdbv1.RoleAppDB},
+		{name: "non-AppDB role is skipped", role: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(tt.role).Build()
+			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+			conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+			if tt.projectKey != "" {
+				require.NoError(t, conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+					ac.Auth.Key = tt.projectKey
+					return nil
+				}, zap.S()))
+			}
+			keyfileSecretName := fmt.Sprintf("%s-keyfile", mdb.Name)
+			if tt.existingKey != "" {
+				existing := secret.Builder().
+					SetName(keyfileSecretName).
+					SetNamespace(mdb.Namespace).
+					SetField(constants.AgentKeyfileKey, tt.existingKey).
+					Build()
+				require.NoError(t, kubeClient.CreateSecret(ctx, existing))
+			}
+
+			require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
+			// second call must be stable: same key in the AC and the secret (determinism)
+			require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
+
+			ac, err := conn.ReadAutomationConfig()
+			require.NoError(t, err)
+			sec := corev1.Secret{}
+			secretErr := kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, keyfileSecretName), &sec)
+
+			if tt.role != mdbv1.RoleAppDB {
+				assert.Equal(t, tt.projectKey, ac.Auth.Key, "non-AppDB CRs must not touch the project key")
+				assert.True(t, apiErrors.IsNotFound(secretErr), "non-AppDB CRs must not create the keyfile secret")
+				return
+			}
+
+			require.NoError(t, secretErr)
+			persistedKey := string(sec.Data[constants.AgentKeyfileKey])
+			if tt.existingKey != "" {
+				assert.Equal(t, tt.existingKey, ac.Auth.Key, "the shared secret's key must win over the project key")
+				assert.Equal(t, tt.existingKey, persistedKey)
+			} else {
+				require.NotEmpty(t, ac.Auth.Key)
+				if tt.projectKey != "" {
+					assert.Equal(t, tt.projectKey, ac.Auth.Key, "an existing project key must be reused, not regenerated")
+				}
+				assert.Equal(t, ac.Auth.Key, persistedKey, "the project key must be persisted into the shared secret")
+			}
+		})
+	}
+}
+
 func TestEnsureAppDBRoleUser_CreatesSharedPasswordSecret(t *testing.T) {
 	ctx := context.Background()
 	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
@@ -1781,7 +1853,7 @@ func TestAdoptionGate_BlocksWithoutAnnotation(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
 	assert.NoError(t, err)
 	assert.True(t, blocked)
 }
@@ -1790,13 +1862,13 @@ func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) 
 	ctx := context.Background()
 	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
 		SetOwnerReferences(someOtherOwnerReference()).
-		SetAnnotations(map[string]string{appDBMigrationReadyAnnotation: "true"}).Build()
+		SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).Build()
 	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
 	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
 	assert.NoError(t, err)
 	assert.True(t, blocked, "must stay blocked while the foreign OwnerReference is still present, even with the annotation")
 }
@@ -1805,15 +1877,55 @@ func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
 	ctx := context.Background()
 	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
 		SetOwnerReferences(nil).
-		SetAnnotations(map[string]string{appDBMigrationReadyAnnotation: "true"}).Build()
+		SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).Build()
 	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
 	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
 	assert.NoError(t, err)
 	assert.False(t, blocked)
+}
+
+func TestAdoptionGate_BlockedMessage(t *testing.T) {
+	tests := []struct {
+		name            string
+		ownerRefs       []metav1.OwnerReference
+		expectedMessage string
+	}{
+		{
+			// valid both mid-forward-migration (detach not started) and after a completed
+			// reverse migration (this CR is a deletable leftover)
+			name: "OM-owned StatefulSet names the Ops Manager and both user actions",
+			ownerRefs: []metav1.OwnerReference{{
+				APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: "om-uid-1111",
+			}},
+			expectedMessage: `StatefulSet my-om-db is managed by Ops Manager "my-om": either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this MongoDB resource`,
+		},
+		{
+			name: "non-OM foreign owner keeps the detach-waiting message",
+			ownerRefs: []metav1.OwnerReference{{
+				APIVersion: "v1", Kind: "ConfigMap", Name: "some-unrelated-owner", UID: "cm-uid-3333",
+			}},
+			expectedMessage: "waiting for Ops Manager to finish detaching AppDB StatefulSet my-om-db",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sts := DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(tt.ownerRefs).Build()
+			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			require.NoError(t, kubeClient.Create(ctx, &sts))
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+			blocked, blockedMessage, err := helper.checkAdoptionGate(ctx, mdb)
+			require.NoError(t, err)
+			require.True(t, blocked)
+			assert.Equal(t, tt.expectedMessage, blockedMessage)
+		})
+	}
 }
 
 func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
@@ -1822,61 +1934,69 @@ func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
 	reconciler, _, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, err := helper.checkAdoptionGate(ctx, mdb)
+	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
 	assert.NoError(t, err)
 	assert.False(t, blocked, "Fresh Start: no StatefulSet exists yet, no adoption gate applies")
 }
 
-func TestAppDBFinalizer_AddedWhenRoleSet(t *testing.T) {
+func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
 	ctx := context.Background()
-	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	rs := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
+		EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedOmConn.CleanHistory()
 
-	err := helper.ensureAppDBFinalizer(ctx, mdb)
-	assert.NoError(t, err)
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 
-	result := mdbv1.MongoDB{}
-	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
-	assert.Contains(t, result.Finalizers, appDBDetachFinalizer)
+	// deletion of an AppDB-role CR is a handover to internal AppDB management, not a deprovision:
+	// removing the replica set from the project would make the agents shut down every mongod at
+	// once, taking the AppDB (and the Ops Manager depending on it) down mid-migration
+	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
 }
 
-func TestAppDBFinalizer_NotAddedForOrdinaryReplicaSet(t *testing.T) {
-	ctx := context.Background()
-	mdb := DefaultReplicaSetBuilder().SetName("ordinary-rs").Build() // no role set
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+func TestConsumeAdoptionSignal(t *testing.T) {
+	tests := []struct {
+		name string
+		// sts builds the pre-existing StatefulSet; nil means it doesn't exist (Fresh Start)
+		sts *appsv1.StatefulSet
+	}{
+		{
+			name: "removes migration-ready annotation after adoption",
+			sts: ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").
+				SetOwnerReferences(nil).
+				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true", "other": "kept"}).Build()),
+		},
+		{
+			name: "no-op when annotation absent",
+			sts:  ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(nil).Build()),
+		},
+		{
+			name: "no-op when StatefulSet does not exist",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			if tt.sts != nil {
+				require.NoError(t, kubeClient.Create(ctx, tt.sts))
+			}
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	err := helper.ensureAppDBFinalizer(ctx, mdb)
-	assert.NoError(t, err)
+			require.NoError(t, helper.consumeAdoptionSignal(ctx, mdb))
 
-	result := mdbv1.MongoDB{}
-	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
-	assert.NotContains(t, result.Finalizers, appDBDetachFinalizer)
-}
-
-func TestAppDBFinalizerCleanup_StripsOwnerReferenceAnnotatesAndRemovesFinalizer(t *testing.T) {
-	ctx := context.Background()
-	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
-		SetFinalizers([]string{appDBDetachFinalizer}).
-		SetDeletionTimestamp(metav1.Now()).Build()
-	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
-		SetOwnerReferences(kube.BaseOwnerReference(mdb)).Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	require.NoError(t, kubeClient.Create(ctx, &sts))
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-	err := helper.cleanupAppDBFinalizer(ctx, mdb)
-	assert.NoError(t, err)
-
-	resultSts := appsv1.StatefulSet{}
-	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, "my-om-db"), &resultSts))
-	assert.Empty(t, resultSts.OwnerReferences)
-	assert.Equal(t, "true", resultSts.Annotations[appDBMigrationReadyAnnotation])
-
-	updatedMdb := mdbv1.MongoDB{}
-	getErr := kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &updatedMdb)
-	assert.True(t, apiErrors.IsNotFound(getErr), "finalizer removal should let deletion complete")
+			if tt.sts != nil {
+				result := appsv1.StatefulSet{}
+				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
+				assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation,
+					"the migration-ready annotation must be consumed on adoption, or the OM controller would re-adopt prematurely on reverse migration")
+			}
+		})
+	}
 }
 
 func assertAppDBRoleUserRolesAndCreds(t *testing.T, createdUser *om.MongoDBUser) {
@@ -1903,4 +2023,155 @@ func TestEnsureAppDBRoleUser_NoOpWhenRoleNotSet(t *testing.T) {
 	sec := corev1.Secret{}
 	err = kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName(mdb.Name)), &sec)
 	assert.True(t, apiErrors.IsNotFound(err))
+}
+
+func TestReleaseStatefulSetIfRequested(t *testing.T) {
+	tests := []struct {
+		name              string
+		annotations       map[string]string
+		crOwned           bool
+		expectedReleased  bool
+		expectedOwnerRefs int
+	}{
+		{
+			name:              "release requested on owned StatefulSet: strips ownerRef, keeps annotation",
+			annotations:       map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+			crOwned:           true,
+			expectedReleased:  true,
+			expectedOwnerRefs: 0,
+		},
+		{
+			name:              "release requested on already-released StatefulSet: stays released",
+			annotations:       map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+			expectedReleased:  true,
+			expectedOwnerRefs: 0,
+		},
+		{
+			name:              "no release request: untouched",
+			crOwned:           true,
+			expectedReleased:  false,
+			expectedOwnerRefs: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+			mdb.UID = types.UID("cr-uid-2222") // UID matching requires non-empty UIDs
+			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+			var refs []metav1.OwnerReference
+			if tt.crOwned {
+				refs = kube.BaseOwnerReference(mdb)
+			}
+			sts := DefaultStatefulSetBuilder().SetName(mdb.Name).SetOwnerReferences(refs).SetAnnotations(tt.annotations).Build()
+			require.NoError(t, kubeClient.Create(ctx, &sts))
+
+			released, err := helper.releaseStatefulSetIfRequested(ctx, mdb)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedReleased, released)
+
+			result := appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
+			assert.Len(t, result.OwnerReferences, tt.expectedOwnerRefs)
+			if tt.expectedReleased {
+				assert.Equal(t, "true", result.Annotations[util.AppDBReverseMigrationReadyAnnotation],
+					"the release request must stay on the StatefulSet until the OM adopts it")
+			}
+		})
+	}
+}
+
+func TestAdoptionGate_BlocksWhileReleaseRequested(t *testing.T) {
+	// defensive condition: a stale, unconsumed appdb-migration-ready must not let the CR
+	// re-adopt a StatefulSet the OM has requested released
+	ctx := context.Background()
+	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+		SetOwnerReferences(nil).
+		SetAnnotations(map[string]string{
+			util.AppDBMigrationReadyAnnotation:        "true",
+			util.AppDBReverseMigrationReadyAnnotation: "true",
+		}).Build()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
+	assert.NoError(t, err)
+	assert.True(t, blocked)
+}
+
+func TestEnsureAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
+	// forward migration: the secrets pre-exist (created by internal AppDB, ownerRefs stripped by
+	// detach); the CR must claim them so its eventual deletion (fallback path) GCs them together
+	// with the StatefulSet
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	mdb.UID = types.UID("cr-uid-2222")
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	passwordName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
+	keyfileName := fmt.Sprintf("%s-keyfile", mdb.Name)
+	for name, field := range map[string]string{passwordName: util.OpsManagerPasswordKey, keyfileName: constants.AgentKeyfileKey} {
+		s := secret.Builder().SetName(name).SetNamespace(mdb.Namespace).SetField(field, "pre-existing").Build()
+		require.NoError(t, kubeClient.CreateSecret(ctx, s))
+	}
+
+	require.NoError(t, helper.ensureAppDBRoleUser(ctx, mdb, conn))
+	require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
+
+	for _, name := range []string{passwordName, keyfileName} {
+		s := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s))
+		require.Len(t, s.OwnerReferences, 1, name)
+		assert.Equal(t, mdb.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the CR", name)
+	}
+}
+
+func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
+	// regression: the release check must run before the ensureAppDBRole* claim steps - a released
+	// CR re-claiming the OM-owned handover secrets would garbage-collect them on its deletion,
+	// rotating the keyfile under a running internal AppDB
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
+		EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	rs.UID = types.UID("cr-uid-2222")
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	omOwnerRef := []metav1.OwnerReference{{
+		APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: "om-uid-1111",
+	}}
+	sts := DefaultStatefulSetBuilder().SetName(rs.Name).
+		SetOwnerReferences(kube.BaseOwnerReference(rs)).
+		SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+
+	passwordName := omv1.OpsManagerUserPasswordSecretName(rs.Name)
+	keyfileName := fmt.Sprintf("%s-keyfile", rs.Name)
+	for name, field := range map[string]string{passwordName: util.OpsManagerPasswordKey, keyfileName: constants.AgentKeyfileKey} {
+		s := secret.Builder().SetName(name).SetNamespace(rs.Namespace).SetField(field, "om-owned").SetOwnerReferences(omOwnerRef).Build()
+		require.NoError(t, kubeClient.CreateSecret(ctx, s))
+	}
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.NotEqual(t, reconcile.Result{}, res)
+
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(rs), rs))
+	assert.Equal(t, status.PhasePending, rs.Status.Phase)
+	// the status machinery capitalizes the first letter of the message
+	assert.Contains(t, rs.Status.Message, "AppDB StatefulSet to Ops Manager; this resource can be deleted")
+
+	for _, name := range []string{passwordName, keyfileName} {
+		s := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, name), &s))
+		require.Len(t, s.OwnerReferences, 1, name)
+		assert.Equal(t, types.UID("om-uid-1111"), s.OwnerReferences[0].UID,
+			"secret %s must stay OM-owned while the CR is released", name)
+	}
 }

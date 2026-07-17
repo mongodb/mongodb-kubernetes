@@ -2,6 +2,7 @@ from typing import List, Optional
 
 import kubernetes.client
 import pymongo
+from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
@@ -18,7 +19,7 @@ om_external_appdb_fresh.py and om_external_appdb_forward.py.
 SENTINEL_DOC = {"_id": "external-appdb-sentinel", "marker": "survived-migration"}
 TEST_DB = "sentinelDb"
 TEST_COLLECTION = "sentinelCollection"
-PROJECT_NAME = "external-appdb-project"
+META_OM_NAME = "meta-om"
 
 
 def password_secret_name(om_name: str) -> str:
@@ -70,10 +71,29 @@ def appdb_role_resource(
         return resource
 
 
-def configure_appdb_role_mongodb(mdb: MongoDB, ops_manager: MongoDBOpsManager, namespace: str) -> MongoDB:
-    config_map_name = ops_manager.get_or_create_mongodb_connection_config_map(mdb.name, PROJECT_NAME)
+def meta_om_resource(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+    """Builds the management-plane Ops Manager ("Meta OM", per the external-AppDB spike topology)
+    that owns the projects managing the AppDB-role MongoDB CRs. Deployment happens in each module's
+    TestDeployMetaOpsManager class, not here. A single Meta OM is shared by every test class in a
+    module - it must never be the Primary OM under test, otherwise the AppDB's automation agents
+    would depend on the very OM whose availability depends on that AppDB."""
+    resource = MongoDBOpsManager.from_yaml(
+        yaml_fixture("meta_om.yaml"),
+        name=META_OM_NAME,
+        namespace=namespace,
+    )
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
+    try_load(resource)
+    return resource
+
+
+def configure_appdb_role_mongodb(mdb: MongoDB, meta_om: MongoDBOpsManager, namespace: str) -> MongoDB:
+    """Points the AppDB-role CR's project/credentials at the Meta OM (never the Primary OM - see
+    ensure_meta_om). Per-CR project name so multiple test classes can share one Meta OM."""
+    config_map_name = meta_om.get_or_create_mongodb_connection_config_map(mdb.name, f"{mdb.name}-project")
     mdb["spec"]["opsManager"]["configMapRef"]["name"] = config_map_name
-    mdb["spec"]["credentials"] = ops_manager.api_key_secret(namespace)
+    mdb["spec"]["credentials"] = meta_om.api_key_secret(namespace)
     return mdb
 
 

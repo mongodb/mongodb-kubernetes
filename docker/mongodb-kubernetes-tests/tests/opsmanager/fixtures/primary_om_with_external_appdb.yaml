@@ -1,0 +1,27 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: primary-om-with-external-appdb
+spec:
+  replicas: 1
+  version: 5.0.1
+  adminCredentials: ops-manager-admin-secret
+
+  # no spec.applicationDatabase: this OM is created with externalApplicationDatabaseRef
+  # set from the start (true Fresh Start, Procedure 1) and never has an internal AppDB
+
+  backup:
+    enabled: false
+
+  # adding this just to avoid wizard when opening OM UI
+  configuration:
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

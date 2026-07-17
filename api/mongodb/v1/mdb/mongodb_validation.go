@@ -383,6 +383,18 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// roleImmutable blocks any spec.role transition after creation. Removing role: AppDB would
+// orphan the appdb-detach finalizer and re-enable the full Ops Manager state teardown on
+// deletion, shutting down a database an Ops Manager may still depend on; adding it to an
+// existing resource is an undesigned conversion flow. The only supported way to stop using a
+// resource as AppDB is reverse migration (deleting the resource).
+func roleImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if newObj.Role != oldObj.Role {
+		return v1.ValidationError("spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)")
+	}
+	return v1.ValidationSuccess()
+}
+
 // This validation blocks topology migrations for any MongoDB resource (Standalone, ReplicaSet, ShardedCluster)
 func noTopologyMigration(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if oldObj.GetTopology() != newObj.GetTopology() {
@@ -446,6 +458,22 @@ func appDBRoleRequiresScram(d DbCommonSpec) v1.ValidationResult {
 		return v1.ValidationError("spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB")
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// appDBRoleRequiresSingleClusterReplicaSet: an AppDB-role resource is always an ordinary
+// single-cluster replica set; sharded clusters have no AppDB equivalent, and multi-cluster
+// AppDB is the MongoDBMultiCluster kind's concern.
+func appDBRoleRequiresSingleClusterReplicaSet(ms MongoDbSpec) v1.ValidationResult {
+	if ms.Role != RoleAppDB {
+		return v1.ValidationSuccess()
+	}
+	if ms.ResourceType != ReplicaSet {
+		return v1.ValidationError("spec.resourceType must be ReplicaSet when spec.role is AppDB")
+	}
+	if ms.GetTopology() == ClusterTopologyMultiCluster {
+		return v1.ValidationError("spec.topology MultiCluster is not supported when spec.role is AppDB; use the MongoDBMultiCluster resource instead")
+	}
 	return v1.ValidationSuccess()
 }
 
@@ -516,10 +544,12 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
 		appDBRoleRequiresMinimumMembers,
+		appDBRoleRequiresSingleClusterReplicaSet,
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
+		roleImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
 	}

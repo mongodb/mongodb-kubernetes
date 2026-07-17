@@ -1931,6 +1931,10 @@ func (r *OpsManagerReconciler) stripInternalAppDBOwnerReferencesFromSecretsAndCo
 		return err
 	}
 
+	if err := stripOwnerReferenceFromSecret(ctx, r.client, opsManager.Namespace, appDBSpec.GetAgentKeyfileSecretNamespacedName().Name); err != nil {
+		return err
+	}
+
 	stateConfigMapName := fmt.Sprintf("%s-state", appDBSpec.GetName())
 	for _, cmName := range []string{stateConfigMapName, appDBSpec.ClusterMappingConfigMapName(), appDBSpec.LastAppliedMemberSpecConfigMapName()} {
 		if err := stripOwnerReferenceFromConfigMap(ctx, r.client, opsManager.Namespace, cmName); err != nil {

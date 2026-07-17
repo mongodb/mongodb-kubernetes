@@ -1293,6 +1293,8 @@ task_groups:
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_validation
       - e2e_om_appdb_scram
+      - e2e_om_external_appdb_forward
+      - e2e_om_external_appdb_fresh
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_migration
@@ -1338,6 +1340,8 @@ task_groups:
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_validation
       - e2e_om_appdb_scram
+      - e2e_om_external_appdb_forward
+      - e2e_om_external_appdb_fresh
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_weak_password

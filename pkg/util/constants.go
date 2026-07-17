@@ -318,6 +318,19 @@ const (
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
+	// AppDBMigrationReadyAnnotation marks the internal AppDB StatefulSet as fully detached from
+	// the MongoDBOpsManager resource, allowing the referenced MongoDB/MongoDBMultiCluster
+	// resource to adopt it (see checkAdoptionGate).
+	AppDBMigrationReadyAnnotation = "mongodb.com/appdb-migration-ready"
+
+	// AppDBReverseMigrationReadyAnnotation is the reverse-migration release request: set by the
+	// internal AppDB reconciler on a StatefulSet still owned by a MongoDB CR, answered by the
+	// MongoDB controller stripping its OwnerReference, and removed at adoption
+	// (ensureAppDBStatefulSetOwnership). Removal happens at adoption (not at migration
+	// completion), symmetric with the forward direction's consumeAdoptionSignal: from adoption
+	// onward the OwnerReference is the authoritative state.
+	AppDBReverseMigrationReadyAnnotation = "mongodb.com/appdb-reverse-migration-ready"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 

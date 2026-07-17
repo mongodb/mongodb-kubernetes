@@ -134,6 +134,12 @@ func PredicatesForStatefulSet() predicate.Funcs {
 			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
 			newSts := e.ObjectNew.(*appsv1.StatefulSet)
 
+			// the reverse-migration release request is an annotation-only update; without letting
+			// it through, the AppDB-role MongoDB CR never learns it must release its StatefulSet
+			if oldSts.Annotations[util.AppDBReverseMigrationReadyAnnotation] != newSts.Annotations[util.AppDBReverseMigrationReadyAnnotation] {
+				return true
+			}
+
 			val, ok := newSts.Annotations["type"]
 
 			if ok && val == "Replicaset" {

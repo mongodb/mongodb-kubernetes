@@ -77,7 +77,29 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 		}
 	}
 
+	if old != nil {
+		updateValidators := []func(newObj, oldObj MongoDBMultiSpec) v1.ValidationResult{
+			roleImmutable,
+		}
+		for _, validator := range updateValidators {
+			res := validator(m.Spec, old.Spec)
+			if res.Level > 0 {
+				validationResults = append(validationResults, res)
+			}
+		}
+	}
+
 	return validationResults
+}
+
+// roleImmutable blocks any spec.role transition after creation, mirroring the MongoDB CR's
+// validator of the same name: removing role: AppDB would re-enable the full Ops Manager state
+// teardown on deletion, and adding it to an existing resource is an undesigned conversion flow.
+func roleImmutable(newObj, oldObj MongoDBMultiSpec) v1.ValidationResult {
+	if newObj.Role != oldObj.Role {
+		return v1.ValidationError("spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)")
+	}
+	return v1.ValidationSuccess()
 }
 
 // validateUniqueExternalDomains validates uniqueness of the domains if they are provided.

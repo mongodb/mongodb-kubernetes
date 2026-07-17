@@ -137,8 +137,12 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 
 // detachInternalAppDB performs the one-time forward-migration detach: validate, strip
 // OwnerReferences from the internal AppDB StatefulSet, password secret, and ConfigMaps, and
-// annotate the StatefulSet ready for adoption. Idempotent — safe to call every reconcile while
-// externalApplicationDatabaseRef is set and detach hasn't completed yet.
+// annotate the StatefulSet ready for adoption. It only acts on a StatefulSet that still carries
+// this OM's own OwnerReference — a StatefulSet without it either belongs to the referenced
+// MongoDB CR (Fresh Start) or has already been detached, and touching it would strip the CR's
+// ownership and leave a stale migration-ready annotation that lets the OM re-adopt prematurely
+// on reverse migration. Idempotent — safe to call every reconcile while
+// externalApplicationDatabaseRef is set.
 //
 // TODO(CLOUDP-TBD): this only fetches/annotates a single StatefulSet named after
 // externalApplicationDatabaseRef.Name in the central cluster's client, which assumes the
@@ -166,11 +170,35 @@ func (e *ReconcileExternalAppDBReplicaSet) detachInternalAppDB(ctx context.Conte
 		return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
 	}
 
+	ownedByThisOM := false
+	for _, ref := range sts.OwnerReferences {
+		if ref.UID == opsManager.UID {
+			ownedByThisOM = true
+			break
+		}
+	}
+	if !ownedByThisOM {
+		// Abort of an in-flight reverse migration: the internal reconciler requested a release
+		// (and the CR may already have complied). Hand the StatefulSet to the CR by swapping the
+		// annotations - removing the request alone would leave the CR's gate blocked forever.
+		if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+			delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+			if len(sts.OwnerReferences) == 0 {
+				sts.Annotations[util.AppDBMigrationReadyAnnotation] = trueString
+			}
+			if err := e.client.Update(ctx, &sts); err != nil {
+				return xerrors.Errorf("failed to clear reverse-migration request from StatefulSet %s: %w", stsKey.Name, err)
+			}
+		}
+		return nil // Fresh Start (StatefulSet belongs to the referenced CR) or detach already completed
+	}
+
 	sts.OwnerReferences = nil
 	if sts.Annotations == nil {
 		sts.Annotations = map[string]string{}
 	}
-	sts.Annotations[appDBMigrationReadyAnnotation] = trueString
+	sts.Annotations[util.AppDBMigrationReadyAnnotation] = trueString
+	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	if err := e.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to strip OwnerReferences and annotate StatefulSet %s: %w", stsKey.Name, err)
 	}

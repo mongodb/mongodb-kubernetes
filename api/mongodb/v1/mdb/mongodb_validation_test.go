@@ -789,6 +789,31 @@ func TestMongoDB_AppDBRoleValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "role AppDB with resourceType ShardedCluster",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.ResourceType = ShardedCluster
+				// sharded validators dereference the component specs unconditionally
+				rs.Spec.ShardSpec = &ShardedClusterComponentSpec{}
+				rs.Spec.ConfigSrvSpec = &ShardedClusterComponentSpec{}
+				rs.Spec.MongosSpec = &ShardedClusterComponentSpec{}
+			},
+			expectedErrorMessage: "spec.resourceType must be ReplicaSet when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB with resourceType Standalone",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.ResourceType = Standalone
+			},
+			expectedErrorMessage: "spec.resourceType must be ReplicaSet when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB with topology MultiCluster",
+			mutate: func(rs *MongoDB) {
+				rs.Spec.Topology = ClusterTopologyMultiCluster
+			},
+			expectedErrorMessage: "spec.topology MultiCluster is not supported when spec.role is AppDB; use the MongoDBMultiCluster resource instead",
+		},
+		{
 			name:   "role AppDB with everything satisfied",
 			mutate: func(rs *MongoDB) {},
 		},
@@ -806,6 +831,47 @@ func TestMongoDB_AppDBRoleValidation(t *testing.T) {
 				assert.EqualError(t, err, tt.expectedErrorMessage)
 			} else {
 				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMongoDB_RoleImmutable(t *testing.T) {
+	// roleImmutable message; computed here to keep the expectation in one place
+	const immutableError = "spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
+
+	buildRs := func(role string) *MongoDB {
+		if role == RoleAppDB {
+			return appDBRoleReadyReplicaSet()
+		}
+		rs := NewReplicaSetBuilder().Build()
+		rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
+			ConfigMapRef: ConfigMapRef{Name: "cloud-manager"},
+		}
+		return rs
+	}
+
+	tests := []struct {
+		name          string
+		oldRole       string
+		newRole       string
+		expectedError string
+	}{
+		{name: "removing role AppDB is rejected", oldRole: RoleAppDB, newRole: "", expectedError: immutableError},
+		{name: "adding role AppDB is rejected", oldRole: "", newRole: RoleAppDB, expectedError: immutableError},
+		{name: "unchanged role AppDB is allowed", oldRole: RoleAppDB, newRole: RoleAppDB},
+		{name: "unchanged empty role is allowed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldRs := buildRs(tt.oldRole)
+			newRs := buildRs(tt.newRole)
+
+			_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+			if tt.expectedError == "" {
+				assert.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.expectedError)
 			}
 		})
 	}

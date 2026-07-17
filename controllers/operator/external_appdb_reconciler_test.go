@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -203,7 +204,7 @@ func TestDetachInternalAppDB_StripsOwnerReferencesAndAnnotates(t *testing.T) {
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
 	assert.Empty(t, resultSts.OwnerReferences)
-	assert.Equal(t, "true", resultSts.Annotations[appDBMigrationReadyAnnotation])
+	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 
 	resultSecret := corev1.Secret{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, passwordSecret.Name), &resultSecret))
@@ -267,7 +268,7 @@ func TestDetachInternalAppDB_IsIdempotent(t *testing.T) {
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
 	assert.Empty(t, resultSts.OwnerReferences)
-	assert.Equal(t, "true", resultSts.Annotations[appDBMigrationReadyAnnotation])
+	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 }
 
 // TestDetachInternalAppDB_OnlyStripsHealthyAppDBMemberClusters proves the strip step iterates the
@@ -365,4 +366,138 @@ func TestComputeExternalAppDBConnectionString_WritesFixedSecret(t *testing.T) {
 	result := corev1.Secret{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), &result))
 	assert.Contains(t, string(result.Data[util.AppDbConnectionStringKey]), util.OpsManagerMongoDBUserName)
+}
+
+func TestDetachInternalAppDB_OnlyDetachesOMOwnedStatefulSet(t *testing.T) {
+	// real UIDs needed: the ownership check compares OwnerReference UIDs, and empty test UIDs
+	// ("" == "") would make every StatefulSet look OM-owned
+	const omUID = "om-uid-1111"
+	const crUID = "cr-uid-2222"
+
+	tests := []struct {
+		name             string
+		stsOwnerRefs     func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference
+		expectedDetached bool
+	}{
+		{
+			name: "OM-owned StatefulSet is stripped and annotated",
+			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return kube.BaseOwnerReference(testOm)
+			},
+			expectedDetached: true,
+		},
+		{
+			name: "CR-owned StatefulSet (fresh start) is untouched",
+			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return []metav1.OwnerReference{{
+					APIVersion: "mongodb.com/v1",
+					Kind:       "MongoDB",
+					Name:       "test-om-db",
+					UID:        crUID,
+				}}
+			},
+			expectedDetached: false,
+		},
+		{
+			name: "ownerRef-free StatefulSet (already detached and consumed) is not re-annotated",
+			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return nil
+			},
+			expectedDetached: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().SetName("test-om").Build(), validExternalAppDBRef())
+			testOm.UID = types.UID(omUID)
+			mdb := validExternalAppDBMongoDB()
+
+			originalOwnerRefs := tt.stsOwnerRefs(testOm)
+			sts := appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-om-db",
+					Namespace:       mock.TestNamespace,
+					OwnerReferences: originalOwnerRefs,
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: ptr.To(int32(3)),
+				},
+			}
+			passwordSecret := corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName(),
+					Namespace:       mock.TestNamespace,
+					OwnerReferences: originalOwnerRefs,
+				},
+			}
+			keyfileSecret := corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name,
+					Namespace:       mock.TestNamespace,
+					OwnerReferences: originalOwnerRefs,
+				},
+			}
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+			require.NoError(t, reconciler.client.Create(ctx, mdb))
+			require.NoError(t, reconciler.client.Create(ctx, &sts))
+			require.NoError(t, reconciler.client.Create(ctx, &passwordSecret))
+			require.NoError(t, reconciler.client.Create(ctx, &keyfileSecret))
+
+			require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).detachInternalAppDB(ctx, testOm, zap.S()))
+
+			resultSts := appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
+			resultSecret := corev1.Secret{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, passwordSecret.Name), &resultSecret))
+			resultKeyfileSecret := corev1.Secret{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, keyfileSecret.Name), &resultKeyfileSecret))
+
+			if tt.expectedDetached {
+				assert.Empty(t, resultSts.OwnerReferences)
+				assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
+				assert.Empty(t, resultSecret.OwnerReferences)
+				assert.Empty(t, resultKeyfileSecret.OwnerReferences)
+			} else {
+				assert.Equal(t, originalOwnerRefs, resultSts.OwnerReferences)
+				assert.NotContains(t, resultSts.Annotations, util.AppDBMigrationReadyAnnotation)
+				assert.Equal(t, originalOwnerRefs, resultSecret.OwnerReferences)
+				assert.Equal(t, originalOwnerRefs, resultKeyfileSecret.OwnerReferences)
+			}
+		})
+	}
+}
+
+func TestDetachInternalAppDB_ClearsStaleReverseMigrationRequest(t *testing.T) {
+	// abort path: user re-added the ref while a reverse migration was in flight; the ownerless
+	// StatefulSet must be handed to the CR (annotation swap), exactly like a forward detach state
+	ctx := context.Background()
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().SetName("test-om").Build(), validExternalAppDBRef())
+	testOm.UID = types.UID("om-uid-1111")
+	mdb := validExternalAppDBMongoDB()
+
+	sts := appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-om-db",
+			Namespace:   mock.TestNamespace,
+			Annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+		},
+		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+	}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, mdb))
+	require.NoError(t, reconciler.client.Create(ctx, &sts))
+
+	require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).detachInternalAppDB(ctx, testOm, zap.S()))
+
+	result := appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &result))
+	assert.NotContains(t, result.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	assert.Equal(t, "true", result.Annotations[util.AppDBMigrationReadyAnnotation],
+		"ownerless StatefulSet must be handed to the CR via the forward-adoption annotation")
 }
