@@ -534,7 +534,6 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 func getEmptyDeploymentOptions() deploymentOptions {
 	return deploymentOptions{
 		podEnvVars:         &env.PodEnvVars{},
-		certTLSType:        map[string]bool{},
 		prometheusCertHash: "",
 	}
 }

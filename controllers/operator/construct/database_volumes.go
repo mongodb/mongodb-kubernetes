@@ -3,7 +3,6 @@ package construct
 import (
 	"fmt"
 	"path"
-	"path/filepath"
 
 	"go.uber.org/zap"
 
@@ -66,7 +65,7 @@ type tlsVolumeSource struct {
 }
 
 func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.VolumeMount) {
-	var volumes []corev1.Volume
+	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
 	security := c.security
@@ -75,7 +74,7 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 	// We default each value to the "old-design"
 	tlsConfig := security.TLSConfig
 	if !security.IsTLSEnabled() {
-		return volumes, volumeMounts
+		return volumesToAdd, volumeMounts
 	}
 
 	secretName := security.MemberCertificateSecretName(databaseOpts.Name)
@@ -100,32 +99,42 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 			Name:      secretVolume.Name,
 			ReadOnly:  true,
 		})
-		volumes = append(volumes, secretVolume)
+		volumesToAdd = append(volumesToAdd, secretVolume)
 	}
 
 	if tlsConfig == nil || tlsConfig.CA == "" {
 		c.logger.Debugf("No CA name has been supplied, defaulting to: %s", caName)
 	}
 
-	caVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
-	volumes = append(volumes, caVolume)
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		MountPath: util.TLSCaMountPath,
-		Name:      caVolume.Name,
-		ReadOnly:  true,
-	})
-
-	if tlsConfig != nil && tlsConfig.CAFilePath != "" {
-		customPath := tlsConfig.CAFilePath
+	defaultCAFilePath := path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)
+	if tlsConfig != nil && tlsConfig.CAFilePath != "" && tlsConfig.CAFilePath != defaultCAFilePath {
+		// Custom CA path (e.g. spec.security.tls.caFilePath): items mount (key=ca-pem, path=basename).
+		certFileName := path.Base(tlsConfig.CAFilePath)
+		certDir := path.Dir(tlsConfig.CAFilePath)
+		caConfigMapVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc, func(v *corev1.Volume) {
+			v.ConfigMap.Items = []corev1.KeyToPath{
+				{Key: tls.CAConfigMapKey, Path: certFileName},
+			}
+		})
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: customPath,
-			Name:      caVolume.Name,
-			SubPath:   filepath.Base(customPath),
+			MountPath: certDir,
+			Name:      caConfigMapVolume.Name,
 			ReadOnly:  true,
 		})
+		volumesToAdd = append(volumesToAdd, caConfigMapVolume)
+	} else {
+		// Default mode: mount the whole ConfigMap as a directory at TLSCaMountPath.
+		// The CA certificate is accessible at TLSCaMountPath/ca-pem.
+		caConfigMapVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, caName, optionalConfigMapFunc)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: util.TLSCaMountPath,
+			Name:      caConfigMapVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, caConfigMapVolume)
 	}
 
-	return volumes, volumeMounts
+	return volumesToAdd, volumeMounts
 }
 
 func (c *tlsVolumeSource) GetVolumes() []corev1.Volume {

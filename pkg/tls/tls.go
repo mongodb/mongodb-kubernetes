@@ -12,6 +12,7 @@ const (
 	Prefer                Mode = "preferTLS"
 	Allow                 Mode = "allowTLS"
 	ConfigMapVolumeCAName      = "secret-ca"
+	CAConfigMapKey             = "ca-pem"
 )
 
 func GetTLSModeFromMongodConfig(config map[string]interface{}) Mode {
