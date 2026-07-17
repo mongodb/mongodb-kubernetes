@@ -372,84 +372,6 @@ func TestMongoDBSearchReconcile_MultipleSearchResources(t *testing.T) {
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search1, "multiple MongoDBSearch")
 }
 
-func TestMongoDBSearchReconcile_MultiClusterBlocked(t *testing.T) {
-	ctx := context.Background()
-	// workflow.Invalid capitalizes the first char, so match on the stable substring.
-	const blockMsg = "MongoDBSearch is not supported yet"
-
-	twoClusters := func(s *searchv1.MongoDBSearch) {
-		s.Spec.Clusters = []searchv1.ClusterSpec{
-			pinnedCluster("us-east", 0),
-			pinnedCluster("us-west", 1),
-		}
-	}
-
-	// A single operator (operatorClusterName == "") blocks >1 clusters. The block
-	// defaults on when the enable flag is unset and stays on when explicitly "false"; an
-	// empty value is not a valid bool, so it falls back to the default-on behavior too.
-	for _, flag := range []struct{ name, value string }{
-		{"flag empty (default on)", ""},
-		{"flag false", "false"},
-	} {
-		t.Run(flag.name, func(t *testing.T) {
-			t.Setenv(util.SearchEnableMultiClusterEnv, flag.value)
-			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-			twoClusters(search)
-			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-			reconciler, c := newSearchReconciler(mdbc, search)
-			checkSearchReconcileFailed(ctx, t, reconciler, c, search, blockMsg)
-		})
-	}
-
-	// A single unnamed cluster is never blocked, regardless of the flag.
-	t.Run("single cluster is allowed", func(t *testing.T) {
-		search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-		mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-		reconciler, c := newSearchReconciler(mdbc, search)
-
-		updated := reconcileAndLoad(ctx, t, reconciler, c, search)
-		assert.NotContains(t, updated.Status.Message, blockMsg, "single-cluster spec must not be blocked")
-	})
-
-	// A per-cluster operator (operatorClusterName set) narrows to its own entry, so >1
-	// clusters is allowed even with the block on.
-	t.Run("per-cluster operator is allowed", func(t *testing.T) {
-		search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-		twoClusters(search)
-		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "us-east", search)
-
-		updated := reconcileAndLoad(ctx, t, reconciler, c, search)
-		assert.NotContains(t, updated.Status.Message, blockMsg, "per-cluster operator must not be blocked")
-	})
-
-	// With the block disabled, a single operator with >1 clusters is not blocked either.
-	t.Run("flag true skips the block", func(t *testing.T) {
-		enableSearchMCReconcile(t)
-		search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-		twoClusters(search)
-		mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-		reconciler, c := newSearchReconciler(mdbc, search)
-
-		updated := reconcileAndLoad(ctx, t, reconciler, c, search)
-		assert.NotContains(t, updated.Status.Message, blockMsg, "block must be skipped when flag is false")
-	})
-}
-
-// reconcileAndLoad runs a single reconcile pass and returns the reloaded MongoDBSearch.
-func reconcileAndLoad(
-	ctx context.Context,
-	t *testing.T,
-	reconciler *MongoDBSearchReconciler,
-	c client.Client,
-	search *searchv1.MongoDBSearch,
-) *searchv1.MongoDBSearch {
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
-	require.NoError(t, err)
-	updated := &searchv1.MongoDBSearch{}
-	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
-	return updated
-}
-
 func TestMongoDBSearchReconcile_InvalidSearchImageVersion(t *testing.T) {
 	ctx := context.Background()
 	expectedMsg := "MongoDBSearch version '1.47.0' is not supported. This operator requires MongoDBSearch version '1.70.1' or newer. The operator will ignore this resource: it will not reconcile or reconfigure the workload. Existing deployments will continue to run, but cannot be managed by the operator. To regain operator management, set a supported version and recreate the MongoDBSearch resource."
@@ -564,14 +486,7 @@ func pinnedCluster(name string, idx int32) searchv1.ClusterSpec {
 	return searchv1.ClusterSpec{Name: name, Index: ptr.To(idx)}
 }
 
-// enableSearchMCReconcile turns off the default multi-cluster block for tests that
-// exercise multi-cluster reconcile behavior.
-func enableSearchMCReconcile(t *testing.T) {
-	t.Setenv(util.SearchEnableMultiClusterEnv, "true")
-}
-
 func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
-	enableSearchMCReconcile(t)
 	ctx := context.Background()
 
 	// MC GA requires external source (Q2); managed source + MC (Q3) is post-MVP.
@@ -762,7 +677,6 @@ var operatorPerClusterProjectionCases = []struct {
 }
 
 func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T) {
-	enableSearchMCReconcile(t)
 	for _, tc := range operatorPerClusterProjectionCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -808,7 +722,6 @@ func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T)
 }
 
 func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
-	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
@@ -845,7 +758,6 @@ func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
 // Customer pin is authoritative: re-pinning renders at the new index. The
 // old-index resources leak — accepted MVP scope, no cleanup.
 func TestReconcile_OperatorPerCluster_RePinUpdatesNames(t *testing.T) {
-	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
@@ -916,7 +828,6 @@ func operatorPerClusterShardedTLSSecrets(search *searchv1.MongoDBSearch, cluster
 }
 
 func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly(t *testing.T) {
-	enableSearchMCReconcile(t)
 	for _, tc := range operatorPerClusterProjectionCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -977,7 +888,6 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 }
 
 func TestReconcile_OperatorPerCluster_ShardedSource_NoMatchSilentNoOp(t *testing.T) {
-	enableSearchMCReconcile(t)
 	ctx := context.Background()
 	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
 
@@ -1014,7 +924,6 @@ func TestReconcile_OperatorPerCluster_ShardedSource_NoMatchSilentNoOp(t *testing
 
 // ClusterIndex enforcement runs before LocalizeToCluster, so bad shapes surface as Failed.
 func TestReconcile_OperatorPerCluster_ClusterIndexEnforcement(t *testing.T) {
-	enableSearchMCReconcile(t)
 	ctx := context.Background()
 
 	t.Run("missing clusterIndex on a single entry is Invalid", func(t *testing.T) {
@@ -1084,7 +993,6 @@ func TestReconcile_OperatorPerCluster_ClusterIndexEnforcement(t *testing.T) {
 
 // Cluster-level proxy Service selector must match the label Envoy Deployment stamps on its Pods.
 func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testing.T) {
-	enableSearchMCReconcile(t)
 	ctx := context.Background()
 
 	search := &searchv1.MongoDBSearch{
