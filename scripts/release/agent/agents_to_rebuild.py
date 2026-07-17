@@ -7,6 +7,7 @@ import glob
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
@@ -32,6 +33,22 @@ def extract_ops_manager_mapping(release_data: Dict) -> Dict:
     if not release_data:
         return {}
     return release_data.get("supportedImages", {}).get("mongodb-agent", {}).get("opsManagerMapping", {})
+
+
+def get_evergreen_om_version_anchors(evergreen_path: str = ".evergreen.yml") -> Dict[str, str]:
+    """Parse .evergreen.yml for &ops_manager_XX_latest anchors -> OM version.
+
+    Context files (e.g. variables/om70, variables/om80) assign CUSTOM_OM_VERSION
+    dynamically by grepping .evergreen.yml for these anchors. Parsing the anchors
+    here lets us resolve the OM version without executing shell.
+    """
+    try:
+        with open(evergreen_path, "r") as f:
+            content = f.read()
+    except (FileNotFoundError, OSError) as e:
+        logger.debug(f"Could not parse .evergreen.yml anchors: {e}")
+        return {}
+    return dict(re.findall(r"&(ops_manager_\d+_latest)\s+(\S+)", content))
 
 
 def get_tools_version_for_agent(agent_version: str) -> str:
@@ -99,6 +116,7 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
 
         ops_manager_mapping = extract_ops_manager_mapping(release_data)
         ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+        anchors = get_evergreen_om_version_anchors()
 
         # Search all context files
         context_pattern = "scripts/dev/contexts/**/*"
@@ -119,20 +137,32 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
                                 logger.info(f"Found agent {agent_version} in {context_file}")
                                 break
 
-                        # Extract CUSTOM_OM_VERSION and map to agent version
+                        # Extract CUSTOM_OM_VERSION and map to agent version.
+                        # Handles static values (export CUSTOM_OM_VERSION=7.0.12 or
+                        # CUSTOM_OM_VERSION=6.0.27) and dynamic anchor references
+                        # (&ops_manager_80_latest resolved via .evergreen.yml) without
+                        # executing shell.
+                        om_version = None
                         for line in content.split("\n"):
-                            if line.startswith("export CUSTOM_OM_VERSION="):
-                                om_version = line.split("=")[1].strip()
-                                if om_version in ops_manager_versions:
-                                    agent_tools = ops_manager_versions[om_version]
-                                    agent_version = agent_tools.get("agent_version")
-                                    tools_version = agent_tools.get("tools_version")
-                                    if agent_version and tools_version:
-                                        agents.append((agent_version, tools_version))
-                                        logger.info(
-                                            f"Found OM version {om_version} -> agent {agent_version} in {context_file}"
-                                        )
+                            stripped = line.lstrip()
+                            if stripped.startswith("CUSTOM_OM_VERSION=") or stripped.startswith(
+                                "export CUSTOM_OM_VERSION="
+                            ):
+                                value = line.split("CUSTOM_OM_VERSION=", 1)[1].strip().strip("\"'")
+                                if value and not value.startswith("$"):
+                                    om_version = value
+                                else:
+                                    anchor_match = re.search(r"&(ops_manager_\d+_latest)", line)
+                                    if anchor_match:
+                                        om_version = anchors.get(anchor_match.group(1))
                                 break
+                        if om_version and om_version in ops_manager_versions:
+                            agent_tools = ops_manager_versions[om_version]
+                            agent_version = agent_tools.get("agent_version")
+                            tools_version = agent_tools.get("tools_version")
+                            if agent_version and tools_version:
+                                agents.append((agent_version, tools_version))
+                                logger.info(f"Found OM version {om_version} -> agent {agent_version} in {context_file}")
 
                 except Exception as e:
                     logger.debug(f"Error reading context file {context_file}: {e}")

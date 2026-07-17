@@ -37,9 +37,6 @@ fi
 
 export OPERATOR_ENV=${OPERATOR_ENV:-"dev"}
 
-AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
-export AGENT_VERSION
-
 # Ops Manager
 export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 
@@ -82,7 +79,6 @@ export MEKO_TESTS_IMAGE_REPOSITORY="${MEKO_TESTS_REGISTRY}/mongodb-kubernetes-te
 export READINESS_PROBE_REGISTRY=${READINESS_PROBE_REGISTRY:-${REGISTRY}}
 export VERSION_UPGRADE_HOOK_REGISTRY=${VERSION_UPGRADE_HOOK_REGISTRY:-${REGISTRY}}
 
-export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 export READINESS_PROBE_IMAGE="${READINESS_PROBE_REGISTRY}/mongodb-kubernetes-readinessprobe:${READINESS_PROBE_VERSION}"
 export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kubernetes-operator-version-upgrade-post-start-hook:${VERSION_UPGRADE_HOOK_VERSION}"
 
@@ -121,7 +117,6 @@ export PYTHON_VERSION=3.13.7
 ## MCO
 export MDB_COMMUNITY_IMAGE=mongodb-community-server
 export MDB_COMMUNITY_REPO_URL=quay.io/mongodb
-export MDB_COMMUNITY_AGENT_IMAGE=${AGENT_IMAGE}
 export MDB_COMMUNITY_IMAGE_TYPE=ubi8
 
 # Community Search
