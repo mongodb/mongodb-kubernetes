@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -79,6 +80,13 @@ func getClusterCredentials(clustersMap map[string]cluster.Cluster,
 func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) {
 	kubeConfigFile, err := multicluster.NewKubeConfigFile(multicluster.GetKubeConfigPath())
 	if err != nil {
+		if os.IsNotExist(err) {
+			// TODO(m1kola): slice-3: expected when member clusters are discovered from
+			// MemberCluster CRs rather than the legacy mounted kubeconfig — there is no
+			// kubeconfig file. File-based health checking does not apply on that path.
+			log.Debugf("No member-cluster kubeconfig file at %s; skipping file-based health cache", multicluster.GetKubeConfigPath())
+			return
+		}
 		log.Errorf("Failed to read KubeConfig file err: %s", err)
 		// we can't populate the client so just bail out here
 		return
