@@ -9,10 +9,14 @@ kubectl exec -i mongodb-tools \
   -- mongosh --quiet "${user_conn}" <<'MONGOSH'
 use sample_mflix;
 
-const queryVector = db.embedded_movies.findOne(
+const embeddingDocument = db.embedded_movies.findOne(
   { plot_embedding_voyage_3_large: { $exists: true } },
   { plot_embedding_voyage_3_large: 1 }
-).plot_embedding_voyage_3_large;
+);
+if (!embeddingDocument) {
+  throw new Error("No document contains plot_embedding_voyage_3_large");
+}
+const queryVector = embeddingDocument.plot_embedding_voyage_3_large;
 
 db.embedded_movies.aggregate([
   {

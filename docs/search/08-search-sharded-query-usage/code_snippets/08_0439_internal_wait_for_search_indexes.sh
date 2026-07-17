@@ -16,5 +16,8 @@ for collection_and_index in "movies default" "embedded_movies vector_index"; do
     sleep 10
   done
 
-  [[ "${status}" == "READY" ]]
+  if [[ "${status}" != "READY" ]]; then
+    echo "ERROR: Search index '${index_name}' for collection '${collection}' did not reach READY; last observed status: '${status:-unknown}'" >&2
+    exit 1
+  fi
 done
