@@ -10,9 +10,6 @@ variables:
       - cognito_workload_user_id
       - ARTIFACTORY_PASSWORD
       - ARTIFACTORY_USERNAME
-      - AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY
-      - AWS_SESSION_TOKEN
       - GRS_PASSWORD
       - GRS_USERNAME
       - OVERRIDE_VERSION_ID
@@ -638,6 +635,14 @@ functions:
       params:
         role_arn: ${devprod_platforms_ecr_readonly_role_arn}
     - command: subprocess.exec
+      display_name: Write DevProd Platforms ECR AWS profile
+      type: setup
+      params:
+        shell: bash
+        include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
+    - command: subprocess.exec
       retry_on_failure: true
       type: setup
       params:
@@ -987,6 +992,14 @@ functions:
       params:
         role_arn: ${devprod_platforms_ecr_readonly_role_arn}
     - command: subprocess.exec
+      display_name: Write DevProd Platforms ECR AWS profile
+      type: setup
+      params:
+        shell: bash
+        include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
+    - command: subprocess.exec
       type: setup
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
@@ -1004,9 +1017,6 @@ functions:
           - OPERATOR_VERSION
           - STAGING_VERSION_OVERRIDE
           - SKIP_GITHUB_RELEASE_UPLOAD
-          - AWS_ACCESS_KEY_ID
-          - AWS_SECRET_ACCESS_KEY
-          - AWS_SESSION_TOKEN
         env:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}

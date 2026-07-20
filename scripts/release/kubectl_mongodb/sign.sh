@@ -31,7 +31,7 @@ echo "Signing artifact ${ARTIFACT} and saving signature bundle to ${SIGNATURE_BU
 SIGNING_REGISTRY="${SIGNING_IMAGE_URI%%/*}"
 if [[ "${SIGNING_REGISTRY}" == *.amazonaws.com ]]; then
   echo "Logging in to ${SIGNING_REGISTRY} (ECR)"
-  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${SIGNING_REGISTRY}"
+  aws ecr get-login-password --region us-east-1 --profile devprod-platforms-ecr | docker login --username AWS --password-stdin "${SIGNING_REGISTRY}"
 else
   ARTIFACTORY_URL=${ARTIFACTORY_URL}
   ARTIFACTORY_PASSWORD=${ARTIFACTORY_PASSWORD}

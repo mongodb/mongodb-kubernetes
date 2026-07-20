@@ -68,24 +68,31 @@ def run_command_with_retries(command, retries=6, base_delay=10):
 
 
 def docker_login_to_ecr(registry: str = "901841024863.dkr.ecr.us-east-1.amazonaws.com") -> None:
+    # Uses a named profile rather than the default credential chain. Other AWS calls in this same
+    # process (e.g. ecr_login_boto3 in image_build_process.py, which authenticates to a different
+    # ECR account) rely on ambient/instance credentials, so this must not be sourced from bare
+    # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_SESSION_TOKEN env vars, which would shadow those
+    # for the whole process.
     region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-    password = get_ecr_login_password(region)
+    password = get_ecr_login_password(region, profile="devprod-platforms-ecr")
     if password is None:
         raise RuntimeError(f"Failed to get ECR login password for {registry}")
     command = ["docker", "login", "--username", "AWS", "--password-stdin", registry]
     subprocess.run(command, input=password.encode("utf-8"), check=True)
 
 
-def get_ecr_login_password(region: str) -> Optional[str]:
+def get_ecr_login_password(region: str, profile: Optional[str] = None) -> Optional[str]:
     """
     Retrieves the login password from aws CLI, the secrets need to be stored in ~/.aws/credentials or equivalent.
     :param region: Registry's AWS region
+    :param profile: Optional named AWS profile to use instead of the default credential chain
     :return: The password as a string
     """
+    command = ["aws", "ecr", "get-login-password", "--region", region]
+    if profile:
+        command.extend(["--profile", profile])
     try:
-        result = subprocess.run(
-            ["aws", "ecr", "get-login-password", "--region", region], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to get ECR login password: {e.stderr}")
