@@ -629,7 +629,7 @@ functions:
         env:
           PLATFORM: ${platform}
 
-  pipeline:
+  setup_devprod_platforms_ecr_credentials: &setup_devprod_platforms_ecr_credentials
     - command: ec2.assume_role
       display_name: Assume DevProd Platforms ECR readonly IAM role
       params:
@@ -642,6 +642,9 @@ functions:
         include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
+
+  pipeline:
+    - *setup_devprod_platforms_ecr_credentials
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -987,18 +990,7 @@ functions:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
-    - command: ec2.assume_role
-      display_name: Assume DevProd Platforms ECR readonly IAM role
-      params:
-        role_arn: ${devprod_platforms_ecr_readonly_role_arn}
-    - command: subprocess.exec
-      display_name: Write DevProd Platforms ECR AWS profile
-      type: setup
-      params:
-        shell: bash
-        include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
+    - *setup_devprod_platforms_ecr_credentials
     - command: subprocess.exec
       type: setup
       params:
