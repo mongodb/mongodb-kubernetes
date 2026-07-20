@@ -24,11 +24,6 @@ import (
 const (
 	// credentialSecretKey is the single key in the credential Secret holding the kubeconfig.
 	credentialSecretKey = "kubeconfig"
-
-	// tokenSecretTokenKey and tokenSecretCAKey are the keys Kubernetes populates on a
-	// kubernetes.io/service-account-token Secret.
-	tokenSecretTokenKey = "token"
-	tokenSecretCAKey    = "ca.crt"
 )
 
 // Options carries the resolved flag values for a single member-cluster registration.
@@ -57,13 +52,13 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 		return "", xerrors.Errorf("reading token secret %s/%s on the member cluster (was 'generate-member-resources' applied to it?): %w", opts.MemberClusterNamespace, tokenSecretName, err)
 	}
 
-	token, ok := tokenSecret.Data[tokenSecretTokenKey]
+	token, ok := tokenSecret.Data[corev1.ServiceAccountTokenKey]
 	if !ok || len(token) == 0 {
-		return "", xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", opts.MemberClusterNamespace, tokenSecretName, tokenSecretTokenKey)
+		return "", xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", opts.MemberClusterNamespace, tokenSecretName, corev1.ServiceAccountTokenKey)
 	}
-	ca, ok := tokenSecret.Data[tokenSecretCAKey]
+	ca, ok := tokenSecret.Data[corev1.ServiceAccountRootCAKey]
 	if !ok || len(ca) == 0 {
-		return "", xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", opts.MemberClusterNamespace, tokenSecretName, tokenSecretCAKey)
+		return "", xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", opts.MemberClusterNamespace, tokenSecretName, corev1.ServiceAccountRootCAKey)
 	}
 
 	kubeconfig, err := buildKubeConfig(opts.MemberClusterName, memberClusterServerURL, opts.MemberClusterNamespace, ca, token)

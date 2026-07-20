@@ -89,8 +89,8 @@ func TestGenerate(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			client := fake.NewSimpleClientset(tokenSecret(tc.memberClusterName, testNamespace, map[string][]byte{
-				tokenSecretTokenKey: []byte(testToken),
-				tokenSecretCAKey:    []byte(testCA),
+				corev1.ServiceAccountTokenKey:  []byte(testToken),
+				corev1.ServiceAccountRootCAKey: []byte(testCA),
 			}))
 
 			out, err := Generate(context.Background(), client, testServerURL, Options{
@@ -133,8 +133,8 @@ func TestGenerate(t *testing.T) {
 
 func TestGenerate_KubeconfigContents(t *testing.T) {
 	client := fake.NewSimpleClientset(tokenSecret("cluster-east", testNamespace, map[string][]byte{
-		tokenSecretTokenKey: []byte(testToken),
-		tokenSecretCAKey:    []byte(testCA),
+		corev1.ServiceAccountTokenKey:  []byte(testToken),
+		corev1.ServiceAccountRootCAKey: []byte(testCA),
 	}))
 
 	out, err := Generate(context.Background(), client, testServerURL, Options{
@@ -185,13 +185,13 @@ func TestGenerate_Errors(t *testing.T) {
 		},
 		"missing token key": {
 			objects: []*corev1.Secret{tokenSecret("cluster-east", testNamespace, map[string][]byte{
-				tokenSecretCAKey: []byte(testCA),
+				corev1.ServiceAccountRootCAKey: []byte(testCA),
 			})},
 			wantErrText: `has no "token" key`,
 		},
 		"missing ca key": {
 			objects: []*corev1.Secret{tokenSecret("cluster-east", testNamespace, map[string][]byte{
-				tokenSecretTokenKey: []byte(testToken),
+				corev1.ServiceAccountTokenKey: []byte(testToken),
 			})},
 			wantErrText: `has no "ca.crt" key`,
 		},
