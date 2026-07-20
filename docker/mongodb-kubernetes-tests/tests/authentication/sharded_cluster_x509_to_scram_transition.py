@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 from kubetester import kubetester, read_secret, try_load
-from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.automation_config_tester import SCRAM_AGENT_USER, AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
@@ -58,31 +58,7 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
     return resource
 
 
-NUM_CONFIG_SERVERS = 2  # fixture: sharded-cluster-x509-to-scram-256.yaml has configServerCount: 2
-
-# Outcomes of a single `db.createUser` mongosh attempt, classified by
-# _classify_create_user_result (pure, no I/O — extracted for testability).
-_CREATE_USER_OK = "ok"
-_CREATE_USER_NOT_PRIMARY = "not_primary"
-_CREATE_USER_FAILED = "failed"
-
-
-def _classify_create_user_result(returncode: int, stdout: str, stderr: str) -> str:
-    """Classify the outcome of a `db.createUser` mongosh invocation.
-
-    Pure function for testability — no I/O.
-    """
-    if returncode == 0:
-        return _CREATE_USER_OK
-    lower = f"{stdout}\n{stderr}".lower()
-    if "already exists" in lower:
-        return _CREATE_USER_OK
-    if "not primary" in lower or "notwritableprimary" in lower:
-        return _CREATE_USER_NOT_PRIMARY
-    return _CREATE_USER_FAILED
-
-
-def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: str):
+def _create_automation_agent_user(resource: MongoDB, ca_path: str):
     """
     CLOUDP-383102 workaround: create the automation agent user.
 
@@ -90,27 +66,26 @@ def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: s
     previous auth phase blocks the localhost exception for external connections. This
     prevents the automation agent from bootstrapping its SCRAM user, causing a deadlock.
 
-    It's racy - sometimes it works, sometimes not. It depends whether the agent first
-    creates the user or first restarts mongos.
-
     Uses pymongo to check if user exists (works from anywhere), uses kubectl exec
     to create the user (requires localhost exception inside the container).
 
-    Tries each config server pod deterministically (the fixture has two). When a pod
-    is a secondary ("not primary"/NotWritablePrimary), advances to the next pod. Stops
-    immediately on success or already-exists. Raises when every candidate fails so the
-    caller does not silently burn another 600s waiting for a phase that will never come.
+    Tries each config server pod. When a pod is a secondary ("not primary"/
+    NotWritablePrimary), advances to the next pod. Stops immediately on success or
+    already-exists. Raises when every candidate fails so the caller does not silently
+    burn another 600s waiting for a phase that will never come.
     """
+    namespace = resource.namespace
+    resource_name = resource.name
     password = read_secret(namespace, f"{resource_name}-agent-auth-secret")["automation-agent-password"]
 
-    config_server_host = f"{resource_name}-config-0.{resource_name}-cs:27017"
+    config_server_host = f"{resource.config_srv_pod_name(0)}.{resource_name}-cs:27017"
 
     # First, check if the user already exists by authenticating via pymongo with
     # SCRAM-SHA-256 explicitly so the probe does not fall back to SCRAM-SHA-1.
     try:
         client: MongoClient = MongoClient(
             config_server_host,
-            username="mms-automation-agent",
+            username=SCRAM_AGENT_USER,
             password=password,
             authSource="admin",
             authMechanism="SCRAM-SHA-256",
@@ -122,13 +97,13 @@ def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: s
         )
         try:
             client.admin.command("ping")
-            logger.info("mms-automation-agent user already exists")
+            logger.info(f"{SCRAM_AGENT_USER} user already exists")
             return
         finally:
             client.close()
     except OperationFailure as e:
         if e.code == 18:
-            logger.info("mms-automation-agent user does not exist, will create")
+            logger.info(f"{SCRAM_AGENT_USER} user does not exist, will create")
         else:
             logger.warning(f"Unexpected error checking user: {e}")
     except Exception as e:
@@ -137,14 +112,14 @@ def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: s
     # User doesn't exist - create via kubectl exec (needs localhost exception).
     create_user_js = f"""
 db.createUser({{
-  user: 'mms-automation-agent',
+  user: '{SCRAM_AGENT_USER}',
   pwd: '{password}',
   roles: ['backup','clusterAdmin','dbAdminAnyDatabase','readWriteAnyDatabase','restore','userAdminAnyDatabase'].map(r=>({{role:r,db:'admin'}})),
   mechanisms: ['SCRAM-SHA-256']
 }})
 """
 
-    config_pods = [f"{resource_name}-config-{i}" for i in range(NUM_CONFIG_SERVERS)]
+    config_pods = [resource.config_srv_pod_name(i) for i in range(resource["spec"]["configServerCount"])]
     errors = []
     for pod in config_pods:
         cmd = [
@@ -175,21 +150,21 @@ db.createUser({{
             logger.warning(f"Timed out creating automation agent user on {pod}")
             continue
 
-        outcome = _classify_create_user_result(result.returncode, result.stdout, result.stderr)
-        if outcome == _CREATE_USER_OK:
-            logger.info(f"Pre-created mms-automation-agent user on {pod}")
-            return
-        if outcome == _CREATE_USER_NOT_PRIMARY:
-            logger.info(f"{pod} is not primary, trying next config server pod")
-            continue
         # Never include raw mongosh stdout/stderr: create_user_js contains the
         # password and mongosh may echo the eval'd script on error.
-        detail = f"returncode={result.returncode} category={outcome}"
+        lower = f"{result.stdout}\n{result.stderr}".lower()
+        if result.returncode == 0 or "already exists" in lower:
+            logger.info(f"Pre-created {SCRAM_AGENT_USER} user on {pod}")
+            return
+        if "not primary" in lower or "notwritableprimary" in lower:
+            logger.info(f"{pod} is not primary, trying next config server pod")
+            continue
+        detail = f"returncode={result.returncode}"
         errors.append(f"{pod}: {detail}")
         logger.warning(f"Failed to create user on {pod}: {detail}")
 
     raise RuntimeError(
-        f"CLOUDP-383102: Failed to create mms-automation-agent user on any config server pod "
+        f"CLOUDP-383102: Failed to create {SCRAM_AGENT_USER} user on any config server pod "
         f"({', '.join(config_pods)}). Errors: {'; '.join(errors)}"
     )
 
@@ -244,7 +219,7 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestCanEnableScramSha256:
     @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
-    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str, namespace: str):
+    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
@@ -271,7 +246,7 @@ class TestCanEnableScramSha256:
                 span.set_attribute("workaround.ticket", "CLOUDP-383102")
                 span.set_attribute("workaround.reason", "auth_transition_timeout")
                 span.set_attribute("workaround.action", "precreate_automation_agent_user")
-                _create_automation_agent_user(namespace, MDB_RESOURCE, ca_path)
+                _create_automation_agent_user(sharded_cluster, ca_path)
             sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_assert_connectivity(self, ca_path: str):
