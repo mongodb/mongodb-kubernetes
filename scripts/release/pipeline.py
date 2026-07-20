@@ -94,12 +94,12 @@ def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
     get_builder_function_for_image_name()[image_name](build_configuration)
 
 
-_BACKPORT_BRANCH_RE = re.compile(r"^v(\d+)$")
+_BACKPORT_BRANCH_RE = re.compile(r"^v(\d+)(-test)?$")
 
 
 def branch_latest_tag_for(branch_name: str) -> Optional[str]:
     """
-    The "latest" tag equivalent for a backport branch, e.g. "v1" -> "latest-v1".
+    The "latest" tag equivalent for a backport branch, e.g. "v1" -> "latest-v1", "v1-test" -> "latest-v1-test".
     Master has no branch_latest_tag: it uses the plain "latest" tag instead.
     Returns None for master and any untracked/non-backport branch.
     """

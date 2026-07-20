@@ -115,6 +115,15 @@ fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
+# Detect "test" branches, e.g. "v1-test", "v2-test" -- these simulate real backport branches
+# (e.g. "v1", "v2") for CI/CD testing purposes only, without affecting production registries.
+IS_TEST_BRANCH=false
+if [[ "${branch_name:-}" =~ ^v[0-9]+-test$ ]]; then
+  IS_TEST_BRANCH=true
+fi
+export IS_TEST_BRANCH
+echo "IS_TEST_BRANCH=${IS_TEST_BRANCH}"
+
 # Set REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION based on build scenario
 # REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION can be overridden externally if needed
 PATCH_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
@@ -132,6 +141,10 @@ case ${BUILD_SCENARIO} in
 
   "${BUILD_SCENARIO_STAGING}")
     COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
+    if [ "${IS_TEST_BRANCH}" == "true" ]; then
+      REGISTRY="${REGISTRY:-${TEST_BRANCH_REGISTRY:-268558157000.dkr.ecr.us-east-1.amazonaws.com/test}}"
+      export FLAGS="${FLAGS:-} --registry ${REGISTRY}"
+    fi
     REGISTRY="${REGISTRY:-${STAGING_REGISTRY}}"
     OPERATOR_VERSION="${OPERATOR_VERSION:-${COMMIT_SHA_SHORT}}"
     READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-${COMMIT_SHA_SHORT}}"
