@@ -87,7 +87,7 @@ download_agent() {
 
     # KUBE-172: download custom agent from S3 patch URL instead of Ops Manager
     AGENT_VERSION="109.0.0.9188-1"
-    agent_base_url="https://s3.amazonaws.com/mciuploads/mms-automation/mongodb-mms-build-agent/builds/patches/6a5e20efcdf65f00071f6365/automation-agent/local"
+    agent_base_url="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5e4791b392b30007f3411b/automation-agent/local"
 
     # Detect architecture for agent download
     local detected_arch
