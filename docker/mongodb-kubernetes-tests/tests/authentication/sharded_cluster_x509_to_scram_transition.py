@@ -16,8 +16,6 @@ from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
 from kubetester.phase import Phase
 from opentelemetry import trace
-from pymongo import MongoClient
-from pymongo.errors import OperationFailure
 from pytest import fixture
 from tests import test_logger
 
@@ -58,7 +56,7 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
     return resource
 
 
-def _create_automation_agent_user(resource: MongoDB, ca_path: str):
+def _create_automation_agent_user(resource: MongoDB):
     """
     CLOUDP-383102 workaround: create the automation agent user.
 
@@ -66,9 +64,7 @@ def _create_automation_agent_user(resource: MongoDB, ca_path: str):
     previous auth phase blocks the localhost exception for external connections. This
     prevents the automation agent from bootstrapping its SCRAM user, causing a deadlock.
 
-    Uses pymongo to check if user exists (works from anywhere), uses kubectl exec
-    to create the user (requires localhost exception inside the container).
-
+    Creates the user via kubectl exec (localhost exception inside the container).
     Tries each config server pod. When a pod is a secondary ("not primary"/
     NotWritablePrimary), advances to the next pod. Stops immediately on success or
     already-exists. Raises when every candidate fails so the caller does not silently
@@ -78,38 +74,6 @@ def _create_automation_agent_user(resource: MongoDB, ca_path: str):
     resource_name = resource.name
     password = read_secret(namespace, f"{resource_name}-agent-auth-secret")["automation-agent-password"]
 
-    config_server_host = f"{resource.config_srv_pod_name(0)}.{resource_name}-cs:27017"
-
-    # First, check if the user already exists by authenticating via pymongo with
-    # SCRAM-SHA-256 explicitly so the probe does not fall back to SCRAM-SHA-1.
-    try:
-        client: MongoClient = MongoClient(
-            config_server_host,
-            username=SCRAM_AGENT_USER,
-            password=password,
-            authSource="admin",
-            authMechanism="SCRAM-SHA-256",
-            tls=True,
-            tlsCAFile=ca_path,
-            tlsAllowInvalidHostnames=True,
-            directConnection=True,
-            serverSelectionTimeoutMS=5000,
-        )
-        try:
-            client.admin.command("ping")
-            logger.info(f"{SCRAM_AGENT_USER} user already exists")
-            return
-        finally:
-            client.close()
-    except OperationFailure as e:
-        if e.code == 18:
-            logger.info(f"{SCRAM_AGENT_USER} user does not exist, will create")
-        else:
-            logger.warning(f"Unexpected error checking user: {e}")
-    except Exception as e:
-        logger.info(f"Could not verify user exists ({e}), will try to create")
-
-    # User doesn't exist - create via kubectl exec (needs localhost exception).
     create_user_js = f"""
 db.createUser({{
   user: '{SCRAM_AGENT_USER}',
@@ -219,7 +183,7 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestCanEnableScramSha256:
     @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
-    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str):
+    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB):
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
@@ -246,7 +210,7 @@ class TestCanEnableScramSha256:
                 span.set_attribute("workaround.ticket", "CLOUDP-383102")
                 span.set_attribute("workaround.reason", "auth_transition_timeout")
                 span.set_attribute("workaround.action", "precreate_automation_agent_user")
-                _create_automation_agent_user(sharded_cluster, ca_path)
+                _create_automation_agent_user(sharded_cluster)
             sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_assert_connectivity(self, ca_path: str):
