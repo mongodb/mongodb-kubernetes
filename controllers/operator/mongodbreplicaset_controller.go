@@ -229,6 +229,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	if err := connection.EnsureTargetAutomationConfigSeeded(conn, rs.Status.ProjectId, projectConfig, credsConfig, reconciler.omConnectionFactory, log); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
+
 	// === 2. Auth and Certificates
 	// Get certificate paths for later use
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
