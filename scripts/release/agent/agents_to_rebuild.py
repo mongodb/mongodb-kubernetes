@@ -3,10 +3,8 @@
 Detects changes to opsManagerMapping in release.json for triggering agent releases.
 Relies on git origin/master vs local release.json
 """
-import glob
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
@@ -104,87 +102,33 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
 
 
 def get_currently_used_agents() -> List[Tuple[str, str]]:
-    """Returns list of (agent_version, tools_version) tuples for agents currently used in contexts and cloudmanager agent from release.json"""
-    logger.info("Getting currently used agents from contexts")
-    agents = []
+    """Returns (agent_version, tools_version) tuples for agents currently used in CI.
 
-    try:
-        release_data = load_current_release_json()
-        if not release_data:
-            logger.error("Could not load release.json")
-            return []
-
-        ops_manager_mapping = extract_ops_manager_mapping(release_data)
-        ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
-        anchors = get_evergreen_om_version_anchors()
-
-        # Search all context files
-        context_pattern = "scripts/dev/contexts/**/*"
-        context_files = glob.glob(context_pattern, recursive=True)
-
-        for context_file in context_files:
-            if os.path.isfile(context_file):
-                try:
-                    with open(context_file, "r") as f:
-                        content = f.read()
-
-                        # Extract AGENT_VERSION from the context file
-                        for line in content.split("\n"):
-                            if line.startswith("export AGENT_VERSION="):
-                                agent_version = line.split("=")[1].strip()
-                                tools_version = get_tools_version_for_agent(agent_version)
-                                agents.append((agent_version, tools_version))
-                                logger.info(f"Found agent {agent_version} in {context_file}")
-                                break
-
-                        # Extract CUSTOM_OM_VERSION and map to agent version.
-                        # Handles static values (export CUSTOM_OM_VERSION=7.0.12 or
-                        # CUSTOM_OM_VERSION=6.0.27) and dynamic anchor references
-                        # (&ops_manager_80_latest resolved via .evergreen.yml) without
-                        # executing shell.
-                        om_version = None
-                        for line in content.split("\n"):
-                            stripped = line.lstrip()
-                            if stripped.startswith("CUSTOM_OM_VERSION=") or stripped.startswith(
-                                "export CUSTOM_OM_VERSION="
-                            ):
-                                value = line.split("CUSTOM_OM_VERSION=", 1)[1].strip().strip("\"'")
-                                if value and not value.startswith("$"):
-                                    om_version = value
-                                else:
-                                    anchor_match = re.search(r"&(ops_manager_\d+_latest)", line)
-                                    if anchor_match:
-                                        om_version = anchors.get(anchor_match.group(1))
-                                break
-                        if om_version and om_version in ops_manager_versions:
-                            agent_tools = ops_manager_versions[om_version]
-                            agent_version = agent_tools.get("agent_version")
-                            tools_version = agent_tools.get("tools_version")
-                            if agent_version and tools_version:
-                                agents.append((agent_version, tools_version))
-                                logger.info(f"Found OM version {om_version} -> agent {agent_version} in {context_file}")
-
-                except Exception as e:
-                    logger.debug(f"Error reading context file {context_file}: {e}")
-
-        # Also add the cloudmanager agent from release.json
-        cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
-        cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
-        if cloud_manager_agent and cloud_manager_tools:
-            agents.append((cloud_manager_agent, cloud_manager_tools))
-            logger.info(f"Found cloudmanager agent from release.json: {cloud_manager_agent}")
-
-        # Also add the main agentVersion from release.json
-        main_agent_version = release_data.get("agentVersion")
-        if main_agent_version:
-            tools_version = get_tools_version_for_agent(main_agent_version)
-            agents.append((main_agent_version, tools_version))
-            logger.info(f"Found main agent version from release.json: {main_agent_version}")
-
-        unique_agents = list(set(agents))
-        logger.info(f"Found {len(unique_agents)} currently used agents")
-        return unique_agents
-
-    except Exception as e:
-        logger.error(f"Error getting currently used agents: {e}")
+    OM variants resolve CUSTOM_OM_VERSION from .evergreen.yml anchors, so the
+    agents in use are exactly those mapped to the anchored OM versions, plus
+    the default agentVersion and cloud_manager agent from release.json.
+    """
+    release_data = load_current_release_json()
+    if not release_data:
+        logger.error("Could not load release.json")
         return []
+
+    ops_manager_mapping = extract_ops_manager_mapping(release_data)
+    ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
+    agents: List[Tuple[str, str]] = []
+
+    for om_version in get_evergreen_om_version_anchors().values():
+        agent_tools = ops_manager_versions.get(om_version)
+        if agent_tools:
+            agents.append((agent_tools["agent_version"], agent_tools["tools_version"]))
+
+    cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
+    cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
+    if cloud_manager_agent and cloud_manager_tools:
+        agents.append((cloud_manager_agent, cloud_manager_tools))
+
+    main_agent_version = release_data.get("agentVersion")
+    if main_agent_version:
+        agents.append((main_agent_version, get_tools_version_for_agent(main_agent_version)))
+
+    return list(set(agents))
