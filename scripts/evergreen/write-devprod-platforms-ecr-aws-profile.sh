@@ -27,12 +27,12 @@ touch ~/.aws/credentials ~/.aws/config
 remove_existing_section() {
     local file="$1"
     local section_header="$2"
-    awk -v header="$section_header" '
+    awk -v header="${section_header}" '
         $0 == header { in_section = 1; next }
         /^\[/ { in_section = 0 }
         !in_section { print }
-    ' "$file" >"${file}.tmp"
-    mv "${file}.tmp" "$file"
+    ' "${file}" >"${file}.tmp"
+    mv "${file}.tmp" "${file}"
 }
 
 remove_existing_section ~/.aws/credentials "[devprod-platforms-ecr]"
