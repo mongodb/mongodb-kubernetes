@@ -5,10 +5,7 @@ Tests for scripts.release.agent.agents_to_rebuild.py
 import unittest
 from unittest.mock import patch
 
-from scripts.release.agent.agents_to_rebuild import (
-    get_all_agents_for_rebuild,
-    get_currently_used_agents,
-)
+from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
 
 
 class TestDetectOpsManagerChanges(unittest.TestCase):
@@ -97,7 +94,9 @@ variables:
                 }
             },
         }
-        mock_tools.side_effect = lambda v: {"107.0.23.8833-1": "100.15.0", "108.0.25.9029-1": "100.17.0"}.get(v, "100.12.2")
+        mock_tools.side_effect = lambda v: {"107.0.23.8833-1": "100.15.0", "108.0.25.9029-1": "100.17.0"}.get(
+            v, "100.12.2"
+        )
 
         result = get_currently_used_agents()
 
