@@ -28,7 +28,7 @@ func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfi
 // so the mutation is the only thing that can trip the validation.
 func baseValidReplicaSetAC() *om.AutomationConfig {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"options": map[string]interface{}{"downloadBase": util.PvcMmsMountPath},
+		"options": map[string]interface{}{"downloadBase": util.DefaultPvcMmsMountPath},
 		"processes": []interface{}{
 			map[string]interface{}{
 				"name": "my-rs-0", "processType": string(om.ProcessTypeMongod),

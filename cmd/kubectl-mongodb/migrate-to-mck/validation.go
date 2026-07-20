@@ -28,7 +28,7 @@ var (
 	defaultKeyFile                = util.AutomationAgentKeyFilePathInContainer
 	defaultKeyFileWindows         = util.AutomationAgentWindowsKeyFilePath
 	defaultCAFilePath             = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	defaultDownloadBase           = util.PvcMmsMountPath
+	defaultDownloadBase           = util.DefaultPvcMmsMountPath
 	defaultMonitoringAgentLogPath = fmt.Sprintf("%s/monitoring-agent.log", util.PvcMountPathLogs)
 	defaultBackupAgentLogPath     = fmt.Sprintf("%s/backup-agent.log", util.PvcMountPathLogs)
 	defaultAuthSchemaVersion      = om.CalculateAuthSchemaVersion()
