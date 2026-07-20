@@ -186,7 +186,7 @@ def get_working_agent_filename(agent_version: str, platform: str) -> str:
     Returns:
         The working filename, or the first filename if none work
     """
-    agent_base_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a588a96814ba600072a706d/automation-agent/local"
+    agent_base_url = "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5e20efcdf65f00071f6365/automation-agent/local"
 
     return _find_working_filename(agent_version, platform, agent_base_url, _build_agent_filenames, "agent")
 
