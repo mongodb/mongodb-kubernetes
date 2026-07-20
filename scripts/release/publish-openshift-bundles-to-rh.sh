@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Publishes the OpenShift OLM bundle to the RedHat operator repositories.
 #
-# It downloads the unified certified bundle tarball (produced and uploaded by the
+# It downloads the unified bundle tarball (produced and uploaded by the
 # prepare_and_upload_openshift_bundles Evergreen task) and, for each RedHat fork,
 # pushes a branch containing the bundle laid out under operators/<package>/<version>/.
+#
 # It intentionally does NOT open the pull requests: it prints the "create PR" URLs and
 # the manual review checklist so a human can raise the DRAFT PRs and drive the review.
 #
-# The same certified bundle is used for both the certified-operators and the
+# The same bundle is used for both the certified-operators and the
 # community-operators repositories (the file contents are identical between them).
+# The "certified" term is used in the tarball file for historical reasons.
 #
 # Usage (runnable standalone from a CLI or from Evergreen):
 #   GH_TOKEN=<token-with-write-to-forks> VERSION=1.3.0 RH_DRYRUN=true \
