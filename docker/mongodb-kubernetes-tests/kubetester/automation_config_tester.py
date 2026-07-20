@@ -17,7 +17,7 @@ class AutomationConfigTester:
         if ac is None:
             ac = KubernetesTester.get_automation_config()
         assert ac is not None
-        self.automation_config: Dict = ac
+        self.automation_config: dict = ac
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
         """Returns all processes for the specified replica set"""

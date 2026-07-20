@@ -85,6 +85,9 @@ func EnsureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 // any StatefulSet is mutated to point at the new project. The target AC version
 // is preserved. If sourceProjectID is empty or already equals the target group,
 // or the target already has processes, it is a no-op.
+// With this we Pre-seed the target project's Automation Config from the prior project
+// before any pod mutation, so agents switching to the new GROUP_ID find the
+// same topology and auth.key already in place.
 func EnsureTargetAutomationConfigSeeded(targetConn om.Connection, sourceProjectID string, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, log *zap.SugaredLogger) error {
 	if sourceProjectID == "" || sourceProjectID == targetConn.GroupID() {
 		return nil
