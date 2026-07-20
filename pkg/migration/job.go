@@ -123,17 +123,12 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		certPath = util.AgentCertMountPath + "/" + agentCertHash
 	}
 
-	var caPath string
-	switch authMechanism {
-	case util.AutomationConfigX509Option:
-		caPath = rs.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
-	default:
-		caPath = util.CAFilePathInContainer
-	}
-
 	mongodTLSCAPath := ""
 	if security.IsTLSEnabled() {
-		mongodTLSCAPath = util.TLSCaMountPath + "/ca-pem"
+		// Honor a custom spec.security.tls.caFilePath: the StatefulSet-derived volume
+		// mounts the CA there, so the validator must read it from the same path.
+		// X.509 auth always implies TLS, so this is also the CA used for X.509.
+		mongodTLSCAPath = security.GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 	}
 
 	clientCertRequired := "false"
@@ -146,7 +141,6 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		{Name: "AUTH_MECHANISM", Value: authMechanism},
 		{Name: "EXTERNAL_MEMBERS", Value: strings.Join(externalMembers, " ")},
 		{Name: "CERT_PATH", Value: certPath},
-		{Name: "CA_PATH", Value: caPath},
 		{Name: "SUBJECT_DN", Value: subjectDN},
 		{Name: "MONGOD_TLS_CA_PATH", Value: mongodTLSCAPath},
 		{Name: "CLIENT_CERT_REQUIRED", Value: clientCertRequired},

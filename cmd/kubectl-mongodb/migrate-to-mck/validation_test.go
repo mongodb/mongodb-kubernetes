@@ -280,14 +280,11 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "CAFilePath") {
-			hasWarning = true
-			assert.Contains(t, r.Message, "/etc/ssl/ca.pem")
+		if r.Severity == SeverityError && strings.Contains(r.Message, "will be overwritten") {
+			t.Errorf("non-default CAFilePath must no longer produce an overwrite error: %s", r.Message)
 		}
 	}
-	assert.True(t, hasWarning, "expected error when CAFilePath differs from default")
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
@@ -471,6 +468,13 @@ func TestValidateAgentTLS_WarnsAboutGeneratedServerTLSResources(t *testing.T) {
 	assert.Contains(t, results[0].Message, "<certsSecretPrefix>-<resourceName>-cert")
 	assert.Contains(t, results[0].Message, "tls.crt")
 	assert.Contains(t, results[0].Message, "tls.key")
+}
+
+func TestValidateAgentTLS_NonDefaultCAFilePathWarnsWithoutError(t *testing.T) {
+	results := validateAgentTLS(&om.AgentSSL{CAFilePath: "/etc/ssl/ca.pem"})
+
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
 }
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {

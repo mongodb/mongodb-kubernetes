@@ -34,7 +34,6 @@ func main() {
 		ExternalMembers:    members,
 		AuthMechanism:      os.Getenv("AUTH_MECHANISM"),
 		CertPath:           os.Getenv("CERT_PATH"),
-		CAPath:             os.Getenv("CA_PATH"),
 		SubjectDN:          os.Getenv("SUBJECT_DN"),
 		MongodTLSCAPath:    os.Getenv("MONGOD_TLS_CA_PATH"),
 		ClientCertRequired: os.Getenv("CLIENT_CERT_REQUIRED") == "true",
