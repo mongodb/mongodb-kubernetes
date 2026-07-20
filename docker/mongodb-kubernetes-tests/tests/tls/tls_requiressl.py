@@ -172,6 +172,5 @@ def test_custom_ca_mdb_is_reachable_with_ssl(mdb_custom_ca: MongoDB, ca_path: st
 def test_custom_ca_path_in_automation_config(mdb_custom_ca: MongoDB):
     ac = mdb_custom_ca.get_automation_config_tester().automation_config
     assert ac.get("tls", {}).get("CAFilePath") == CUSTOM_CA_FILE_PATH, (
-        f"Expected AC tls.CAFilePath={CUSTOM_CA_FILE_PATH}, "
-        f"got {ac.get('tls', {}).get('CAFilePath')}"
+        f"Expected AC tls.CAFilePath={CUSTOM_CA_FILE_PATH}, " f"got {ac.get('tls', {}).get('CAFilePath')}"
     )

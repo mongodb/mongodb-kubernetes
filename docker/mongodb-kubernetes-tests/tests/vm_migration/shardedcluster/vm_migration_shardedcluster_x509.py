@@ -35,6 +35,7 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
+    assert_ca_file_present_in_pod,
     assert_max_voting_members_validation,
     generated_mongodb_doc,
     run_generate_cr,
@@ -74,7 +75,7 @@ VM_SHARD_RS_NAME = "vm-shard-0"
 
 MONGOD_SERVER_PEM_PATH = "/mongodb-automation/server.pem"
 MONGOS_SERVER_PEM_PATH = "/mongodb-automation/server.pem"
-CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
+CUSTOM_CA_PEM_PATH = "/etc/mongodb-custom-ca/ca.pem"
 
 CUSTOM_AGENT_CERT_DIR = "/var/lib/mongodb-mms-automation/certs"
 CUSTOM_AGENT_CERT_FILENAME = "agent.pem"
@@ -249,7 +250,7 @@ def _server_extra_volumes(server_combined_pem: str, agent_secret_name: str) -> l
             "name": "ca-cert",
             "secret": {
                 "secretName": "ca-key-pair",
-                "items": [{"key": "tls.crt", "path": "ca-pem"}],
+                "items": [{"key": "tls.crt", "path": "ca.pem"}],
             },
         },
         {"name": "agent-cert", "secret": {"secretName": agent_secret_name}},
@@ -259,7 +260,7 @@ def _server_extra_volumes(server_combined_pem: str, agent_secret_name: str) -> l
 def _server_extra_volume_mounts() -> list[dict]:
     return [
         {"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True},
-        {"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True},
+        {"name": "ca-cert", "mountPath": "/etc/mongodb-custom-ca", "readOnly": True},
         {"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True},
     ]
 
@@ -551,6 +552,12 @@ def test_x509_agent_auth_in_cr(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
+def test_ca_file_path_in_cr(generated_cr: dict):
+    """The generated CR must carry the non-default CA file path from the AC."""
+    assert generated_cr["spec"]["security"]["tls"]["caFilePath"] == CUSTOM_CA_PEM_PATH
+
+
+@mark.e2e_vm_migration_shardedcluster_x509
 def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
     run_migration_dry_run_connectivity_passes(mdb_migration)
 
@@ -558,6 +565,12 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_shardedcluster_x509
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
+
+
+@mark.e2e_vm_migration_shardedcluster_x509
+def test_ca_file_mounted_at_custom_path(namespace: str, mdb_migration: MongoDB):
+    """The operator mounts the CA ConfigMap at the custom caFilePath in a migrated shard pod."""
+    assert_ca_file_present_in_pod(namespace, f"{mdb_migration.name}-0-0", CUSTOM_CA_PEM_PATH)
 
 
 @mark.e2e_vm_migration_shardedcluster_x509

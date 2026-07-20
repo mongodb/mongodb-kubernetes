@@ -21,6 +21,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
+    assert_ca_file_present_in_pod,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
@@ -61,6 +62,8 @@ APP_USER_PASSWORD = "tlsAppUser123!"
 VM_AGENT_OM_CA_PATH = "/etc/mongodb-mms-ca/ca.pem"
 VM_OM_CA_CONFIGMAP_NAME = "vm-mongodb-om-ca"
 WRONG_CA_NAME = "wrong-issuer-ca-mongod-tls"
+# Non-default CA file path: exercises spec.security.tls.caFilePath end to end.
+CUSTOM_CA_FILE_PATH = "/etc/mongodb-custom-ca/ca.pem"
 
 
 def _get_ca_bundle_content() -> str:
@@ -151,7 +154,7 @@ def vm_sts(namespace: str, om_tester: OMTester, vm_tls_pem_secret: str, vm_om_ca
             },
             {
                 "name": "mongodb-certs",
-                "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+                "mountPath": CUSTOM_CA_FILE_PATH,
                 "subPath": "ca.pem",
                 "readOnly": True,
             },
@@ -177,7 +180,7 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
     rs_name = f"{sts_name}-rs"
 
     ac["ssl"] = {
-        "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
+        "CAFilePath": CUSTOM_CA_FILE_PATH,
         "clientCertificateMode": "OPTIONAL",
     }
 
@@ -254,7 +257,7 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
                         "tls": {
                             "mode": "requireSSL",
                             "certificateKeyFile": "/mongodb-automation/server.pem",
-                            "CAFile": "/mongodb-automation/tls/ca/ca-pem",
+                            "CAFile": CUSTOM_CA_FILE_PATH,
                         },
                     },
                     "storage": {
@@ -402,6 +405,12 @@ def test_tls_enabled_in_cr(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_ca_file_path_in_cr(generated_cr: dict):
+    """The generated CR must carry the non-default CA file path from the AC."""
+    assert generated_cr["spec"]["security"]["tls"]["caFilePath"] == CUSTOM_CA_FILE_PATH
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
 def test_no_disabled_tls_mode_in_additional_config(generated_cr: dict):
     """additionalMongodConfig must NOT contain net.tls.mode: disabled."""
     amc = generated_cr["spec"].get("additionalMongodConfig", {})
@@ -451,6 +460,12 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256_tls
+def test_ca_file_mounted_at_custom_path(namespace: str, mdb_migration: MongoDB):
+    """The operator mounts the CA ConfigMap at the custom caFilePath in the migrated pod."""
+    assert_ca_file_present_in_pod(namespace, f"{mdb_migration.name}-0", CUSTOM_CA_FILE_PATH)
 
 
 @mark.e2e_vm_migration_replicaset_scram_sha256_tls

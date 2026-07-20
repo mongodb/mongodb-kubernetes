@@ -392,14 +392,11 @@ func TestBuildJobFromStatefulSet_CustomCAFilePath(t *testing.T) {
 	}
 	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, "MONGODB-X509", "hashkey", "")
 
-	var caPath string
+	envMap := map[string]string{}
 	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "CA_PATH" {
-			caPath = e.Value
-			break
-		}
+		envMap[e.Name] = e.Value
 	}
-	assert.Equal(t, "/etc/ssl/certs/ca.pem", caPath, "CA_PATH should use spec.security.tls.caFilePath when set")
+	assert.Equal(t, "/etc/ssl/certs/ca.pem", envMap["MONGOD_TLS_CA_PATH"], "MONGOD_TLS_CA_PATH should use spec.security.tls.caFilePath when set")
 }
 
 func TestBuildJobFromStatefulSet_SubjectDN(t *testing.T) {
