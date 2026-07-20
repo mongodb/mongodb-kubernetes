@@ -3,12 +3,11 @@
 Tests for scripts.release.agent.agents_to_rebuild.py
 """
 import unittest
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 from scripts.release.agent.agents_to_rebuild import (
     get_all_agents_for_rebuild,
     get_currently_used_agents,
-    get_evergreen_om_version_anchors,
 )
 
 
@@ -79,40 +78,26 @@ variables:
         self.assertIn(("107.0.11.8645-1", "100.10.0"), result)
         self.assertIn(("13.37.0.9590-1", "100.12.2"), result)
 
-    @patch("builtins.open", new_callable=mock_open)
-    def test_get_evergreen_om_version_anchors(self, mock_file):
-        """Test parsing .evergreen.yml for ops_manager anchor -> OM version mapping."""
-        mock_file.return_value.read.return_value = (
-            "variables:\n"
-            "  - &ops_manager_60_latest 6.0.27 # comment\n"
-            "  - &ops_manager_70_latest 7.0.23 # comment\n"
-            "  - &ops_manager_80_latest 8.0.25 # comment\n"
-        )
-        result = get_evergreen_om_version_anchors()
-        self.assertEqual(result["ops_manager_60_latest"], "6.0.27")
-        self.assertEqual(result["ops_manager_70_latest"], "7.0.23")
-        self.assertEqual(result["ops_manager_80_latest"], "8.0.25")
-
-    @patch("scripts.release.agent.agents_to_rebuild.get_evergreen_om_version_anchors")
+    @patch("scripts.release.agent.agents_to_rebuild.get_tools_version_for_agent")
     @patch("scripts.release.agent.agents_to_rebuild.load_current_release_json")
-    def test_get_currently_used_agents(self, mock_load, mock_anchors):
-        """Currently used agents = anchored OM versions + cloud_manager + default agentVersion."""
+    def test_get_currently_used_agents(self, mock_load, mock_tools):
+        """Currently used agents = latest per OM major + cloud_manager + default agentVersion."""
         mock_load.return_value = {
             "agentVersion": "108.0.12.8846-1",
+            "latestOpsManagerAgentMapping": [
+                {"7": {"opsManagerVersion": "7.0.23", "agentVersion": "107.0.23.8833-1"}},
+                {"8": {"opsManagerVersion": "8.0.25", "agentVersion": "108.0.25.9029-1"}},
+            ],
             "supportedImages": {
                 "mongodb-agent": {
                     "opsManagerMapping": {
                         "cloud_manager": "13.37.0.9590-1",
                         "cloud_manager_tools": "100.12.2",
-                        "ops_manager": {
-                            "7.0.23": {"agent_version": "107.0.23.8833-1", "tools_version": "100.15.0"},
-                            "8.0.25": {"agent_version": "108.0.25.9029-1", "tools_version": "100.17.0"},
-                        },
                     }
                 }
             },
         }
-        mock_anchors.return_value = {"ops_manager_70_latest": "7.0.23", "ops_manager_80_latest": "8.0.25"}
+        mock_tools.side_effect = lambda v: {"107.0.23.8833-1": "100.15.0", "108.0.25.9029-1": "100.17.0"}.get(v, "100.12.2")
 
         result = get_currently_used_agents()
 

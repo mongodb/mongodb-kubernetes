@@ -5,7 +5,6 @@ Relies on git origin/master vs local release.json
 """
 import json
 import logging
-import re
 import subprocess
 import sys
 from typing import Dict, List, Optional, Tuple
@@ -31,22 +30,6 @@ def extract_ops_manager_mapping(release_data: Dict) -> Dict:
     if not release_data:
         return {}
     return release_data.get("supportedImages", {}).get("mongodb-agent", {}).get("opsManagerMapping", {})
-
-
-def get_evergreen_om_version_anchors(evergreen_path: str = ".evergreen.yml") -> Dict[str, str]:
-    """Parse .evergreen.yml for &ops_manager_XX_latest anchors -> OM version.
-
-    Context files (e.g. variables/om70, variables/om80) assign CUSTOM_OM_VERSION
-    dynamically by grepping .evergreen.yml for these anchors. Parsing the anchors
-    here lets us resolve the OM version without executing shell.
-    """
-    try:
-        with open(evergreen_path, "r") as f:
-            content = f.read()
-    except (FileNotFoundError, OSError) as e:
-        logger.debug(f"Could not parse .evergreen.yml anchors: {e}")
-        return {}
-    return dict(re.findall(r"&(ops_manager_\d+_latest)\s+(\S+)", content))
 
 
 def get_tools_version_for_agent(agent_version: str) -> str:
@@ -104,9 +87,8 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
 def get_currently_used_agents() -> List[Tuple[str, str]]:
     """Returns (agent_version, tools_version) tuples for agents currently used in CI.
 
-    OM variants resolve CUSTOM_OM_VERSION from .evergreen.yml anchors, so the
-    agents in use are exactly those mapped to the anchored OM versions, plus
-    the default agentVersion and cloud_manager agent from release.json.
+    Uses release.json's latestOpsManagerAgentMapping (the latest agent per OM major)
+    plus the cloud_manager agent and the default agentVersion.
     """
     release_data = load_current_release_json()
     if not release_data:
@@ -114,13 +96,11 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
         return []
 
     ops_manager_mapping = extract_ops_manager_mapping(release_data)
-    ops_manager_versions = ops_manager_mapping.get("ops_manager", {})
     agents: List[Tuple[str, str]] = []
 
-    for om_version in get_evergreen_om_version_anchors().values():
-        agent_tools = ops_manager_versions.get(om_version)
-        if agent_tools:
-            agents.append((agent_tools["agent_version"], agent_tools["tools_version"]))
+    for entry in release_data.get("latestOpsManagerAgentMapping", []):
+        for info in entry.values():
+            agents.append((info["agentVersion"], get_tools_version_for_agent(info["agentVersion"])))
 
     cloud_manager_agent = ops_manager_mapping.get("cloud_manager")
     cloud_manager_tools = ops_manager_mapping.get("cloud_manager_tools")
