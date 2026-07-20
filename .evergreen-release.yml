@@ -213,7 +213,7 @@ buildvariants:
     tags: [ "release" ]
     run_on:
       - ubuntu2404-small
-    allowed_requesters: [ "patch", "github_tag" ]
+    allowed_requesters: [ "github_tag" ]
     depends_on:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
         variant: prepare_openshift_bundles
