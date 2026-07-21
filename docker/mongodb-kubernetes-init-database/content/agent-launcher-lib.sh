@@ -117,7 +117,7 @@ download_agent() {
     script_log "Downloading Agent version: ${AGENT_VERSION}"
     script_log "Downloading a Mongodb Agent from ${base_url:?}"
     curl_opts=(
-        "${base_url}/download/agent/automation/${AGENT_FILE}"
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz"
 
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
