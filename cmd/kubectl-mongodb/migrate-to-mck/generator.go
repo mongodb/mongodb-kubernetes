@@ -123,9 +123,15 @@ func buildDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, version, f
 		featureCompatibilityVersion = &fcv
 	}
 
+	var downloadBase string
+	if db := ac.Deployment.DownloadBase(); db != "" && db != util.DefaultPvcMmsMountPath {
+		downloadBase = db
+	}
+
 	return mdbv1.DbCommonSpec{
 		Version:                     version,
 		ResourceType:                resourceType,
+		DownloadBase:                downloadBase,
 		FeatureCompatibilityVersion: featureCompatibilityVersion,
 		ConnectionSpec: mdbv1.ConnectionSpec{
 			SharedConnectionSpec: mdbv1.SharedConnectionSpec{
