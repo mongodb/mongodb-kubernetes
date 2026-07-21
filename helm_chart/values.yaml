@@ -162,7 +162,7 @@ initOpsManager:
 
 agent:
   name: mongodb-agent
-  version: 108.0.12.8846-1
+  version: 109.0.0.9188-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
