@@ -404,6 +404,67 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 	})
 }
 
+func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
+	t.Run("static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		mdb.Spec.DownloadBase = "/custom/download/base"
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.AgentContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
+			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
+	})
+
+	t.Run("non-static architecture does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			for _, e := range c.Env {
+				assert.NotEqual(t, DownloadBaseEnv, e.Name, "MMS_DOWNLOAD_BASE should not be set in non-static architecture")
+			}
+		}
+	})
+}
+
+func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+	sc := mdbv1.NewClusterBuilder().Build()
+	sc.Spec.DownloadBase = "/custom/download/base"
+
+	kubeClient, _ := mock.NewDefaultFakeClient(sc)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+	configServerSpec := createConfigSrvSpec(sc)
+	mongosSpec := createMongosSpec(sc)
+
+	withPodVars := func(options *DatabaseStatefulSetOptions) {
+		options.PodVars = defaultPodVars()
+	}
+
+	cases := map[string]func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions{
+		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars),
+		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars),
+		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars),
+	}
+
+	for name, optFunc := range cases {
+		t.Run(name, func(t *testing.T) {
+			set := DatabaseStatefulSet(*sc, optFunc, zap.S())
+			assertAgentDownloadMount(t, set, "/custom/download/base")
+		})
+	}
+}
+
 func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 	tests := []struct {
 		name                 string

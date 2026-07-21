@@ -1013,3 +1013,11 @@ func TestLimitVotingMembers_AppliesNormallyWhenNoExternalMembers(t *testing.T) {
 	assert.Equal(t, 0, got[7].Votes(), "8th member should be zeroed")
 	assert.Equal(t, float32(0), got[7].Priority(), "8th member priority should be zeroed")
 }
+
+func TestSetDownloadBase(t *testing.T) {
+	d := NewDeployment()
+
+	d.SetDownloadBase("/custom/download/base")
+
+	assert.Equal(t, "/custom/download/base", d.DownloadBase())
+}
