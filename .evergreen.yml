@@ -653,9 +653,11 @@ tasks:
       - command: shell.exec
         type: test
         params:
+          shell: bash
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
-            scripts/mckci release promote group --commit "${revision}"
+            source .generated/context.export.env
+            scripts/mckci release promote images --commit "${revision}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack

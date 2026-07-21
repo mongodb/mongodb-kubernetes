@@ -44,12 +44,12 @@ func TestPromoteImages(t *testing.T) {
 
 	want := []copyCall{
 		{
-			srcRef:  "quay.io/staging/mongodb-kubernetes:1.9.2",
+			srcRef:  "quay.io/staging/mongodb-kubernetes:abc1234",
 			dstRepo: "staging/mongodb-kubernetes",
 			tags:    []string{PromotedTagFor("abc1234", "1.9.2"), promotedLatestTag()},
 		},
 		{
-			srcRef:  "quay.io/staging/mongodb-kubernetes-readinessprobe:1.0.24",
+			srcRef:  "quay.io/staging/mongodb-kubernetes-readinessprobe:abc1234",
 			dstRepo: "staging/mongodb-kubernetes-readinessprobe",
 			tags:    []string{PromotedTagFor("abc1234", "1.0.24"), promotedLatestTag()},
 		},
@@ -68,7 +68,7 @@ func TestPromoteImages(t *testing.T) {
 func TestPromoteImagesHardFailsOnMissingSource(t *testing.T) {
 	fake := &fakeRegistry{
 		fail: map[string]error{
-			"quay.io/staging/mongodb-kubernetes-readinessprobe:1.0.24": errors.New("source not found"),
+			"quay.io/staging/mongodb-kubernetes-readinessprobe:abc1234": errors.New("source not found"),
 		},
 	}
 	connect := func(url string) Registry { return fake }
@@ -81,6 +81,38 @@ func TestPromoteImagesHardFailsOnMissingSource(t *testing.T) {
 	_, err := PromoteImages(images, "abc1234", false, connect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected hard failure mentioning readiness-probe, got %v", err)
+	}
+}
+
+func TestPromoteImagesUsesShortCommitAsSourceTag(t *testing.T) {
+	fake := &fakeRegistry{}
+	connect := func(url string) Registry { return fake }
+
+	images := []ReleaseImage{
+		{Name: "operator", StagingRepo: "quay.io/staging/mongodb-kubernetes", Version: "2.0.0", IsAnchor: true},
+	}
+	fullCommit := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+	results, err := PromoteImages(images, fullCommit, false, connect)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results: got %d, want 1", len(results))
+	}
+
+	// Source tag must be the first 8 chars of the full commit.
+	wantSrcRef := "quay.io/staging/mongodb-kubernetes:a1b2c3d4"
+	if len(fake.copies) != 1 {
+		t.Fatalf("copies: got %d, want 1", len(fake.copies))
+	}
+	if fake.copies[0].srcRef != wantSrcRef {
+		t.Errorf("srcRef: got %q, want %q", fake.copies[0].srcRef, wantSrcRef)
+	}
+	// Destination tag must still use the FULL commit.
+	wantDstTag := PromotedTagFor(fullCommit, "2.0.0")
+	if fake.copies[0].tags[0] != wantDstTag {
+		t.Errorf("promoted tag: got %q, want %q", fake.copies[0].tags[0], wantDstTag)
 	}
 }
 
