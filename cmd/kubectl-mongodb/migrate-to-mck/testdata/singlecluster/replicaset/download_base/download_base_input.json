@@ -1,0 +1,30 @@
+{
+  "options": {
+    "downloadBase": "/opt/mongodb/automation"
+  },
+  "processes": [
+    {
+      "args2_6": {
+        "net": {"port": 27017},
+        "replication": {"replSetName": "download-base-rs"},
+        "storage": {"dbPath": "/data"}
+      },
+      "authSchemaVersion": 5,
+      "featureCompatibilityVersion": "7.0",
+      "hostname": "download-base-rs-0.example.com",
+      "name": "download-base-rs-0",
+      "processType": "mongod",
+      "version": "7.0.12-ent"
+    }
+  ],
+  "replicaSets": [
+    {
+      "_id": "download-base-rs",
+      "members": [
+        {"_id": 0, "host": "download-base-rs-0", "priority": 1, "votes": 1}
+      ]
+    }
+  ],
+  "sharding": [],
+  "version": 1
+}

@@ -1,0 +1,22 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: download-base-rs
+  namespace: mongodb
+spec:
+  credentials: my-credentials
+  downloadBase: /opt/mongodb/automation
+  externalMembers:
+  - hostname: download-base-rs-0.example.com:27017
+    processName: download-base-rs-0
+    replicaSetName: download-base-rs
+    type: mongod
+  featureCompatibilityVersion: "7.0"
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  type: ReplicaSet
+  version: 7.0.12-ent
