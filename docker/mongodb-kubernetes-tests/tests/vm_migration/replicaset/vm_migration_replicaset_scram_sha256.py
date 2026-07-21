@@ -38,6 +38,7 @@ from tests.vm_migration.vm_migration_replicaset_helper import (
 )
 
 RS_NAME = "vm-mongodb-rs"
+DOWNLOAD_BASE = "/var/lib/custom-mms-automation"
 APP_USER_PASSWORD = "appUser123!"
 REPORTING_USER_PASSWORD = "reporting456!"
 
@@ -129,9 +130,10 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
         "autoAuthRestrictions": [],
         "autoPwd": "mms-automation-agent-password",
         "key": "bXlrZXlmaWxlY29udGVudHM=",
-        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+        "keyfile": f"{DOWNLOAD_BASE}/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
+    ac["options"] = {"downloadBase": DOWNLOAD_BASE}
 
     ac["roles"] = [
         {
@@ -361,6 +363,14 @@ def test_common_generated_cr_shape(generated_cr_yaml: str, generated_cr: dict, v
 
 
 @mark.e2e_vm_migration_replicaset_scram_sha256
+def test_download_base_carried_over(generated_cr: dict):
+    """The non-default options.downloadBase is carried into spec.downloadBase."""
+    assert (
+        generated_cr["spec"].get("downloadBase") == DOWNLOAD_BASE
+    ), f"Expected spec.downloadBase={DOWNLOAD_BASE}, got: {generated_cr['spec'].get('downloadBase')}"
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256
 def test_user_crs_emitted(generated_cr_yaml: str):
     user_docs = generated_user_docs(generated_cr_yaml)
     usernames = {d["spec"]["username"] for d in user_docs}
@@ -415,6 +425,33 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256
+def test_keyfile_placed_in_operator_pods(namespace: str, vm_sts: dict, mdb_migration: MongoDB):
+    """The operator places the keyfile at <downloadBase>/keyfile in every migrated pod."""
+    keyfile_path = f"{DOWNLOAD_BASE}/keyfile"
+    for i in range(vm_sts["spec"]["replicas"]):
+        pod_name = f"{RS_NAME}-{i}"
+        output = KubernetesTester.run_command_in_pod_container(
+            pod_name,
+            namespace,
+            ["sh", "-c", f"test -f {keyfile_path} && echo FOUND"],
+            container="mongodb-enterprise-database",
+        )
+        assert "FOUND" in output, f"keyfile not found at {keyfile_path} in pod {pod_name}; got: {output!r}"
+
+
+@mark.e2e_vm_migration_replicaset_scram_sha256
+def test_operator_preserves_download_base_and_keyfile(om_tester: OMTester):
+    """After the operator takes over, the automation config keeps the custom downloadBase/keyfile."""
+    ac = om_tester.api_get_automation_config()
+    assert (
+        ac.get("options", {}).get("downloadBase") == DOWNLOAD_BASE
+    ), f"Expected options.downloadBase={DOWNLOAD_BASE}, got: {ac.get('options', {}).get('downloadBase')}"
+    assert (
+        ac.get("auth", {}).get("keyfile") == f"{DOWNLOAD_BASE}/keyfile"
+    ), f"Expected auth.keyfile={DOWNLOAD_BASE}/keyfile, got: {ac.get('auth', {}).get('keyfile')}"
 
 
 @mark.e2e_vm_migration_replicaset_scram_sha256
