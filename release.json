@@ -7,7 +7,7 @@
   "initOpsManagerVersion": "1.10.0",
   "databaseImageVersion": "1.10.0",
   "agentVersion": "109.0.0.9188-1",
-  "customAgentPatchId": "6a588a96814ba600072a706d",
+  "customAgentUrl": "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a588a96814ba600072a706d/automation-agent/local/mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
   "openshift": {

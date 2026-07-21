@@ -15,11 +15,7 @@ from opentelemetry import trace
 
 from lib.base_logger import logger
 from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
-from scripts.release.agent.validation import (
-    generate_agent_build_args,
-    generate_tools_build_args,
-    get_working_agent_filename,
-)
+from scripts.release.agent.validation import generate_agent_build_args, generate_tools_build_args
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_signing import mongodb_artifactory_login, sign_image, verify_signature
 
@@ -249,21 +245,13 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
         **platform_build_args,  # Add the platform-specific build args
     }
 
-    # Resolve custom agent URLs for non-static agent delivery (agent-launcher.sh path).
-    # The init container writes these to /scripts/custom-agent-urls.sh on the shared
+    # Custom agent URL for non-static agent delivery (agent-launcher.sh path).
+    # The init container writes this to /scripts/custom-agent-urls.sh on the shared
     # volume; agent-launcher.sh sources it in the database container.
-    custom_patch_id = get_custom_agent_patch_id()
-    if custom_patch_id:
-        agent_base_url = get_custom_agent_base_url(custom_patch_id)
-        agent_version = release.get("agentVersion", "")
-        logger.info(f"Resolving custom agent URLs for patch ID: {custom_patch_id}")
-        for platform in build_configuration.platforms:
-            arch = platform.split("/")[-1]
-            agent_filename = get_working_agent_filename(agent_version, platform, agent_base_url=agent_base_url)
-            if agent_filename:
-                args[f"custom_agent_url_{arch}"] = f"{agent_base_url}/{agent_filename}"
-            else:
-                logger.warning(f"No custom agent URL found for {platform}")
+    custom_agent_url = get_custom_agent_url()
+    if custom_agent_url:
+        logger.info(f"Using custom agent URL: {custom_agent_url}")
+        args["custom_agent_url_amd64"] = custom_agent_url
 
     build_image(
         build_configuration=build_configuration,
@@ -358,21 +346,25 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    custom_patch_id = get_custom_agent_patch_id()
-    if custom_patch_id:
-        agent_base_url = get_custom_agent_base_url(custom_patch_id)
-        logger.info(f"Using custom agent patch ID: {custom_patch_id}")
+    custom_agent_url = get_custom_agent_url()
+    if custom_agent_url:
+        # Split the full URL into base + filename for the Dockerfile
+        agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
+        logger.info(f"Using custom agent URL: {custom_agent_url}")
+        platform_build_args = generate_tools_build_args(
+            platforms=build_configuration_copy.platforms, tools_version=tools_version
+        )
+        # Override the agent filename for amd64
+        platform_build_args["mongodb_agent_version_amd64"] = agent_filename
     else:
         agent_base_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
         )
-
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration_copy.platforms,
-        agent_version=agent_version,
-        tools_version=tools_version,
-        agent_base_url=agent_base_url,
-    )
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration_copy.platforms,
+            agent_version=agent_version,
+            tools_version=tools_version,
+        )
 
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
@@ -407,19 +399,14 @@ def load_release_file() -> Dict:
         return json.load(release)
 
 
-def get_custom_agent_patch_id() -> str:
-    """Resolve customAgentPatchId with precedence: env var > release.json > empty."""
+def get_custom_agent_url() -> str:
+    """Resolve custom agent URL with precedence: env var > release.json > empty."""
     # ponytail: env var checked first so upstream trigger overrides release.json
-    patch_id = os.environ.get("upstream_agent_patch", "")
-    if patch_id:
-        return patch_id
+    url = os.environ.get("upstream_agent_url", "")
+    if url:
+        return url
     release = load_release_file()
-    return release.get("customAgentPatchId", "")
-
-
-def get_custom_agent_base_url(patch_id: str) -> str:
-    """Construct the patch S3 URL for a custom agent patch ID."""
-    return f"https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/{patch_id}/automation-agent/local"
+    return release.get("customAgentUrl", "")
 
 
 def create_olm_version_tag(version: str) -> str:

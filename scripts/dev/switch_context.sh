@@ -51,13 +51,16 @@ echo "Generating context files from: ${context}"
 if [ -n "${EVR_TASK_ID-}" ]; then
   # shellcheck disable=SC1090
     source "${context_file}"
+    # Override agent version/image for all variants when a custom agent is set.
+    # This fixes the gap where OM variants (variables/om80) hardcode AGENT_VERSION.
+    source "${script_dir}/contexts/resolve-custom-agent.sh"
     # shellcheck disable=SC2207
     export CURRENT_VARIANT_CONTEXT="${context}"
     current_envs=$(export -p)
 else
   # env -i makes sure to start the shell with an empty shell, such that we only save into context.env the env vars we have
   # defined.
-  base_command="source ${local_development_default_file} && source ${context_file}"
+  base_command="source ${local_development_default_file} && source ${context_file} && source ${script_dir}/contexts/resolve-custom-agent.sh"
   if [ -n "${additional_override}" ]; then
       echo "Using additional override file: ${additional_override_file}."
       base_command+=" && source ${additional_override_file}"
