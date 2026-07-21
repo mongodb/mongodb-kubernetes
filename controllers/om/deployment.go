@@ -718,7 +718,7 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 }
 
 func (d Deployment) SetDownloadBase(downloadBase string) {
-	d["options"] = map[string]string{"downloadBase": downloadBase}
+	d["options"] = map[string]interface{}{"downloadBase": downloadBase}
 }
 
 // ProcessesCopy returns the COPY of processes in the deployment.
