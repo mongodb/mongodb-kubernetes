@@ -39,10 +39,9 @@ tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT}" 2> /dev/null | json_log 'mongodb-aud
 # The path to the automation config file in case the agent is run in headless mode
 cluster_config_file="/var/lib/mongodb-automation/cluster-config.json"
 
-# TODO seems to be redundant, ensure before removing
 # file required by Automation Agents of authentication is enabled.
-#touch "${MMS_DOWNLOAD_BASE}/keyfile"
-#chmod 600 "${MMS_DOWNLOAD_BASE}/keyfile"
+touch "${MMS_DOWNLOAD_BASE}/keyfile"
+chmod 600 "${MMS_DOWNLOAD_BASE}/keyfile"
 
 ensure_certs_symlinks
 
