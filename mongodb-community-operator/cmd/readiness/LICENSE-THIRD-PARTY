@@ -2,7 +2,7 @@
 github.com/davecgh/go-spew/spew,v1.1.2-0.20180830191138-d8f796af33cc,https://github.com/davecgh/go-spew/blob/d8f796af33cc/LICENSE,ISC
 github.com/emicklei/go-restful/v3,v3.11.0,https://github.com/emicklei/go-restful/blob/v3.11.0/LICENSE,MIT
 github.com/fxamacker/cbor/v2,v2.7.0,https://github.com/fxamacker/cbor/blob/v2.7.0/LICENSE,MIT
-github.com/go-logr/logr,v1.4.3,https://github.com/go-logr/logr/blob/v1.4.3/LICENSE,Apache-2.0
+github.com/go-logr/logr,v1.4.4,https://github.com/go-logr/logr/blob/v1.4.4/LICENSE,Apache-2.0
 github.com/go-openapi/jsonpointer,v0.21.0,https://github.com/go-openapi/jsonpointer/blob/v0.21.0/LICENSE,Apache-2.0
 github.com/go-openapi/jsonreference,v0.20.2,https://github.com/go-openapi/jsonreference/blob/v0.20.2/LICENSE,Apache-2.0
 github.com/go-openapi/swag,v0.23.0,https://github.com/go-openapi/swag/blob/v0.23.0/LICENSE,Apache-2.0
@@ -21,7 +21,7 @@ github.com/spf13/cast,v1.10.0,https://github.com/spf13/cast/blob/v1.10.0/LICENSE
 github.com/x448/float16,v0.8.4,https://github.com/x448/float16/blob/v0.8.4/LICENSE,MIT
 go.uber.org/multierr,v1.11.0,https://github.com/uber-go/multierr/blob/v1.11.0/LICENSE.txt,MIT
 go.uber.org/zap,v1.28.0,https://github.com/uber-go/zap/blob/v1.28.0/LICENSE,MIT
-go.yaml.in/yaml/v2,v2.4.2,https://github.com/yaml/go-yaml/blob/v2.4.2/LICENSE,Apache-2.0
+go.yaml.in/yaml/v2,v2.4.4,https://github.com/yaml/go-yaml/blob/v2.4.4/LICENSE,Apache-2.0
 google.golang.org/protobuf,v1.36.11,https://go.googlesource.com/protobuf/+/v1.36.11/LICENSE,BSD-3-Clause
 gopkg.in/evanphx/json-patch.v4,v4.12.0,https://github.com/evanphx/json-patch/blob/v4.12.0/LICENSE,BSD-3-Clause
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause

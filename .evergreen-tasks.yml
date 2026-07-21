@@ -708,8 +708,7 @@ tasks:
   # mechanism that actually keeps it out of PR/manual patches while still letting it run (and
   # gate releasability) on master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_sharded_cluster_scram_sha_256_switch_project
-    tags: [ "quarantined" ]
-    patchable: false
+    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
@@ -719,8 +718,7 @@ tasks:
   # mechanism that actually keeps it out of PR/manual patches while still letting it run (and
   # gate releasability) on master merge commits. See EVERGREEN.md#quarantined-tests.
   - name: e2e_sharded_cluster_scram_sha_1_switch_project
-    tags: [ "quarantined" ]
-    patchable: false
+    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 

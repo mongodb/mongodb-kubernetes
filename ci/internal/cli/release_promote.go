@@ -9,7 +9,19 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/ci/internal/release"
 )
 
-func newReleasePromoteCmd() *cobra.Command {
+func newPromoteReleaseCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "promote",
+		Short: "Promote candidate image(s) by applying promoted-latest and promoted-{commit}-{version} tags",
+	}
+
+	cmd.AddCommand(newPromoteImageCmd())
+	cmd.AddCommand(newPromoteImagesCmd())
+
+	return cmd
+}
+
+func newPromoteImageCmd() *cobra.Command {
 	var (
 		image       string
 		commit      string
@@ -20,38 +32,16 @@ func newReleasePromoteCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "promote",
-		Short: "Promote a candidate image by applying promoted-latest and promoted-{commit}-{version} tags",
+		Use:   "image",
+		Short: "Promote a single candidate image",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client := release.NewRegistryClient(registryURL)
-			tags, err := client.Promote(release.PromoteInputs{
-				Image:   image,
-				Commit:  commit,
-				Version: version,
-				Repo:    repo,
-				DryRun:  dryRun,
-			})
-			if err != nil {
-				return err
-			}
-			for _, tag := range tags {
-				var line string
-				if dryRun {
-					line = fmt.Sprintf("dry-run: would copy %s → %s/%s:%s\n", image, registryURL, repo, tag)
-				} else {
-					line = fmt.Sprintf("promoted: %s/%s:%s\n", registryURL, repo, tag)
-				}
-				if _, err := fmt.Fprint(cmd.OutOrStdout(), line); err != nil {
-					return err
-				}
-			}
-			return nil
+			return promoteImage(cmd, image, commit, version, registryURL, repo, dryRun)
 		},
 	}
 
-	cmd.Flags().StringVar(&image, "image", "", "source image reference to promote (required)")
-	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to encode in the promoted tag (required)")
-	cmd.Flags().StringVar(&version, "version", "", "version to encode in the promoted tag (required)")
+	cmd.Flags().StringVar(&image, "image", "", "source image reference to promote")
+	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to encode in the promoted tag")
+	cmd.Flags().StringVar(&version, "version", "", "version to encode in the promoted tag")
 	cmd.Flags().StringVar(&registryURL, "registry", "https://quay.io", "target OCI registry base URL")
 	cmd.Flags().StringVar(&repo, "repo", "mongodb/mongodb-kubernetes-operator", "target image repository")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
@@ -61,6 +51,82 @@ func newReleasePromoteCmd() *cobra.Command {
 	MustNotErr(cmd.MarkFlagRequired("version"))
 
 	return cmd
+}
+
+func newPromoteImagesCmd() *cobra.Command {
+	var (
+		buildInfo   string
+		releaseJSON string
+		commit      string
+		dryRun      bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "images",
+		Short: "Promote every release image defined in build_info.json at the given commit",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return promoteAllImages(cmd, buildInfo, releaseJSON, commit, dryRun)
+		},
+	}
+
+	cmd.Flags().StringVar(&buildInfo, "build-info", "build_info.json", "path to build_info.json")
+	cmd.Flags().StringVar(&releaseJSON, "release-json", "release.json", "path to release.json")
+	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to encode in the promoted tags")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
+
+	MustNotErr(cmd.MarkFlagRequired("commit"))
+
+	return cmd
+}
+
+// promoteAllImages promotes every release image in build_info.json at the given
+// commit, writing promoted tags to each image's primary staging repository.
+func promoteAllImages(cmd *cobra.Command, buildInfo, releaseJSON, commit string, dryRun bool) error {
+	images, err := release.LoadReleaseImages(buildInfo, releaseJSON)
+	if err != nil {
+		return err
+	}
+	results, err := release.PromoteImages(images, commit, dryRun, release.DefaultRegistryConnector)
+	if err != nil {
+		return err
+	}
+	for _, r := range results {
+		for _, tag := range r.Tags {
+			verb := "promoted"
+			if dryRun {
+				verb = "dry-run: would promote"
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: %s:%s\n", verb, r.Repo, tag); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func promoteImage(cmd *cobra.Command, image, commit, version, registryURL, repo string, dryRun bool) error {
+	tags, err := release.Promote(release.PromoteInputs{
+		Image:   image,
+		Commit:  commit,
+		Version: version,
+		Repo:    repo,
+		DryRun:  dryRun,
+	}, release.DefaultRegistryConnector(registryURL))
+	if err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		var line string
+		if dryRun {
+			line = fmt.Sprintf("dry-run: would copy %s → %s/%s:%s\n", image, registryURL, repo, tag)
+		} else {
+			line = fmt.Sprintf("promoted: %s/%s:%s\n", registryURL, repo, tag)
+		}
+		if _, err := fmt.Fprint(cmd.OutOrStdout(), line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func MustNotErr(err error) {

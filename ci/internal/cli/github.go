@@ -2,14 +2,14 @@ package cli
 
 import "github.com/spf13/cobra"
 
-func newReleaseCmd() *cobra.Command {
+func newGitHubCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "release",
-		Short: "Release automation commands",
+		Use:   "github",
+		Short: "Github integration commands",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newPromoteReleaseCmd())
+	cmd.AddCommand(newGHAppTokenCmd())
 	return cmd
 }

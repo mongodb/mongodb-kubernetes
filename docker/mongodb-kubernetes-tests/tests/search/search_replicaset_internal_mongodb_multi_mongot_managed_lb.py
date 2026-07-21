@@ -237,6 +237,9 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     phase = mdbs.get_status_phase()
     assert phase == Phase.Running, f"MongoDBSearch phase is {phase}, expected Running"
     mdbs.assert_lb_status()
+    # Single-cluster managed LB: exactly one per-cluster entry, both search and
+    # loadBalancer sub-phases Running.
+    mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True)
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
 
 

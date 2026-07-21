@@ -55,8 +55,7 @@ func TestPromote(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := NewRegistryClient(srv.URL)
-			tags, err := client.Promote(tt.inputs)
+			tags, err := Promote(tt.inputs, DefaultRegistryConnector(srv.URL))
 
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {

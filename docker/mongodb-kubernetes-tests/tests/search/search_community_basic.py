@@ -86,6 +86,13 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_community_basic
+def test_verify_per_cluster_status(mdbs: MongoDBSearch):
+    """Single-cluster deployment: status.clusters has exactly one Running entry
+    and no loadBalancer sub-phase (unmanaged/no LB)."""
+    mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=False)
+
+
+@mark.e2e_search_community_basic
 def test_advanced_mongot_configs_rendered(namespace: str, mdbs: MongoDBSearch):
     data = read_configmap(namespace, search_resource_names.mongot_configmap_name(mdbs.name))
     config = yaml.safe_load(data["config.yml"])
