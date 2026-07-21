@@ -63,7 +63,7 @@ spec:
 - [ ] **Step 2: Create `om_external_appdb_primary.yaml`**
 
 ```yaml
-# docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/om_external_appdb_primary.yaml
+# docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/om_external_appdb_primary_om.yaml
 apiVersion: mongodb.com/v1
 kind: MongoDBOpsManager
 metadata:
@@ -99,7 +99,7 @@ spec:
 
 ```bash
 git add docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/om_external_appdb_meta.yaml \
-        docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/om_external_appdb_primary.yaml
+        docker/mongodb-kubernetes-tests/tests/opsmanager/fixtures/om_external_appdb_primary_om.yaml
 git commit -m "test(e2e): add fixture YAMLs for external appDB switch test"
 ```
 
@@ -189,7 +189,7 @@ def meta_om(namespace: str, custom_version: str, custom_appdb_version: str) -> M
 @fixture(scope="module")
 def primary_om(namespace: str, custom_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_external_appdb_primary.yaml"), namespace=namespace
+        yaml_fixture("om_external_appdb_primary_om.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)

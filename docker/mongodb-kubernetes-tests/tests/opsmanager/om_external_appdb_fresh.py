@@ -23,28 +23,22 @@ from tests.opsmanager.external_appdb_helpers import (
 )
 
 """
-e2e coverage for "external AppDB via MongoDB CR reference"
-(docs/superpowers/specs/2026-07-02-appdb-mongodb-cr-reference-design.md).
-
-Topology follows the external-AppDB spike: a management-plane "Meta OM" (meta-om) owns the
-projects that manage the AppDB-role MongoDB CRs; the Primary OM under test never manages its own
-AppDB (that would make the AppDB's automation agents depend on the very OM whose availability
-depends on that AppDB).
+E2E test coverage for External AppDB via MongoDB CR reference:
+  - Procedure 1: Fresh Start
+  - Procedure 3: Reverse Migration
 
 The classes form one continuous story on a single Primary OM, in order:
-  1. TestDeployMetaOpsManager - deploy the management plane
-  2. TestFreshStartExternalAppDB - Procedure 1 (true Fresh Start: the Primary OM CR has no
+  1. TestDeployMetaOpsManager - Prerequisite: deploy the management plane (Meta OM)
+  2. TestFreshStartExternalAppDB - Procedure 1: Fresh Start (the Primary OM CR has no
      spec.applicationDatabase and never had an internal AppDB)
-  3. TestReverseMigrationAfterFreshStart - Procedure 3, continuing from that fresh-started state
+  3. TestReverseMigrationAfterFreshStart - Procedure 3: Reverse Migration back to internal AppDB
+     handled by the Primary OM CR spec.applicationDatabase. Here we first remove
+     spec.externalApplicationDatabaseRef, add spec.applicationDatabase and wait for Primary OM to
+     migrate to internal AppDB. After that we delete detached MongoDB CR (External AppDB).
 
-See om_external_appdb_forward.py for Procedure 2 (Forward Migration) and the same Procedure 3
-logic starting from a completed forward migration instead, plus the two-signal adoption gate.
-
-NOTE ON EXECUTION: this suite was authored against the implementation plan and verified only via
-static checks (Python syntax / import resolution). It has NOT been run against a live kind cluster -
-that must happen separately (see mck-dev:local-kind-dev), e.g.:
-
-    pytest -m e2e_om_external_appdb_fresh -v
+See om_external_appdb_forward.py for Procedure 2 (Forward Migration) and the Procedure 3 (Reverse Migration)
+with significant difference: For reverse migration we first remove the MongoDB CR (External AppDB) and test
+if the Primary OM can adopt the internal AppDB.
 """
 OM_NAME = "primary-om-with-external-appdb"
 DB_NAME = f"{OM_NAME}-db"  # must match the operator's required "<om-name>-db" naming convention
@@ -58,6 +52,7 @@ def meta_om(namespace: str, custom_version: Optional[str], custom_appdb_version:
 @fixture(scope="module")
 def primary_om(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
+        #TODO rename this with om_external_appdb prefix
         yaml_fixture("primary_om_with_external_appdb.yaml"),
         namespace=namespace,
     )
@@ -99,7 +94,7 @@ class TestDeployMetaOpsManager:
 
 @pytest.mark.e2e_om_external_appdb_fresh
 class TestFreshStartExternalAppDB:
-    """Procedure 1: create the MongoDB (role: AppDB) CR managed by Meta OM, then create the Primary
+    """Procedure 1: create the External AppDB (MongoDB role: AppDB) CR managed by Meta OM, then create the Primary
     OM CR with externalApplicationDatabaseRef set from the start and no spec.applicationDatabase -
     no internal AppDB ever exists for this OM CR."""
 

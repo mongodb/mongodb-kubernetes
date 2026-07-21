@@ -1,7 +1,7 @@
 # External AppDB Switch — e2e Test Design
 
-**Date:** 2026-06-30  
-**Branch:** `maciejk/external-appdb`  
+**Date:** 2026-06-30
+**Branch:** `maciejk/external-appdb`
 **Marker:** `e2e_om_external_appdb`
 
 ---
@@ -89,7 +89,7 @@ def meta_om(namespace, custom_version, custom_appdb_version) -> MongoDBOpsManage
 
 @fixture(scope="module")
 def primary_om(namespace, custom_version, custom_appdb_version) -> MongoDBOpsManager:
-    # loads om_external_appdb_primary.yaml
+    # loads om_external_appdb_primary_om.yaml
     # name: primary-om, applicationDatabase.members: 3
 
 @fixture(scope="module")

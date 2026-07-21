@@ -62,7 +62,7 @@ def meta_om(namespace: str, custom_version: Optional[str], custom_appdb_version:
 @fixture(scope="module")
 def primary_om(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_external_appdb_primary.yaml"), name=OM_NAME, namespace=namespace
+        yaml_fixture("om_external_appdb_primary_om.yaml"), name=OM_NAME, namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)

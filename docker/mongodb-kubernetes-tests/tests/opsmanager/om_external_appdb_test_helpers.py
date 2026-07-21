@@ -10,12 +10,6 @@ from kubetester.opsmanager import MongoDBOpsManager
 from tests.conftest import is_multi_cluster
 from tests.multicluster.conftest import cluster_spec_list
 
-"""
-Shared helpers for the external-AppDB-via-MongoDB-CR-reference e2e suite
-(docs/superpowers/specs/2026-07-02-appdb-mongodb-cr-reference-design.md), split across
-om_external_appdb_fresh.py and om_external_appdb_forward.py.
-"""
-
 SENTINEL_DOC = {"_id": "external-appdb-sentinel", "marker": "survived-migration"}
 TEST_DB = "sentinelDb"
 TEST_COLLECTION = "sentinelCollection"
@@ -23,18 +17,15 @@ META_OM_NAME = "meta-om"
 
 
 def password_secret_name(om_name: str) -> str:
-    # AppDBSpec.Name() (appdb_types.go:385-387) returns "<om-name>-db", and
-    # GetOpsManagerUserPasswordSecretName() delegates to OpsManagerUserPasswordSecretName(m.Name())
-    # (appdb_types.go:257,263), so the real secret name is "<om-name>-db-om-password" - the CR's own
-    # full name (which must already equal "<om-name>-db" per the naming convention) plus the suffix,
-    # not the bare OM name plus the suffix. Verified directly against Go source, not assumed.
     return f"{om_name}-db-om-password"
 
 
+# TODO if only single cluster, simplify
 def ref_kind_for_appdb() -> str:
     return "MongoDBMultiCluster" if is_multi_cluster() else "MongoDB"
 
 
+# TODO if only single cluster, simplify
 def appdb_role_resource(
     namespace: str,
     custom_mdb_version: str,
@@ -72,28 +63,29 @@ def appdb_role_resource(
 
 
 def meta_om_resource(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
-    """Builds the management-plane Ops Manager ("Meta OM", per the external-AppDB spike topology)
-    that owns the projects managing the AppDB-role MongoDB CRs. Deployment happens in each module's
-    TestDeployMetaOpsManager class, not here. A single Meta OM is shared by every test class in a
-    module - it must never be the Primary OM under test, otherwise the AppDB's automation agents
-    would depend on the very OM whose availability depends on that AppDB."""
+    """Builds the management-plane Ops Manager ("Meta OM")
+    that owns the projects managing the External AppDB MongoDB CR. Deployment happens in each module's
+    TestDeployMetaOpsManager class, not here."""
     resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("meta_om.yaml"),
+        yaml_fixture("om_external_appdb_meta_om.yaml"),
         name=META_OM_NAME,
         namespace=namespace,
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+
     try_load(resource)
+
     return resource
 
 
 def configure_appdb_role_mongodb(mdb: MongoDB, meta_om: MongoDBOpsManager, namespace: str) -> MongoDB:
-    """Points the AppDB-role CR's project/credentials at the Meta OM (never the Primary OM - see
-    ensure_meta_om). Per-CR project name so multiple test classes can share one Meta OM."""
+    """Points the External AppDB CR's project/credentials at the Meta OM."""
     config_map_name = meta_om.get_or_create_mongodb_connection_config_map(mdb.name, f"{mdb.name}-project")
+
     mdb["spec"]["opsManager"]["configMapRef"]["name"] = config_map_name
     mdb["spec"]["credentials"] = meta_om.api_key_secret(namespace)
+
     return mdb
 
 
