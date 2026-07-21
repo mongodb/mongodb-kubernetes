@@ -1,0 +1,8 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: bughunt-ca
+  namespace: bughunt-nam
+spec:
+  ca:
+    secretName: bughunt-ca-key-pair
