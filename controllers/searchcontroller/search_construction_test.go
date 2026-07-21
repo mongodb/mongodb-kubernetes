@@ -318,6 +318,112 @@ func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *
 	assert.Equal(t, map[string]string{"custom": "selector"}, pa.RequiredDuringSchedulingIgnoredDuringExecution[0].LabelSelector.MatchLabels)
 }
 
+func testNodeAffinity(key string) *corev1.NodeAffinity {
+	return &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+				MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:      key,
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{"true"},
+				}},
+			}},
+		},
+	}
+}
+
+func TestCreateSearchStatefulSetFunc_NodeAffinity(t *testing.T) {
+	clusterNodeAffinity := testNodeAffinity("cluster-node")
+	shardNodeAffinity := testNodeAffinity("shard-node")
+	overrideNodeAffinity := testNodeAffinity("override-node")
+
+	// statefulSetOverride, when non-nil, is applied last in the reconcile
+	// pipeline (StatefulSetOverrideModification) and must win over the field.
+	statefulSetNodeAffinityOverride := func(na *corev1.NodeAffinity) *v1.StatefulSetConfiguration {
+		return &v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Affinity: &corev1.Affinity{NodeAffinity: na},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	testCases := []struct {
+		name        string
+		cluster     searchv1.ClusterSpec
+		clusterName string
+		shardName   string
+		expected    *corev1.NodeAffinity
+	}{
+		{
+			name:        "cluster-level nodeAffinity set as it is",
+			cluster:     searchv1.ClusterSpec{Name: "cluster-1", NodeAffinity: clusterNodeAffinity},
+			clusterName: "cluster-1",
+			expected:    clusterNodeAffinity,
+		},
+		{
+			name:        "unset leaves nodeAffinity nil",
+			cluster:     searchv1.ClusterSpec{Name: "cluster-1"},
+			clusterName: "cluster-1",
+			expected:    nil,
+		},
+		{
+			name: "shard override replaces cluster nodeAffinity",
+			cluster: searchv1.ClusterSpec{
+				NodeAffinity:   clusterNodeAffinity,
+				ShardOverrides: []searchv1.ShardOverride{{ShardNames: []string{"shard-1"}, NodeAffinity: shardNodeAffinity}},
+			},
+			shardName: "shard-1",
+			expected:  shardNodeAffinity,
+		},
+		{
+			name: "shard without override inherits cluster nodeAffinity",
+			cluster: searchv1.ClusterSpec{
+				NodeAffinity:   clusterNodeAffinity,
+				ShardOverrides: []searchv1.ShardOverride{{ShardNames: []string{"shard-1"}, NodeAffinity: shardNodeAffinity}},
+			},
+			shardName: "shard-0",
+			expected:  clusterNodeAffinity,
+		},
+		{
+			name: "statefulSet override wins over nodeAffinity field",
+			cluster: searchv1.ClusterSpec{
+				Name:                     "cluster-1",
+				NodeAffinity:             clusterNodeAffinity,
+				StatefulSetConfiguration: statefulSetNodeAffinityOverride(overrideNodeAffinity),
+			},
+			clusterName: "cluster-1",
+			expected:    overrideNodeAffinity,
+		},
+	}
+
+	labels := map[string]string{appLabelKey: "test-search-svc"}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
+				s.Spec.Clusters = []searchv1.ClusterSpec{tc.cluster}
+			})
+
+			sizing := resolvedSizing(t, search, tc.clusterName, tc.shardName)
+			stsMod := CreateSearchStatefulSetFunc(search, sizing, "test-search-db", "default", "test-search-svc", "cm", labels, "mongot:latest", false)
+			// The override is applied last in the reconcile pipeline; a NOOP when unset.
+			sts := statefulset.New(stsMod, StatefulSetOverrideModification(sizing.StatefulSetConfiguration))
+
+			affinity := sts.Spec.Template.Spec.Affinity
+			require.NotNil(t, affinity)
+			assert.Equal(t, tc.expected, affinity.NodeAffinity)
+			// The default pod anti-affinity term is left untouched in every case.
+			require.NotNil(t, affinity.PodAntiAffinity)
+			require.Len(t, affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution, 1)
+		})
+	}
+}
+
 func TestCreateSearchStatefulSetFunc_ShardOverrideReplicas(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "default", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Clusters = []searchv1.ClusterSpec{{

@@ -925,6 +925,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.automationAgentVersion = automationAgentVersion
 
+	if err := connection.EnsureTargetAutomationConfigSeeded(conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported {
 		return r.updateStatus(ctx, sc, workflowStatus, log)

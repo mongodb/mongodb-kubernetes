@@ -691,6 +691,33 @@ functions:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
 
+  # Downloads the certified openshift bundle from S3 and pushes a branch containing it
+  # to the mongodb-forks certified-operators and community-operators repos. It does NOT
+  # open the PRs: the script prints the "create PR" URLs and the manual review checklist.
+  # Only one Evergreen-managed GitHub App can be installed per project (already used by CI),
+  # so this does NOT use the built-in github.generate_token command. Instead the script mints
+  # its own token from a dedicated GitHub App installed on the mongodb-forks org, via
+  # `scripts/mckci github app-token` (see scripts/release/publish-openshift-bundles-to-rh.sh).
+  # Requires three EVG project variables: rh_gh_app_id and rh_gh_app_installation_id (plain,
+  # public variables), and rh_gh_app_pem_b64 (must be configured as a Private project variable).
+  publish_openshift_bundles_to_rh:
+    - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - mongodbOperator
+          - rh_gh_app_id
+          - rh_gh_app_installation_id
+          - rh_gh_app_pem_b64
+        env:
+          VERSION: ${mongodbOperator}
+          RH_DRYRUN: ${rh_dryrun|true}
+          RH_GH_APP_ID: ${rh_gh_app_id}
+          RH_GH_APP_INSTALLATION_ID: ${rh_gh_app_installation_id}
+          RH_GH_APP_PEM_B64: ${rh_gh_app_pem_b64}
+        binary: scripts/release/publish-openshift-bundles-to-rh.sh
+
   # Performs some AWS cleanup
   cleanup_aws:
     - *setup_jq

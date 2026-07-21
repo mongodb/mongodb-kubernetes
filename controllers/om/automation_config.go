@@ -281,6 +281,8 @@ type Auth struct {
 	AutoUser string `json:"autoUser,omitempty"`
 	// Key is the contents of the KeyFile, the automation agent will ensure this a KeyFile with these contents exists at the `KeyFile` path
 	Key string `json:"key,omitempty"`
+	// NewKey is used for keyfile rotation. Ops Manager promotes it to Key once agents reach goal state.
+	NewKey string `json:"newKey,omitempty"`
 	// KeyFile is the path to a keyfile with read & write permissions. It is a required field if `Disabled=false`
 	KeyFile string `json:"keyfile,omitempty"`
 	// KeyFileWindows is required if `Disabled=false` even if the value is not used
