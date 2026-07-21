@@ -10,10 +10,6 @@ export CUSTOM_OM_VERSION
 export CUSTOM_MDB_VERSION=8.0.6
 export CUSTOM_MDB_PREV_VERSION=7.0.18
 
-# Agent must match ops_manager_80_latest (8.0.24) per release.json's OM->agent mapping; older agents can't run mongod 8.3.x.
-export AGENT_VERSION=108.0.24.9016-1
-export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
-
 export CUSTOM_APPDB_VERSION=8.0.6-ent
 export TEST_MODE=opsmanager
 export OPS_MANAGER_REGISTRY="${REGISTRY}"
