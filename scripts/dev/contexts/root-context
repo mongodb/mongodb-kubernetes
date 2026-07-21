@@ -4,10 +4,19 @@ set -Eeou pipefail
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 script_dir=$(dirname "${script_name}")
+
+# site-context sets PROJECT_DIR; fall back to the canonical layout for direct
+# sourcing (flows that don't go through switch_context.sh).
+: "${PROJECT_DIR:=$(realpath "${script_dir}/../../..")}"
+export PROJECT_DIR
+
 source "${script_dir}/private-context"
 
-PROJECT_DIR="$(realpath "${script_dir}/../../..")"
-export PROJECT_DIR
+# Devcontainer / EVG-host worktree overrides (MCK_DEVC_* loading, per-worktree
+# namespace suffix, CLUSTER_NAME alignment, EVG-host address resolution).
+# No-op outside a wt-ctl worktree.
+source "${script_dir}/root-devc-context"
+
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true
 export WATCH_NAMESPACE=${WATCH_NAMESPACE:-${NAMESPACE}}
@@ -22,16 +31,9 @@ export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
-export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
-export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
 
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
-  # This env var is used by the local operator to load multi-cluster kubeconfig.
-  # Normally, the pod is loading it from a path that is mounted from the mongodb-enterprise-operator-multi-cluster-kubeconfig secret.
-  # When running locally, we use cli tool to generate that kubeconfig secret and write it to this file.
-  # This way, the local operator is using kubeconfig create by cli tool the same way as it's used when running in a pod.
-  export KUBE_CONFIG_PATH=~/.operator-dev/multicluster_kubeconfig
   export PERFORM_FAILOVER=false
 fi
 
@@ -43,7 +45,6 @@ export AGENT_VERSION
 # Ops Manager
 export OPS_MANAGER_NAMESPACE="operator-testing-50-current"
 
-# Moved from the old set_env_context.sh
 export LOCAL_RUN=true
 
 if [[ "${OVERRIDE_VERSION_ID:-}" != "" ]]; then
@@ -88,25 +89,12 @@ export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kube
 
 export KUBE_ENVIRONMENT_NAME=kind
 
-# when using EVG ec2 instance, we copy kubeconfig locally and use it
-if [[ "${EVG_HOST_NAME:-}" != "" ]]; then
-  KUBECONFIG=~/.operator-dev/evg-host.kubeconfig
-else
-  KUBECONFIG=~/.kube/config
-fi
-export KUBECONFIG
-
-if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.25
-fi
-
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
 
 export CLUSTER_DOMAIN="cluster.local"
 
 export MDB_MAX_CONCURRENT_RECONCILES=10
 
-# leaving them empty for now
 export OM_HOST=https://cloud-qa.mongodb.com
 export OM_BASE_URL=https://cloud-qa.mongodb.com
 
@@ -166,14 +154,3 @@ export OPERATOR_CLUSTER_SCOPED=false
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
 export KUBECTL_VERSION="v1.35.0"
-
-# s390x-specific feature flags — use ${VAR:-default} so they can be overridden before sourcing this context.
-# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation
-#   https://github.com/protocolbuffers/protobuf/issues/24103
-# SODIUM_INSTALL: pynacl must link against system libsodium (RHEL9 ships 1.0.18; bundled build broken on s390x+Python 3.13)
-# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13; pytest-opentelemetry excluded from requirements
-if [[ "$(uname -m)" == "s390x" ]]; then
-  export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
-  export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
-  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
-fi

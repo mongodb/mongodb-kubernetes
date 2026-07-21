@@ -7,6 +7,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
+from tests.kind_network import KIND_LB_SLOT_CLUSTER_1, kind_lb_ip_str
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
@@ -55,7 +56,7 @@ def test_set_external_connectivity_load_balancer_with_default_port(
 ):
     ext_connectivity = {
         "type": "LoadBalancer",
-        "loadBalancerIP": "172.18.255.211",
+        "loadBalancerIP": kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1),
         "externalTrafficPolicy": "Local",
         "annotations": {
             "first-annotation": "first-value",
@@ -79,7 +80,7 @@ def test_set_external_connectivity_load_balancer_with_default_port(
         assert external.spec.type == "LoadBalancer"
         assert len(external.spec.ports) == 1
         assert external.spec.ports[0].port == 8080  # if not specified it will be the default port
-        assert external.spec.load_balancer_ip == "172.18.255.211"
+        assert external.spec.load_balancer_ip == kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1)
         assert external.spec.external_traffic_policy == "Local"
 
 
@@ -87,7 +88,7 @@ def test_set_external_connectivity_load_balancer_with_default_port(
 def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
     ext_connectivity = {
         "type": "LoadBalancer",
-        "loadBalancerIP": "172.18.255.211",
+        "loadBalancerIP": kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1),
         "externalTrafficPolicy": "Local",
         "port": 443,
         "annotations": {
@@ -112,7 +113,7 @@ def test_set_external_connectivity(opsmanager: MongoDBOpsManager):
         assert external.spec.type == "LoadBalancer"
         assert len(external.spec.ports) == 1
         assert external.spec.ports[0].port == 443
-        assert external.spec.load_balancer_ip == "172.18.255.211"
+        assert external.spec.load_balancer_ip == kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1)
         assert external.spec.external_traffic_policy == "Local"
 
 

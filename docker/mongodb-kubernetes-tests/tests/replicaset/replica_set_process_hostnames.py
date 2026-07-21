@@ -16,6 +16,7 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.common.placeholders import placeholders
 from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
+from tests.kind_network import KIND_LB_SLOT_OPERATOR, kind_lb_ip_str
 
 
 @fixture
@@ -49,10 +50,10 @@ def replica_set(
 @pytest.mark.e2e_replica_set_process_hostnames
 def test_update_coredns():
     hosts = [
-        ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
-        ("172.18.255.201", "my-replica-set-1.mongodb.interconnected"),
-        ("172.18.255.202", "my-replica-set-2.mongodb.interconnected"),
-        ("172.18.255.203", "my-replica-set-3.mongodb.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR), "my-replica-set-0.mongodb.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR, 1), "my-replica-set-1.mongodb.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR, 2), "my-replica-set-2.mongodb.interconnected"),
+        (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR, 3), "my-replica-set-3.mongodb.interconnected"),
     ]
 
     update_coredns_hosts(hosts)

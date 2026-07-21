@@ -10,7 +10,10 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
-if [[ "$(uname)" == "Linux" ]]; then
+if [[ "$(uname)" == "Linux" && -d /opt/golang/go1.25 ]]; then
+  # Evergreen build hosts ship Go under /opt/golang/. Prepend it so this script
+  # uses that toolchain there. In other environments (devcontainer, local) the
+  # GOROOT exported by root-context (derived from `go env GOROOT`) wins.
   export PATH=/opt/golang/go1.25/bin:${PATH}
   export GOROOT=/opt/golang/go1.25
 fi
@@ -83,11 +86,12 @@ test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongod
 # when DEPLOY_OPERATOR=true, but they're required even for local operator runs).
 # Add Helm ownership metadata so that when Helm runs (in this script or in pytest)
 # it can adopt these resources instead of failing with "invalid ownership metadata".
+helm_release_name="${OPERATOR_NAME:-mongodb-kubernetes-operator}"
 for sa in mongodb-kubernetes-database-pods mongodb-kubernetes-appdb; do
   kubectl create serviceaccount "${sa}" -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
   kubectl label serviceaccount "${sa}" -n "${NAMESPACE}" "app.kubernetes.io/managed-by=Helm" --overwrite
   kubectl annotate serviceaccount "${sa}" -n "${NAMESPACE}" \
-    "meta.helm.sh/release-name=mongodb-kubernetes-operator" \
+    "meta.helm.sh/release-name=${helm_release_name}" \
     "meta.helm.sh/release-namespace=${NAMESPACE}" \
     --overwrite
 done

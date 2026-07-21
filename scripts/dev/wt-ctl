@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# wt-ctl — unified worktree + devcontainer control plane.
+#
+# Thin shim: load the worktree env via set_env_context (activates the venv and
+# prepends bin/ to PATH), put the wt_ctl package on PYTHONPATH so ``import
+# wt_ctl`` resolves regardless of cwd, then exec ``python3 -m wt_ctl``. wt-ctl
+# always runs from a worktree that worktree_init has already prepared, so the
+# env files and venv are present. See ``docs/dev/wt-ctl-plan.md``.
+#
+set -Eeuo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=set_env_context.sh
+source "${script_dir}/set_env_context.sh"
+
+export PYTHONPATH="${script_dir}${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 -m wt_ctl "$@"

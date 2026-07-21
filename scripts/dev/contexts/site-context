@@ -1,0 +1,118 @@
+# site-context — site-derived environment variables (per-side bytes).
+# Sourced only (never executed directly).
+#
+# Sourced by scripts/dev/switch_context.sh in an `env -i` subshell, ON the
+# side that ran `make switch`. The values it exports depend on the
+# filesystem layout of the running side (PROJECT_DIR), the running shell's
+# Go install (GOROOT), the architecture (s390x conditionals), and the
+# in-container vs. on-host k8s-forwarding-proxy address (K8S_FWD_PROXY).
+#
+# Companion: scripts/dev/contexts/root-context (logical, side-agnostic).
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+PROJECT_DIR="$(realpath "${script_dir}/../../..")"
+export PROJECT_DIR
+
+# In devc, compose.yml's x-k8s-proxy-config anchor passes the resolved proxy
+# address in as K8S_FWD_PROXY — inherit it (it is authoritative). On host the
+# kfp daemon listens on 127.0.0.1:11616 (launchd-managed, not started/stopped
+# by wt-ctl; if down: `sudo launchctl kickstart -k system/...`).
+if [[ -f /.dockerenv ]]; then
+  : "${K8S_FWD_PROXY:?K8S_FWD_PROXY must be set in devc env (compose.yml passes it via x-k8s-proxy-config)}"
+else
+  K8S_FWD_PROXY="127.0.0.1:11616"
+fi
+export K8S_FWD_PROXY
+
+# KUBECONFIG — prefer the per-side per-worktree kubeconfig, falling back to the
+# user's default for a non-worktree / non-devcontainer checkout. The per-worktree
+# files are written by evg_host.sh get-kubeconfig (EVG-host) and
+# recreate_kind_clusters.sh (local-kind); the host file uses
+# proxy-url=http://127.0.0.1:${MCK_DEVC_PROXY_PORT}, the devc file
+# proxy-url=http://gost-proxy:8080.
+#
+# EVG_HOST_NAME isn't available here (not forwarded into switch_context.sh's
+# env -i capture; private-context is sourced later), so detect the EVG-host
+# kubeconfig by file presence rather than the env var.
+if [[ -f /.dockerenv ]]; then
+  # devc: the orchestrator always generates this file, so point at it
+  # unconditionally (a missing file yields a clear "no such file" from kubectl).
+  KUBECONFIG="${PROJECT_DIR}/.generated/current.devc.kubeconfig"
+elif [[ -f "${PROJECT_DIR}/.generated/current.kubeconfig" ]]; then
+  KUBECONFIG="${PROJECT_DIR}/.generated/current.kubeconfig"
+elif [[ -f "${HOME}/.operator-dev/evg-host.kubeconfig" ]]; then
+  # EVG-host worktree pointing at a copied kubeconfig.
+  KUBECONFIG="${HOME}/.operator-dev/evg-host.kubeconfig"
+else
+  # Non-worktree / non-devcontainer checkout: default to the user's kubeconfig.
+  KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+fi
+export KUBECONFIG
+
+# Multi-cluster kubeconfig path. The operator only consults it when
+# LOCAL_OPERATOR=true (set by private-context, which is sourced AFTER
+# this file in the switch_context.sh chain — so we can't condition on
+# LOCAL_OPERATOR here without missing the signal). Set the path
+# unconditionally; it's harmless when LOCAL_OPERATOR is unset.
+#
+# Per-side flavor, mirroring KUBECONFIG: the devc file has member
+# proxy-url=${EVG_HOST_PROXY} (or host.docker.internal rewrites);
+# the host file reaches members via 127.0.0.1:${MCK_DEVC_PROXY_PORT}.
+# Both are derived by `wt-ctl kubeconfig refresh` from the bare base.
+if [[ -f /.dockerenv ]]; then
+  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster.devc.kubeconfig"
+else
+  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+fi
+
+export MULTI_CLUSTER_CONFIG_DIR="${PROJECT_DIR}/.multi_cluster_local_test_files"
+export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH="${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator"
+
+# PROJECT_DIR-derived path defaults that local-defaults-context also sets
+# (and which root-context / private-context may further override). We mirror
+# them here so the switch_context.sh subtraction algorithm classifies them
+# as site bytes — they MUST end up in context.<side>.env, not the shared
+# logical context.env, because their values include the worktree's
+# absolute path which differs between host and devc.
+#
+# `workdir` is an alias for PROJECT_DIR used by evergreen setup scripts
+# (scripts/evergreen/setup_*.sh). Default-only: on Evergreen the real task
+# workdir (/data/mci/<hash>) is forwarded via include_expansions_in_env and
+# must NOT be clobbered — every `add_to_path: ${workdir}/...` in the EVG YAML
+# expands to that dir, so overriding it here strands setup_gcloud_cli.sh /
+# setup_mongosh.sh output.
+export workdir="${workdir:-${PROJECT_DIR}}"
+export MDB_OM_VERSION_MAPPING_PATH="${PROJECT_DIR}/release.json"
+export ENV_FILE="${PROJECT_DIR}/.ops-manager-env"
+export NAMESPACE_FILE="${PROJECT_DIR}/.namespace"
+export DEFAULT_HELM_CHART_PATH="${PROJECT_DIR}/helm_chart"
+
+# GOPATH: default to Go's own computed value (typically ${HOME}/go) rather
+# than hardcoding a path. Exported here so switch_context.sh captures it as a
+# site byte; a private-context may still override it per side.
+if command -v go >/dev/null 2>&1; then
+  export GOPATH="${GOPATH:-$(go env GOPATH)}"
+fi
+
+if command -v go >/dev/null 2>&1; then
+  GOROOT="$(go env GOROOT)"
+  export GOROOT
+fi
+
+# s390x-specific feature flags — use ${VAR:-default} so the caller can
+# override before sourcing.
+# PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure-Python
+#   protobuf; C++ extension crashes at import.
+#   https://github.com/protocolbuffers/protobuf/issues/24103
+# SODIUM_INSTALL: pynacl must link against system libsodium; bundled
+#   build broken on s390x+Python 3.13.
+# PYTEST_OTEL_ENABLED: grpcio segfaults at exit on s390x+Python 3.13.
+if [[ "$(uname -m)" == "s390x" ]]; then
+  export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
+  export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
+  export PYTEST_OTEL_ENABLED="${PYTEST_OTEL_ENABLED:-false}"
+fi

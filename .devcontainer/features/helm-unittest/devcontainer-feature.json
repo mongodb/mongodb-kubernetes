@@ -1,0 +1,9 @@
+{
+    "id": "helm-unittest",
+    "version": "1.0.0",
+    "name": "helm-unittest",
+    "description": "Installs the helm-unittest plugin (https://github.com/helm-unittest/helm-unittest).",
+    "installsAfter": [
+        "ghcr.io/devcontainers/features/kubectl-helm-minikube:1"
+    ]
+}

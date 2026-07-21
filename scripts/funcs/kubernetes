@@ -139,11 +139,6 @@ create_image_registries_secret() {
       echo "Using Docker config: ${config_file}"
     fi
 
-    if kubectl --context "${context}" get secret "${secret_name}" -n "${namespace}" &>/dev/null; then
-      echo "${context}: Secret ${namespace}/${secret_name} already exists, skipping"
-      return
-    fi
-
     # shellcheck disable=SC2154
     if kubectl --context "${context}" get namespace "${namespace}"; then
       echo "${context}: Applying ${namespace}/${secret_name} pull secret"
@@ -287,11 +282,28 @@ docker_run_local_registry() {
 
 docker_create_kind_network() {
   # We create docker network primarily so that all kind clusters use the same network.
-  # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
-  #   - we set IP ranges for MetalLB
-  #   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
-  # In case of any errors, verify if any other subnet is not already using that subnet.
-  docker network create --subnet=172.18.0.0/16 kind || true
+  # The subnet must match KIND_NETWORK_SUBNET in scripts/funcs/kind_network — it
+  # drives the MetalLB IP ranges and the IPs the no-mesh tests assume. Override
+  # KIND_NETWORK_SUBNET in the context to use a different /16; the bash scripts
+  # and the Python test fixtures both derive their addresses from the same var.
+  # shellcheck source=scripts/funcs/kind_network
+  source "$(dirname "${BASH_SOURCE[0]}")/kind_network"
+  if docker network inspect kind >/dev/null 2>&1; then
+    # A pre-existing 'kind' net with a different subnet silently breaks the
+    # MetalLB ranges derived from KIND_NETWORK_SUBNET — fail loudly instead.
+    local existing
+    existing="$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' kind 2>/dev/null)"
+    case " ${existing} " in
+      *" ${KIND_NETWORK_SUBNET} "*) : ;;
+      *)
+        echo "ERROR: docker network 'kind' exists with subnet(s) '${existing% }' but KIND_NETWORK_SUBNET=${KIND_NETWORK_SUBNET}." >&2
+        echo "       Remove it (docker network rm kind) or align KIND_NETWORK_SUBNET." >&2
+        return 1
+        ;;
+    esac
+  else
+    docker network create --subnet="${KIND_NETWORK_SUBNET}" kind
+  fi
 }
 
 docker_network_connect_to_kind() {

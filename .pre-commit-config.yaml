@@ -186,7 +186,22 @@ repos:
         exclude: |
           (?x)^(
             vendor/.*|
-            testdata/.*
+            testdata/.*|
+            \.devcontainer/devcontainer\.json$|
+            \.devcontainer/features/.*/devcontainer-feature\.json$
+          )
+
+  - repo: local
+    hooks:
+      - id: check-jsonc
+        name: check-jsonc
+        description: Validate JSONC files (JSON with //, /*…*/ comments and trailing commas).
+        entry: python3 scripts/dev/validate_jsonc.py
+        language: system
+        files: |
+          (?x)^(
+            \.devcontainer/devcontainer\.json$|
+            \.devcontainer/features/.*/devcontainer-feature\.json$
           )
         priority: 6
 
@@ -233,3 +248,5 @@ repos:
       - id: golangci-lint-fmt
         language_version: 1.26.5
         priority: 6
+
+
