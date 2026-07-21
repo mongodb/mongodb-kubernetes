@@ -35,6 +35,31 @@ variables:
       - func: teardown_kubernetes_environment
       - func: teardown_cloud_qa
 
+  # Multi-cluster kind (KUBE_ENVIRONMENT_NAME=multi in the variant's context file):
+  # no Cloud QA (the snippets deploy a real Ops Manager via ra-06); the
+  # multi-cluster binary (kubectl-mongodb plugin) and mongosh are needed by the
+  # ra-* prerequisite suites.
+  - &setup_and_teardown_group_kind_multi_cluster_code_snippets
+    setup_task_can_fail_task: true
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: cleanup_exec_environment
+      - func: setup_mongosh
+      - func: download_kube_tools
+      - func: configure_docker_auth
+      - func: switch_context
+      - func: setup_kubernetes_environment
+      - func: python_venv
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/amd64
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: upload_code_snippets_logs
+      - func: upload_code_snippets_outputs
+      - func: teardown_kubernetes_environment
+
 # This variable is copied over from .evergreen.yml because anchors don't work for included files
   - &base_om8_dependency
     depends_on:
@@ -103,6 +128,15 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_search_percluster_snippets.sh
+    tags: [ "code_snippets" ]
+    # the full sequence (cluster setup, ra-02..07 with the OM install, then
+    # scenario 12) can brush against the global 2h exec_timeout_secs
+    exec_timeout_secs: 10800
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
   - name: test_kind_search_community_snippets.sh
     tags: [ "code_snippets", "patch-run" ]
     commands:
@@ -153,6 +187,12 @@ task_groups:
       - test_gke_multi_cluster_snippets.sh
       - test_gke_multi_cluster_no_mesh_snippets.sh
 
+  - name: kind_multi_cluster_code_snippets_task_group
+    <<: *setup_and_teardown_group_kind_multi_cluster_code_snippets
+    max_hosts: -1
+    tasks:
+      - test_kind_search_percluster_snippets.sh
+
   - name: kind_code_snippets_task_group
     <<: *setup_and_teardown_group_kind_code_snippets
     max_hosts: -1
@@ -185,6 +225,25 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: kind_code_snippets_task_group
+
+  # Operator-per-cluster Search snippets (docs/search/12) on multi-cluster kind.
+  # Manual trigger only for now; a private (locally-built images) variant is a
+  # follow-up once this one is established.
+  - name: public_kind_multi_cluster_code_snippets
+    display_name: public_kind_multi_cluster_code_snippets
+    tags: [ "manual_patch" ]
+    allowed_requesters: [ "patch" ]
+    # same distro as the e2e multi-cluster kind variants; on ubuntu2204 task
+    # hosts the kind setup deterministically stalls waiting for metallb
+    run_on:
+      - ubuntu2404-large
+    # download_multi_cluster_binary fetches the kubectl-mongodb plugin from the
+    # s3 path of THIS version, uploaded by build_kubectl_mongodb_plugin
+    depends_on:
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
+    tasks:
+      - name: kind_multi_cluster_code_snippets_task_group
 
     #TODO: re-enabled for staging (master merge) to gate promote; was disabled due to GKE resource issues https://jira.mongodb.org/browse/CLOUDP-345083
   - name: private_gke_code_snippets
