@@ -94,6 +94,14 @@ tasks:
           variant: prepare_openshift_bundles
           task: prepare_and_upload_openshift_bundles
 
+  - name: publish_openshift_bundles_to_rh
+    tags: [ "openshift_bundles" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: update_evergreen_expansions
+      - func: publish_openshift_bundles_to_rh
+
   - name: release_kubectl_mongodb_plugin
     tags: [ "binary_release" ]
     allowed_requesters: [ "patch", "github_tag" ]
@@ -196,6 +204,21 @@ buildvariants:
         variant: preflight_release_images
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
+
+  # Publishing to the RedHat forks is a separate, manually-triggered variant: the bundle is
+  # pulled from S3, so it does not need to share a host with the prepare task, and the PRs
+  # are draft + human-reviewed so we do not auto-chain it after every release build.
+  - name: publish_openshift_bundles_to_rh
+    display_name: publish_openshift_bundles_to_rh
+    tags: [ "release" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "github_tag" ]
+    depends_on:
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
+        variant: prepare_openshift_bundles
+    tasks:
+      - name: publish_openshift_bundles_to_rh
 
   - name: prerelease_kind_code_snippets
     display_name: prerelease_kind_code_snippets
