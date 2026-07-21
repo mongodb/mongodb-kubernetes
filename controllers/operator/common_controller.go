@@ -912,7 +912,6 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		AutoLdapGroupDN:    ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:         caFilepath,
 		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
-		DownloadBase:       downloadBase,
 		KeyfilePath:        downloadBase + "/keyfile",
 	}
 	var databaseSecretPath string

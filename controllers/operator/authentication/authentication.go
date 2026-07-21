@@ -70,9 +70,16 @@ type Options struct {
 
 	MongoDBResource types.NamespacedName
 
-	DownloadBase string
-
 	KeyfilePath string
+}
+
+// GetKeyfilePath returns the configured keyfile path, falling back to the default
+// in-container path when KeyfilePath is not explicitly set by the caller.
+func (o Options) GetKeyfilePath() string {
+	if o.KeyfilePath == "" {
+		return util.AutomationAgentKeyFilePathInContainer
+	}
+	return o.KeyfilePath
 }
 
 func Redact(o Options) Options {
@@ -212,7 +219,7 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
 		ac.Auth.DeploymentAuthMechanisms = []string{}
-		ac.Auth.KeyFile = opts.KeyfilePath
+		ac.Auth.KeyFile = opts.GetKeyfilePath()
 		ac.Auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 		ac.Auth.AuthoritativeSet = opts.AuthoritativeSet
 		ac.AgentSSL.ClientCertificateMode = util.OptionalClientCertficates
