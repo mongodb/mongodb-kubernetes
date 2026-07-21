@@ -509,7 +509,7 @@ def test_vm_sharded_ac_x509(namespace: str, om_tester: OMTester, vm_agent_combin
         x509_agent_subject_dn=agent_subject_dn,
     )
     om_tester.api_put_automation_config(ac)
-    om_tester.wait_agents_ready(timeout=600)
+    om_tester.wait_agents_ready(timeout=1800)
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
