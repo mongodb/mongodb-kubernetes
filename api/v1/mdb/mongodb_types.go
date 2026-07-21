@@ -483,6 +483,13 @@ type DbCommonSpec struct {
 	// +optional
 	Topology string `json:"topology,omitempty"`
 
+	// DownloadBase is the directory on the MongoDB host where the automation agent
+	// downloads and extracts MongoDB binaries. It is always used by the operator, and
+	// the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+	// defaults to "/var/lib/mongodb-mms-automation".
+	// This field should only be set (and only if needed) when migrating an existing
+	// VM-based deployment to the operator.
+	// +optional
 	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
