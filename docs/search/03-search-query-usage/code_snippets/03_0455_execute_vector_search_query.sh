@@ -2,14 +2,19 @@ kubectl exec -i --context "${K8S_CTX}" -n "${MDB_NS}" mongodb-tools-pod -- \
   mongosh --quiet "${MDB_CONNECTION_STRING}" <<'EOF'
 use sample_mflix;
 
-const embeddingDocument = db.embedded_movies.findOne(
-  { plot_embedding_voyage_3_large: { $exists: true } },
+const sourceMovieTitle = "Back to the Future Part II";
+const sourceMovie = db.embedded_movies.findOne(
+  {
+    title: sourceMovieTitle,
+    plot_embedding_voyage_3_large: { $exists: true }
+  },
   { plot_embedding_voyage_3_large: 1 }
 );
-if (!embeddingDocument) {
-  throw new Error("No document contains plot_embedding_voyage_3_large");
+if (!sourceMovie) {
+  throw new Error(`No source movie named "${sourceMovieTitle}" contains plot_embedding_voyage_3_large`);
 }
-const queryVector = embeddingDocument.plot_embedding_voyage_3_large;
+print(`Finding movies with plots similar to "${sourceMovieTitle}"`);
+const queryVector = sourceMovie.plot_embedding_voyage_3_large;
 
 db.embedded_movies.aggregate([
   {
@@ -18,9 +23,11 @@ db.embedded_movies.aggregate([
       path: "plot_embedding_voyage_3_large",
       queryVector,
       numCandidates: 100,
-      limit: 5
+      limit: 6
     }
   },
+  { $match: { _id: { $ne: sourceMovie._id } } },
+  { $limit: 5 },
   {
     $project: {
       _id: 0,
