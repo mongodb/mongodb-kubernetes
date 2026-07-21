@@ -263,6 +263,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		MultiClusterMode:        cfg.mdb.Spec.IsMultiCluster(),
 		Persistent:              cfg.persistent,
 		StsType:                 cfg.stsType,
+		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
 	if cfg.mdb.Spec.IsMultiCluster() {

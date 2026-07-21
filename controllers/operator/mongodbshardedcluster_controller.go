@@ -2230,6 +2230,8 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
 			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
 
+			d.SetDownloadBase(sc.Spec.GetDownloadBase())
+
 			setupInternalClusterAuth(d, sc.GetShardedClusterName(), sc.GetSecurity().GetInternalClusterAuthenticationMode(),
 				configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths)
 
