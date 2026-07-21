@@ -270,6 +270,10 @@ patch_aliases:
     description: "Run race detector variants"
     variant_tags: [ "race" ]
     task: ".*"
+  - alias: "agent_integration"
+    description: "Run agent integration tests with custom agent from upstream patch (static + non-static + community)"
+    variant_tags: [ "agent_integration" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
@@ -1504,7 +1508,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "agent_integration" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-large
@@ -1692,7 +1696,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "agent_integration" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2204-medium-high-memory
@@ -1707,7 +1711,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "agent_integration" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency

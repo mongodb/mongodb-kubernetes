@@ -114,10 +114,28 @@ download_agent() {
             ;;
     esac
 
-    script_log "Downloading Agent version: ${AGENT_VERSION}"
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
+    # Check for custom agent URL (set by custom-agent-urls.sh from init container)
+    local custom_agent_url=""
+    case "${detected_arch}" in
+        x86_64)
+            custom_agent_url="${CUSTOM_AGENT_URL_AMD64:-}"
+            ;;
+        aarch64|arm64)
+            custom_agent_url="${CUSTOM_AGENT_URL_ARM64:-}"
+            ;;
+    esac
+
+    if [[ -n "${custom_agent_url}" ]]; then
+        script_log "Using custom agent URL: ${custom_agent_url}"
+        download_url="${custom_agent_url}"
+    else
+        script_log "Downloading Agent version: ${AGENT_VERSION}"
+        script_log "Downloading a Mongodb Agent from ${base_url:?}"
+        download_url="${base_url}/download/agent/automation/${AGENT_FILE}"
+    fi
+
     curl_opts=(
-        "${base_url}/download/agent/automation/${AGENT_FILE}"
+        "${download_url}"
 
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"

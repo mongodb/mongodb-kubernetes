@@ -22,6 +22,7 @@ export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.
 tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 
 source /opt/scripts/agent-launcher-lib.sh
+source /opt/scripts/custom-agent-urls.sh 2>/dev/null || true
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &

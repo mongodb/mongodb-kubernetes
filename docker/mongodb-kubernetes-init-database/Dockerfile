@@ -65,6 +65,15 @@ COPY --from=base /data/version-upgrade-hook /probes/version-upgrade-hook
 COPY --from=base /data/scripts/ /scripts/
 COPY --from=base /data/licenses /licenses/
 
+# Custom agent URLs for non-static agent delivery.
+# When custom_agent_url_* ARGs are empty, the variables are empty and
+# agent-launcher.sh falls back to the Ops Manager download path.
+ARG custom_agent_url_amd64
+ARG custom_agent_url_arm64
+RUN echo '#!/usr/bin/env bash' > /scripts/custom-agent-urls.sh \
+    && echo "export CUSTOM_AGENT_URL_AMD64=\"${custom_agent_url_amd64:-}\"" >> /scripts/custom-agent-urls.sh \
+    && echo "export CUSTOM_AGENT_URL_ARM64=\"${custom_agent_url_arm64:-}\"" >> /scripts/custom-agent-urls.sh
+
 RUN microdnf -y update --nodocs \
     && microdnf -y install --nodocs tar gzip \
     && microdnf clean all
@@ -80,4 +89,4 @@ LABEL name="MongoDB Kubernetes Init Database" \
 
 USER 2000
 
-ENTRYPOINT [ "/bin/cp", "-f", "-r", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/tools", "/opt/scripts/" ]
+ENTRYPOINT [ "/bin/cp", "-f", "-r", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/scripts/custom-agent-urls.sh", "/probes/readinessprobe", "/probes/probe.sh", "/tools", "/opt/scripts/" ]

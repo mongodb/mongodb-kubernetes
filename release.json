@@ -7,6 +7,7 @@
   "initOpsManagerVersion": "1.10.0",
   "databaseImageVersion": "1.10.0",
   "agentVersion": "108.0.12.8846-1",
+  "customAgentPatchId": "",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
