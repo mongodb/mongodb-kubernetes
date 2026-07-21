@@ -8,8 +8,6 @@ variables:
       - cognito_user_password
       - cognito_workload_url
       - cognito_workload_user_id
-      - ARTIFACTORY_PASSWORD
-      - ARTIFACTORY_USERNAME
       - GRS_PASSWORD
       - GRS_USERNAME
       - OVERRIDE_VERSION_ID
@@ -1003,8 +1001,6 @@ functions:
           - GRS_USERNAME
           - GRS_PASSWORD
           - PKCS11_URI
-          - ARTIFACTORY_URL
-          - ARTIFACTORY_PASSWORD
           - SIGNING_IMAGE_URI
           - macos_notary_keyid
           - macos_notary_secret
