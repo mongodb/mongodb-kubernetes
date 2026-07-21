@@ -35,6 +35,36 @@ variables:
       - func: teardown_kubernetes_environment
       - func: teardown_cloud_qa
 
+  # Same as the kind group, plus the kubectl-mongodb plugin needed by
+  # `kubectl mongodb multicluster setup`. The multi-cluster kind environment
+  # itself comes from the variant context (KUBE_ENVIRONMENT_NAME=multi).
+  - &setup_and_teardown_group_kind_multi_cluster_code_snippets
+    setup_task_can_fail_task: true
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: cleanup_exec_environment
+      - func: download_kube_tools
+      - func: switch_context
+      # setup_building_host (python_venv + setup_aws + setup_evg_host +
+      # configure_docker_auth) instead of the single-cluster groups' bare
+      # configure_docker_auth + python_venv: the multi-cluster kind environment
+      # needs the raised fs.inotify limits from setup_evg_host — 5 clusters
+      # exhaust the defaults, crashing kube-proxy on the nodes and breaking all
+      # pod -> clusterIP networking. Same setup the e2e multi-cluster variants use.
+      - func: setup_building_host
+      - func: setup_kubernetes_environment
+      - func: setup_cloud_qa
+      - func: download_multi_cluster_binary
+        vars:
+          platform: linux/amd64
+    teardown_task:
+      - func: upload_e2e_logs
+      - func: upload_code_snippets_logs
+      - func: upload_code_snippets_outputs
+      - func: teardown_kubernetes_environment
+      - func: teardown_cloud_qa
+
 # This variable is copied over from .evergreen.yml because anchors don't work for included files
   - &base_om8_dependency
     depends_on:
@@ -46,7 +76,17 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      # The single-cluster task group includes Community scenarios that pull
+      # these images directly, so they must be explicit patch dependencies.
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_test_image
+        variant: init_test_run
+      # The multi-cluster variant downloads this artifact directly. This adds
+      # no build latency because build_test_image already depends on it.
+      - name: build_kubectl_mongodb_plugin
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
@@ -145,6 +185,12 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_search_rs_multi_cluster_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -164,6 +210,12 @@ task_groups:
       - test_kind_search_sharded_managed_lb_snippets.sh
       - test_kind_search_external_rs_managed_lb_snippets.sh
       - test_kind_search_rs_managed_lb_snippets.sh
+
+  - name: kind_multi_cluster_code_snippets_task_group
+    <<: *setup_and_teardown_group_kind_multi_cluster_code_snippets
+    max_hosts: -1
+    tasks:
+      - test_kind_search_rs_multi_cluster_snippets.sh
 
 buildvariants:
   # These variants are used to test the code snippets and each one can be used in patches
@@ -208,3 +260,12 @@ buildvariants:
     <<: *base_om8_dependency
     tasks:
       - name: kind_code_snippets_task_group
+
+  - name: private_kind_multi_cluster_code_snippets
+    display_name: private_kind_multi_cluster_code_snippets
+    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: kind_multi_cluster_code_snippets_task_group
