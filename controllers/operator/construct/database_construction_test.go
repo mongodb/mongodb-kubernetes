@@ -421,18 +421,20 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
 	})
 
-	t.Run("non-static architecture does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
+	t.Run("non-static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
 		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
 
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		mdb.Spec.DownloadBase = "/custom/download/base"
 
 		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
-		for _, c := range sts.Spec.Template.Spec.Containers {
-			for _, e := range c.Env {
-				assert.NotEqual(t, DownloadBaseEnv, e.Name, "MMS_DOWNLOAD_BASE should not be set in non-static architecture")
-			}
-		}
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.DatabaseContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
+			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
 	})
 }
 

@@ -770,14 +770,13 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		//container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
 
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))),
 		container.WithArgs([]string{""}),
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
@@ -964,7 +963,6 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations()) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
-		envVars = append(envVars, corev1.EnvVar{Name: DownloadBaseEnv, Value: mdb.GetDownloadBase()})
 	}
 	return envVars
 }
@@ -1071,6 +1069,13 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		// Non-static pods download the agent
 		zap.S().Debugf("using external agent version for: %s", opts.ExternalAgentVersion)
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
+	}
+
+	// The agent extracts MongoDB binaries and places the keyfile under this directory. It must match
+	// the volume mount path (see GetNonPersistentAgentVolumeMounts) and options.downloadBase in the
+	// automation config, in both static and non-static architectures.
+	if opts.DownloadBase != "" {
+		vars = append(vars, corev1.EnvVar{Name: DownloadBaseEnv, Value: opts.DownloadBase})
 	}
 
 	// append any additional env vars specified.
