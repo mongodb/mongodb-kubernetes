@@ -10,12 +10,17 @@ import (
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -37,6 +42,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
+
+func observeControllerLogs(t *testing.T) *observer.ObservedLogs {
+	t.Helper()
+	core, logs := observer.New(zap.InfoLevel)
+	previous := zap.L()
+	zap.ReplaceGlobals(zap.New(core))
+	t.Cleanup(func() { zap.ReplaceGlobals(previous) })
+	return logs
+}
 
 func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 	return &mdbcv1.MongoDBCommunity{
@@ -189,9 +203,616 @@ func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
 		reconcile.Request{NamespacedName: types.NamespacedName{Name: "missing", Namespace: "test"}},
 	)
 
-	assert.Error(t, err)
-	assert.True(t, apiErrors.IsNotFound(err))
+	assert.NoError(t, err)
 	assert.Equal(t, reconcile.Result{}, res)
+}
+
+func TestMongoDBSearchReconcile_NotFoundRemovesDependentWatches(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-watch-cleanup", Namespace: mock.TestNamespace}
+	otherSearchKey := types.NamespacedName{Name: "other-search", Namespace: mock.TestNamespace}
+	reconciler, _ := newSearchReconciler(nil, nil)
+
+	sharedSecret := types.NamespacedName{Name: "shared-secret", Namespace: mock.TestNamespace}
+	reconciler.watch.AddWatchedResourceIfNotAdded(sharedSecret.Name, sharedSecret.Namespace, watch.Secret, searchKey)
+	reconciler.watch.AddWatchedResourceIfNotAdded(sharedSecret.Name, sharedSecret.Namespace, watch.Secret, otherSearchKey)
+	reconciler.watch.AddWatchedResourceIfNotAdded("owned-config", mock.TestNamespace, watch.ConfigMap, searchKey)
+
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	for watchedObj, dependents := range reconciler.watch.GetWatchedResources() {
+		assert.NotContains(t, dependents, searchKey, "deleted search must be removed from watcher key %s", watchedObj)
+	}
+	assert.Contains(t, reconciler.watch.GetWatchedResources()[watch.Object{ResourceType: watch.Secret, Resource: sharedSecret}], otherSearchKey)
+}
+
+func searchCleanupLabels(searchKey types.NamespacedName, searchUID types.UID) map[string]string {
+	return map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+		khandler.MongoDBSearchOwnerUIDLabel:       string(searchUID),
+	}
+}
+
+type staleCentralListClient struct {
+	client.Client
+	sweepListCalls int
+}
+
+func (c *staleCentralListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if isSweepOwnedResourceList(list) {
+		c.sweepListCalls++
+		return nil
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+type trackingListReader struct {
+	client.Reader
+	sweepListCalls int
+}
+
+type staleSearchCacheClient struct {
+	client.Client
+}
+
+type adoptingDeleteClient struct {
+	client.Client
+	adopted bool
+}
+
+func (c *adoptingDeleteClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if _, ok := obj.(*appsv1.Deployment); ok && !c.adopted {
+		c.adopted = true
+		live := &appsv1.Deployment{}
+		if err := c.Client.Get(ctx, client.ObjectKeyFromObject(obj), live); err != nil {
+			return err
+		}
+		live.Labels[khandler.MongoDBSearchOwnerUIDLabel] = "recreated-search-uid"
+		if err := c.Client.Update(ctx, live); err != nil {
+			return err
+		}
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
+func (c *staleSearchCacheClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, ok := obj.(*searchv1.MongoDBSearch); ok {
+		return apiErrors.NewNotFound(schema.GroupResource{Group: "mongodb.com", Resource: "mongodbsearches"}, key.Name)
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func (r *trackingListReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if isSweepOwnedResourceList(list) {
+		r.sweepListCalls++
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
+
+func isSweepOwnedResourceList(list client.ObjectList) bool {
+	switch list.(type) {
+	case *appsv1.DeploymentList, *appsv1.StatefulSetList, *corev1.ServiceList, *corev1.ConfigMapList, *corev1.SecretList:
+		return true
+	default:
+		return false
+	}
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepUsesUncachedReaderForCentralList(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-central-list", Namespace: mock.TestNamespace}
+	searchUID := types.UID("deleted-search-uid")
+	ownedDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owned-central-deployment",
+			Namespace: searchKey.Namespace,
+			Labels:    searchCleanupLabels(searchKey, searchUID),
+		},
+	}
+
+	centralBackingClient := mock.NewEmptyFakeClientBuilder().WithObjects(ownedDeployment).Build()
+	staleCentralClient := &staleCentralListClient{Client: centralBackingClient}
+	uncachedReader := &trackingListReader{Reader: centralBackingClient}
+
+	reconciler := newMongoDBSearchReconciler(
+		staleCentralClient,
+		uncachedReader,
+		searchcontroller.OperatorSearchConfig{},
+		map[string]client.Client{},
+		nil,
+		"",
+	)
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	assert.True(t, apiErrors.IsNotFound(centralBackingClient.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), &appsv1.Deployment{})))
+	assert.Greater(t, uncachedReader.sweepListCalls, 0, "central sweep must list via uncached reader")
+	assert.Equal(t, 0, staleCentralClient.sweepListCalls, "central sweep must not list via cached central client")
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepChecksTargetClusterParentUID(t *testing.T) {
+	searchKey := types.NamespacedName{Name: "target-local-search", Namespace: mock.TestNamespace}
+	localUID := types.UID("target-local-search-uid")
+
+	tests := []struct {
+		name          string
+		localParent   bool
+		childUID      types.UID
+		parentReadErr error
+		wantDeleted   bool
+		wantErr       string
+	}{
+		{name: "matching local parent UID is preserved", localParent: true, childUID: localUID},
+		{name: "different explicit UID remains eligible", localParent: true, childUID: "deleted-central-search-uid", wantDeleted: true},
+		{name: "UID-less child is preserved with local parent", localParent: true},
+		{name: "UID-less child is preserved without local parent"},
+		{name: "explicit UID is swept without local parent", childUID: "deleted-central-search-uid", wantDeleted: true},
+		{
+			name:     "NoMatch means target cluster has no local parent",
+			childUID: "deleted-central-search-uid",
+			parentReadErr: &meta.NoKindMatchError{
+				GroupKind:        schema.GroupKind{Group: v1.SchemeGroupVersion.Group, Kind: "MongoDBSearch"},
+				SearchedVersions: []string{v1.SchemeGroupVersion.Version},
+			},
+			wantDeleted: true,
+		},
+		{
+			name:     "unregistered kind means target cluster has no local parent",
+			childUID: "deleted-central-search-uid",
+			parentReadErr: runtime.NewNotRegisteredErrForKind(
+				"member-cluster",
+				v1.SchemeGroupVersion.WithKind("MongoDBSearch"),
+			),
+			wantDeleted: true,
+		},
+		{
+			name:          "ordinary target read error fails closed",
+			childUID:      "deleted-central-search-uid",
+			parentReadErr: fmt.Errorf("injected target-cluster live read error"),
+			wantErr:       "injected target-cluster live read error",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			labels := map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+			}
+			if tc.childUID != "" {
+				labels[khandler.MongoDBSearchOwnerUIDLabel] = string(tc.childUID)
+			}
+			memberStatefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+				Name:      "member-mongot",
+				Namespace: searchKey.Namespace,
+				Labels:    labels,
+			}}
+			memberObjects := []client.Object{memberStatefulSet}
+			if tc.localParent {
+				memberObjects = append(memberObjects, &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{
+					Name: searchKey.Name, Namespace: searchKey.Namespace, UID: localUID,
+				}})
+			}
+
+			centralClient := mock.NewEmptyFakeClientBuilder().Build()
+			memberBuilder := mock.NewEmptyFakeClientBuilder()
+			for _, obj := range memberObjects {
+				memberBuilder.WithObjects(obj)
+			}
+			memberClient := memberBuilder.Build()
+			var memberReader client.Reader = memberClient
+			if tc.parentReadErr != nil {
+				memberReader = interceptor.NewClient(memberClient, interceptor.Funcs{
+					Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+						return tc.parentReadErr
+					},
+				})
+			}
+			reconciler := newMongoDBSearchReconciler(
+				centralClient,
+				centralClient,
+				searchcontroller.OperatorSearchConfig{},
+				map[string]client.Client{"member-a": memberClient},
+				map[string]client.Reader{"member-a": memberReader},
+				"",
+			)
+
+			result, err := reconciler.Reconcile(t.Context(), reconcile.Request{NamespacedName: searchKey})
+
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, reconcile.Result{}, result)
+			err = memberClient.Get(t.Context(), client.ObjectKeyFromObject(memberStatefulSet), &appsv1.StatefulSet{})
+			if tc.wantDeleted {
+				assert.True(t, apiErrors.IsNotFound(err))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepPreservesResourcesWhenSearchIsRecreated(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "recreated-search", Namespace: mock.TestNamespace}
+	newSearch := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: searchKey.Name, Namespace: searchKey.Namespace, UID: "new-uid"},
+	}
+	ownedObjects := []client.Object{
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+			Name: "old-search-sts", Namespace: searchKey.Namespace,
+			Labels: searchCleanupLabels(searchKey, "old-uid"),
+		}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+			Name: "new-search-sts", Namespace: searchKey.Namespace,
+			Labels: searchCleanupLabels(searchKey, newSearch.UID),
+		}},
+	}
+	cachedBacking := mock.NewEmptyFakeClientBuilder().WithObjects(ownedObjects...).Build()
+	reconciler := newMongoDBSearchReconciler(
+		&staleSearchCacheClient{Client: cachedBacking},
+		mock.NewEmptyFakeClientBuilder().WithObjects(newSearch).Build(),
+		searchcontroller.OperatorSearchConfig{},
+		nil,
+		nil,
+		"",
+	)
+
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+	for _, obj := range ownedObjects {
+		require.NoError(t, cachedBacking.Get(ctx, client.ObjectKeyFromObject(obj), obj.DeepCopyObject().(client.Object)))
+	}
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepPreservesAdoptedChild(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "recreated-before-delete", Namespace: mock.TestNamespace}
+	deletedSearchUID := types.UID("deleted-search-uid")
+	ownedDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: "adopted-search-deployment", Namespace: searchKey.Namespace, UID: "child-uid",
+		Labels: searchCleanupLabels(searchKey, deletedSearchUID),
+	}}
+	backingClient := mock.NewEmptyFakeClientBuilder().WithObjects(ownedDeployment).Build()
+	deleteClient := &adoptingDeleteClient{Client: backingClient}
+	reconciler := newMongoDBSearchReconciler(
+		deleteClient,
+		backingClient,
+		searchcontroller.OperatorSearchConfig{},
+		nil,
+		nil,
+		"",
+	)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.Error(t, err)
+	live := &appsv1.Deployment{}
+	require.NoError(t, backingClient.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), live))
+	assert.Equal(t, "recreated-search-uid", live.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepAggregatesFailuresAndContinues(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "failed-sweep", Namespace: mock.TestNamespace}
+	searchUID := types.UID("deleted-search-uid")
+	ownerLabels := searchCleanupLabels(searchKey, searchUID)
+	failedConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "failed-configmap-delete", Namespace: searchKey.Namespace, Labels: ownerLabels}}
+	failedSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "failed-secret-delete", Namespace: searchKey.Namespace, Labels: ownerLabels}}
+	deletedService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "successful-service-delete", Namespace: searchKey.Namespace, Labels: ownerLabels}}
+	deleteAttempts := map[string]int{}
+	listErr := fmt.Errorf("injected Deployment list failure")
+	configMapDeleteErr := fmt.Errorf("injected ConfigMap delete failure")
+	secretDeleteErr := fmt.Errorf("injected Secret delete failure")
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(failedConfigMap, failedSecret, deletedService).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*appsv1.DeploymentList); ok {
+					return listErr
+				}
+				return c.List(ctx, list, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				deleteAttempts[obj.GetName()]++
+				switch obj.GetName() {
+				case failedConfigMap.Name:
+					return configMapDeleteErr
+				case failedSecret.Name:
+					return secretDeleteErr
+				default:
+					return c.Delete(ctx, obj, opts...)
+				}
+			},
+		}).
+		Build()
+	reconciler := newMongoDBSearchReconciler(kubeClient, kubeClient, searchcontroller.OperatorSearchConfig{}, nil, nil, "")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, listErr.Error())
+	assert.ErrorContains(t, err, configMapDeleteErr.Error())
+	assert.ErrorContains(t, err, secretDeleteErr.Error())
+	assert.Equal(t, 1, deleteAttempts[failedConfigMap.Name])
+	assert.Equal(t, 1, deleteAttempts[failedSecret.Name])
+	assert.True(t, apiErrors.IsNotFound(kubeClient.Get(ctx, client.ObjectKeyFromObject(deletedService), &corev1.Service{})))
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(failedConfigMap), &corev1.ConfigMap{}))
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(failedSecret), &corev1.Secret{}))
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepRetriesPartialCleanup(t *testing.T) {
+	ctx := t.Context()
+	searchKey := types.NamespacedName{Name: "retry-cleanup", Namespace: mock.TestNamespace}
+	searchUID := types.UID("deleted-search-uid")
+	deletedService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Name:      "service-deleted-before-retry",
+		Namespace: searchKey.Namespace,
+		Labels:    searchCleanupLabels(searchKey, searchUID),
+	}}
+	retriedSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      "secret-retried",
+		Namespace: searchKey.Namespace,
+		Labels:    searchCleanupLabels(searchKey, searchUID),
+	}}
+	retryErr := fmt.Errorf("injected transient delete error")
+	failedOnce := false
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(deletedService, retriedSecret).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if obj.GetName() == retriedSecret.Name && !failedOnce {
+					failedOnce = true
+					return retryErr
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).
+		Build()
+	reconciler := newMongoDBSearchReconciler(kubeClient, kubeClient, searchcontroller.OperatorSearchConfig{}, nil, nil, "")
+	request := reconcile.Request{NamespacedName: searchKey}
+
+	_, err := reconciler.Reconcile(ctx, request)
+	require.ErrorContains(t, err, retryErr.Error())
+	assert.True(t, apiErrors.IsNotFound(kubeClient.Get(ctx, client.ObjectKeyFromObject(deletedService), &corev1.Service{})))
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(retriedSecret), &corev1.Secret{}))
+
+	result, err := reconciler.Reconcile(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, result)
+	assert.True(t, apiErrors.IsNotFound(kubeClient.Get(ctx, client.ObjectKeyFromObject(retriedSecret), &corev1.Secret{})))
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepUsesUIDDeletePrecondition(t *testing.T) {
+	ctx := t.Context()
+	searchKey := types.NamespacedName{Name: "deleted-search", Namespace: mock.TestNamespace}
+	searchUID := types.UID("deleted-search-uid")
+	oldUID := types.UID("listed-resource-uid")
+	newUID := types.UID("replacement-resource-uid")
+	ownedDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      "owned-deployment",
+		Namespace: searchKey.Namespace,
+		UID:       oldUID,
+		Labels:    searchCleanupLabels(searchKey, searchUID),
+	}}
+
+	kubeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(ownedDeployment).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				deleteOptions := (&client.DeleteOptions{}).ApplyOptions(opts)
+				require.NotNil(t, deleteOptions.Preconditions)
+				require.NotNil(t, deleteOptions.Preconditions.UID)
+				assert.Equal(t, oldUID, *deleteOptions.Preconditions.UID)
+
+				require.NoError(t, c.Delete(ctx, obj))
+				replacement := ownedDeployment.DeepCopy()
+				replacement.UID = newUID
+				replacement.ResourceVersion = ""
+				require.NoError(t, c.Create(ctx, replacement))
+				return apiErrors.NewConflict(
+					schema.GroupResource{Group: appsv1.GroupName, Resource: "deployments"},
+					obj.GetName(),
+					fmt.Errorf("UID precondition failed"),
+				)
+			},
+		}).
+		Build()
+	reconciler := newMongoDBSearchReconciler(kubeClient, kubeClient, searchcontroller.OperatorSearchConfig{}, nil, nil, "")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "UID precondition failed")
+	current := &appsv1.Deployment{}
+	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), current))
+	assert.Equal(t, newUID, current.UID)
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepsOwnedResourcesAcrossClusters(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-search", Namespace: mock.TestNamespace}
+	searchUID := types.UID("deleted-search-uid")
+	ownerLabels := searchCleanupLabels(searchKey, searchUID)
+	uidlessOwnerLabels := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+	}
+
+	otherSearchLabels := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+	}
+	missingNameLabels := map[string]string{
+		khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+	}
+	missingNamespaceLabels := map[string]string{
+		khandler.MongoDBSearchOwnerNameLabel: searchKey.Name,
+	}
+
+	type trackedObject struct {
+		object       client.Object
+		shouldDelete bool
+		reason       string
+	}
+	kindBuilders := []struct {
+		kind      string
+		newObject func(name string, labels map[string]string) client.Object
+	}{
+		{
+			kind: "deployment",
+			newObject: func(name string, labels map[string]string) client.Object {
+				return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: searchKey.Namespace, Labels: labels}}
+			},
+		},
+		{
+			kind: "statefulset",
+			newObject: func(name string, labels map[string]string) client.Object {
+				return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: searchKey.Namespace, Labels: labels}}
+			},
+		},
+		{
+			kind: "service",
+			newObject: func(name string, labels map[string]string) client.Object {
+				return &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: searchKey.Namespace, Labels: labels}}
+			},
+		},
+		{
+			kind: "configmap",
+			newObject: func(name string, labels map[string]string) client.Object {
+				return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: searchKey.Namespace, Labels: labels}}
+			},
+		},
+		{
+			kind: "secret",
+			newObject: func(name string, labels map[string]string) client.Object {
+				return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: searchKey.Namespace, Labels: labels}}
+			},
+		},
+	}
+	buildObjects := func(prefix string) []trackedObject {
+		var objects []trackedObject
+		for _, kind := range kindBuilders {
+			objects = append(objects,
+				trackedObject{
+					object:       kind.newObject(fmt.Sprintf("%s-%s-owned", prefix, kind.kind), ownerLabels),
+					shouldDelete: true,
+					reason:       "explicit owner UID without a target-local parent must be swept",
+				},
+				trackedObject{
+					object:       kind.newObject(fmt.Sprintf("%s-%s-uidless", prefix, kind.kind), uidlessOwnerLabels),
+					shouldDelete: false,
+					reason:       "UID-less owner object must be preserved fail-closed",
+				},
+				trackedObject{
+					object:       kind.newObject(fmt.Sprintf("%s-%s-other-search", prefix, kind.kind), otherSearchLabels),
+					shouldDelete: false,
+					reason:       "different owner-name label must not be swept",
+				},
+				trackedObject{
+					object:       kind.newObject(fmt.Sprintf("%s-%s-missing-name", prefix, kind.kind), missingNameLabels),
+					shouldDelete: false,
+					reason:       "missing owner-name label must not be swept",
+				},
+				trackedObject{
+					object:       kind.newObject(fmt.Sprintf("%s-%s-missing-namespace", prefix, kind.kind), missingNamespaceLabels),
+					shouldDelete: false,
+					reason:       "missing owner-namespace label must not be swept",
+				},
+				trackedObject{
+					object:       kind.newObject(fmt.Sprintf("%s-%s-unlabeled", prefix, kind.kind), nil),
+					shouldDelete: false,
+					reason:       "unlabeled resource must not be swept",
+				},
+			)
+		}
+		objects = append(objects,
+			trackedObject{
+				object: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+					Name:      prefix + "-owned-pod",
+					Namespace: searchKey.Namespace,
+					Labels:    ownerLabels,
+				}},
+				shouldDelete: false,
+				reason:       "Pods must remain outside the explicit top-level sweep allowlist",
+			},
+			trackedObject{
+				object: &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+					Name:      prefix + "-owned-pvc",
+					Namespace: searchKey.Namespace,
+					Labels:    ownerLabels,
+				}},
+				shouldDelete: false,
+				reason:       "PVCs must remain outside the explicit top-level sweep allowlist",
+			},
+		)
+		return objects
+	}
+
+	centralObjects := buildObjects("central")
+	centralBuilder := mock.NewEmptyFakeClientBuilder()
+	for _, tracked := range centralObjects {
+		centralBuilder.WithObjects(tracked.object)
+	}
+	centralClient := centralBuilder.Build()
+
+	memberObjects := buildObjects("member")
+	memberBuilder := mock.NewEmptyFakeClientBuilder()
+	for _, tracked := range memberObjects {
+		memberBuilder.WithObjects(tracked.object)
+	}
+	memberClient := memberBuilder.Build()
+
+	reconciler := newMongoDBSearchReconciler(
+		centralClient,
+		centralClient,
+		searchcontroller.OperatorSearchConfig{},
+		map[string]client.Client{"member-a": memberClient},
+		nil,
+		"",
+	)
+	clusterCases := []struct {
+		name    string
+		client  client.Client
+		objects []trackedObject
+	}{
+		{name: "central", client: centralClient, objects: centralObjects},
+		{name: "member-a", client: memberClient, objects: memberObjects},
+	}
+
+	for _, cluster := range clusterCases {
+		for _, tracked := range cluster.objects {
+			key := client.ObjectKeyFromObject(tracked.object)
+			require.NoError(t, cluster.client.Get(ctx, key, tracked.object.DeepCopyObject().(client.Object)))
+		}
+	}
+
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: searchKey})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	for _, cluster := range clusterCases {
+		for _, tracked := range cluster.objects {
+			key := client.ObjectKeyFromObject(tracked.object)
+			err := cluster.client.Get(ctx, key, tracked.object.DeepCopyObject().(client.Object))
+			if tracked.shouldDelete {
+				assert.True(t, apiErrors.IsNotFound(err),
+					"[%s] %s (%s) should be deleted; err=%v", cluster.name, key.Name, tracked.reason, err)
+				continue
+			}
+			require.NoError(t, err,
+				"[%s] %s (%s) should be preserved", cluster.name, key.Name, tracked.reason)
+		}
+	}
 }
 
 func TestMongoDBSearchDeploymentWatchesRouteLifecycleEvents(t *testing.T) {
@@ -387,6 +1008,281 @@ func TestRegisterTLSResourceWatchesIncludesShardedMemberDependencies(t *testing.
 	for _, resource := range expected {
 		assert.Contains(t, watched[resource], search.NamespacedName(), "missing dependency watch for %s", resource)
 	}
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_SingleCluster(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search-lifecycle-sc", mock.TestNamespace, "source")
+	search.UID = "search-lifecycle-sc-uid"
+	search.Spec.Version = "1.70.1"
+	mdbc := newMongoDBCommunity("source", mock.TestNamespace)
+	reconciler, central := newSearchReconciler(mdbc, search)
+
+	got := driveSearchReconcileToRunning(ctx, t, reconciler, central, search, 5)
+	require.Equal(t, status.PhaseRunning, got.Status.Phase, "single-cluster reconcile must create resources before NotFound sweep")
+
+	stsName := search.StatefulSetNamespacedNameForCluster(0)
+	headlessName := search.SearchServiceNamespacedNameForCluster(0)
+	proxyName := search.ProxyServiceNamespacedNameForCluster(0)
+	cmName := search.MongotConfigConfigMapNameForCluster(0)
+	searchStateCMName := types.NamespacedName{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace}
+	metricsStateCMName := types.NamespacedName{Name: fmt.Sprintf("%s-metrics-forwarder-state", search.Name), Namespace: search.Namespace}
+	operatorTLSSecretName := search.TLSOperatorSecretNamespacedName()
+
+	require.NoError(t, central.Get(ctx, stsName, &appsv1.StatefulSet{}))
+	require.NoError(t, central.Get(ctx, headlessName, &corev1.Service{}))
+	require.NoError(t, central.Get(ctx, proxyName, &corev1.Service{}))
+	require.NoError(t, central.Get(ctx, cmName, &corev1.ConfigMap{}))
+
+	ownerLabels := searchCleanupLabels(search.NamespacedName(), search.UID)
+	ownedDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-owned-deployment", Namespace: search.Namespace, Labels: ownerLabels},
+	}
+	ownedSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-owned-secret", Namespace: search.Namespace, Labels: ownerLabels},
+	}
+	ownedSearchStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: searchStateCMName.Name, Namespace: searchStateCMName.Namespace, Labels: ownerLabels},
+	}
+	ownedMetricsStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: metricsStateCMName.Name, Namespace: metricsStateCMName.Namespace, Labels: ownerLabels},
+	}
+	ownedOperatorTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: operatorTLSSecretName.Name, Namespace: operatorTLSSecretName.Namespace, Labels: ownerLabels},
+	}
+	unlabeledDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-foreign-unlabeled", Namespace: search.Namespace},
+	}
+	unlabeledTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-foreign-unlabeled-tls", Namespace: search.Namespace},
+	}
+	otherSearchStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.Name + "-other-search-state",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	otherSearchSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.Name + "-other-search-secret",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	for _, obj := range []client.Object{
+		ownedDeployment,
+		ownedSecret,
+		ownedSearchStateCM,
+		ownedMetricsStateCM,
+		ownedOperatorTLSSecret,
+		unlabeledDeployment,
+		unlabeledTLSSecret,
+		otherSearchStateCM,
+		otherSearchSecret,
+	} {
+		require.NoError(t, central.Create(ctx, obj))
+	}
+
+	require.NoError(t, central.Delete(ctx, search))
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, stsName, &appsv1.StatefulSet{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, headlessName, &corev1.Service{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, proxyName, &corev1.Service{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, cmName, &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(ownedDeployment), &appsv1.Deployment{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(ownedSecret), &corev1.Secret{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, searchStateCMName, &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, metricsStateCMName, &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, operatorTLSSecretName, &corev1.Secret{})))
+
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unlabeledDeployment), &appsv1.Deployment{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unlabeledTLSSecret), &corev1.Secret{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(otherSearchStateCM), &corev1.ConfigMap{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(otherSearchSecret), &corev1.Secret{}))
+}
+
+func TestMongoDBSearchReconcile_NotFoundSweepLifecycle_MultiCluster(t *testing.T) {
+	enableSearchMCReconcile(t)
+	ctx := context.Background()
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "search-lifecycle-mc", Namespace: mock.TestNamespace, UID: "search-lifecycle-mc-uid"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Version: "1.70.1",
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mdb-0.mdb.svc:27017", "mdb-1.mdb.svc:27017"},
+				},
+			},
+			Clusters: []searchv1.ClusterSpec{
+				{
+					Name: "us-east", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(1)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"}},
+				},
+				{
+					Name: "us-west", Index: ptr.To(int32(1)), Replicas: ptr.To(int32(1)),
+					LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-west.example.com"}},
+				},
+			},
+		},
+	}
+
+	eastClient := mock.NewEmptyFakeClientBuilder().Build()
+	westClient := mock.NewEmptyFakeClientBuilder().Build()
+	reconciler, central := newSearchReconcilerWithMembers(t, nil, map[string]client.Client{
+		"us-east": eastClient,
+		"us-west": westClient,
+	}, "", search)
+
+	got := driveSearchReconcileToRunning(ctx, t, reconciler, central, search, 5, eastClient, westClient)
+	require.Equal(t, status.PhaseRunning, got.Status.Phase, "multi-cluster reconcile must create resources before NotFound sweep")
+
+	centralOwnerLabels := searchCleanupLabels(search.NamespacedName(), search.UID)
+	centralOwnedStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      searchcontroller.SearchStateCMName(search),
+			Namespace: search.Namespace,
+			Labels:    centralOwnerLabels,
+		},
+	}
+	centralOwnedMetricsStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+			Namespace: search.Namespace,
+			Labels:    centralOwnerLabels,
+		},
+	}
+	centralOwnedTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.TLSOperatorSecretNamespacedName().Name,
+			Namespace: search.Namespace,
+			Labels:    centralOwnerLabels,
+		},
+	}
+	centralKeepOtherStateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      search.Name + "-central-keep-other-state",
+			Namespace: search.Namespace,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
+		},
+	}
+	centralKeepNoLabelTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-central-keep-unlabeled-tls", Namespace: search.Namespace},
+	}
+	for _, obj := range []client.Object{
+		centralOwnedStateCM,
+		centralOwnedMetricsStateCM,
+		centralOwnedTLSSecret,
+		centralKeepOtherStateCM,
+		centralKeepNoLabelTLSSecret,
+	} {
+		require.NoError(t, central.Create(ctx, obj))
+	}
+
+	type clusterCase struct {
+		name        string
+		idx         int
+		client      client.Client
+		ownedDep    string
+		ownedSec    string
+		keepOther   string
+		keepNoLabel string
+	}
+	cases := []clusterCase{
+		{name: "us-east", idx: 0, client: eastClient},
+		{name: "us-west", idx: 1, client: westClient},
+	}
+
+	for i := range cases {
+		tc := &cases[i]
+		require.NoError(t, tc.client.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.idx), &appsv1.StatefulSet{}))
+		require.NoError(t, tc.client.Get(ctx, search.SearchServiceNamespacedNameForCluster(tc.idx), &corev1.Service{}))
+		require.NoError(t, tc.client.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.idx), &corev1.Service{}))
+		require.NoError(t, tc.client.Get(ctx, search.MongotConfigConfigMapNameForCluster(tc.idx), &corev1.ConfigMap{}))
+
+		ownerLabels := searchCleanupLabels(search.NamespacedName(), search.UID)
+		ownerLabels[khandler.MongoDBSearchClusterNameLabel] = tc.name
+		tc.ownedDep = fmt.Sprintf("%s-%s-owned-deployment", search.Name, tc.name)
+		tc.ownedSec = fmt.Sprintf("%s-%s-owned-secret", search.Name, tc.name)
+		tc.keepOther = fmt.Sprintf("%s-%s-keep-other", search.Name, tc.name)
+		tc.keepNoLabel = fmt.Sprintf("%s-%s-keep-unlabeled", search.Name, tc.name)
+		require.NoError(t, tc.client.Create(ctx, &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: tc.ownedDep, Namespace: search.Namespace, Labels: ownerLabels},
+		}))
+		require.NoError(t, tc.client.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: tc.ownedSec, Namespace: search.Namespace, Labels: ownerLabels},
+		}))
+		require.NoError(t, tc.client.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      tc.keepOther,
+				Namespace: search.Namespace,
+				Labels: map[string]string{
+					khandler.MongoDBSearchOwnerNameLabel:      "other-search",
+					khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+				},
+			},
+		}))
+		require.NoError(t, tc.client.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: tc.keepNoLabel, Namespace: search.Namespace},
+		}))
+	}
+
+	require.NoError(t, central.Delete(ctx, search))
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(centralOwnedStateCM), &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(centralOwnedMetricsStateCM), &corev1.ConfigMap{})))
+	assert.True(t, apiErrors.IsNotFound(central.Get(ctx, client.ObjectKeyFromObject(centralOwnedTLSSecret), &corev1.Secret{})))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(centralKeepOtherStateCM), &corev1.ConfigMap{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(centralKeepNoLabelTLSSecret), &corev1.Secret{}))
+
+	for _, tc := range cases {
+		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.idx), &appsv1.StatefulSet{})))
+		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, search.SearchServiceNamespacedNameForCluster(tc.idx), &corev1.Service{})))
+		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.idx), &corev1.Service{})))
+		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, search.MongotConfigConfigMapNameForCluster(tc.idx), &corev1.ConfigMap{})))
+		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, types.NamespacedName{Name: tc.ownedDep, Namespace: search.Namespace}, &appsv1.Deployment{})))
+		assert.True(t, apiErrors.IsNotFound(tc.client.Get(ctx, types.NamespacedName{Name: tc.ownedSec, Namespace: search.Namespace}, &corev1.Secret{})))
+
+		require.NoError(t, tc.client.Get(ctx, types.NamespacedName{Name: tc.keepOther, Namespace: search.Namespace}, &corev1.ConfigMap{}))
+		require.NoError(t, tc.client.Get(ctx, types.NamespacedName{Name: tc.keepNoLabel, Namespace: search.Namespace}, &corev1.ConfigMap{}))
+	}
+}
+
+func TestMongoDBSearchReconcile_DeletionTimestampTakesPriorityOverDisableAnnotation(t *testing.T) {
+	ctx := context.Background()
+	logs := observeControllerLogs(t)
+	now := metav1.Now()
+	search := newMongoDBSearch("search", mock.TestNamespace, "missing-source")
+	search.DeletionTimestamp = &now
+	search.Finalizers = []string{"kubernetes"}
+	search.Annotations = map[string]string{searchv1.DisableReconciliationAnnotation: "true"}
+
+	reconciler, c := newSearchReconciler(nil, search)
+	res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
+	assert.Empty(t, updated.Status.Phase)
+	assert.Equal(t, 1, logs.FilterMessageSnippet("is deleting; skipping main-controller reconcile").Len())
+	assert.Zero(t, logs.FilterMessageSnippet("reconciliation disabled").Len())
 }
 
 func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {

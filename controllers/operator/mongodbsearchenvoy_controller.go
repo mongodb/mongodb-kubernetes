@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -145,6 +146,10 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
 		return result, err
 	}
+	if !mdbSearch.DeletionTimestamp.IsZero() {
+		log.Infof("MongoDBSearch %s/%s is deleting; skipping envoy reconcile", mdbSearch.Namespace, mdbSearch.Name)
+		return reconcile.Result{}, nil
+	}
 
 	// The pause annotation must silence every controller that mutates owned objects,
 	// so manual edits (e.g. to the LB ConfigMap) survive while reconciliation is disabled.
@@ -174,7 +179,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
-			r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log)
+			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log); err != nil {
+				return reconcile.Result{}, err
+			}
 			r.clearLBStatus(ctx, mdbSearch, log)
 		}
 		return reconcile.Result{}, nil
@@ -331,43 +338,100 @@ func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, searc
 }
 
 // clearLBStatus removes the loadBalancer substatus when LB is no longer configured.
-// This works because UpdateStatus uses a JSON Patch targeting only /status/loadBalancer,
-// so it won't conflict with the main controller patching /status.
+// An explicit null patch is required: the status helper would translate workflow.OK
+// into a Running substatus instead of removing it.
 func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
 	search.Status.LoadBalancer = nil
-	partOption := searchv1.NewSearchPartOption(searchv1.SearchPartLoadBalancer)
-	// GetStatus with LB part will return nil, which patches null into /status/loadBalancer
-	if _, err := commoncontroller.UpdateStatus(ctx, r.kubeClient, search, workflow.OK(), log, partOption); err != nil {
+	payload, err := json.Marshal([]map[string]any{
+		{"op": "replace", "path": "/status/loadBalancer", "value": nil},
+	})
+	if err != nil {
+		log.Warnf("Failed to clear loadBalancer status: %s", err)
+		return
+	}
+	if err := r.kubeClient.Status().Patch(ctx, search, client.RawPatch(types.JSONPatchType, payload)); err != nil {
 		log.Warnf("Failed to clear loadBalancer status: %s", err)
 	}
 }
 
 // deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged LB transition.
-// Client == nil (cluster not registered) work items are skipped: the reconciler could not
-// have created anything for those clusters.
-func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) {
+func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) error {
 	ns := search.Namespace
+	var errs error
 	for _, w := range workList {
 		if w.Client == nil {
+			errs = errors.Join(errs, fmt.Errorf("cluster %q: no Kubernetes client registered for Envoy cleanup", w.ClusterName))
 			continue
 		}
-		depName := search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex)
-		cmName := search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex)
-
-		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: depName, Namespace: ns}}
-		if err := w.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
-			log.Warnf("Failed to delete Envoy Deployment %s (cluster=%q): %s", depName, w.ClusterName, err)
-		} else if err == nil {
-			log.Infof("Deleted Envoy Deployment %s (cluster=%q)", depName, w.ClusterName)
+		reader := r.readerForCluster(w.ClusterName)
+		if reader == nil {
+			errs = errors.Join(errs, fmt.Errorf("cluster %q: no API reader registered for Envoy cleanup", w.ClusterName))
+			continue
 		}
-
-		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: cmName, Namespace: ns}}
-		if err := w.Client.Delete(ctx, cm); err != nil && !apierrors.IsNotFound(err) {
-			log.Warnf("Failed to delete Envoy ConfigMap %s (cluster=%q): %s", cmName, w.ClusterName, err)
-		} else if err == nil {
-			log.Infof("Deleted Envoy ConfigMap %s (cluster=%q)", cmName, w.ClusterName)
+		resources := []struct {
+			kind string
+			obj  client.Object
+		}{
+			{
+				kind: "Deployment",
+				obj: &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+					Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: ns,
+				}},
+			},
+			{
+				kind: "ConfigMap",
+				obj: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+					Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: ns,
+				}},
+			},
+		}
+		for _, resource := range resources {
+			if err := reader.Get(ctx, client.ObjectKeyFromObject(resource.obj), resource.obj); err != nil {
+				if !apierrors.IsNotFound(err) {
+					errs = errors.Join(errs, fmt.Errorf("cluster %q: failed to get Envoy %s %s: %w", w.ClusterName, resource.kind, resource.obj.GetName(), err))
+				}
+				continue
+			}
+			desiredLabels := envoyLabelsForCluster(search, w.ClusterName, w.ClusterIndex)
+			if !hasCanonicalEnvoyOwnership(resource.obj, desiredLabels) {
+				errs = errors.Join(errs, fmt.Errorf("refusing to delete Envoy %s %s with non-canonical ownership in cluster %q", resource.kind, client.ObjectKeyFromObject(resource.obj), w.ClusterName))
+				continue
+			}
+			if err := w.Client.Delete(ctx, resource.obj, client.Preconditions{
+				UID:             ptr.To(resource.obj.GetUID()),
+				ResourceVersion: ptr.To(resource.obj.GetResourceVersion()),
+			}); err != nil && !apierrors.IsNotFound(err) {
+				errs = errors.Join(errs, fmt.Errorf("cluster %q: failed to delete Envoy %s %s: %w", w.ClusterName, resource.kind, resource.obj.GetName(), err))
+				continue
+			}
+			log.Infof("Deleted Envoy %s %s (cluster=%q)", resource.kind, resource.obj.GetName(), w.ClusterName)
 		}
 	}
+	return errs
+}
+
+func hasCanonicalEnvoyOwnership(obj metav1.Object, desiredLabels map[string]string) bool {
+	actualLabels := obj.GetLabels()
+	for _, key := range []string{
+		khandler.MongoDBSearchOwnerNameLabel,
+		khandler.MongoDBSearchOwnerNamespaceLabel,
+		khandler.MongoDBSearchOwnerUIDLabel,
+		khandler.MongoDBSearchComponentLabel,
+	} {
+		if actualLabels[key] != desiredLabels[key] {
+			return false
+		}
+	}
+	actualCluster, hasActualCluster := actualLabels[khandler.MongoDBSearchClusterNameLabel]
+	desiredCluster, hasDesiredCluster := desiredLabels[khandler.MongoDBSearchClusterNameLabel]
+	return hasActualCluster == hasDesiredCluster && (!hasDesiredCluster || actualCluster == desiredCluster)
+}
+
+func (r *MongoDBSearchEnvoyReconciler) readerForCluster(clusterName string) client.Reader {
+	if r.isLocalCluster(clusterName) {
+		return r.apiReader
+	}
+	return r.memberReaders[clusterName]
 }
 
 // caKeyNameFromTLSConfig returns the CA key filename for Envoy config file paths.

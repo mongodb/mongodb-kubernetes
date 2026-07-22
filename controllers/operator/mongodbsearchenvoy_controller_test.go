@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -1168,6 +1169,39 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	assert.Contains(t, patched.Status.LoadBalancer.Message, "missing-cluster")
 }
 
+func TestReconcile_DeletionTimestampTakesPriorityOverDisableAnnotation(t *testing.T) {
+	ctx := context.Background()
+	logs := observeControllerLogs(t)
+	now := metav1.Now()
+	scheme := envoyTestScheme(t)
+
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "mdb-search",
+			Namespace:         "ns",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"kubernetes"},
+			Annotations: map[string]string{
+				searchv1.DisableReconciliationAnnotation: "true",
+			},
+		},
+		Spec: searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{}}},
+	}
+
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, updated))
+	assert.Nil(t, updated.Status.LoadBalancer)
+	assert.Equal(t, 1, logs.FilterMessageSnippet("is deleting; skipping envoy reconcile").Len())
+	assert.Zero(t, logs.FilterMessageSnippet("reconciliation disabled").Len())
+}
+
 func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
@@ -1697,15 +1731,14 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-
 	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"},
 	}
-	depA := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}}
-	cmA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}}
-	depB := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}}
-	cmB := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithObjects(search).Build()
+	depA := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns", Labels: envoyLabelsForCluster(search, "a", 0)}}
+	cmA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns", Labels: envoyLabelsForCluster(search, "a", 0)}}
+	depB := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns", Labels: envoyLabelsForCluster(search, "b", 1)}}
+	cmB := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns", Labels: envoyLabelsForCluster(search, "b", 1)}}
 	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depA, cmA).Build()
 	memberB := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depB, cmB).Build()
 
@@ -1715,7 +1748,7 @@ func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
 		{ClusterName: "a", ClusterIndex: 0, Client: r.clientForCluster("a")},
 		{ClusterName: "b", ClusterIndex: 1, Client: r.clientForCluster("b")},
 	}
-	r.deleteEnvoyResources(ctx, search, workList, zap.S())
+	require.NoError(t, r.deleteEnvoyResources(ctx, search, workList, zap.S()))
 
 	// Both member clusters: Deployment + ConfigMap gone at their respective indices.
 	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
@@ -1726,6 +1759,233 @@ func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
 		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}, &appsv1.Deployment{})))
 	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}, &corev1.ConfigMap{})))
+}
+
+func TestDeleteEnvoyResources_MissingClientDoesNotBlockHealthyCluster(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"}}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithObjects(search).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
+
+	lbObjects := func(clusterName string, idx int) (*appsv1.Deployment, *corev1.ConfigMap) {
+		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerDeploymentNameForCluster(idx), Namespace: "ns", Labels: envoyLabelsForCluster(search, clusterName, idx),
+			}},
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerConfigMapNameForCluster(idx), Namespace: "ns", Labels: envoyLabelsForCluster(search, clusterName, idx),
+			}}
+	}
+
+	// Pre-seed LB resources for the unregistered (nil-Client) cluster on the CENTRAL
+	// client at the same index the work item carries, plus resources for a registered
+	// cluster on its member client.
+	unregDep, unregCM := lbObjects("unregistered", 0)
+	require.NoError(t, central.Create(ctx, unregDep))
+	require.NoError(t, central.Create(ctx, unregCM))
+	regDep, regCM := lbObjects("a", 1)
+	require.NoError(t, memberA.Create(ctx, regDep))
+	require.NoError(t, memberA.Create(ctx, regCM))
+
+	err := r.deleteEnvoyResources(ctx, search, []clusterWorkItem{
+		{ClusterName: "unregistered", ClusterIndex: 0, Client: nil},
+		{ClusterName: "a", ClusterIndex: 1, Client: r.clientForCluster("a")},
+	}, zap.S())
+	require.ErrorContains(t, err, `cluster "unregistered": no Kubernetes client registered for Envoy cleanup`)
+
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unregDep), &appsv1.Deployment{}),
+		"nil-Client item must not delete the central Deployment")
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unregCM), &corev1.ConfigMap{}),
+		"nil-Client item must not delete the central ConfigMap")
+
+	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(regDep), &appsv1.Deployment{})))
+	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(regCM), &corev1.ConfigMap{})))
+}
+
+func TestDeleteEnvoyResources_CanonicalOwnershipByTopology(t *testing.T) {
+	tests := []struct {
+		name                string
+		clusterName         string
+		operatorClusterName string
+		hubMember           bool
+	}{
+		{name: "legacy central"},
+		{name: "projected local", clusterName: "cluster-a", operatorClusterName: "cluster-a"},
+		{name: "hub member", clusterName: "cluster-a", hubMember: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := envoyTestScheme(t)
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"},
+			}
+			deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: search.Namespace,
+				UID: "deployment-uid", ResourceVersion: "1", Labels: envoyLabelsForCluster(search, tc.clusterName, 0),
+			}}
+			configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: search.Namespace,
+				UID: "config-uid", ResourceVersion: "1", Labels: envoyLabelsForCluster(search, tc.clusterName, 0),
+			}}
+			centralObjects := []client.Object{search}
+			if !tc.hubMember {
+				centralObjects = append(centralObjects, deployment, configMap)
+			}
+			central := fake.NewClientBuilder().WithScheme(scheme).WithObjects(centralObjects...).Build()
+			var member client.Client
+			memberClients := map[string]client.Client(nil)
+			memberReaders := map[string]client.Reader(nil)
+			target := client.Client(central)
+			if tc.hubMember {
+				member = fake.NewClientBuilder().WithScheme(scheme).WithObjects(deployment, configMap).Build()
+				memberClients = map[string]client.Client{tc.clusterName: member}
+				memberReaders = map[string]client.Reader{tc.clusterName: member}
+				target = member
+			}
+			r := newMongoDBSearchEnvoyReconcilerWithReaders(
+				central, central, "envoy:latest", memberClients, memberReaders, tc.operatorClusterName,
+			)
+
+			require.NoError(t, r.deleteEnvoyResources(ctx, search, []clusterWorkItem{{
+				ClusterName: tc.clusterName, ClusterIndex: 0, Client: r.clientForCluster(tc.clusterName),
+			}}, zap.S()))
+			assert.True(t, apierrors.IsNotFound(target.Get(ctx, client.ObjectKeyFromObject(deployment), &appsv1.Deployment{})))
+			assert.True(t, apierrors.IsNotFound(target.Get(ctx, client.ObjectKeyFromObject(configMap), &corev1.ConfigMap{})))
+		})
+	}
+}
+
+func TestDeleteEnvoyResources_PreservesNonCanonicalOwnership(t *testing.T) {
+	tests := []struct {
+		name                string
+		clusterName         string
+		operatorClusterName string
+		hubMember           bool
+		mutateLabels        func(map[string]string)
+	}{
+		{
+			name: "wrong Search UID",
+			mutateLabels: func(labels map[string]string) {
+				labels[khandler.MongoDBSearchOwnerUIDLabel] = "replacement-uid"
+			},
+		},
+		{
+			name:        "wrong component on projected local",
+			clusterName: "cluster-a", operatorClusterName: "cluster-a",
+			mutateLabels: func(labels map[string]string) {
+				labels[khandler.MongoDBSearchComponentLabel] = "other-component"
+			},
+		},
+		{
+			name:        "wrong cluster on hub member",
+			clusterName: "cluster-a", hubMember: true,
+			mutateLabels: func(labels map[string]string) {
+				labels[khandler.MongoDBSearchClusterNameLabel] = "cluster-b"
+			},
+		},
+		{
+			name: "cluster label present on legacy",
+			mutateLabels: func(labels map[string]string) {
+				labels[khandler.MongoDBSearchClusterNameLabel] = ""
+			},
+		},
+		{
+			name:        "cluster label absent on projected local",
+			clusterName: "cluster-a", operatorClusterName: "cluster-a",
+			mutateLabels: func(labels map[string]string) {
+				delete(labels, khandler.MongoDBSearchClusterNameLabel)
+			},
+		},
+		{
+			name:        "wrong Search name on hub member",
+			clusterName: "cluster-a", hubMember: true,
+			mutateLabels: func(labels map[string]string) {
+				labels[khandler.MongoDBSearchOwnerNameLabel] = "replacement-search"
+			},
+		},
+		{
+			name:        "wrong Search namespace on hub member",
+			clusterName: "cluster-a", hubMember: true,
+			mutateLabels: func(labels map[string]string) {
+				labels[khandler.MongoDBSearchOwnerNamespaceLabel] = "replacement-namespace"
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := envoyTestScheme(t)
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"},
+			}
+			labels := maps.Clone(envoyLabelsForCluster(search, tc.clusterName, 0))
+			tc.mutateLabels(labels)
+			deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: search.Namespace,
+				UID: "deployment-uid", ResourceVersion: "1", Labels: labels,
+			}}
+			centralObjects := []client.Object{search}
+			if !tc.hubMember {
+				centralObjects = append(centralObjects, deployment)
+			}
+			central := fake.NewClientBuilder().WithScheme(scheme).WithObjects(centralObjects...).Build()
+			var member client.Client
+			memberClients := map[string]client.Client(nil)
+			memberReaders := map[string]client.Reader(nil)
+			target := client.Client(central)
+			if tc.hubMember {
+				member = fake.NewClientBuilder().WithScheme(scheme).WithObjects(deployment).Build()
+				memberClients = map[string]client.Client{tc.clusterName: member}
+				memberReaders = map[string]client.Reader{tc.clusterName: member}
+				target = member
+			}
+			r := newMongoDBSearchEnvoyReconcilerWithReaders(
+				central, central, "envoy:latest", memberClients, memberReaders, tc.operatorClusterName,
+			)
+
+			err := r.deleteEnvoyResources(ctx, search, []clusterWorkItem{{
+				ClusterName: tc.clusterName, ClusterIndex: 0, Client: r.clientForCluster(tc.clusterName),
+			}}, zap.S())
+			require.ErrorContains(t, err, "non-canonical ownership")
+			actual := &appsv1.Deployment{}
+			require.NoError(t, target.Get(ctx, client.ObjectKeyFromObject(deployment), actual))
+			assert.Equal(t, deployment.UID, actual.UID)
+		})
+	}
+}
+
+func TestDeleteEnvoyResources_PreservesReplacementBetweenCachedObservationAndLiveGet(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"},
+	}
+	deploymentLabels := envoyLabelsForCluster(search, "", 0)
+	deploymentLabels[khandler.MongoDBSearchOwnerUIDLabel] = "replacement-uid"
+	liveDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: search.Namespace, Labels: deploymentLabels,
+	}}
+	liveConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: search.Namespace,
+	}}
+	cachedDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: liveDeployment.Name, Namespace: search.Namespace, Labels: envoyLabelsForCluster(search, "", 0),
+	}}
+	cachedConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name: liveConfigMap.Name, Namespace: search.Namespace, Labels: envoyLabelsForCluster(search, "", 0),
+	}}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithObjects(search, cachedDeployment, cachedConfigMap).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(search.DeepCopy(), liveDeployment, liveConfigMap).Build()
+	r := newMongoDBSearchEnvoyReconcilerWithReaders(central, apiReader, "envoy:latest", nil, nil, "")
+
+	require.ErrorContains(t, r.deleteEnvoyResources(ctx, search, []clusterWorkItem{{
+		ClusterIndex: 0,
+		Client:       r.clientForCluster(""),
+	}}, zap.S()), "non-canonical ownership")
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(cachedDeployment), &appsv1.Deployment{}))
+	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(cachedConfigMap), &corev1.ConfigMap{}))
 }
 
 // failingWriteClient wraps a client.Client and rejects every write so we can
@@ -2014,6 +2274,9 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns"}, &corev1.ConfigMap{})),
 		"Envoy ConfigMap at the pinned index 3 must be deleted")
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
+	assert.Nil(t, patched.Status.LoadBalancer)
 }
 
 func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testing.T) {
@@ -2323,52 +2586,6 @@ func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
 		"restartedAt must survive re-apply so the rollout is not reverted")
 	assert.Equal(t, originalHash, dep.Spec.Template.Annotations[envoyConfigHashAnnotation],
 		"operator-owned config-hash annotation must remain present and authoritative")
-}
-
-func TestDeleteEnvoyResources_SkipsUnregisteredCluster(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
-	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
-
-	lbObjects := func(idx int) (*appsv1.Deployment, *corev1.ConfigMap) {
-		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-				Name: search.LoadBalancerDeploymentNameForCluster(idx), Namespace: "ns",
-			}},
-			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-				Name: search.LoadBalancerConfigMapNameForCluster(idx), Namespace: "ns",
-			}}
-	}
-
-	// Pre-seed LB resources for the unregistered (nil-Client) cluster on the CENTRAL
-	// client at the same index the work item carries, plus resources for a registered
-	// cluster on its member client.
-	unregDep, unregCM := lbObjects(0)
-	require.NoError(t, central.Create(ctx, unregDep))
-	require.NoError(t, central.Create(ctx, unregCM))
-	regDep, regCM := lbObjects(1)
-	require.NoError(t, memberA.Create(ctx, regDep))
-	require.NoError(t, memberA.Create(ctx, regCM))
-
-	r.deleteEnvoyResources(ctx, search, []clusterWorkItem{
-		// nil Client (cluster not registered): must be skipped, central resources untouched.
-		{ClusterName: "unregistered", ClusterIndex: 0, Client: nil},
-		// registered cluster: its resources must be deleted, proving the loop still runs.
-		{ClusterName: "a", ClusterIndex: 1, Client: r.clientForCluster("a")},
-	}, zap.S())
-
-	// The nil-Client item must not delete anything from the central client.
-	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unregDep), &appsv1.Deployment{}),
-		"nil-Client item must not delete the central Deployment")
-	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unregCM), &corev1.ConfigMap{}),
-		"nil-Client item must not delete the central ConfigMap")
-
-	// The registered item's resources are gone.
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(regDep), &appsv1.Deployment{})))
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(regCM), &corev1.ConfigMap{})))
 }
 
 func TestEnvoyReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
