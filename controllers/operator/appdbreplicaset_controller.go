@@ -622,79 +622,107 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, ops
 	return true, nil
 }
 
-// ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of
-// every internal reconcile (reverse migration v2, see
-// docs/superpowers/specs/2026-07-20-reverse-migration-v2-design.md):
-//   - absent: nothing to own - the reconcile creates it from scratch (retained PVCs re-bind by name)
+// ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
+//   - absent: nothing to own - the reconcile continues and creates AppDB Statefulset from scratch
 //   - owned by this OM: proceed
-//   - foreign-owned (a MongoDB CR): request release via util.AppDBReverseMigrationReadyAnnotation and block
-//   - ownerless: adopt - set this OM's OwnerReference and clear both migration annotations
+//   - foreign-owned (a MongoDB CR): request reverse migration via util.AppDBReverseMigrationReadyAnnotation and wait
+//   - ownerless: reclaim - set this OM's OwnerReference, clear both migration annotations and reclaim AppDB secrets
+//
+// Returns (true, nil) when the STS is absent or owned by this OM and the caller may proceed;
+// (false, nil) when a reverse migration has been requested and the caller must wait; (false, err) on API failure.
 func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (bool, error) {
 	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name())
 	sts := appsv1.StatefulSet{}
 	if err := r.client.Get(ctx, stsKey, &sts); err != nil {
+		// If appDB statefulset does not exist proceed with reconciliation
 		if apiErrors.IsNotFound(err) {
 			return true, nil
 		}
 		return false, xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err)
 	}
 
+	// If appDB statefulset is owned by this OM proceed with reconciliation
 	for _, ref := range sts.OwnerReferences {
 		if ref.UID == opsManager.UID {
 			return true, nil
 		}
 	}
 
+	// If appDB statefulset is owned by another resource (external MongoDB CR),
+	// request reverse migration and block until the other controller releases it.
 	if len(sts.OwnerReferences) > 0 {
-		if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
-			return false, nil // release already requested, keep waiting
-		}
-		if sts.Annotations == nil {
-			sts.Annotations = map[string]string{}
-		}
-		sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] = trueString
-		if err := r.client.Update(ctx, &sts); err != nil {
-			return false, xerrors.Errorf("failed to request StatefulSet release: %w", err)
-		}
-		return false, nil
+		return false, r.requestAppDBReverseMigration(ctx, sts)
 	}
 
-	sts.OwnerReferences = kube.BaseOwnerReference(opsManager)
-	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
-	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
-	if err := r.client.Update(ctx, &sts); err != nil {
-		return false, xerrors.Errorf("failed to adopt StatefulSet: %w", err)
+	if err := r.reclaimAppDBStatefulset(ctx, opsManager, sts); err != nil {
+		return false, err
 	}
 
-	if err := r.claimAppDBSecrets(ctx, opsManager); err != nil {
+	if err := r.reclaimAppDBSecrets(ctx, opsManager); err != nil {
 		return false, err
 	}
 
 	return true, nil
 }
 
-// claimAppDBSecrets transfers the shared handover secrets (password, keyfile) to this OM's
+func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Context, sts appsv1.StatefulSet) error {
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+		return nil
+	}
+
+	annotationToAdd := map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}
+	if err := annotations.SetAnnotations(ctx, &sts, annotationToAdd, r.client); err != nil {
+		return xerrors.Errorf("failed to request StatefulSet release: %w", err)
+	}
+
+	return nil
+}
+
+// reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears migration annotations
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
+	sts.OwnerReferences = kube.BaseOwnerReference(opsManager)
+	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
+	if err := r.client.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to reclaim StatefulSet: %w", err)
+	}
+
+	return nil
+}
+
+// reclaimAppDBSecrets transfers the shared handover secrets (password, keyfile) to this OM's
 // ownership at adoption, so the eventual post-handover deletion of the MongoDB CR doesn't
-// garbage-collect secrets the running internal AppDB depends on (ownership follows the AppDB's
-// manager - see the reverse-migration v2 design).
-func (r *ReconcileAppDbReplicaSet) claimAppDBSecrets(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
-	names := []string{
+// garbage-collect secrets the running internal AppDB depends on
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBSecrets(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
+	secretNamesToReclaim := []string{
 		omv1.OpsManagerUserPasswordSecretName(opsManager.Spec.AppDB.Name()),
 		opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name,
 	}
-	for _, name := range names {
-		s := corev1.Secret{}
-		if err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, name), &s); err != nil {
-			if apiErrors.IsNotFound(err) {
-				continue // recreated later by the normal reconcile path
-			}
-			return xerrors.Errorf("failed to fetch secret %s while claiming ownership: %w", name, err)
-		}
-		s.OwnerReferences = kube.BaseOwnerReference(opsManager)
-		if err := r.client.Update(ctx, &s); err != nil {
-			return xerrors.Errorf("failed to claim secret %s: %w", name, err)
+
+	for _, secretName := range secretNamesToReclaim {
+		if err := r.reclaimAppDBSecret(ctx, opsManager, secretName); err != nil {
+			return xerrors.Errorf("failed to reclaim secret %s: %w", secretName, err)
 		}
 	}
+
+	return nil
+}
+
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBSecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, name string) error {
+	secretToReclaim := corev1.Secret{}
+	if err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, name), &secretToReclaim); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+
+		return xerrors.Errorf("failed to fetch secret %s while reclaiming its ownership: %w", name, err)
+	}
+
+	secretToReclaim.OwnerReferences = kube.BaseOwnerReference(opsManager)
+	if err := r.client.Update(ctx, &secretToReclaim); err != nil {
+		return xerrors.Errorf("failed to update secret %s: %w", name, err)
+	}
+
 	return nil
 }
 
@@ -710,13 +738,13 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
-	// Internal management must own the AppDB StatefulSet before touching anything: a StatefulSet
+	// Ops Manager must own the AppDB StatefulSet before touching anything: a StatefulSet
 	// still owned by a MongoDB CR (reverse migration) is asked to be released and waited for.
-	owned, err := r.ensureAppDBStatefulSetOwnership(ctx, opsManager)
+	opsManagerOwned, err := r.ensureAppDBStatefulSetOwnership(ctx, opsManager)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
 	}
-	if !owned {
+	if !opsManagerOwned {
 		return r.updateStatus(ctx, opsManager, workflow.Pending("waiting for MongoDB controller to release AppDB StatefulSet"), log, appDbStatusOption)
 	}
 
@@ -926,9 +954,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...), status.NewPVCsStatusOptionEmptyStatus())
 }
 
-// BuildAppDBConnectionURL returns the connection string to the AppDB, ensuring the Ops Manager user password exists.
+// BuildAppDBConnectionURL returns the connection string to the AppDB, reading the Ops Manager user password.
+// It assumes ReconcileAppDB has already been called and the password secret exists.
 func (r *ReconcileAppDbReplicaSet) BuildAppDBConnectionURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	password, err := r.ensureAppDbPassword(ctx, opsManager, log)
+	password, err := r.readAppDbPassword(ctx, opsManager)
 	if err != nil {
 		return "", xerrors.Errorf("Error getting AppDB password: %w", err)
 	}
@@ -1806,20 +1835,17 @@ func (r *ReconcileAppDbReplicaSet) generatePasswordAndCreateSecret(ctx context.C
 // ensureAppDbPassword will return the password that was specified by the user, or the auto generated password stored in
 // the secret (generate it and store in secret otherwise)
 func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
-	if passwordRef != nil && passwordRef.Name != "" { // there is a secret specified for the Ops Manager user
-		if passwordRef.Key == "" {
-			passwordRef.Key = "password"
+	password, err := r.readAppDbPassword(ctx, opsManager)
+	if err != nil {
+		if secret.SecretNotExist(err) {
+			log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
+			return r.generatePasswordAndCreateSecret(ctx, opsManager, log)
 		}
-		password, err := secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
-		if err != nil {
-			if secret.SecretNotExist(err) {
-				log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
-				return r.generatePasswordAndCreateSecret(ctx, opsManager, log)
-			}
-			return "", err
-		}
+		return "", err
+	}
 
+	// User-provided password ref path: watch the secret and clean up the auto-generated one.
+	if passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef; passwordRef != nil && passwordRef.Name != "" {
 		log.Debugf("Reading password from secret/%s", passwordRef.Name)
 
 		// watch for any changes on the user provided password
@@ -1836,28 +1862,24 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		if err := r.DeleteSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secret.SecretNotExist(err) {
 			return "", err
 		}
-		return password, nil
+	} else {
+		log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 	}
 
-	// otherwise we'll ensure the auto generated password exists
-	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
-	appDbPasswordSecretStringData, err := secret.ReadStringData(ctx, r.SecretClient, secretObjectKey)
+	return password, nil
+}
 
-	if secret.SecretNotExist(err) {
-		// create the password
-		if password, err := r.generatePasswordAndCreateSecret(ctx, opsManager, log); err != nil {
-			return "", err
-		} else {
-			log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
-			return password, nil
+func (r *ReconcileAppDbReplicaSet) readAppDbPassword(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
+	if passwordRef != nil && passwordRef.Name != "" {
+		if passwordRef.Key == "" {
+			passwordRef.Key = "password"
 		}
-	} else if err != nil {
-		// any other error
-		return "", err
+		return secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
 	}
-	log.
-		Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
-	return appDbPasswordSecretStringData[util.OpsManagerPasswordKey], nil
+
+	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
+	return secret.ReadKey(ctx, r.SecretClient, util.OpsManagerPasswordKey, secretObjectKey)
 }
 
 // ensureAppDbAgentApiKey makes sure there is an agent API key for the AppDB automation agent

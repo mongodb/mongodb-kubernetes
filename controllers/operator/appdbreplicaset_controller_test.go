@@ -2137,6 +2137,12 @@ func TestReconcileAppDbReplicaSet_BuildAppDBConnectionURL(t *testing.T) {
 	appDbReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, zap.S())
 	require.NoError(t, err)
 
+	require.NoError(t, appDbReconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
+		SetNamespace(testOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "test-password").
+		Build()))
+
 	connString, err := appDbReconciler.BuildAppDBConnectionURL(ctx, testOm, zap.S())
 	require.NoError(t, err)
 	assert.Contains(t, connString, util.OpsManagerMongoDBUserName)
