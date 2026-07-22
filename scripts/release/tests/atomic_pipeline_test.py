@@ -4,7 +4,7 @@ Test for agent build mapping functionality and validation functions.
 """
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from scripts.release.agent.validation import (
     generate_agent_build_args,
@@ -12,6 +12,7 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
+from scripts.release.atomic_pipeline import get_custom_agent_url, get_custom_agent_url_for_version
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -186,6 +187,97 @@ class TestIntegration(unittest.TestCase):
         agent_args = generate_agent_build_args(platforms, agent_version, tools_version)
         self.assertIn("mongodb_agent_version_amd64", agent_args)
         self.assertIn("mongodb_tools_version_amd64", agent_args)
+
+
+class TestCustomAgentUrlResolution(unittest.TestCase):
+    """Tests for get_custom_agent_url and get_custom_agent_url_for_version.
+
+    Verifies the parameter precedence:
+    1. UPSTREAM_AGENT_URL env var (automatic CI mode)
+    2. release.json customAgent (manual mode)
+    3. Empty string (prod mode)
+    """
+
+    def setUp(self):
+        self.agent_version = "109.0.0.9188-1"
+        self.upstream_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+            "builds/patches/6a588a96814ba600072a706d/automation-agent/local/"
+            "mongodb-mms-automation-agent-109.0.0.9188-1.linux_x86_64.tar.gz"
+        )
+        self.manual_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+            "builds/patches/abc123/automation-agent/local/"
+            "mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz"
+        )
+
+    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_upstream_agent_url_takes_precedence(self, mock_release):
+        """UPSTREAM_AGENT_URL env var takes precedence over release.json."""
+        mock_release.return_value = {"customAgent": {"8": self.manual_url}}
+
+        with patch.dict("os.environ", {"UPSTREAM_AGENT_URL": self.upstream_url}):
+            result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, self.upstream_url)
+
+    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_falls_back_to_release_json_when_no_upstream(self, mock_release):
+        """Without UPSTREAM_AGENT_URL, falls back to release.json customAgent."""
+        mock_release.return_value = {"customAgent": {"8": self.manual_url}}
+
+        result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, self.manual_url)
+
+    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_returns_empty_when_no_custom_agent(self, mock_release):
+        """Returns empty string when neither upstream nor release.json has a URL."""
+        mock_release.return_value = {"customAgent": {"8": "", "7": ""}}
+
+        result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, "")
+
+    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_returns_empty_when_custom_agent_key_missing(self, mock_release):
+        """Returns empty string when release.json has no customAgent key."""
+        mock_release.return_value = {"agentVersion": "108.0.12.8846-1"}
+
+        result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, "")
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_get_custom_agent_url_for_version_matches_version_in_url(self, mock_release):
+        """get_custom_agent_url_for_version returns URL containing the agent version."""
+        mock_release.return_value = {
+            "customAgent": {
+                "8": "https://example.com/agent-109.0.0.9188-1.tar.gz",
+                "7": "https://example.com/agent-107.0.0.1234-1.tar.gz",
+            }
+        }
+
+        result = get_custom_agent_url_for_version("109.0.0.9188-1")
+
+        self.assertEqual(result, "https://example.com/agent-109.0.0.9188-1.tar.gz")
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_get_custom_agent_url_for_version_returns_empty_when_no_match(self, mock_release):
+        """get_custom_agent_url_for_version returns empty when no URL matches the version."""
+        mock_release.return_value = {
+            "customAgent": {
+                "8": "https://example.com/agent-107.0.0.1234-1.tar.gz",
+            }
+        }
+
+        result = get_custom_agent_url_for_version("109.0.0.9188-1")
+
+        self.assertEqual(result, "")
 
 
 if __name__ == "__main__":

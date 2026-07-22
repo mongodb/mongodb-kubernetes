@@ -245,6 +245,16 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
         **platform_build_args,  # Add the platform-specific build args
     }
 
+    # Pass custom agent URL for non-static architecture.
+    # In automatic CI mode, UPSTREAM_AGENT_URL is set by the Evergreen expansion.
+    # The URL is baked into the init-database image via custom-agent-urls.sh so that
+    # agent-launcher.sh can use it at runtime without relying on the operator to
+    # inject MDB_CUSTOM_AGENT_URL.
+    upstream_agent_url = os.getenv("UPSTREAM_AGENT_URL", "")
+    if upstream_agent_url:
+        logger.info(f"Passing upstream agent URL to init-database image build: {upstream_agent_url}")
+        args["custom_agent_url"] = upstream_agent_url
+
     build_image(
         build_configuration=build_configuration,
         build_args=args,
@@ -326,6 +336,22 @@ def _build_agent(
     tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
+def get_custom_agent_url(agent_version: str) -> str:
+    """Resolve custom agent URL with parameter precedence:
+    1. UPSTREAM_AGENT_URL env var (automatic CI mode from Evergreen expansion)
+    2. release.json customAgent (manual mode)
+    3. Empty string (prod mode)
+
+    Both automatic and manual modes share the same downstream code path —
+    the only difference is the input source.
+    """
+    upstream_agent_url = os.getenv("UPSTREAM_AGENT_URL", "")
+    if upstream_agent_url:
+        logger.info(f"Using upstream agent URL from UPSTREAM_AGENT_URL env var: {upstream_agent_url}")
+        return upstream_agent_url
+    return get_custom_agent_url_for_version(agent_version)
+
+
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
@@ -338,17 +364,21 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    custom_agent_url = get_custom_agent_url_for_version(agent_version)
+    custom_agent_url = get_custom_agent_url(agent_version)
     if custom_agent_url:
         agent_base_url = custom_agent_url.rsplit("/", 1)[0]
+        # When using a custom/upstream URL, the version in the filename may differ
+        # from release.json. Use UPSTREAM_AGENT_VERSION for probing if set.
+        probe_version = os.getenv("UPSTREAM_AGENT_VERSION", "") or agent_version
     else:
         agent_base_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
         )
+        probe_version = agent_version
 
     platform_build_args = generate_agent_build_args(
         platforms=build_configuration_copy.platforms,
-        agent_version=agent_version,
+        agent_version=probe_version,
         tools_version=tools_version,
         agent_base_url=agent_base_url,
     )

@@ -224,6 +224,14 @@ parameters:
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
 
+  - key: upstream_agent_url
+    value: ""
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Both manual (release.json customAgent) and automatic (UPSTREAM_AGENT_URL) modes share the same code path."
+
+  - key: upstream_agent_version
+    value: ""
+    description: "Agent version string from the upstream mms-automation patch. Used for S3 filename probing when UPSTREAM_AGENT_URL is set, since the upstream version may differ from release.json."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -271,6 +279,10 @@ patch_aliases:
   - alias: "race"
     description: "Run race detector variants"
     variant_tags: [ "race" ]
+    task: ".*"
+  - alias: "agent_integration"
+    description: "Run static and non-static E2E pairs with a custom agent from upstream (triggered by mms-automation Patch Trigger Alias)"
+    variant_tags: [ "agent_integration" ]
     task: ".*"
 
 # Triggered whenever the GitHub PR is created
@@ -1508,7 +1520,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "agent_integration" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-large
@@ -1519,7 +1531,7 @@ buildvariants:
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static", "agent_integration" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-medium
@@ -1539,7 +1551,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "static", "agent_integration" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-medium
@@ -1673,7 +1685,7 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "patch", "om7" ]
+    tags: [ "staging", "e2e_test_suite", "patch", "om7", "agent_integration" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
@@ -1685,7 +1697,7 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static", "om7" ]
+    tags: [ "staging", "e2e_test_suite", "static", "om7", "agent_integration" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1696,7 +1708,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "agent_integration" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2204-medium-high-memory
@@ -1711,7 +1723,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "agent_integration" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency

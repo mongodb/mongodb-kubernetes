@@ -23,6 +23,13 @@ tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 
 source /opt/scripts/agent-launcher-lib.sh
 
+# Source custom agent URLs if present (baked into init-database image at build time).
+# In automatic CI mode, UPSTREAM_AGENT_URL is baked here; in manual mode, the
+# operator injects MDB_CUSTOM_AGENT_URL at runtime instead.
+if [ -f /opt/scripts/custom-agent-urls.sh ]; then
+  source /opt/scripts/custom-agent-urls.sh
+fi
+
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT}" 2> /dev/null | json_log 'automation-agent' &
