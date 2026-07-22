@@ -9,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,8 +58,12 @@ func NewStateStore[S any](owner v1.ResourceOwner, ownerReferences []metav1.Owner
 }
 
 func (s *StateStore[S]) read(ctx context.Context) error {
+	return s.readWithReader(ctx, s.client)
+}
+
+func (s *StateStore[S]) readWithReader(ctx context.Context, reader client.Reader) error {
 	cm := corev1.ConfigMap{}
-	if err := s.client.Get(ctx, kube.ObjectKey(s.namespace, s.getStateConfigMapName()), &cm); err != nil {
+	if err := reader.Get(ctx, kube.ObjectKey(s.namespace, s.getStateConfigMapName()), &cm); err != nil {
 		return err
 	}
 
@@ -99,10 +104,14 @@ func (s *StateStore[S]) WriteState(ctx context.Context, state *S, log *zap.Sugar
 }
 
 func (s *StateStore[S]) ReadState(ctx context.Context) (*S, error) {
+	return s.ReadStateWithReader(ctx, s.client)
+}
+
+func (s *StateStore[S]) ReadStateWithReader(ctx context.Context, reader client.Reader) (*S, error) {
 	state := new(S)
 
 	// If we don't find the state ConfigMap, return an error
-	if err := s.read(ctx); err != nil {
+	if err := s.readWithReader(ctx, reader); err != nil {
 		return nil, err
 	}
 	if s.isStaleOwnerUID() {
