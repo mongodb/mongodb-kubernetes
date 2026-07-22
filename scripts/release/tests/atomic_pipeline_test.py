@@ -193,14 +193,14 @@ class TestCustomAgentUrlResolution(unittest.TestCase):
     """Tests for get_custom_agent_url and get_custom_agent_url_for_version.
 
     Verifies the parameter precedence:
-    1. UPSTREAM_AGENT_URL env var (automatic CI mode)
-    2. release.json customAgent (manual mode)
+    1. release.json customAgent (manual mode)
+    2. MDB_CUSTOM_AGENT_URL env var (automatic CI mode)
     3. Empty string (prod mode)
     """
 
     def setUp(self):
         self.agent_version = "109.0.0.9188-1"
-        self.upstream_url = (
+        self.automatic_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
             "builds/patches/6a588a96814ba600072a706d/automation-agent/local/"
             "mongodb-mms-automation-agent-109.0.0.9188-1.linux_x86_64.tar.gz"
@@ -211,38 +211,39 @@ class TestCustomAgentUrlResolution(unittest.TestCase):
             "mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz"
         )
 
-    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
     @patch("scripts.release.atomic_pipeline.load_release_file")
-    def test_upstream_agent_url_takes_precedence(self, mock_release):
-        """UPSTREAM_AGENT_URL env var takes precedence over release.json."""
+    def test_manual_takes_precedence_over_env_var(self, mock_release):
+        """release.json customAgent takes precedence over MDB_CUSTOM_AGENT_URL env var."""
         mock_release.return_value = {"customAgent": {"8": self.manual_url}}
 
-        with patch.dict("os.environ", {"UPSTREAM_AGENT_URL": self.upstream_url}):
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": self.automatic_url}):
             result = get_custom_agent_url(self.agent_version)
-
-        self.assertEqual(result, self.upstream_url)
-
-    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
-    @patch("scripts.release.atomic_pipeline.load_release_file")
-    def test_falls_back_to_release_json_when_no_upstream(self, mock_release):
-        """Without UPSTREAM_AGENT_URL, falls back to release.json customAgent."""
-        mock_release.return_value = {"customAgent": {"8": self.manual_url}}
-
-        result = get_custom_agent_url(self.agent_version)
 
         self.assertEqual(result, self.manual_url)
 
-    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_falls_back_to_env_var_when_no_manual(self, mock_release):
+        """Without release.json customAgent, falls back to MDB_CUSTOM_AGENT_URL env var."""
+        mock_release.return_value = {"customAgent": {"8": ""}}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": self.automatic_url}):
+            result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, self.automatic_url)
+
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
     @patch("scripts.release.atomic_pipeline.load_release_file")
     def test_returns_empty_when_no_custom_agent(self, mock_release):
-        """Returns empty string when neither upstream nor release.json has a URL."""
+        """Returns empty string when neither manual nor env var has a URL."""
         mock_release.return_value = {"customAgent": {"8": "", "7": ""}}
 
         result = get_custom_agent_url(self.agent_version)
 
         self.assertEqual(result, "")
 
-    @patch.dict("os.environ", {"UPSTREAM_AGENT_URL": ""}, clear=False)
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
     @patch("scripts.release.atomic_pipeline.load_release_file")
     def test_returns_empty_when_custom_agent_key_missing(self, mock_release):
         """Returns empty string when release.json has no customAgent key."""

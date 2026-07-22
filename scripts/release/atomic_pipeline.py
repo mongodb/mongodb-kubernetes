@@ -246,14 +246,12 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     }
 
     # Pass custom agent URL for non-static architecture.
-    # In automatic CI mode, UPSTREAM_AGENT_URL is set by the Evergreen expansion.
-    # The URL is baked into the init-database image via custom-agent-urls.sh so that
-    # agent-launcher.sh can use it at runtime without relying on the operator to
-    # inject MDB_CUSTOM_AGENT_URL.
-    upstream_agent_url = os.getenv("UPSTREAM_AGENT_URL", "")
-    if upstream_agent_url:
-        logger.info(f"Passing upstream agent URL to init-database image build: {upstream_agent_url}")
-        args["custom_agent_url"] = upstream_agent_url
+    # Same code path as static: manual (release.json customAgent) first,
+    # then UPSTREAM_AGENT_URL env var (automatic CI).
+    custom_agent_url = get_custom_agent_url(release.get("agentVersion", ""))
+    if custom_agent_url:
+        logger.info(f"Passing custom agent URL to init-database image build: {custom_agent_url}")
+        args["custom_agent_url"] = custom_agent_url
 
     build_image(
         build_configuration=build_configuration,
@@ -337,19 +335,20 @@ def _build_agent(
 
 
 def get_custom_agent_url(agent_version: str) -> str:
-    """Resolve custom agent URL with parameter precedence:
-    1. UPSTREAM_AGENT_URL env var (automatic CI mode from Evergreen expansion)
-    2. release.json customAgent (manual mode)
-    3. Empty string (prod mode)
+    """Resolve custom agent URL. Manual mode takes precedence.
 
-    Both automatic and manual modes share the same downstream code path —
-    the only difference is the input source.
+    1. release.json customAgent (manual mode)
+    2. MDB_CUSTOM_AGENT_URL env var (automatic CI from Evergreen expansion)
+    3. Empty string (prod mode)
     """
-    upstream_agent_url = os.getenv("UPSTREAM_AGENT_URL", "")
-    if upstream_agent_url:
-        logger.info(f"Using upstream agent URL from UPSTREAM_AGENT_URL env var: {upstream_agent_url}")
-        return upstream_agent_url
-    return get_custom_agent_url_for_version(agent_version)
+    url = get_custom_agent_url_for_version(agent_version)
+    if url:
+        return url
+    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
+    if custom_agent_url:
+        logger.info(f"Using custom agent URL from MDB_CUSTOM_AGENT_URL env var: {custom_agent_url}")
+        return custom_agent_url
+    return ""
 
 
 def build_agent_pipeline(
