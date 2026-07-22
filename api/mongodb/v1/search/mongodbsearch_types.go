@@ -1046,6 +1046,10 @@ func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 	return ok && val == "true"
 }
 
+func (s *MongoDBSearch) IsReconciliationDisabled() bool {
+	return s.Annotations[DisableReconciliationAnnotation] == "true"
+}
+
 func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 	if s.IsWireprotoEnabled() {
 		return s.GetMongotWireprotoPort()

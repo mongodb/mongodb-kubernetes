@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -85,6 +86,7 @@ type MongoDBSearchReconciler struct {
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
 	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
+	operatorClusterName     string
 
 	prepareSearch prepareSearchFunc
 }
@@ -105,6 +107,7 @@ func newMongoDBSearchReconciler(
 		watch:                   watch.NewResourceWatcher(),
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
+		operatorClusterName:     operatorClusterName,
 		prepareSearch:           newPrepareSearch(operatorClusterName),
 	}
 }
@@ -123,7 +126,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// pause reconciliation on a single CR so owned objects can be mutated
 	// without the operator reverting them.
 	// Useful for tests when the operator is running locally and not in the pod.
-	if mdbSearch.GetAnnotations()[searchv1.DisableReconciliationAnnotation] == "true" {
+	if mdbSearch.IsReconciliationDisabled() {
 		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping",
 			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
 		return reconcile.Result{}, nil
@@ -147,24 +150,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
-	// Watch for changes in database source CA certificate secrets or configmaps
-	tlsSourceConfig := searchSource.TLSConfig()
-	if tlsSourceConfig != nil {
-		for wType, resources := range tlsSourceConfig.ResourcesToWatch {
-			for _, resource := range resources {
-				r.watch.AddWatchedResourceIfNotAdded(resource.Name, resource.Namespace, wType, mdbSearch.NamespacedName())
-			}
-		}
-	}
-
-	// Watch our own TLS certificate secret for changes (non-sharded only; sharded watches are per-member-cluster)
-	if mdbSearch.Spec.Security.TLS != nil {
-		if _, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); !ok {
-			// Non-sharded: watch the single source secret
-			sourceSecretNsName := mdbSearch.TLSSecretNamespacedName()
-			r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
-		}
-	}
+	r.registerTLSResourceWatches(mdbSearch, searchSource)
 
 	if mdbSearch.Spec.AutoEmbedding != nil {
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
@@ -239,6 +225,67 @@ func (r *MongoDBSearchReconciler) surfaceMissingSecrets(
 
 func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
 	return getSearchSource(ctx, kubeClient, r.watch, search, log)
+}
+
+type mongoDBSearchResourceWatch struct {
+	obj        client.Object
+	handler    handler.EventHandler
+	predicates []predicate.Predicate
+}
+
+func centralMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSearchResourceWatch {
+	searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
+	searchOwnerPredicates := []predicate.Predicate{watch.PredicatesForMultiClusterSearchResource()}
+	return []mongoDBSearchResourceWatch{
+		{obj: &searchv1.MongoDBSearch{}, handler: &handler.EnqueueRequestForObject{}},
+		{obj: &mdbv1.MongoDB{}, handler: &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
+		{obj: &mdbcv1.MongoDBCommunity{}, handler: &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
+		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &appsv1.StatefulSet{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Service{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Secret{}, handler: &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},
+		{obj: &corev1.ConfigMap{}, handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}},
+	}
+}
+
+func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSearchResourceWatch {
+	searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
+	searchOwnerPredicates := []predicate.Predicate{watch.PredicatesForMultiClusterSearchResource()}
+	return []mongoDBSearchResourceWatch{
+		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &appsv1.StatefulSet{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Service{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.ConfigMap{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{obj: &corev1.Secret{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+	}
+}
+
+func (r *MongoDBSearchReconciler) registerTLSResourceWatches(mdbSearch *searchv1.MongoDBSearch, searchSource searchcontroller.SearchSourceDBResource) {
+	if tlsSourceConfig := searchSource.TLSConfig(); tlsSourceConfig != nil {
+		for wType, resources := range tlsSourceConfig.ResourcesToWatch {
+			for _, resource := range resources {
+				r.watch.AddWatchedResourceIfNotAdded(resource.Name, resource.Namespace, wType, mdbSearch.NamespacedName())
+			}
+		}
+	}
+	if mdbSearch.Spec.Security.TLS == nil {
+		return
+	}
+	if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
+		for _, cluster := range mdbSearch.Spec.Clusters {
+			for _, shardName := range shardedSource.GetShardNames() {
+				sourceSecretNsName := mdbSearch.TLSSecretForClusterShard(cluster.ResolveIndex(), shardName)
+				r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+			}
+		}
+		return
+	}
+	for _, secret := range []types.NamespacedName{
+		mdbSearch.TLSSecretNamespacedName(),
+		mdbSearch.TLSOperatorSecretNamespacedName(),
+	} {
+		r.watch.AddWatchedResourceIfNotAdded(secret.Name, secret.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
 }
 
 // getSearchSource resolves the source database for a MongoDBSearch resource.
@@ -322,27 +369,8 @@ func AddMongoDBSearchController(
 		return err
 	}
 
-	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
-	// status.Clusters for Search/LB/MetricsForwarder is updated via search controller, adding deployment in watch list would make sure that
-	// search reconcile is triggered when deployment change that would make sure we have up to date status of these components in status.Clusters.
-	// deploymentOwnerHandler is different from ownerHandler in the sense that it's for normal owner references and not controller owner references.
-	deploymentOwnerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{})
-	centralWatches := []struct {
-		obj     client.Object
-		handler handler.EventHandler
-	}{
-		{&searchv1.MongoDBSearch{}, &handler.EnqueueRequestForObject{}},
-		{&mdbv1.MongoDB{}, &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
-		{&mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
-		{&corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},
-		{&corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}},
-		{&appsv1.StatefulSet{}, ownerHandler},
-		{&corev1.Service{}, ownerHandler},
-		{&corev1.Secret{}, ownerHandler},
-		{&appsv1.Deployment{}, deploymentOwnerHandler},
-	}
-	for _, w := range centralWatches {
-		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler)); err != nil {
+	for _, w := range centralMongoDBSearchResourceWatches(r) {
+		if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
 			return xerrors.Errorf("failed to set MongoDBSearch central watch for %T: %w", w.obj, err)
 		}
 	}
@@ -365,19 +393,10 @@ func AddMongoDBSearchController(
 
 		// Per-member-cluster watches map events back to the parent MongoDBSearch
 		// via the search-owner labels (cross-cluster owner refs do not GC).
-		searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
-		searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
-		watchedTypes := []client.Object{
-			&appsv1.StatefulSet{},
-			&corev1.Service{},
-			&appsv1.Deployment{},
-			&corev1.ConfigMap{},
-			&corev1.Secret{},
-		}
 		for k, v := range memberClusterObjectsMap {
-			for _, gvk := range watchedTypes {
-				if err := c.Watch(source.Kind[client.Object](v.GetCache(), gvk, searchOwnerHandler, searchOwnerPredicate)); err != nil {
-					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, gvk, err)
+			for _, w := range memberMongoDBSearchResourceWatches(r) {
+				if err := c.Watch(source.Kind[client.Object](v.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
+					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, w.obj, err)
 				}
 			}
 		}
