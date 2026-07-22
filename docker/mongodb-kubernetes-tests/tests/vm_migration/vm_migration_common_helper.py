@@ -358,3 +358,21 @@ def rotate_password_and_verify(
 
     assert ac_user.get("scramSha256Creds") is not None, "scramSha256Creds missing"
     assert ac_user.get("scramSha1Creds") is not None, "scramSha1Creds missing"
+
+
+def assert_ca_file_present_in_pod(namespace: str, pod_name: str, ca_file_path: str) -> None:
+    """Assert the CA file the operator mounted is present at ca_file_path inside a migrated pod.
+
+    Reads the file from the mongodb-enterprise-database container and checks it
+    contains PEM certificate content. Proves the operator mounted the CA
+    ConfigMap at the custom caFilePath rather than the default location.
+    """
+    output = KubernetesTester.run_command_in_pod_container(
+        pod_name,
+        namespace,
+        ["cat", ca_file_path],
+        container="mongodb-enterprise-database",
+    )
+    assert (
+        "-----BEGIN CERTIFICATE-----" in output
+    ), f"CA file at {ca_file_path} in pod {pod_name} is missing or not PEM content, got: {output!r}"

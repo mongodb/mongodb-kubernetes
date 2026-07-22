@@ -275,12 +275,6 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 
 	var results []ValidationResult
 
-	if agentSSL.CAFilePath != "" && agentSSL.CAFilePath != defaultCAFilePath {
-		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("tls.CAFilePath %q differs from the operator default %q and will be overwritten.", agentSSL.CAFilePath, defaultCAFilePath),
-		})
-	}
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,

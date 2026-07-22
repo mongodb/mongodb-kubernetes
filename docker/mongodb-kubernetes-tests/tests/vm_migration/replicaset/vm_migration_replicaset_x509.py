@@ -27,6 +27,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
+    assert_ca_file_present_in_pod,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
@@ -55,8 +56,9 @@ VM_STS_NAME = "vm-mongodb"
 VM_RS_NAME = "vm-mongodb-rs"
 MDB_RESOURCE_NAME = "my-replica-set"
 SERVER_PEM_PATH = "/mongodb-automation/server.pem"
-# Paths match operator constants (pkg/util/constants.go: TLSCaMountPath, AgentCertMountPath).
-CUSTOM_CA_PEM_PATH = "/mongodb-automation/tls/ca/ca-pem"
+# Non-default CA file path, intentionally different from the operator's default TLSCaMountPath,
+# to exercise spec.security.tls.caFilePath through the migrate-to-mck import and operator reconcile.
+CUSTOM_CA_PEM_PATH = "/etc/mongodb-custom-ca/ca.pem"
 
 # Custom cert path used for VM agents, intentionally different from the operator's default
 # AgentCertMountPath to test that the operator preserves an arbitrary existing autoPEMKeyFilePath
@@ -153,12 +155,12 @@ def vm_sts(
                 },
             },
             # CA cert mounted at the same path the operator sets in tls.CAFilePath
-            # (/mongodb-automation/tls/ca/ca-pem) so VM agents remain functional after operator reconcile.
+            # (/etc/mongodb-custom-ca/ca.pem) so VM agents remain functional after operator reconcile.
             {
                 "name": "ca-cert",
                 "secret": {
                     "secretName": "ca-key-pair",
-                    "items": [{"key": "tls.crt", "path": "ca-pem"}],
+                    "items": [{"key": "tls.crt", "path": "ca.pem"}],
                 },
             },
             # The VM path must match tls.autoPEMKeyFilePath before and after import.
@@ -166,7 +168,7 @@ def vm_sts(
         ],
         extra_volume_mounts=[
             {"name": "mongodb-certs", "mountPath": "/mongodb-automation", "readOnly": True},
-            {"name": "ca-cert", "mountPath": "/mongodb-automation/tls/ca", "readOnly": True},
+            {"name": "ca-cert", "mountPath": "/etc/mongodb-custom-ca", "readOnly": True},
             {"name": "agent-cert", "mountPath": CUSTOM_AGENT_CERT_DIR, "readOnly": True},
         ],
     )
@@ -490,6 +492,12 @@ def test_x509_agent_auth_in_cr(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_replicaset_x509
+def test_ca_file_path_in_cr(generated_cr: dict):
+    """The generated CR must carry the non-default CA file path from the AC."""
+    assert generated_cr["spec"]["security"]["tls"]["caFilePath"] == CUSTOM_CA_PEM_PATH
+
+
+@mark.e2e_vm_migration_replicaset_x509
 def test_user_cr_emitted(generated_cr_yaml: str, vm_app_user: tuple[str, str]):
     # The $external app user produces a MongoDBUser CR; the agent auto-user is skipped by the tool.
     _, app_user_subject_dn = vm_app_user
@@ -524,6 +532,12 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_x509
+def test_ca_file_mounted_at_custom_path(namespace: str, mdb_migration: MongoDB):
+    """The operator mounts the CA ConfigMap at the custom caFilePath in the migrated pod."""
+    assert_ca_file_present_in_pod(namespace, f"{mdb_migration.name}-0", CUSTOM_CA_PEM_PATH)
 
 
 @mark.e2e_vm_migration_replicaset_x509

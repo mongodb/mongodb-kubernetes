@@ -359,6 +359,46 @@ func TestBuildJobFromStatefulSet_ShardedCluster(t *testing.T) {
 	assert.Equal(t, OperatorManagedByValue, job.Labels[OperatorManagedByLabel])
 }
 
+func TestBuildJobFromStatefulSet_CustomCAFilePath(t *testing.T) {
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{{
+						Name: util.ClusterFileName,
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"},
+						},
+					}},
+					Containers: []corev1.Container{{
+						VolumeMounts: []corev1.VolumeMount{{
+							Name:      util.ClusterFileName,
+							MountPath: "/var/run/credentials",
+							ReadOnly:  true,
+						}},
+					}},
+				},
+			},
+		},
+	}
+	rs := mdbv1.NewReplicaSetBuilder().
+		EnableAuth([]mdbv1.AuthMode{util.X509}).
+		Build()
+	rs.Name = "my-rs"
+	rs.Namespace = "default"
+	rs.Spec.Security.TLSConfig = &mdbv1.TLSConfig{
+		Enabled:    true,
+		CAFilePath: "/etc/ssl/certs/ca.pem",
+	}
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, "MONGODB-X509", "hashkey", "")
+
+	envMap := map[string]string{}
+	for _, e := range job.Spec.Template.Spec.Containers[0].Env {
+		envMap[e.Name] = e.Value
+	}
+	assert.Equal(t, "/etc/ssl/certs/ca.pem", envMap["MONGOD_TLS_CA_PATH"], "MONGOD_TLS_CA_PATH should use spec.security.tls.caFilePath when set")
+}
+
 func TestBuildJobFromStatefulSet_SubjectDN(t *testing.T) {
 	sts := &appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{

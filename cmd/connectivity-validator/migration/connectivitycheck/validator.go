@@ -35,12 +35,11 @@ type Config struct {
 	AuthMechanism string
 	// CertPath is the path to the combined cert+key PEM (X509).
 	CertPath string
-	// CAPath is the path to the CA PEM (X509).
-	CAPath string
 	// SubjectDN is the X.509 subject DN used as the username.
 	SubjectDN string
 	// MongodTLSCAPath is the path to the CA PEM used to verify mongod TLS certificates.
 	// When set, TLS transport is enabled for all connections even when using SCRAM auth.
+	// It is also used as the CA for X.509 auth, since X.509 always implies TLS.
 	MongodTLSCAPath string
 	// ClientCertRequired indicates that the mongod requires a client certificate
 	// (clientCertificateMode: REQUIRE). When true, a missing cert file is an error rather
@@ -57,7 +56,6 @@ func Validate(ctx context.Context, cfg Config) int {
 		"externalMembersCount", len(cfg.ExternalMembers),
 		"externalMembers", cfg.ExternalMembers,
 		"certPath", cfg.CertPath,
-		"caPath", cfg.CAPath,
 		"subjectDN", cfg.SubjectDN,
 		"mongodTLSCAPath", cfg.MongodTLSCAPath,
 	)
@@ -110,11 +108,11 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 
 	switch cfg.AuthMechanism {
 	case "MONGODB-X509":
-		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.CAPath, "subjectDN", cfg.SubjectDN)
+		log.Debugw("Using MONGODB-X509 auth", "certPath", cfg.CertPath, "caPath", cfg.MongodTLSCAPath, "subjectDN", cfg.SubjectDN)
 		if _, statErr := os.Stat(cfg.CertPath); statErr != nil {
 			return nil, fmt.Errorf("stat X.509 cert: %w", statErr)
 		}
-		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath)
+		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
 		if err != nil {
 			return nil, err
 		}
