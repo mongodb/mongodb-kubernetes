@@ -1542,10 +1542,19 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 	//
 	// Checking before deleting ensures the requeue happens: if we deleted first and then checked,
 	// the check could find the object already gone (e.g. fake client in tests) and skip the wait.
+	//
+	// Each cluster progresses independently: a cluster whose Deployment is still terminating,
+	// whose client is missing, or that hit an error is blocked for this pass, while the other
+	// clusters continue through host deregistration and resource deletion. Errors are
+	// aggregated across clusters and the finalizer stays until every cluster is fully clean.
 	ns := search.Namespace
 	anyDepFound := false
+	blocked := map[string]struct{}{}
+	var cleanupErr error
 	for _, w := range workList {
 		if w.Client == nil {
+			blocked[w.ClusterName] = struct{}{}
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cluster=%q: no Kubernetes client registered", w.ClusterName))
 			continue
 		}
 		depName := search.MetricsForwarderDeploymentNameForCluster(w.ClusterIndex)
@@ -1558,31 +1567,38 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 			client.PropagationPolicy(metav1.DeletePropagationForeground),
 		)
 		if err != nil {
-			return workflow.Failed(err)
+			blocked[w.ClusterName] = struct{}{}
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
 		}
 		if found {
+			blocked[w.ClusterName] = struct{}{}
 			anyDepFound = true
 			log.Infof("Deleting metrics forwarder Deployment %s (cluster=%q) before deregistering Ops Manager hosts", depName, w.ClusterName)
 		}
 	}
-	if anyDepFound {
-		return workflow.Pending("Waiting for metrics forwarder Deployment to be fully deleted before deregistering Ops Manager hosts")
-	}
 
-	// All Deployments are gone: deregister hosts, clean up remaining resources, and remove finalizer.
+	// Deployments confirmed gone: deregister the cluster's hosts, then its remaining resources.
 	for _, w := range workList {
-		if w.Client == nil {
+		if _, skip := blocked[w.ClusterName]; skip {
 			continue
 		}
 		clusterState := topologyState.Clusters[w.ClusterName]
 		mongotHostsToDelete := mongotPodsForFullCleanup(search, w.ClusterIndex, clusterState)
 		if err := r.cleanupRemovedMongotPods(ctx, search, mongotHostsToDelete, groupID, projectConfig, agentSecretName, log); err != nil {
-			return workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+			continue
+		}
+		if err := r.deleteMetricsForwarderResources(ctx, search, []clusterWorkItem{w}, log); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
 
-	if err := r.deleteMetricsForwarderResources(ctx, search, workList, log); err != nil {
-		return workflow.Failed(err)
+	if cleanupErr != nil {
+		return workflow.Failed(cleanupErr)
+	}
+	if anyDepFound {
+		return workflow.Pending("Waiting for metrics forwarder Deployment to be fully deleted before deregistering Ops Manager hosts")
 	}
 
 	if finalizerRemoved := controllerutil.RemoveFinalizer(search, util.SearchMetricsForwarderFinalizer); !finalizerRemoved {

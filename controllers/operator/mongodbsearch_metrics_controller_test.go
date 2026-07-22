@@ -1715,6 +1715,81 @@ func TestPreDeletionCleanup_HostCleanupFailureRetainsFinalizer(t *testing.T) {
 		"finalizer must stay until host cleanup succeeds")
 }
 
+func TestPreDeletionCleanup_AggregatesHostCleanupAcrossClusters(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", Index: ptr.To(int32(0))},
+		{Name: "cluster-b", Index: ptr.To(int32(1))},
+	}
+	search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"cluster-a": {ClusterIndex: ptr.To(0), Replicas: 1},
+		"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+	}})
+	require.NoError(t, err)
+	stateCM.Data[stateKey] = string(stateJSON)
+	agentSecretName := "agent-key-secret"
+	agentKeySecret := newTestAgentKeySecret(agentSecretName, testNamespace)
+	r, _ := newMetricsForwarderReconciler(testDefaultImage, search, stateCM, agentKeySecret)
+
+	var requestedHostIDs []string
+	r.omRequester = stubOMAgentRequester{fn: func(_ mdbv1.ProjectConfig, method, path, _ string, body any) ([]byte, error) {
+		require.Equal(t, "POST", method)
+		require.True(t, strings.HasSuffix(path, "/v1/delete"))
+		requestedHostIDs = append(requestedHostIDs, body.(deleteHostsRequest).HostIds...)
+		return nil, fmt.Errorf("injected host cleanup failure for request %d", len(requestedHostIDs))
+	}}
+
+	st := r.preDeletionCleanup(
+		context.Background(),
+		search,
+		nil,
+		testGroupID,
+		mdbv1.ProjectConfig{BaseURL: testOMBaseURL},
+		agentSecretName,
+		r.buildClusterWorkList(search),
+		zap.NewNop().Sugar(),
+	)
+
+	require.False(t, st.IsOK())
+	message := searchcontroller.MessageFromStatus(st)
+	assert.Contains(t, message, "injected host cleanup failure for request 1")
+	assert.Contains(t, message, "injected host cleanup failure for request 2")
+	assert.Len(t, requestedHostIDs, 2, "host cleanup must continue to cluster-b after cluster-a fails")
+	assert.Contains(t, search.Finalizers, util.SearchMetricsForwarderFinalizer)
+}
+
+func TestReconcile_DeletionFailsClosedWhenClusterClientIsMissing(t *testing.T) {
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", Index: ptr.To(int32(0))},
+		{Name: "cluster-b", Index: ptr.To(int32(1))},
+	}
+	search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
+	r.clientForCluster = func(clusterName string) kubernetesClient.Client {
+		if clusterName == "cluster-b" {
+			return nil
+		}
+		return r.kubeClient
+	}
+	require.NoError(t, fakeClient.Delete(context.Background(), search))
+	deletingSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
+
+	st := r.reconcileCore(context.Background(), deletingSearch, zap.S())
+
+	require.False(t, st.IsOK())
+	assert.Contains(t, searchcontroller.MessageFromStatus(st), `cluster="cluster-b": no Kubernetes client registered`)
+	remainingSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
+	assert.Contains(t, remainingSearch.Finalizers, util.SearchMetricsForwarderFinalizer,
+		"finalizer must stay while an unreachable cluster may still hold forwarder resources")
+}
+
 func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T) {
 	pendingPodName := "pending-removed-cluster-mongot"
 	deferredPodName := "deferred-removed-cluster-mongot"
