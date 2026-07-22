@@ -84,6 +84,8 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
     # Add custom agent versions from customAgent in release.json
     custom_agents = release_data.get("customAgent", {})
     for url in custom_agents.values():
+        if not url:
+            continue
         filename = url.rsplit("/", 1)[-1].removesuffix(".tar.gz")
         agent_version = filename.replace("mongodb-mms-automation-agent-", "").rsplit(".", 1)[0]
         tools_version = get_tools_version_for_agent(agent_version)
@@ -122,6 +124,8 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
     # Add custom agent versions from customAgent in release.json
     custom_agents = release_data.get("customAgent", {})
     for url in custom_agents.values():
+        if not url:
+            continue
         filename = url.rsplit("/", 1)[-1].removesuffix(".tar.gz")
         agent_version = filename.replace("mongodb-mms-automation-agent-", "").rsplit(".", 1)[0]
         tools_version = get_tools_version_for_agent(agent_version)
