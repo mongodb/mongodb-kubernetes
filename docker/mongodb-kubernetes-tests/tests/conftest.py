@@ -879,11 +879,11 @@ def _install_multi_cluster_operator(
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
-    # If configure_member_clusters is set, drop multiCluster.clusters and the kubeconfig secret
-    # name: these come from the shared operator-installation-config ConfigMap, but this path
-    # doesn't use a multi-cluster kubeconfig mount.
-    # TODO(m1kola): slice-6: the real fix is to stop the ConfigMap from setting these for the new
-    # UX, at which point this drop becomes unnecessary.
+    # multiCluster.clusters / multiCluster.kubeConfigSecretName come from the shared
+    # operator-installation-config ConfigMap; this path installs the operator with no multi-cluster
+    # kubeconfig mount, so drop them. They stay in the ConfigMap because install_official_operator
+    # still reads multiCluster.clusters for the legacy upgrade baseline.
+    # TODO(m1kola): slice-6: drop these from the ConfigMap for the new UX so this pop is unnecessary.
     if configure_member_clusters is not None:
         for legacy_key in ("multiCluster.clusters", "multiCluster.kubeConfigSecretName"):
             multi_cluster_operator_installation_config.pop(legacy_key, None)
