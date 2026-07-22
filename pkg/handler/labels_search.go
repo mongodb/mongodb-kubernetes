@@ -15,15 +15,13 @@ const (
 	MongoDBSearchOwnerNameLabel      = "mongodb.com/search-name"
 	MongoDBSearchOwnerNamespaceLabel = "mongodb.com/search-namespace"
 	MongoDBSearchComponentLabel      = "component"
-	// MongoDBSearchClusterNameLabel records the target member cluster.
-	MongoDBSearchClusterNameLabel = "mongodb.com/cluster-name"
 )
 
 // SearchOwnershipLabels returns the managed identity labels shared by Search
 // resource writers, cleanup selectors, and event routing. Writers merge user
 // labels first and apply these labels last so user metadata overrides can
 // never detach a resource from its owning MongoDBSearch.
-func SearchOwnershipLabels(search metav1.Object, app, component, clusterName string) map[string]string {
+func SearchOwnershipLabels(search metav1.Object, app, component string) map[string]string {
 	labels := map[string]string{
 		MongoDBSearchOwnerNameLabel:      search.GetName(),
 		MongoDBSearchOwnerNamespaceLabel: search.GetNamespace(),
@@ -34,10 +32,14 @@ func SearchOwnershipLabels(search metav1.Object, app, component, clusterName str
 	if component != "" {
 		labels[MongoDBSearchComponentLabel] = component
 	}
-	if clusterName != "" {
-		labels[MongoDBSearchClusterNameLabel] = clusterName
-	}
 	return labels
+}
+
+// HasSearchOwnership reports whether obj belongs to this MongoDBSearch: the
+// search-name and search-namespace labels must match.
+func HasSearchOwnership(obj metav1.Object, search metav1.Object) bool {
+	labels := obj.GetLabels()
+	return labels[MongoDBSearchOwnerNameLabel] == search.GetName() && labels[MongoDBSearchOwnerNamespaceLabel] == search.GetNamespace()
 }
 
 // MapMemberClusterObjectToSearch reads the search-owner labels off a watched

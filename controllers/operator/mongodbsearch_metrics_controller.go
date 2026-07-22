@@ -393,7 +393,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) replicateForwarderDependencies
 	log *zap.SugaredLogger,
 ) error {
 	ns := search.Namespace
-	labels := metricsForwarderLabelsForCluster(search, w.ClusterName, w.ClusterIndex)
+	labels := metricsForwarderLabelsForCluster(search, w.ClusterIndex)
 
 	// Replicate agent-key Secret.
 	srcSecret, err := r.kubeClient.GetSecret(ctx, kube.ObjectKey(ns, agentSecretName))
@@ -953,7 +953,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMa
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c, cm, func() error {
-		cm.Labels = metricsForwarderLabelsForCluster(search, clusterName, clusterIndex)
+		cm.Labels = metricsForwarderLabelsForCluster(search, clusterIndex)
 		cm.Data = map[string]string{metricsForwarderConfigFileName: string(configYAML)}
 		if clusterName == "" {
 			return controllerutil.SetOwnerReference(search, cm, c.Scheme())
@@ -971,7 +971,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMa
 // OwnerReference is set only for the central cluster (clusterName == "").
 func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployment(ctx context.Context, search *searchv1.MongoDBSearch, configYAML []byte, groupID, agentKeySecretName, caConfigMapName, clusterName string, clusterIndex int, c kubernetesClient.Client, log *zap.SugaredLogger) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configYAML))
-	labels := metricsForwarderLabelsForCluster(search, clusterName, clusterIndex)
+	labels := metricsForwarderLabelsForCluster(search, clusterIndex)
 	podLabels := metricsForwarderPodLabelsForCluster(search, clusterIndex)
 	resources := metricsForwarderResourceRequirements(search)
 	managedSecurityContext := env.ReadBoolOrDefault(podtemplatespec.ManagedSecurityContextEnv, false) // nolint:forbidigo
@@ -1124,9 +1124,8 @@ func metricsForwarderResourceRequirements(search *searchv1.MongoDBSearch) corev1
 }
 
 // metricsForwarderLabelsForCluster returns resource labels including cross-cluster enqueue labels.
-// clusterName=="" (single-cluster/central): cluster-name label is omitted.
-func metricsForwarderLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
-	return khandler.SearchOwnershipLabels(search, search.MetricsForwarderDeploymentNameForCluster(clusterIndex), metricsForwarderLabelName, clusterName)
+func metricsForwarderLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {
+	return khandler.SearchOwnershipLabels(search, search.MetricsForwarderDeploymentNameForCluster(clusterIndex), metricsForwarderLabelName)
 }
 
 func metricsForwarderPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {
@@ -1136,7 +1135,7 @@ func metricsForwarderPodLabelsForCluster(search *searchv1.MongoDBSearch, cluster
 }
 
 func metricsForwarderLabels(search *searchv1.MongoDBSearch) map[string]string {
-	return metricsForwarderLabelsForCluster(search, "", 0)
+	return metricsForwarderLabelsForCluster(search, 0)
 }
 
 func metricsForwarderPodLabels(search *searchv1.MongoDBSearch) map[string]string {
