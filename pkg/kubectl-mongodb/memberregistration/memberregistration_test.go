@@ -59,7 +59,7 @@ func parseOutput(t *testing.T, manifest string) (corev1.Secret, operatorv1.Membe
 // and checked in TestGenerate_KubeconfigContents.
 func wantCredentialSecret(memberClusterName string) corev1.Secret {
 	return corev1.Secret{
-		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+		TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mck-credential-" + memberClusterName,
 			Namespace: testOperatorNamespace,
@@ -72,7 +72,7 @@ func wantCredentialSecret(memberClusterName string) corev1.Secret {
 // wantMemberCluster is the MemberCluster CR Generate should emit.
 func wantMemberCluster(memberClusterName, logicalName string) operatorv1.MemberCluster {
 	return operatorv1.MemberCluster{
-		TypeMeta: metav1.TypeMeta{APIVersion: "operator.mongodb.com/v1", Kind: "MemberCluster"},
+		TypeMeta: metav1.TypeMeta{APIVersion: operatorv1.GroupVersion.String(), Kind: "MemberCluster"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      memberClusterName,
 			Namespace: testOperatorNamespace,

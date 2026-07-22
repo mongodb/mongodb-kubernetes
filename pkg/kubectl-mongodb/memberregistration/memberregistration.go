@@ -68,7 +68,7 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 
 	credentialSecretName := resourcenames.MemberClusterCredentialSecretName(opts.MemberClusterName)
 	secret := &corev1.Secret{
-		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+		TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      credentialSecretName,
 			Namespace: opts.OperatorNamespace,
