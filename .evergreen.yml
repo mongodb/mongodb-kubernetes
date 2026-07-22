@@ -79,6 +79,8 @@ variables:
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: build_readiness_probe_image
