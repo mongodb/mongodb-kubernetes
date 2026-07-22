@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -11,9 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,6 +29,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -92,7 +96,7 @@ func newSearchReconcilerWithOperatorConfig(
 
 	fakeClient := builder.Build()
 
-	return newMongoDBSearchReconciler(fakeClient, operatorConfig, map[string]client.Client{}, ""), fakeClient
+	return newMongoDBSearchReconciler(fakeClient, fakeClient, operatorConfig, map[string]client.Client{}, nil, ""), fakeClient
 }
 
 func newSearchReconciler(
@@ -188,6 +192,201 @@ func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t, apiErrors.IsNotFound(err))
 	assert.Equal(t, reconcile.Result{}, res)
+}
+
+func TestMongoDBSearchDeploymentWatchesRouteLifecycleEvents(t *testing.T) {
+	reconciler, _ := newSearchReconciler(nil)
+	topologies := []struct {
+		name    string
+		watches []mongoDBSearchResourceWatch
+	}{
+		{name: "central", watches: centralMongoDBSearchResourceWatches(reconciler)},
+		{name: "member", watches: memberMongoDBSearchResourceWatches(reconciler)},
+	}
+	searchKey := types.NamespacedName{Name: "search", Namespace: mock.TestNamespace}
+	labeled := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      "owned",
+		Namespace: searchKey.Namespace,
+		Labels: map[string]string{
+			khandler.MongoDBSearchOwnerNameLabel:      searchKey.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: searchKey.Namespace,
+		},
+	}}
+	plain := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: labeled.Name, Namespace: labeled.Namespace}}
+
+	for _, topology := range topologies {
+		t.Run(topology.name, func(t *testing.T) {
+			var deploymentWatch *mongoDBSearchResourceWatch
+			for i := range topology.watches {
+				if _, ok := topology.watches[i].obj.(*appsv1.Deployment); ok {
+					deploymentWatch = &topology.watches[i]
+					break
+				}
+			}
+			require.NotNil(t, deploymentWatch)
+			require.Len(t, deploymentWatch.predicates, 1)
+			p := deploymentWatch.predicates[0]
+
+			tests := []struct {
+				name string
+				send func(workqueue.TypedRateLimitingInterface[reconcile.Request])
+			}{
+				{
+					name: "create",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedCreateEvent[client.Object]{Object: labeled}
+						require.True(t, p.Create(event.CreateEvent{Object: labeled}))
+						deploymentWatch.handler.Create(t.Context(), e, q)
+					},
+				},
+				{
+					name: "update",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: labeled.DeepCopy()}
+						require.True(t, p.Update(e))
+						deploymentWatch.handler.Update(t.Context(), e, q)
+					},
+				},
+				{
+					name: "update label removal",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedUpdateEvent[client.Object]{ObjectOld: labeled, ObjectNew: plain}
+						require.True(t, p.Update(e))
+						deploymentWatch.handler.Update(t.Context(), e, q)
+					},
+				},
+				{
+					name: "delete",
+					send: func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+						e := event.TypedDeleteEvent[client.Object]{Object: labeled}
+						require.True(t, p.Delete(event.DeleteEvent{Object: labeled}))
+						deploymentWatch.handler.Delete(t.Context(), e, q)
+					},
+				},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+					defer q.ShutDown()
+					tc.send(q)
+					require.Equal(t, 1, q.Len())
+					req, shutdown := q.Get()
+					require.False(t, shutdown)
+					assert.Equal(t, searchKey, req.NamespacedName)
+					q.Done(req)
+				})
+			}
+		})
+	}
+}
+
+func TestMemberMongoDBSearchConfigWatchesRouteUnlabeledDependencies(t *testing.T) {
+	reconciler, _ := newSearchReconciler(nil)
+	searchKey := types.NamespacedName{Name: "search", Namespace: mock.TestNamespace}
+	tests := []struct {
+		name         string
+		resourceType watch.Type
+		newObject    func(data string) client.Object
+	}{
+		{
+			name:         "ConfigMap",
+			resourceType: watch.ConfigMap,
+			newObject: func(data string) client.Object {
+				return &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: searchKey.Namespace},
+					Data:       map[string]string{"value": data},
+				}
+			},
+		},
+		{
+			name:         "Secret",
+			resourceType: watch.Secret,
+			newObject: func(data string) client.Object {
+				return &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "source-tls", Namespace: searchKey.Namespace},
+					Data:       map[string][]byte{"value": []byte(data)},
+				}
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			oldObject := tc.newObject("old")
+			newObject := tc.newObject("new")
+			reconciler.watch.AddWatchedResourceIfNotAdded(oldObject.GetName(), oldObject.GetNamespace(), tc.resourceType, searchKey)
+			var resourceWatch *mongoDBSearchResourceWatch
+			watches := memberMongoDBSearchResourceWatches(reconciler)
+			for i := range watches {
+				candidate := &watches[i]
+				if reflect.TypeOf(candidate.obj) == reflect.TypeOf(oldObject) {
+					resourceWatch = candidate
+					break
+				}
+			}
+			require.NotNil(t, resourceWatch)
+			assert.Empty(t, resourceWatch.predicates)
+
+			for _, send := range []func(workqueue.TypedRateLimitingInterface[reconcile.Request]){
+				func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					resourceWatch.handler.Create(t.Context(), event.TypedCreateEvent[client.Object]{Object: oldObject}, q)
+				},
+				func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					resourceWatch.handler.Update(t.Context(), event.TypedUpdateEvent[client.Object]{ObjectOld: oldObject, ObjectNew: newObject}, q)
+				},
+				func(q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+					resourceWatch.handler.Delete(t.Context(), event.TypedDeleteEvent[client.Object]{Object: oldObject}, q)
+				},
+			} {
+				q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+				send(q)
+				require.Equal(t, 1, q.Len())
+				request, shutdown := q.Get()
+				require.False(t, shutdown)
+				assert.Equal(t, searchKey, request.NamespacedName)
+				q.Done(request)
+				q.ShutDown()
+			}
+		})
+	}
+}
+
+func TestRegisterTLSResourceWatchesIncludesShardedMemberDependencies(t *testing.T) {
+	reconciler, _ := newSearchReconciler(nil)
+	search := newMongoDBSearch("search", mock.TestNamespace, "")
+	search.Spec.Clusters = []searchv1.ClusterSpec{
+		{Name: "cluster-a", Index: ptr.To(int32(0))},
+		{Name: "cluster-b", Index: ptr.To(int32(3))},
+	}
+	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "source-certs"}
+	externalSource := &searchv1.ExternalMongoDBSource{
+		ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+			Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos:27017"}},
+			Shards: []searchv1.ExternalShardConfig{
+				{ShardName: "shard-a", Hosts: []string{"shard-a:27017"}},
+				{ShardName: "shard-b", Hosts: []string{"shard-b:27017"}},
+			},
+		},
+		TLS: &searchv1.ExternalMongodTLS{CA: &corev1.LocalObjectReference{Name: "source-ca"}},
+	}
+
+	reconciler.registerTLSResourceWatches(search, searchcontroller.NewShardedExternalSearchSource(search.Namespace, externalSource))
+
+	watched := reconciler.watch.GetWatchedResources()
+	expected := []watch.Object{{
+		ResourceType: watch.ConfigMap,
+		Resource:     types.NamespacedName{Name: "source-ca", Namespace: search.Namespace},
+	}}
+	for _, cluster := range search.Spec.Clusters {
+		for _, shardName := range []string{"shard-a", "shard-b"} {
+			expected = append(expected, watch.Object{
+				ResourceType: watch.Secret,
+				Resource:     search.TLSSecretForClusterShard(cluster.ResolveIndex(), shardName),
+			})
+		}
+	}
+	for _, resource := range expected {
+		assert.Contains(t, watched[resource], search.NamespacedName(), "missing dependency watch for %s", resource)
+	}
 }
 
 func TestMongoDBSearchReconcile_MissingSource(t *testing.T) {
@@ -520,7 +719,7 @@ func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
 	central := newFakeClientForTest(t)
 	members := map[string]client.Client{} // empty -> single-cluster install
 
-	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, "")
+	r := newMongoDBSearchReconciler(central, central, searchcontroller.OperatorSearchConfig{}, members, nil, "")
 
 	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
 	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
@@ -535,7 +734,7 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 		"eu-west-k8s": west,
 	}
 
-	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, "")
+	r := newMongoDBSearchReconciler(central, central, searchcontroller.OperatorSearchConfig{}, members, nil, "")
 
 	assert.Len(t, r.memberClusterClientsMap, 2)
 	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
@@ -556,6 +755,32 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 
 	require.NoError(t, err, "missing secret must surface as RequeueAfter, not an error")
 	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
+}
+
+func TestMongoDBSearchReconcile_RegistersOperatorTLSSecretWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	reconciler, c := newSearchReconciler(mdbc, search)
+
+	sourceTLS := search.TLSSecretNamespacedName()
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: sourceTLS.Name, Namespace: sourceTLS.Namespace},
+		Data: map[string][]byte{
+			"tls.crt": []byte("dummy"),
+			"tls.key": []byte("dummy"),
+		},
+	}))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	operatorTLS := search.TLSOperatorSecretNamespacedName()
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: operatorTLS}], search.NamespacedName())
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex
@@ -670,7 +895,7 @@ func newSearchReconcilerWithMembers(
 		}
 	}
 	centralClient := builder.Build()
-	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, memberClients, operatorClusterName), centralClient
+	return newMongoDBSearchReconciler(centralClient, centralClient, searchcontroller.OperatorSearchConfig{}, memberClients, nil, operatorClusterName), centralClient
 }
 
 // driveSearchReconcileToRunning loops Reconcile up to maxPasses, seeding LoadBalancer
@@ -805,41 +1030,6 @@ func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T)
 				"projected reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
 		})
 	}
-}
-
-func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
-	enableSearchMCReconcile(t)
-	ctx := context.Background()
-	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
-
-	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
-	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
-
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
-	res, err := reconciler.Reconcile(ctx, req)
-	require.NoError(t, err)
-	assert.Equal(t, reconcile.Result{}, res, "no-match reconcile must return zero Result with no error")
-
-	// No per-cluster resources created at any index.
-	for _, idx := range []int{0, 1, 2} {
-		sts := &appsv1.StatefulSet{}
-		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.StatefulSetNamespacedNameForCluster(idx), sts)),
-			"STS at index %d must not exist", idx)
-		cm := &corev1.ConfigMap{}
-		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.MongotConfigConfigMapNameForCluster(idx), cm)),
-			"mongot ConfigMap at index %d must not exist", idx)
-	}
-
-	// State ConfigMap must not be created.
-	stateCM := &corev1.ConfigMap{}
-	assert.True(t, apiErrors.IsNotFound(
-		c.Get(ctx, types.NamespacedName{Name: search.Name + "-search-state", Namespace: search.Namespace}, stateCM)),
-		"state ConfigMap must not be created in no-match path")
-
-	// Status must NOT have been mutated — Phase remains the zero value.
-	updated := &searchv1.MongoDBSearch{}
-	require.NoError(t, c.Get(ctx, req.NamespacedName, updated))
-	assert.Equal(t, status.Phase(""), updated.Status.Phase, "no-match reconcile must not touch status")
 }
 
 // Customer pin is authoritative: re-pinning renders at the new index. The
@@ -1239,4 +1429,39 @@ func markAllDeploymentsAvailable(ctx context.Context, namespace string, clients 
 		}
 	}
 	return nil
+}
+
+func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
+	enableSearchMCReconcile(t)
+	ctx := context.Background()
+	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
+
+	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
+	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
+	res, err := reconciler.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res, "no-match reconcile must return zero Result with no error")
+
+	// No per-cluster resources created at any index.
+	for _, idx := range []int{0, 1, 2} {
+		sts := &appsv1.StatefulSet{}
+		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.StatefulSetNamespacedNameForCluster(idx), sts)),
+			"STS at index %d must not exist", idx)
+		cm := &corev1.ConfigMap{}
+		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.MongotConfigConfigMapNameForCluster(idx), cm)),
+			"mongot ConfigMap at index %d must not exist", idx)
+	}
+
+	// State ConfigMap must not be created.
+	stateCM := &corev1.ConfigMap{}
+	assert.True(t, apiErrors.IsNotFound(
+		c.Get(ctx, types.NamespacedName{Name: search.Name + "-search-state", Namespace: search.Namespace}, stateCM)),
+		"state ConfigMap must not be created in no-match path")
+
+	// Status must NOT have been mutated — Phase remains the zero value.
+	updated := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, req.NamespacedName, updated))
+	assert.Equal(t, status.Phase(""), updated.Status.Phase, "no-match reconcile must not touch status")
 }

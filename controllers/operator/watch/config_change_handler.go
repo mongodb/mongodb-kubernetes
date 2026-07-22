@@ -44,19 +44,22 @@ func (w Object) String() string {
 type ResourcesHandler struct {
 	ResourceType    Type
 	ResourceWatcher *ResourceWatcher
+	MapFunc         func(context.Context, client.Object) []reconcile.Request
 }
 
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
 // and then created again.
 func (c *ResourcesHandler) Create(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
+	c.doMap(ctx, e.Object, q)
 }
 
 func (c *ResourcesHandler) Update(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if !shouldHandleUpdate(e) {
-		return
+	if shouldHandleUpdate(e) {
+		c.doHandle(e.ObjectOld.GetNamespace(), e.ObjectOld.GetName(), q)
 	}
-	c.doHandle(e.ObjectOld.GetNamespace(), e.ObjectOld.GetName(), q)
+	c.doMap(ctx, e.ObjectOld, q)
+	c.doMap(ctx, e.ObjectNew, q)
 }
 
 // shouldHandleUpdate return true if the update event must be handled. This shouldn't happen if data for watched
@@ -83,16 +86,26 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.TypedRat
 	}
 }
 
-// Seems we don't need to react on config map/secret removal..
-func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	switch e.Object.(type) {
-	case *corev1.ConfigMap:
-		return
-	case *corev1.Secret:
+func (c *ResourcesHandler) doMap(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if c.MapFunc == nil {
 		return
 	}
+	for _, request := range c.MapFunc(ctx, obj) {
+		q.Add(request)
+	}
+}
 
+func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	switch e.Object.(type) {
+	case *corev1.ConfigMap, *corev1.Secret:
+		// MapFunc is the Search-only opt-in for ConfigMap/Secret delete routing;
+		// legacy handlers must not set it only to map create/update events.
+		if c.MapFunc == nil {
+			return
+		}
+	}
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
+	c.doMap(ctx, e.Object, q)
 }
 
 func (c *ResourcesHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {

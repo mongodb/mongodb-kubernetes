@@ -81,9 +81,13 @@ type envoyRoute struct {
 }
 
 type MongoDBSearchEnvoyReconciler struct {
-	kubeClient        kubernetesClient.Client
-	watch             *watch.ResourceWatcher
-	defaultEnvoyImage string
+	kubeClient          kubernetesClient.Client
+	apiReader           client.Reader
+	watch               *watch.ResourceWatcher
+	defaultEnvoyImage   string
+	operatorClusterName string
+	memberClients       map[string]kubernetesClient.Client
+	memberReaders       map[string]client.Reader
 
 	prepareSearch prepareSearchFunc
 	// clientForCluster resolves the client for one cluster name; nil = cluster not
@@ -92,16 +96,30 @@ type MongoDBSearchEnvoyReconciler struct {
 }
 
 func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
+	return newMongoDBSearchEnvoyReconcilerWithReaders(c, c, defaultEnvoyImage, memberClustersMap, nil, operatorClusterName)
+}
+
+func newMongoDBSearchEnvoyReconcilerWithReaders(c client.Client, apiReader client.Reader, defaultEnvoyImage string, memberClustersMap map[string]client.Client, memberReaders map[string]client.Reader, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
 	}
+	if memberReaders == nil {
+		memberReaders = make(map[string]client.Reader, len(memberClustersMap))
+		for clusterName, memberClient := range memberClustersMap {
+			memberReaders[clusterName] = memberClient
+		}
+	}
 
 	r := &MongoDBSearchEnvoyReconciler{
-		kubeClient:        kubernetesClient.NewClient(c),
-		watch:             watch.NewResourceWatcher(),
-		defaultEnvoyImage: defaultEnvoyImage,
-		prepareSearch:     newPrepareSearch(operatorClusterName),
+		kubeClient:          kubernetesClient.NewClient(c),
+		apiReader:           apiReader,
+		watch:               watch.NewResourceWatcher(),
+		defaultEnvoyImage:   defaultEnvoyImage,
+		operatorClusterName: operatorClusterName,
+		memberClients:       clientsMap,
+		memberReaders:       memberReaders,
+		prepareSearch:       newPrepareSearch(operatorClusterName),
 	}
 	if len(clientsMap) == 0 {
 		// Single-cluster and per-cluster-operator installs render everything locally.
@@ -129,6 +147,14 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	mdbSearch := &searchv1.MongoDBSearch{}
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
 		return result, err
+	}
+
+	// The pause annotation must silence every controller that mutates owned objects,
+	// so manual edits (e.g. to the LB ConfigMap) survive while reconciliation is disabled.
+	if mdbSearch.IsReconciliationDisabled() {
+		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping envoy reconcile",
+			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
 	}
 
 	// Envoy validation failures surface on /status/loadBalancer so the Envoy sub-status
@@ -167,6 +193,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
+	r.watch.AddWatchedResourceIfNotAdded(
+		searchcontroller.SearchStateCMName(mdbSearch),
+		mdbSearch.Namespace,
+		watch.ConfigMap,
+		mdbSearch.NamespacedName(),
+	)
 
 	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
@@ -814,7 +846,18 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
+	memberReaders := make(map[string]client.Reader, len(memberClusterObjectsMap))
+	for clusterName, memberCluster := range memberClusterObjectsMap {
+		memberReaders[clusterName] = memberCluster.GetAPIReader()
+	}
+	r := newMongoDBSearchEnvoyReconcilerWithReaders(
+		mgr.GetClient(),
+		mgr.GetAPIReader(),
+		defaultEnvoyImage,
+		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+		memberReaders,
+		operatorClusterName,
+	)
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,
@@ -833,13 +876,13 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
-
-	// Central-cluster owned Envoy resources (single-cluster path).
-	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, ownerHandler)); err != nil {
+	mapperFunc := khandler.EnqueueMemberClusterObjectToSearch
+	mapper := handler.EnqueueRequestsFromMapFunc(mapperFunc)
+	searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 		return err
 	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, ownerHandler)); err != nil {
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch, MapFunc: mapperFunc})); err != nil {
 		return err
 	}
 
@@ -847,12 +890,11 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// cross-cluster owner refs don't GC. Same pattern as the AppDB MC and
 	// sharded MC controllers (see appdbreplicaset_controller.go and
 	// mongodbshardedcluster_controller.go).
-	mapper := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)
 		}
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set Envoy ConfigMap watch on member cluster %s: %w", k, err)
 		}
 	}

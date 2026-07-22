@@ -31,6 +31,26 @@ func TestReplicasOrDefault(t *testing.T) {
 	})
 }
 
+func TestIsReconciliationDisabled(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        bool
+	}{
+		{name: "nil annotations"},
+		{name: "missing annotation", annotations: map[string]string{"other": "true"}},
+		{name: "false", annotations: map[string]string{DisableReconciliationAnnotation: "false"}},
+		{name: "true", annotations: map[string]string{DisableReconciliationAnnotation: "true"}, want: true},
+		{name: "case sensitive", annotations: map[string]string{DisableReconciliationAnnotation: "True"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Annotations: tc.annotations}}
+			assert.Equal(t, tc.want, search.IsReconciliationDisabled())
+		})
+	}
+}
+
 func TestHasMultipleReplicas(t *testing.T) {
 	mk := func(cs ...ClusterSpec) *MongoDBSearch {
 		return &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: cs}}

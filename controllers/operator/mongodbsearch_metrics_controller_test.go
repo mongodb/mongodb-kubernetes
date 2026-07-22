@@ -39,16 +39,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
-const (
-	testNamespace     = "test-ns"
-	testSearchName    = "my-search"
-	testMDBName       = "my-mongodb"
-	testProjectCMName = "my-project-cm"
-	testGroupID       = "test-group-id-123"
-	testDefaultImage  = "quay.io/mongodb/metrics-forwarder:latest"
-	testOMBaseURL     = "http://ops-manager.example.com:8080"
-)
-
 // newTestMongoDB creates a MongoDB resource with opsManager connection spec and a status with a project ID.
 func newTestMongoDB(name, namespace, projectCMName, groupID string) *mdbv1.MongoDB {
 	mdb := &mdbv1.MongoDB{
@@ -801,6 +791,24 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseRunning, updatedSearch.Status.MetricsForwarder.Phase)
+
+	t.Run("reconciliation disabled: manual ConfigMap edits survive", func(t *testing.T) {
+		cmKey := types.NamespacedName{
+			Namespace: testNamespace,
+			Name:      search.MetricsForwarderConfigMapNameForCluster(0),
+		}
+		cm.Data["config.yaml"] = "manually-patched"
+		require.NoError(t, fakeClient.Update(context.Background(), cm))
+
+		updatedSearch.Annotations = map[string]string{searchv1.DisableReconciliationAnnotation: "true"}
+		require.NoError(t, fakeClient.Update(context.Background(), updatedSearch))
+
+		reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+		require.NoError(t, fakeClient.Get(context.Background(), cmKey, cm))
+		assert.Equal(t, "manually-patched", cm.Data["config.yaml"],
+			"a paused CR's forwarder ConfigMap must not be rewritten by the reconciler")
+	})
 }
 
 func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
@@ -877,53 +885,6 @@ func TestReconcile_PrometheusDisabled_MetricsForwarderEnabled_Invalid(t *testing
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Prometheus")
-}
-
-func TestReconcile_DeletionWhileDisabled_DeregistersHostsAndRemovesFinalizer(t *testing.T) {
-	// Regression test: deleting a MongoDBSearch whose metrics forwarder was disabled must still
-	// deregister its Ops Manager hosts and remove the finalizer. The disabled-mode reconcile path does
-	// not own deletion handling, so without the top-level deletion check in Reconcile the finalizer
-	// would leak (blocking deletion) and the monitored hosts would stay registered in Ops Manager.
-	//
-	// Because the forwarder was disabled, no Deployment was ever created. The two-phase deletion in
-	// preDeletionCleanup completes in a single reconcile: phase 1 finds no Deployment to delete,
-	// phase 2 sees no Deployment present, and the finalizer is removed immediately.
-	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
-	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
-	search.Spec.Observability = searchv1.ObservabilityConfig{
-		MetricsForwarder: searchv1.MetricsForwarderConfig{
-			Mode: searchv1.MetricsForwarderModeDisabled,
-		},
-	}
-	search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
-	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
-	// Internal enterprise sources resolve the agent key secret from the project id; see agents.ApiKeySecretName.
-	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
-	// Seed the topology state an enabled forwarder would have written: two mongot replicas.
-	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{Replicas: 2})
-
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM)
-
-	// Capture the host ids passed to the Ops Manager delete-hosts API.
-	var deletedHostIDs []string
-	r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
-
-	// Trigger deletion: with the finalizer present the fake client sets a DeletionTimestamp instead of
-	// removing the object outright.
-	require.NoError(t, fakeClient.Delete(context.Background(), search))
-
-	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
-
-	// Both mongot hosts from the persisted topology are deregistered from Ops Manager.
-	stsName := search.StatefulSetNamespacedNameForCluster(0).Name
-	assert.ElementsMatch(t, []string{
-		mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-0", stsName)),
-		mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-1", stsName)),
-	}, deletedHostIDs)
-
-	// The finalizer is removed, so the resource is fully deleted.
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: testSearchName}, &searchv1.MongoDBSearch{})
-	assert.True(t, apierrors.IsNotFound(err), "expected MongoDBSearch to be deleted after finalizer removal, got err=%v", err)
 }
 
 func TestReconcile_DeletionWhileEnabled_WaitsForDeploymentThenDeregistersHosts(t *testing.T) {
@@ -2130,4 +2091,61 @@ func TestReconcileTopologyState_Sharded_RemovedShardAndScaleDown(t *testing.T) {
 		assert.Contains(t, state.HostDeletionReadyAfter, podName,
 			"pod %s expected in HostDeletionReadyAfter", podName)
 	}
+}
+
+const (
+	testNamespace     = "test-ns"
+	testSearchName    = "my-search"
+	testMDBName       = "my-mongodb"
+	testProjectCMName = "my-project-cm"
+	testGroupID       = "test-group-id-123"
+	testDefaultImage  = "quay.io/mongodb/metrics-forwarder:latest"
+	testOMBaseURL     = "http://ops-manager.example.com:8080"
+)
+
+func TestReconcile_DeletionWhileDisabled_DeregistersHostsAndRemovesFinalizer(t *testing.T) {
+	// Regression test: deleting a MongoDBSearch whose metrics forwarder was disabled must still
+	// deregister its Ops Manager hosts and remove the finalizer. The disabled-mode reconcile path does
+	// not own deletion handling, so without the top-level deletion check in Reconcile the finalizer
+	// would leak (blocking deletion) and the monitored hosts would stay registered in Ops Manager.
+	//
+	// Because the forwarder was disabled, no Deployment was ever created. The two-phase deletion in
+	// preDeletionCleanup completes in a single reconcile: phase 1 finds no Deployment to delete,
+	// phase 2 sees no Deployment present, and the finalizer is removed immediately.
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Observability = searchv1.ObservabilityConfig{
+		MetricsForwarder: searchv1.MetricsForwarderConfig{
+			Mode: searchv1.MetricsForwarderModeDisabled,
+		},
+	}
+	search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	// Internal enterprise sources resolve the agent key secret from the project id; see agents.ApiKeySecretName.
+	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+	// Seed the topology state an enabled forwarder would have written: two mongot replicas.
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{Replicas: 2})
+
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM)
+
+	// Capture the host ids passed to the Ops Manager delete-hosts API.
+	var deletedHostIDs []string
+	r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+
+	// Trigger deletion: with the finalizer present the fake client sets a DeletionTimestamp instead of
+	// removing the object outright.
+	require.NoError(t, fakeClient.Delete(context.Background(), search))
+
+	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+	// Both mongot hosts from the persisted topology are deregistered from Ops Manager.
+	stsName := search.StatefulSetNamespacedNameForCluster(0).Name
+	assert.ElementsMatch(t, []string{
+		mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-0", stsName)),
+		mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-1", stsName)),
+	}, deletedHostIDs)
+
+	// The finalizer is removed, so the resource is fully deleted.
+	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: testSearchName}, &searchv1.MongoDBSearch{})
+	assert.True(t, apierrors.IsNotFound(err), "expected MongoDBSearch to be deleted after finalizer removal, got err=%v", err)
 }

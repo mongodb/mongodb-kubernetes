@@ -182,6 +182,14 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, st, log)
 	}
 
+	// The pause annotation must silence every controller that mutates owned objects,
+	// so manual edits to the forwarder Deployment/ConfigMap survive while reconciliation is disabled.
+	if mdbSearch.IsReconciliationDisabled() {
+		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping metrics forwarder reconcile",
+			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
+	}
+
 	mode := mdbSearch.Spec.Observability.MetricsForwarder.Mode
 	switch mode {
 	case searchv1.MetricsForwarderModeAuto, "":
