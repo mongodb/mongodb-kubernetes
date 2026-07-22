@@ -700,13 +700,8 @@ def get_multi_cluster_operator(
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     helm_opts = {
         "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-        # override the serviceAccountName for the operator deployment
-        "operator.createOperatorServiceAccount": "false",
     }
     return _install_multi_cluster_operator(
         namespace,
@@ -717,6 +712,7 @@ def get_multi_cluster_operator(
         central_cluster_name,
         apply_crds_first=apply_crds_first,
         operator_config_extra_spec=operator_config_extra_spec,
+        configure_member_clusters=member_cluster_names,
     )
 
 
@@ -732,9 +728,6 @@ def multi_cluster_operator_with_monitored_appdb(
     print(f"\nSetting HELM_KUBECONTEXT to {central_cluster_name}")
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_monitored_appdb_operator_installation_config,
@@ -742,10 +735,9 @@ def multi_cluster_operator_with_monitored_appdb(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
     )
 
 
@@ -759,8 +751,6 @@ def multi_cluster_operator_manual_remediation(
     member_cluster_names: List[str],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -768,11 +758,10 @@ def multi_cluster_operator_manual_remediation(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             "multiCluster.performFailOver": "false",
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
     )
 
 
@@ -788,9 +777,6 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -798,13 +784,12 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             # Skip creating the ClusterMongoDBRole RBAC.
             "operator.enableClusterMongoDBRoles": "false",
         },
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        configure_member_clusters=member_cluster_names,
         operator_config_extra_spec={
             "watchedResources": [
                 "mongodb",
@@ -821,13 +806,6 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
 
 def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = get_central_cluster_name()
-    run_kube_config_creation_tool(
-        get_member_cluster_names(),
-        namespace,
-        namespace,
-        get_member_cluster_names(),
-        True,
-    )
     return _install_multi_cluster_operator(
         namespace,
         get_multi_cluster_operator_installation_config(namespace),
@@ -835,11 +813,13 @@ def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
         get_member_cluster_clients(),
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": "*",
         },
         get_central_cluster_name(),
+        configure_member_clusters=get_member_cluster_names(),
+        # Watching all namespaces on each member cluster renders member RBAC as ClusterRoles
+        # instead of Roles.
+        member_clusters_watched_namespaces="*",
     )
 
 
@@ -866,7 +846,6 @@ def install_multi_cluster_operator_set_members_fn(
 ) -> Callable[[List[str]], Operator]:
     def _fn(member_cluster_names: List[str]) -> Operator:
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-        mcn = ",".join(member_cluster_names)
         return _install_multi_cluster_operator(
             namespace,
             multi_cluster_operator_installation_config,
@@ -874,11 +853,9 @@ def install_multi_cluster_operator_set_members_fn(
             member_cluster_clients,
             {
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-                # override the serviceAccountName for the operator deployment
-                "operator.createOperatorServiceAccount": "false",
-                "multiCluster.clusters": "{" + mcn + "}",
             },
             central_cluster_name,
+            configure_member_clusters=member_cluster_names,
         )
 
     return _fn
@@ -897,8 +874,19 @@ def _install_multi_cluster_operator(
     apply_crds_first: bool = False,
     create_operator_config: bool = True,
     operator_config_extra_spec: Optional[dict] = None,
+    configure_member_clusters: Optional[List[str]] = None,
+    member_clusters_watched_namespaces: Optional[str] = None,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
+
+    # If configure_member_clusters is set, drop multiCluster.clusters and the kubeconfig secret
+    # name: these come from the shared operator-installation-config ConfigMap, but this path
+    # doesn't use a multi-cluster kubeconfig mount.
+    # TODO(m1kola): slice-6: the real fix is to stop the ConfigMap from setting these for the new
+    # UX, at which point this drop becomes unnecessary.
+    if configure_member_clusters is not None:
+        for legacy_key in ("multiCluster.clusters", "multiCluster.kubeConfigSecretName"):
+            multi_cluster_operator_installation_config.pop(legacy_key, None)
 
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
@@ -931,6 +919,25 @@ def _install_multi_cluster_operator(
     if create_operator_config:
         operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec=operator_config_extra_spec)
     else:
+        operator.wait_for_operator_ready()
+
+    # Apply member-cluster RBAC and register each MemberCluster CR + credential Secret. Works the
+    # same for the in-cluster and local operator, since pytest runs in the same network vantage as
+    # the operator either way. If the central cluster also serves as a member, it's included in
+    # configure_member_clusters and gets the same treatment as any other member.
+    #
+    # TODO(m1kola): slice-9: for a local (host-run) operator the MemberCluster watcher currently
+    # stops the process on a CR change and nothing restarts it, so the operator must be (re)started
+    # after this runs. Slice 9 (no-restart hot reload, or an interim local restart-loop) makes it
+    # seamless. See docs/dev/multi-cluster-config-tooling.md.
+    if configure_member_clusters is not None:
+        configure_multi_cluster_members(
+            configure_member_clusters,
+            namespace,
+            namespace,
+            central_cluster_name,
+            watched_namespaces=member_clusters_watched_namespaces,
+        )
         operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
@@ -1449,6 +1456,129 @@ def run_kube_config_creation_tool(
         raise exc
 
 
+def _multi_cluster_plugin_path() -> str:
+    """Path to the built kubectl-mongodb plugin binary."""
+    return os.getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH", "multi-cluster-kube-config-creator")
+
+
+def _kubectl_apply_to_context(context: str, manifests: bytes):
+    """`kubectl apply -f -` the given manifests against a named kubeconfig context. Member and
+    central cluster names double as kubeconfig context names in the E2E harness, and the
+    ambient KUBECONFIG already carries cluster-reachable API-server addresses."""
+    print(f"Applying generated manifests to context {context}")
+    subprocess.run(
+        ["kubectl", "--context", context, "apply", "-f", "-"],
+        input=manifests,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=True,
+    )
+
+
+def _wait_for_member_sa_token(cluster: str, member_namespace: str, timeout: int = 120, interval: int = 5):
+    """Wait until the member ServiceAccount's token Secret (`mck-member-<cluster>-token`, per
+    pkg/resourcenames) is populated, so a subsequent read of it succeeds on the first try."""
+    secret_name = f"mck-member-{cluster}-token"
+    deadline = time.time() + timeout
+    while True:
+        token = subprocess.run(
+            [
+                "kubectl",
+                "--context",
+                cluster,
+                "-n",
+                member_namespace,
+                "get",
+                "secret",
+                secret_name,
+                "-o",
+                "jsonpath={.data.token}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout
+        if token:
+            return
+        if time.time() >= deadline:
+            raise TimeoutError(
+                f"ServiceAccount token Secret {secret_name} on {cluster} was not populated after {timeout}s"
+            )
+        print(f"Waiting for {secret_name} token on {cluster} to be populated...")
+        time.sleep(interval)
+
+
+def generate_and_apply_member_resources(
+    member_clusters: List[str],
+    member_namespace: str,
+    watched_namespaces: Optional[str] = None,
+):
+    """Render and apply member-cluster RBAC to each member cluster."""
+    plugin = _multi_cluster_plugin_path()
+    for cluster in member_clusters:
+        args = [
+            plugin,
+            "multicluster",
+            "generate-member-resources",
+            "--member-cluster",
+            cluster,
+            "--member-cluster-namespace",
+            member_namespace,
+        ]
+        if watched_namespaces:
+            args += ["--watched-namespaces", watched_namespaces]
+        print(f"Rendering member resources for {cluster}: {' '.join(args)}")
+        manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
+        _kubectl_apply_to_context(cluster, manifests)
+
+
+def generate_and_apply_member_registration(
+    member_clusters: List[str],
+    member_namespace: str,
+    operator_namespace: str,
+    central_cluster: str,
+):
+    """For each member cluster, extract its ServiceAccount token and apply the emitted
+    `MemberCluster` CR + credential Secret to the central (operator) cluster.
+
+    The command reads the API-server address from the member cluster's kubeconfig context
+    (context name == cluster name); the harness's ambient KUBECONFIG already carries
+    cluster-reachable addresses (see `configure_multi_cluster_environment`)."""
+    plugin = _multi_cluster_plugin_path()
+    for cluster in member_clusters:
+        args = [
+            plugin,
+            "multicluster",
+            "generate-member-registration",
+            "--member-cluster",
+            cluster,
+            "--member-cluster-context",
+            cluster,
+            "--member-cluster-namespace",
+            member_namespace,
+            "--operator-namespace",
+            operator_namespace,
+        ]
+        # Wait for the SA token Secret to be populated before reading it.
+        _wait_for_member_sa_token(cluster, member_namespace)
+        print(f"Generating member registration for {cluster}: {' '.join(args)}")
+        manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
+        _kubectl_apply_to_context(central_cluster, manifests)
+
+
+def configure_multi_cluster_members(
+    member_clusters: List[str],
+    member_namespace: str,
+    operator_namespace: str,
+    central_cluster: str,
+    watched_namespaces: Optional[str] = None,
+):
+    """Apply member-cluster RBAC to each member cluster, then register each cluster with the
+    operator's cluster."""
+    generate_and_apply_member_resources(member_clusters, member_namespace, watched_namespaces)
+    generate_and_apply_member_registration(member_clusters, member_namespace, operator_namespace, central_cluster)
+
+
 def get_api_servers_from_kubeconfig_secret(
     namespace: str,
     secret_name: str,
@@ -1473,56 +1603,6 @@ def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_name
 
 def get_test_pod_cluster_name():
     return os.environ["TEST_POD_CLUSTER"]
-
-
-def run_multi_cluster_recovery_tool(
-    member_clusters: List[str],
-    central_namespace: str,
-    member_namespace: str,
-    cluster_scoped: Optional[bool] = False,
-    service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
-    operator_name: str = OPERATOR_NAME,
-) -> int:
-    central_cluster = _read_multi_cluster_config_value("central_cluster")
-    member_clusters_str = ",".join(member_clusters)
-    args: list[str] = [
-        os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
-        ),
-        "multicluster",
-        "recover",
-        "--member-clusters",
-        member_clusters_str,
-        "--central-cluster",
-        central_cluster,
-        "--member-cluster-namespace",
-        member_namespace,
-        "--central-cluster-namespace",
-        central_namespace,
-        "--operator-name",
-        MULTI_CLUSTER_OPERATOR_NAME,
-        "--source-cluster",
-        member_clusters[0],
-        "--service-account",
-        service_account_name,
-        "--operator-name",
-        operator_name,
-    ]
-    if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
-        args.append("--create-service-account-secrets")
-
-    if cluster_scoped:
-        args.extend(["--cluster-scoped", "true"])
-
-    try:
-        print(f"Running multi-cluster cli recovery tool: {' '.join(args)}")
-        subprocess.check_output(args, stderr=subprocess.PIPE)
-        print("Finished running multi-cluster cli recovery tool")
-    except subprocess.CalledProcessError as exc:
-        print("Status: FAIL", exc.returncode, exc.output)
-        return exc.returncode
-    return 0
 
 
 def create_issuer(
@@ -1750,7 +1830,6 @@ def install_multi_cluster_operator_cluster_scoped(
     )
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
     member_cluster_namespaces = ",".join(watch_namespaces)
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names, True)
 
     return _install_multi_cluster_operator(
         namespace,
@@ -1759,10 +1838,11 @@ def install_multi_cluster_operator_cluster_scoped(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
+        member_clusters_watched_namespaces=member_cluster_namespaces,
     )
 
 

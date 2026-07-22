@@ -12,7 +12,7 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import _install_multi_cluster_operator, run_kube_config_creation_tool
+from tests.conftest import _install_multi_cluster_operator
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces
@@ -95,7 +95,6 @@ def install_operator(
     print(f"Installing operator in context: {central_cluster_name}")
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
     member_cluster_namespaces = mdba_ns + "," + mdbb_ns
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names, True)
 
     return _install_multi_cluster_operator(
         namespace,
@@ -104,10 +103,11 @@ def install_operator(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
+        member_clusters_watched_namespaces=member_cluster_namespaces,
     )
 
 

@@ -10,7 +10,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import get_member_cluster_api_client, run_multi_cluster_recovery_tool
+from tests.conftest import get_member_cluster_api_client
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from .conftest import cluster_spec_list, create_service_entries_objects
@@ -179,8 +179,20 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, namespace)
-    assert return_code == 0
+    # The surviving set is member_cluster_names[:-1], so de-register the partitioned last
+    # cluster: delete its MemberCluster CR and credential Secret from the central cluster.
+    removed_cluster_name = member_cluster_names[-1]
+    client.CustomObjectsApi(central_cluster_client).delete_namespaced_custom_object(
+        group="operator.mongodb.com",
+        version="v1",
+        namespace=namespace,
+        plural="memberclusters",
+        name=removed_cluster_name,
+    )
+    client.CoreV1Api(api_client=central_cluster_client).delete_namespaced_secret(
+        name=f"mck-credential-{removed_cluster_name}",
+        namespace=namespace,
+    )
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
         namespace=namespace,
