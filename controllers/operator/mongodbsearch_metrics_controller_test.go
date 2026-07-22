@@ -226,6 +226,124 @@ func getFullTopologyState(t *testing.T, c client.Client, search *searchv1.MongoD
 	return state
 }
 
+func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t *testing.T) {
+	newFixture := func(t *testing.T, clusters []searchv1.ClusterSpec, legacyState clusterTopologyState) (*MongoDBSearchMetricsForwarderReconciler, client.Client, *searchv1.MongoDBSearch, *appsv1.Deployment) {
+		t.Helper()
+		mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+		search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+		search.UID = "search-uid"
+		search.Spec.Clusters = clusters
+		projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+		agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+		stateCM := newTestTopologyStateConfigMap(t, search, legacyState)
+		legacyDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+			Name:      search.MetricsForwarderDeploymentNameForCluster(0),
+			Namespace: search.Namespace,
+			Labels:    metricsForwarderLabelsForCluster(search, "", 0),
+		}}
+		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM, legacyDeployment)
+		return r, fakeClient, search, legacyDeployment
+	}
+
+	t.Run("legacy index left unused: entry swept", func(t *testing.T) {
+		r, fakeClient, search, legacyDeployment := newFixture(t, []searchv1.ClusterSpec{
+			{Name: "cluster-a", Index: ptr.To(int32(1))},
+			{Name: "cluster-b", Index: ptr.To(int32(2))},
+		}, clusterTopologyState{ClusterIndex: ptr.To(0)})
+		currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
+
+		// Two passes: the first sweeps the legacy central resources, the second
+		// drops the now-empty legacy state entry.
+		r.reconcileCore(t.Context(), currentSearch, zap.S())
+		st := r.reconcileCore(t.Context(), currentSearch, zap.S())
+
+		require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
+		assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
+			"legacy central Deployment must be swept after the move to named clusters")
+		topologyState := getFullTopologyState(t, fakeClient, search)
+		assert.NotContains(t, topologyState.Clusters, "")
+		// Each named cluster persists its own pinned index, written once.
+		for clusterName, wantIndex := range map[string]int{"cluster-a": 1, "cluster-b": 2} {
+			require.Contains(t, topologyState.Clusters, clusterName)
+			require.NotNil(t, topologyState.Clusters[clusterName].ClusterIndex)
+			assert.Equal(t, wantIndex, *topologyState.Clusters[clusterName].ClusterIndex)
+			require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
+				Name: search.MetricsForwarderDeploymentNameForCluster(wantIndex), Namespace: search.Namespace,
+			}, &appsv1.Deployment{}))
+		}
+	})
+
+	t.Run("legacy index 0 reused by a named cluster: state folds, no deregistration", func(t *testing.T) {
+		r, fakeClient, search, legacyDeployment := newFixture(t, []searchv1.ClusterSpec{
+			{Name: "cluster-a", Index: ptr.To(int32(0))},
+			{Name: "cluster-b", Index: ptr.To(int32(2))},
+		}, clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 2})
+		var deletedHostIDs []string
+		r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+		currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
+
+		st := r.reconcileCore(t.Context(), currentSearch, zap.S())
+
+		require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
+		assert.Empty(t, deletedHostIDs, "index 0 is live under cluster-a: its hosts must not be deregistered")
+		topologyState := getFullTopologyState(t, fakeClient, search)
+		assert.NotContains(t, topologyState.Clusters, "")
+		require.Contains(t, topologyState.Clusters, "cluster-a")
+		assert.Equal(t, 2, topologyState.Clusters["cluster-a"].Replicas,
+			"the legacy entry's higher replica count folds into cluster-a as a pending scale-down")
+		// The shared-index Deployment survives, re-stamped for cluster-a.
+		dep := &appsv1.Deployment{}
+		require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), dep))
+		assert.Equal(t, "cluster-a", dep.Labels[khandler.MongoDBSearchClusterNameLabel])
+
+		// The folded extra ordinal is reaped as an ordinary scale-down: the next
+		// pass defers its host deletion instead of deregistering live hosts.
+		st = r.reconcileCore(t.Context(), currentSearch, zap.S())
+		require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
+		assert.Empty(t, deletedHostIDs)
+		removedPod := fmt.Sprintf("%s-1", search.StatefulSetNamespacedNameForCluster(0).Name)
+		assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters["cluster-a"].HostDeletionReadyAfter, removedPod)
+	})
+}
+
+func TestReconcileCore_RenamedClusterSameIndexFoldsState(t *testing.T) {
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "search-uid"
+	// cluster-old was renamed to cluster-new at the same index, scaling 3 -> 2.
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-new", Index: ptr.To(int32(0)), Replicas: ptr.To(int32(2))}}
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"cluster-old": {ClusterIndex: ptr.To(0), Replicas: 3},
+	}})
+	require.NoError(t, err)
+	stateCM.Data[stateKey] = string(stateJSON)
+	oldDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.MetricsForwarderDeploymentNameForCluster(0),
+		Namespace: search.Namespace,
+		Labels:    metricsForwarderLabelsForCluster(search, "cluster-old", 0),
+	}}
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM, oldDeployment)
+	var deletedHostIDs []string
+	r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+
+	st := r.reconcileCore(t.Context(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), zap.S())
+
+	require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
+	assert.Empty(t, deletedHostIDs, "a rename at the same index names live hosts; none may be deregistered")
+	topologyState := getFullTopologyState(t, fakeClient, search)
+	assert.NotContains(t, topologyState.Clusters, "cluster-old")
+	require.Contains(t, topologyState.Clusters, "cluster-new")
+	assert.Equal(t, 3, topologyState.Clusters["cluster-new"].Replicas,
+		"the old entry's higher replica count folds in and the 3 -> 2 scale-down is reaped by the ordinary host-deletion state machine")
+	// The shared-index Deployment survives, re-stamped for the new cluster name.
+	dep := &appsv1.Deployment{}
+	require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), dep))
+	assert.Equal(t, "cluster-new", dep.Labels[khandler.MongoDBSearchClusterNameLabel])
+}
+
 func TestReconcileCoreRegistersMetricsCredentialAndCAWatches(t *testing.T) {
 	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
@@ -1082,6 +1200,165 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 			assert.True(t, apierrors.IsNotFound(err), "no Deployment expected on the central cluster at index %d, got err=%v", idx, err)
 		}
 	})
+}
+
+func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		deleteSearch         bool
+		omError              bool
+		failFinalizerRemoval bool
+		missingClient        bool
+		failDepDelete        bool
+		specCollision        bool
+		wantSearchGone       bool
+	}{
+		{name: "during Search deletion", deleteSearch: true, wantSearchGone: true},
+		{name: "after cluster removal"},
+		{name: "OM host cleanup error retries", omError: true},
+		{name: "failed finalizer removal retries", failFinalizerRemoval: true},
+		{name: "missing member client warns and skips Kubernetes cleanup", missingClient: true},
+		{name: "Kubernetes delete failure warns and retries via persisted state", failDepDelete: true},
+		{name: "spec index collision skips host deregistration", specCollision: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+			clusterAState := clusterTopologyState{ClusterIndex: ptr.To(0)}
+			if tc.specCollision {
+				// cluster-a is re-pinned onto the index cluster-b's state entry still
+				// holds: cluster-b's persisted pod names now denote cluster-a's live hosts.
+				search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(1))}}
+				clusterAState = clusterTopologyState{ClusterIndex: ptr.To(1)}
+			}
+			search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+			projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+			agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+			stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+			stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+				"cluster-a": clusterAState,
+				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+			}})
+			require.NoError(t, err)
+			stateCM.Data[stateKey] = string(stateJSON)
+			removedClusterDep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name:      search.MetricsForwarderDeploymentNameForCluster(1),
+				Namespace: testNamespace,
+				Labels:    metricsForwarderLabelsForCluster(search, "cluster-b", 1),
+			}}
+			r, fakeClient := newMetricsForwarderReconciler(
+				testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM, removedClusterDep,
+			)
+			r.operatorClusterName = "cluster-b"
+			var deletedHostIDs []string
+			if tc.omError {
+				r.omRequester = stubOMAgentRequester{fn: func(mdbv1.ProjectConfig, string, string, string, any) ([]byte, error) {
+					return nil, fmt.Errorf("injected Ops Manager API failure")
+				}}
+			} else {
+				r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+			}
+			if tc.failFinalizerRemoval {
+				fakeClientWithWatch, ok := fakeClient.(client.WithWatch)
+				require.True(t, ok)
+				failUpdate := true
+				r.kubeClient = kubernetesClient.NewClient(interceptor.NewClient(fakeClientWithWatch, interceptor.Funcs{
+					Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if _, ok := obj.(*searchv1.MongoDBSearch); ok && failUpdate {
+							failUpdate = false
+							return fmt.Errorf("injected finalizer update failure")
+						}
+						return cl.Update(ctx, obj, opts...)
+					},
+				}))
+			}
+			if tc.missingClient {
+				// Hub mode with cluster-b unregistered: cluster-b resolves to a nil
+				// client while every other cluster stays on the local client.
+				local := r.kubeClient
+				r.clusterRouter = searchcontroller.NewSearchClusterRouter(local, map[string]kubernetesClient.Client{"cluster-a": local}, "")
+			}
+			injectedDepDeleteErr := fmt.Errorf("injected Deployment delete failure")
+			if tc.failDepDelete {
+				fakeClientWithWatch, ok := fakeClient.(client.WithWatch)
+				require.True(t, ok)
+				wrapped := kubernetesClient.NewClient(interceptor.NewClient(fakeClientWithWatch, interceptor.Funcs{
+					Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						if _, ok := obj.(*appsv1.Deployment); ok {
+							return injectedDepDeleteErr
+						}
+						return cl.Delete(ctx, obj, opts...)
+					},
+				}))
+				r.kubeClient = wrapped
+				r.clusterRouter = searchcontroller.NewSearchClusterRouter(wrapped, nil, "")
+			}
+			if tc.deleteSearch {
+				require.NoError(t, fakeClient.Delete(t.Context(), search))
+			}
+			logs := observeControllerLogs(t)
+
+			result := reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+			assert.Empty(t, deletedHostIDs)
+			if tc.missingClient || tc.failDepDelete {
+				// Kubernetes-side cleanup failures are warnings: the persisted state
+				// entry and finalizer survive so the next reconcile retries.
+				wantWarn := "no Kubernetes client registered"
+				if tc.failDepDelete {
+					wantWarn = injectedDepDeleteErr.Error()
+				}
+				assert.Positive(t, logs.FilterMessageSnippet(wantWarn).Len(), "expected a warning containing %q", wantWarn)
+				require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{}),
+					"removed cluster's Deployment must survive a warned cleanup failure")
+				assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
+				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+				return
+			}
+			assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+			assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{})))
+			if tc.failFinalizerRemoval {
+				assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer,
+					"finalizer must survive a failed removal update and be retried")
+				reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+				assert.NotContains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
+				assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+				return
+			}
+			if tc.omError {
+				// A live CR with a real Ops Manager failure must fail and retry:
+				// finalizer and persisted state entry survive for the next attempt.
+				assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+				assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
+				return
+			}
+			if tc.specCollision {
+				// The persisted entry is pruned, but its hosts belong to the live
+				// same-index cluster and stay registered.
+				assert.Empty(t, deletedHostIDs, "hosts at a spec-occupied index must not be deregistered")
+				assert.Positive(t, logs.FilterMessageSnippet("skipping Ops Manager host deregistration").Len())
+				assert.NotContains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
+			} else {
+				stsName := search.StatefulSetNamespacedNameForCluster(1).Name
+				assert.ElementsMatch(t, []string{mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-0", stsName))}, deletedHostIDs)
+			}
+			err = fakeClient.Get(t.Context(), client.ObjectKeyFromObject(search), &searchv1.MongoDBSearch{})
+			if tc.wantSearchGone {
+				assert.True(t, apierrors.IsNotFound(err), "expected persisted cleanup before finalizer removal")
+				return
+			}
+			require.NoError(t, err)
+			assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+
+			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+			assert.False(t, result.Requeue)
+			assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
+		})
+	}
 }
 
 func TestReconcile_ScaleDown_DefersHostDeletionUntilPodTerminated(t *testing.T) {

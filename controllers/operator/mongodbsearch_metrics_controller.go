@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -154,6 +156,10 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, st, log)
 	}
 
+	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+		return r.reconcileCore(ctx, mdbSearch, log).ReconcileResult()
+	}
+
 	if skip, result, err := r.prepareSearch(mdbSearch, log,
 		func(st workflow.Status) (reconcile.Result, error) {
 			if !mdbSearch.IsMetricsForwarderEnabled() {
@@ -205,7 +211,8 @@ func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResource
 
 func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, log *zap.SugaredLogger) workflow.Status {
 	deleting := !mdbSearch.DeletionTimestamp.IsZero()
-	if !deleting {
+	cleaningRemovedOperator := operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName)
+	if !deleting && !cleaningRemovedOperator {
 		if r.defaultImage == "" {
 			return workflow.Invalid("%s environment variable must be set on the operator to use metrics forwarder", util.MetricsForwarderImageEnv)
 		}
@@ -293,15 +300,17 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 		r.watch.AddWatchedResourceIfNotAdded(projectConfig.SSLMMSCAConfigMap, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
 	}
 
-	if supported, st := r.checkOMVersionForMetricsEndpoint(mdbSearch, projectConfig, log); !supported {
-		if err := r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log); err != nil {
-			return workflow.Failed(err)
+	if !cleaningRemovedOperator {
+		if supported, st := r.checkOMVersionForMetricsEndpoint(mdbSearch, projectConfig, log); !supported {
+			if err := r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log); err != nil {
+				return workflow.Failed(err)
+			}
+			return st
 		}
-		return st
-	}
 
-	if err := r.ensureFinalizer(ctx, mdbSearch, log); err != nil {
-		return workflow.Failed(fmt.Errorf("failed to add finalizer: %w", err))
+		if err := r.ensureFinalizer(ctx, mdbSearch, log); err != nil {
+			return workflow.Failed(fmt.Errorf("failed to add finalizer: %w", err))
+		}
 	}
 
 	var firstFailure error
@@ -330,6 +339,28 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	// on, and Pending is the honest signal.
 	if len(workList) > 0 && len(missingClusters) == len(workList) {
 		return workflow.Pending("None of the clusters in spec.clusters is registered with the operator: %s", strings.Join(missingClusters, ", "))
+	}
+
+	removedPending, removedErr := r.cleanupRemovedClusters(ctx, mdbSearch, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, workList, log)
+	pendingPodTerminations = pendingPodTerminations || removedPending
+	if removedErr != nil {
+		worstPhase = searchv1.WorstOfPhase(worstPhase, status.PhaseFailed)
+		if firstFailure == nil {
+			firstFailure = removedErr
+		}
+	}
+
+	if cleaningRemovedOperator && removedErr == nil && !removedPending && controllerutil.ContainsFinalizer(mdbSearch, util.SearchMetricsForwarderFinalizer) {
+		currentState, err := r.loadTopologyState(ctx, mdbSearch)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+		if _, stateExists := currentState.Clusters[r.operatorClusterName]; !stateExists {
+			controllerutil.RemoveFinalizer(mdbSearch, util.SearchMetricsForwarderFinalizer)
+			if err := r.kubeClient.Update(ctx, mdbSearch); err != nil {
+				return workflow.Failed(fmt.Errorf("failed to remove finalizer after cleaning removed cluster %q: %w", r.operatorClusterName, err))
+			}
+		}
 	}
 
 	if firstFailure != nil {
@@ -430,6 +461,160 @@ func validatePersistedClusterIndexes(workList []clusterWorkItem, topologyState *
 		return fmt.Errorf("cluster %q index is immutable: persisted index %d, requested index %d", w.ClusterName, *persisted.ClusterIndex, w.ClusterIndex)
 	}
 	return nil
+}
+
+// cleanupRemovedClusters reaps metrics forwarder resources, Ops Manager hosts, and the
+// persisted state entry for clusters present in the topology state but no longer in
+// spec.clusters (including the legacy ""-keyed entry after a move to named clusters).
+// It loads the state itself so it observes the entries the per-cluster loop just wrote.
+// Returns pending=true while a removed cluster's forwarder Deployment is still going away.
+//
+// Host deregistration uses the CR's CURRENT Ops Manager project: if the project (or its
+// credentials) changes concurrently with a cluster removal, hosts registered under the
+// previous project may stay monitored in Ops Manager until cleaned up manually.
+func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedClusters(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	groupID string,
+	projectConfig mdbv1.ProjectConfig,
+	agentSecretName string,
+	currentWork []clusterWorkItem,
+	log *zap.SugaredLogger,
+) (bool, error) {
+	topologyState, err := r.loadTopologyState(ctx, search)
+	if err != nil {
+		return false, err
+	}
+	removedWork := r.workForClustersOnlyInState(search, currentWork, topologyState, log)
+	// Pod names — and so Ops Manager host ids — derive from the CR name and the
+	// cluster index, never the cluster name: a removed entry whose index is still
+	// occupied by a live spec.clusters entry names LIVE hosts, which must not be
+	// deregistered. An empty spec is the legacy unnamed cluster at index 0.
+	liveNameByIndex := map[int]string{0: ""}
+	if len(search.Spec.Clusters) > 0 {
+		liveNameByIndex = make(map[int]string, len(search.Spec.Clusters))
+		for _, c := range search.Spec.Clusters {
+			liveNameByIndex[c.ResolveIndex()] = c.Name
+		}
+	}
+	ownWork := make(map[string]struct{}, len(currentWork))
+	for _, cw := range currentWork {
+		ownWork[cw.ClusterName] = struct{}{}
+	}
+	pending := false
+	stateChanged := false
+	var cleanupErr error
+	for _, w := range removedWork {
+		liveName, indexInUse := liveNameByIndex[w.ClusterIndex]
+		if _, ours := ownWork[liveName]; indexInUse && ours {
+			live, liveExists := topologyState.Clusters[liveName]
+			if !liveExists {
+				// The live cluster's reconcile has not written its state entry yet
+				// (it failed this pass); keep the removed entry and retry.
+				continue
+			}
+			// The live per-cluster loop already re-stamped the shared-index resources,
+			// so Kubernetes deletes are skipped too; folding the removed entry's
+			// replica counts into the live entry lets any extra ordinals surface as
+			// an ordinary scale-down handled by the host-deletion state machine.
+			topologyState.Clusters[liveName] = foldRemovedClusterState(search, w.ClusterIndex, live, topologyState.Clusters[w.ClusterName])
+			delete(topologyState.Clusters, w.ClusterName)
+			stateChanged = true
+			log.Infof("cluster=%q: cluster index %d is now used by cluster %q; folded the removed entry into its state and skipped Ops Manager host deregistration", w.ClusterName, w.ClusterIndex, liveName)
+			continue
+		}
+		// Kubernetes-side cleanup is best-effort: warn and keep the cluster's entry
+		// in the metrics-forwarder state ConfigMap so the next reconcile retries.
+		// Ops Manager host deregistration and state writes stay hard errors —
+		// leaked hosts alert operators forever.
+		if w.Client == nil {
+			log.Warnf("cluster=%q: no Kubernetes client registered; skipping metrics forwarder cleanup", w.ClusterName)
+			continue
+		}
+		// Deployment first: a still-running collector would push metrics for the
+		// deregistered hosts and Ops Manager would implicitly re-add them.
+		found, err := searchcontroller.SweepSearchResources(ctx, w.Client, search, w.ClusterName, []searchcontroller.SearchResourceCleanup{metricsForwarderDeploymentCleanup(search, w.ClusterIndex)}, log)
+		if err != nil {
+			log.Warnf("cluster=%q: failed to delete removed cluster's metrics forwarder Deployment: %v", w.ClusterName, err)
+			continue
+		}
+		if found {
+			pending = true
+			continue
+		}
+
+		if indexInUse {
+			// The same-index live cluster is served by another operator, whose hosts
+			// this entry's pod names collide with.
+			log.Warnf("cluster=%q: cluster index %d is used by live cluster %q; skipping Ops Manager host deregistration", w.ClusterName, w.ClusterIndex, liveName)
+		} else {
+			clusterState := topologyState.Clusters[w.ClusterName]
+			mongotHostsToDelete := mongotPodsForFullCleanup(search, w.ClusterIndex, clusterState)
+			if err := r.cleanupRemovedMongotPods(ctx, search, mongotHostsToDelete, groupID, projectConfig, agentSecretName, log); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+				continue
+			}
+		}
+		if err := r.deleteMetricsForwarderResources(ctx, search, []clusterWorkItem{w}, log); err != nil {
+			log.Warnf("cluster=%q: failed to delete removed cluster's metrics forwarder resources: %v", w.ClusterName, err)
+			continue
+		}
+		delete(topologyState.Clusters, w.ClusterName)
+		stateChanged = true
+	}
+	if stateChanged {
+		if err := r.openTopologyStateStore(search).WriteState(ctx, topologyState, log); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to write topology state after removed-cluster cleanup: %w", err))
+		}
+	}
+	return pending, cleanupErr
+}
+
+// foldRemovedClusterState merges a removed same-index entry's bookkeeping into the
+// live cluster's entry: replica counts fold as per-key maxima (extra ordinals then
+// surface as an ordinary scale-down of the live cluster) and the pending
+// host-deletion sets are unioned minus the live topology's own pods, which must
+// never be deregistered. A same-size rename folds to a no-op.
+func foldRemovedClusterState(search *searchv1.MongoDBSearch, clusterIndex int, live, removed clusterTopologyState) clusterTopologyState {
+	folded := live
+	folded.Replicas = max(live.Replicas, removed.Replicas)
+	folded.ShardReplicas = maps.Clone(live.ShardReplicas)
+	for shard, replicas := range removed.ShardReplicas {
+		if replicas > folded.ShardReplicas[shard] {
+			if folded.ShardReplicas == nil {
+				folded.ShardReplicas = map[string]int{}
+			}
+			folded.ShardReplicas[shard] = replicas
+		}
+	}
+
+	livePods := make(map[string]struct{})
+	for _, pod := range computeDeletedMongotPods(search, clusterIndex, live, clusterTopologyState{}) {
+		livePods[pod] = struct{}{}
+	}
+	pendingSet := make(map[string]struct{}, len(live.PendingHostDeletions)+len(removed.PendingHostDeletions))
+	for _, pod := range slices.Concat(live.PendingHostDeletions, removed.PendingHostDeletions) {
+		if _, isLive := livePods[pod]; !isLive {
+			pendingSet[pod] = struct{}{}
+		}
+	}
+	folded.PendingHostDeletions = nil
+	if len(pendingSet) > 0 {
+		folded.PendingHostDeletions = slices.Sorted(maps.Keys(pendingSet))
+	}
+
+	readyAfter := map[string]int64{}
+	maps.Copy(readyAfter, removed.HostDeletionReadyAfter)
+	// The live entry's own deferral deadline wins on conflict.
+	maps.Copy(readyAfter, live.HostDeletionReadyAfter)
+	for pod := range livePods {
+		delete(readyAfter, pod)
+	}
+	folded.HostDeletionReadyAfter = nil
+	if len(readyAfter) > 0 {
+		folded.HostDeletionReadyAfter = readyAfter
+	}
+	return folded
 }
 
 // reconcileForCluster runs the per-cluster reconcile: replicate dependencies, reconcile topology

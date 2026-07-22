@@ -229,6 +229,25 @@ func TestMongoDBSearchOnDelete_RemovesDependentWatches(t *testing.T) {
 	assert.Contains(t, reconciler.watch.GetWatchedResources()[watch.Object{ResourceType: watch.Secret, Resource: sharedSecret}], otherSearchKey)
 }
 
+func TestOperatorClusterNotInSearchSpec(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		operatorClusterName string
+		clusters            []searchv1.ClusterSpec
+		want                bool
+	}{
+		{name: "central operator", clusters: nil, want: false},
+		{name: "projected cluster retained", operatorClusterName: "cluster-a", clusters: []searchv1.ClusterSpec{{Name: "cluster-a"}}, want: false},
+		{name: "projected cluster removed with another retained", operatorClusterName: "cluster-a", clusters: []searchv1.ClusterSpec{{Name: "cluster-b"}}, want: true},
+		{name: "empty topology remains a validation error", operatorClusterName: "cluster-a", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := &searchv1.MongoDBSearch{Spec: searchv1.MongoDBSearchSpec{Clusters: tc.clusters}}
+			assert.Equal(t, tc.want, operatorClusterNotInSearchSpec(search, tc.operatorClusterName))
+		})
+	}
+}
+
 func TestMongoDBSearchOnDelete_SweepsOwnedResourcesOnMemberClusters(t *testing.T) {
 	ctx := context.Background()
 	searchKey := types.NamespacedName{Name: "missing-search", Namespace: mock.TestNamespace}
@@ -760,6 +779,7 @@ func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
 
 	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
 	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
+	assert.True(t, r.clusterRouter.NamedClustersAreLocal)
 }
 
 func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
@@ -774,8 +794,7 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, "")
 
 	assert.Len(t, r.memberClusterClientsMap, 2)
-	assert.NotNil(t, r.memberClusterClientsMap["us-east-k8s"])
-	assert.NotNil(t, r.memberClusterClientsMap["eu-west-k8s"])
+	assert.False(t, r.clusterRouter.NamedClustersAreLocal)
 }
 
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
@@ -898,7 +917,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 
 			// Owner labels stamp cross-cluster identity — owner refs do not
 			// carry between clusters, so labels are the link back to the CR.
-			assertSearchOwnerLabels(t, search, tc.clusterName, sts, headlessSvc, proxySvc, cm)
+			assertSearchOwnerLabels(t, search, tc.clusterName, false, sts, headlessSvc, proxySvc, cm)
 		})
 	}
 }
@@ -968,13 +987,19 @@ func driveSearchReconcileToRunning(
 // (EnqueueMemberClusterObjectToSearch) and label-based GC depend on these, so a
 // path that creates resources without them passes existence checks but breaks
 // re-enqueue in e2e only.
-func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clusterName string, objs ...client.Object) {
+func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clusterName string, sameCluster bool, objs ...client.Object) {
 	t.Helper()
 	for _, obj := range objs {
 		labels := obj.GetLabels()
 		assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel], "owner-name label on %T %s", obj, obj.GetName())
 		assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel], "owner-namespace label on %T %s", obj, obj.GetName())
 		assert.Equal(t, clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T %s", obj, obj.GetName())
+		if sameCluster {
+			require.Len(t, obj.GetOwnerReferences(), 1, "same-cluster resource %T %s must retain the GC backstop", obj, obj.GetName())
+			assert.Equal(t, search.UID, obj.GetOwnerReferences()[0].UID)
+		} else {
+			assert.Empty(t, obj.GetOwnerReferences(), "cross-cluster resource %T %s must remain label-only", obj, obj.GetName())
+		}
 	}
 }
 
@@ -990,7 +1015,7 @@ func newOperatorPerClusterMongoDBSearch(name, namespace string) *searchv1.MongoD
 		},
 	}
 	return &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, UID: types.UID(name + "-uid")},
 		Spec: searchv1.MongoDBSearchSpec{
 			Version: "1.70.1",
 			Source: &searchv1.MongoDBSource{
@@ -1043,7 +1068,7 @@ func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T)
 			require.NoError(t, c.Get(ctx, search.SearchServiceNamespacedNameForCluster(tc.wantIdx), headless),
 				"headless search Service at pinned index %d must exist", tc.wantIdx)
 
-			assertSearchOwnerLabels(t, search, tc.opCluster, sts, cm, proxy, headless)
+			assertSearchOwnerLabels(t, search, tc.opCluster, true, sts, cm, proxy, headless)
 
 			// The other cluster's index MUST be untouched — this operator never wrote it.
 			err := c.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.wrongIdx), &appsv1.StatefulSet{})
@@ -1061,27 +1086,55 @@ func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T)
 	}
 }
 
-func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
+func TestReconcile_OperatorPerCluster_RemovedClusterCleansLocalResources(t *testing.T) {
 	ctx := context.Background()
 	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
-	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
+	legacyAuthLabels := khandler.SearchManagedLabels(search, "", "", "cluster-c")
+	managed := []client.Object{
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "removed-mongot", Namespace: search.Namespace, UID: "removed-sts", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent, "cluster-c")}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "removed-headless", Namespace: search.Namespace, UID: "removed-headless", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent, "cluster-c")}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "removed-proxy", Namespace: search.Namespace, UID: "removed-proxy", Labels: khandler.SearchManagedLabels(search, "", searchProxyComponent, "cluster-c")}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "removed-config", Namespace: search.Namespace, UID: "removed-config", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent, "cluster-c")}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace, UID: "removed-state", Labels: khandler.SearchManagedLabels(search, "", "", "")}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.X509OperatorManagedSecret().Name, Namespace: search.Namespace, UID: "legacy-x509", Labels: maps.Clone(legacyAuthLabels)}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.ScramClientCertOperatorManagedSecret().Name, Namespace: search.Namespace, UID: "legacy-scram", Labels: maps.Clone(legacyAuthLabels)}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "removed-secret", Namespace: search.Namespace, UID: "removed-secret", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent, "cluster-c")}},
+	}
+	for _, obj := range managed {
+		require.NoError(t, c.Create(ctx, obj))
+	}
+	metricsConfig := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      "metrics-owned",
+		Namespace: search.Namespace,
+		UID:       "metrics-owned",
+		Labels:    khandler.SearchManagedLabels(search, "", metricsForwarderLabelName, "cluster-c"),
+	}}
+	require.NoError(t, c.Create(ctx, metricsConfig))
+	customerSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "customer-source-secret", Namespace: search.Namespace, UID: "customer-source", Labels: maps.Clone(legacyAuthLabels),
+		},
+		Data: map[string][]byte{"value": []byte("customer")},
+	}
+	require.NoError(t, c.Create(ctx, customerSecret))
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 	res, err := reconciler.Reconcile(ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, reconcile.Result{}, res, "no-match reconcile must return zero Result with no error")
+	assert.Equal(t, reconcile.Result{}, res)
 
-	// No per-cluster resources created at any index.
-	for _, idx := range []int{0, 1, 2} {
-		sts := &appsv1.StatefulSet{}
-		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.StatefulSetNamespacedNameForCluster(idx), sts)),
-			"STS at index %d must not exist", idx)
-		cm := &corev1.ConfigMap{}
-		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, search.MongotConfigConfigMapNameForCluster(idx), cm)),
-			"mongot ConfigMap at index %d must not exist", idx)
+	for _, obj := range managed {
+		err = c.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+		assert.True(t, apiErrors.IsNotFound(err), "%T %s must be deleted", obj, obj.GetName())
 	}
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(metricsConfig), &corev1.ConfigMap{}),
+		"main cleanup must leave metrics resources to the metrics controller")
+	preservedCustomer := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(customerSecret), preservedCustomer))
+	assert.Equal(t, customerSecret.UID, preservedCustomer.UID)
+	assert.Equal(t, customerSecret.Data, preservedCustomer.Data)
 
 	// State ConfigMap must not be created.
 	stateCM := &corev1.ConfigMap{}
@@ -1093,6 +1146,81 @@ func TestReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
 	updated := &searchv1.MongoDBSearch{}
 	require.NoError(t, c.Get(ctx, req.NamespacedName, updated))
 	assert.Equal(t, status.Phase(""), updated.Status.Phase, "no-match reconcile must not touch status")
+}
+
+func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing.T) {
+	tests := []struct {
+		name          string
+		failStsDelete bool
+	}{
+		{name: "removed cluster's managed resources are deleted"},
+		{name: "delete failure warns and does not fail the reconcile", failStsDelete: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
+			search.Spec.Clusters = search.Spec.Clusters[:1]
+			memberA := mock.NewEmptyFakeClientBuilder().Build()
+			var memberB client.Client = mock.NewEmptyFakeClientBuilder().Build()
+			labels := khandler.SearchManagedLabels(search, "", searchMongotComponent, "cluster-b")
+
+			sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(1).Name, Namespace: search.Namespace, UID: "removed-sts", Labels: labels}}
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(1).Name + "-tls", Namespace: search.Namespace, UID: "removed-secret", Labels: maps.Clone(labels)}}
+			require.NoError(t, memberB.Create(ctx, sts))
+			require.NoError(t, memberB.Create(ctx, secret))
+			injectedErr := fmt.Errorf("injected member delete failure")
+			if tc.failStsDelete {
+				memberB = interceptor.NewClient(memberB.(client.WithWatch), interceptor.Funcs{
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						if _, ok := obj.(*appsv1.StatefulSet); ok {
+							return injectedErr
+						}
+						return c.Delete(ctx, obj, opts...)
+					},
+				})
+			}
+
+			// The hub's own cluster is member-registered (hub-and-spoke): its member
+			// sweep runs against the central cluster's storage, where the LIVE state
+			// ConfigMap resides.
+			centralClient := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+			stateCM := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name:      searchcontroller.SearchStateCMName(search),
+				Namespace: search.Namespace,
+				UID:       "live-state-cm",
+				Labels:    khandler.SearchManagedLabels(search, "", "", ""),
+			}}
+			require.NoError(t, centralClient.Create(ctx, stateCM))
+			reconciler := newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{
+				"cluster-a":   memberA,
+				"cluster-b":   memberB,
+				"cluster-hub": centralClient,
+			}, "")
+			logs := observeControllerLogs(t)
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
+			require.NoError(t, err)
+
+			// The removed-member sweep on the hub's own cluster must not touch the
+			// central state ConfigMap.
+			survivingStateCM := &corev1.ConfigMap{}
+			require.NoError(t, centralClient.Get(ctx, client.ObjectKeyFromObject(stateCM), survivingStateCM),
+				"the live central state ConfigMap must survive the removed-member sweep")
+			assert.Equal(t, stateCM.UID, survivingStateCM.UID)
+
+			assert.True(t, apiErrors.IsNotFound(memberB.Get(ctx, client.ObjectKeyFromObject(secret), &corev1.Secret{})),
+				"one kind's delete failure must not block the other kinds")
+			stsErr := memberB.Get(ctx, client.ObjectKeyFromObject(sts), &appsv1.StatefulSet{})
+			if tc.failStsDelete {
+				assert.NoError(t, stsErr, "failed delete leaves the StatefulSet behind for the next reconcile")
+				assert.Positive(t, logs.FilterMessageSnippet(injectedErr.Error()).Len(), "expected a warning mentioning the injected delete failure")
+			} else {
+				assert.True(t, apiErrors.IsNotFound(stsErr))
+				assert.Zero(t, logs.FilterMessageSnippet(injectedErr.Error()).Len())
+			}
+		})
+	}
 }
 
 // Customer pin is authoritative: re-pinning renders at the new index. The
@@ -1252,13 +1380,13 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 				require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(tc.wantIdx, shard), svc),
 					"headless Service for shard %s must exist", shard)
 
-				assertSearchOwnerLabels(t, search, tc.opCluster, sts, cm, svc)
+				assertSearchOwnerLabels(t, search, tc.opCluster, true, sts, cm, svc)
 			}
 
 			clusterLevelProxy := &corev1.Service{}
 			require.NoError(t, c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.wantIdx), clusterLevelProxy),
 				"cluster-level proxy Service at pinned index %d must exist", tc.wantIdx)
-			assertSearchOwnerLabels(t, search, tc.opCluster, clusterLevelProxy)
+			assertSearchOwnerLabels(t, search, tc.opCluster, true, clusterLevelProxy)
 
 			// The other operator's index MUST be untouched.
 			for _, shard := range []string{"sh-0", "sh-1"} {

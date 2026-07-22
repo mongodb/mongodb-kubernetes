@@ -127,6 +127,18 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{}, nil
 	}
 
+	// Removed-cluster cleanup is best-effort: failures are logged, never fail
+	// the reconcile, and are retried on the next reconcile of the live CR.
+	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClients, envoySearchResourceCleanups(), log); err != nil {
+		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
+	}
+	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+		if _, err := searchcontroller.SweepSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, envoySearchResourceCleanups(), log); err != nil {
+			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", r.operatorClusterName, err)
+		}
+		return reconcile.Result{}, nil
+	}
+
 	// Envoy validation failures surface on /status/loadBalancer so the Envoy sub-status
 	// stays authoritative for LB shape errors.
 	if skip, result, err := r.prepareSearch(mdbSearch, log,
@@ -184,19 +196,26 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	workList := r.buildClusterWorkList(mdbSearch)
 	var reconcileErrs error
 	var worstPhase status.Phase
+	var missingClusters []string
 
 	for _, w := range workList {
-		var st workflow.Status
-		switch w.Client {
-		case nil:
-			st = workflow.Pending("Member cluster %q not registered with the operator", w.ClusterName)
-		default:
-			st = r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w, state.RoutingReadyMongotGroups, log)
+		if w.Client == nil {
+			// Warn-and-skip: one unregistered cluster must not stall the others.
+			log.Warnf("Member cluster %q not registered with the operator; skipping it", w.ClusterName)
+			missingClusters = append(missingClusters, w.ClusterName)
+			continue
 		}
+		st := r.reconcileForCluster(ctx, mdbSearch, searchSource, tlsEnabled, tlsCfg, w, state.RoutingReadyMongotGroups, log)
 		worstPhase = searchv1.WorstOfPhase(worstPhase, st.Phase())
 		if !st.IsOK() {
 			reconcileErrs = errors.Join(reconcileErrs, fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st)))
 		}
+	}
+
+	// When no cluster has a registered client there is nothing to make progress
+	// on, and Pending is the honest signal.
+	if len(workList) > 0 && len(missingClusters) == len(workList) {
+		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("None of the clusters in spec.clusters is registered with the operator: %s", strings.Join(missingClusters, ", ")), log)
 	}
 
 	if reconcileErrs != nil {
