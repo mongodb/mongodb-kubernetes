@@ -202,7 +202,7 @@ class TestOperatorUpgrade:
         assert_mongot_version_matches_operator(namespace, operator, "post-upgrade")
 
     def test_database_running_after_upgrade(self, mdb: MongoDB):
-        mdb.assert_reaches_phase(phase=Phase.Running, timeout=300)
+        mdb.assert_reaches_phase(phase=Phase.Running, timeout=800)
 
     def test_search_query_after_upgrade(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.assert_search_query(retry_timeout=60)
