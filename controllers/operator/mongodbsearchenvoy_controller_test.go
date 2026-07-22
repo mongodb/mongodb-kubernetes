@@ -28,6 +28,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -458,8 +459,6 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	assert.Equal(t, resource.MustParse("500m"), dep.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 }
 
-// --- per-cluster route renderer tests -----------------------------------------
-
 func TestBuildRoutesForCluster_RS_PerClusterHostname(t *testing.T) {
 	one := int32(1)
 	search := &searchv1.MongoDBSearch{
@@ -561,18 +560,26 @@ type mockShardedSourceForEnvoy struct {
 	shardNames []string
 }
 
-func (m *mockShardedSourceForEnvoy) GetShardCount() int      { return len(m.shardNames) }
+func (m *mockShardedSourceForEnvoy) GetShardCount() int { return len(m.shardNames) }
+
 func (m *mockShardedSourceForEnvoy) GetShardNames() []string { return m.shardNames }
+
 func (m *mockShardedSourceForEnvoy) GetUnmanagedLBEndpointForShard(_ string) string {
 	return ""
 }
+
 func (m *mockShardedSourceForEnvoy) MongosHostsAndPorts() []string { return nil }
-func (m *mockShardedSourceForEnvoy) KeyfileSecretName() string     { return "" }
+
+func (m *mockShardedSourceForEnvoy) KeyfileSecretName() string { return "" }
+
 func (m *mockShardedSourceForEnvoy) TLSConfig() *searchcontroller.TLSSourceConfig {
 	return nil
 }
+
 func (m *mockShardedSourceForEnvoy) HostSeeds(_ string) ([]string, error) { return nil, nil }
-func (m *mockShardedSourceForEnvoy) Validate() error                      { return nil }
+
+func (m *mockShardedSourceForEnvoy) Validate() error { return nil }
+
 func (m *mockShardedSourceForEnvoy) ResourceType() mdbv1.ResourceType {
 	return mdbv1.ShardedCluster
 }
@@ -843,8 +850,6 @@ func TestEnvoyFilterChain_PerClusterSNI(t *testing.T) {
 		"per-cluster SNIs must all be distinct; collisions break per-cluster TLS routing")
 }
 
-// --- reconciler constructor with member-cluster client maps ------------------
-
 func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
 	memberA := fake.NewClientBuilder().Build()
@@ -867,8 +872,6 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	require.NotNil(t, r)
 	assert.Equal(t, r.kubeClient, r.clientForCluster("any-cluster"), "nil members map must fall back to the central client")
 }
-
-// --- clusterWorkItem.Client population ----------------------------------------
 
 func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	centralRaw := fake.NewClientBuilder().Build()
@@ -896,8 +899,6 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	assert.Equal(t, r.clientForCluster("a"), wl[0].Client, "known member must use member client")
 	assert.Nil(t, wl[1].Client, "unregistered member must carry the nil-Client sentinel, not the central client")
 }
-
-// --- per-cluster name helpers + cross-cluster enqueue labels ------------------
 
 func TestLoadBalancerNamesForCluster_IndexBased(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
@@ -1035,8 +1036,6 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 	assert.Empty(t, cm.OwnerReferences)
 }
 
-// --- reconcile loop + per-cluster status --------------------------------------
-
 func TestBuildClusterWorkList_SingleClusterDegenerate(t *testing.T) {
 	r := newMongoDBSearchEnvoyReconciler(fake.NewClientBuilder().Build(), "envoy:latest", nil, "")
 	search := &searchv1.MongoDBSearch{}
@@ -1125,6 +1124,40 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	assert.Contains(t, patched.Status.LoadBalancer.Message, "missing-cluster")
 }
 
+func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mongo-0:27017"},
+				},
+			},
+			Clusters: []searchv1.ClusterSpec{{
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "lb.example.com"},
+				},
+			}},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+
+	stateCMKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Name:      searchcontroller.SearchStateCMName(search),
+			Namespace: search.Namespace,
+		},
+	}
+	assert.Contains(t, r.watch.GetWatchedResources()[stateCMKey], search.NamespacedName())
+}
+
 func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1209,8 +1242,6 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 		}})
 	}
 }
-
-// --- end-to-end Reconcile + status aggregation -------------------------------
 
 // TestReconcile_WorstOfPhase_Aggregated exercises the full Reconcile path:
 // two clusters in spec.clusters[]; one is a member registered with the operator
@@ -1317,8 +1348,6 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase,
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
 }
-
-// --- index-based naming reconcile loop tests ----------------------------------
 
 // TestReconcile_NoStateCM_RendersFromPins asserts that the Envoy controller
 // resolves per-cluster indices from spec.clusters[].clusterIndex alone: with no
