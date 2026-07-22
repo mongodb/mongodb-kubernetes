@@ -12,6 +12,7 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
+from scripts.release.atomic_pipeline import get_custom_agent_url, get_custom_agent_url_for_version
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -186,6 +187,98 @@ class TestIntegration(unittest.TestCase):
         agent_args = generate_agent_build_args(platforms, agent_version, tools_version)
         self.assertIn("mongodb_agent_version_amd64", agent_args)
         self.assertIn("mongodb_tools_version_amd64", agent_args)
+
+
+class TestCustomAgentUrlResolution(unittest.TestCase):
+    """Tests for get_custom_agent_url and get_custom_agent_url_for_version.
+
+    Verifies the parameter precedence:
+    1. release.json customAgent (manual mode)
+    2. MDB_CUSTOM_AGENT_URL env var (automatic CI mode)
+    3. Empty string (prod mode)
+    """
+
+    def setUp(self):
+        self.agent_version = "109.0.0.9188-1"
+        self.automatic_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+            "builds/patches/6a588a96814ba600072a706d/automation-agent/local/"
+            "mongodb-mms-automation-agent-109.0.0.9188-1.linux_x86_64.tar.gz"
+        )
+        self.manual_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+            "builds/patches/abc123/automation-agent/local/"
+            "mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz"
+        )
+
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_manual_takes_precedence_over_env_var(self, mock_release):
+        """release.json customAgent takes precedence over MDB_CUSTOM_AGENT_URL env var."""
+        mock_release.return_value = {"customAgent": {"8": self.manual_url}}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": self.automatic_url}):
+            result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, self.manual_url)
+
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_falls_back_to_env_var_when_no_manual(self, mock_release):
+        """Without release.json customAgent, falls back to MDB_CUSTOM_AGENT_URL env var."""
+        mock_release.return_value = {"customAgent": {"8": ""}}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": self.automatic_url}):
+            result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, self.automatic_url)
+
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_returns_empty_when_no_custom_agent(self, mock_release):
+        """Returns empty string when neither manual nor env var has a URL."""
+        mock_release.return_value = {"customAgent": {"8": "", "7": ""}}
+
+        result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, "")
+
+    @patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=False)
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_returns_empty_when_custom_agent_key_missing(self, mock_release):
+        """Returns empty string when release.json has no customAgent key."""
+        mock_release.return_value = {"agentVersion": "108.0.12.8846-1"}
+
+        result = get_custom_agent_url(self.agent_version)
+
+        self.assertEqual(result, "")
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_get_custom_agent_url_for_version_matches_version_in_url(self, mock_release):
+        """get_custom_agent_url_for_version returns URL with exact version match."""
+        mock_release.return_value = {
+            "customAgent": {
+                "8": "https://example.com/mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz",
+                "7": "https://example.com/mongodb-mms-automation-agent-107.0.0.1234-1.rhel8_x86_64.tar.gz",
+            }
+        }
+
+        result = get_custom_agent_url_for_version("109.0.0.9188-1")
+
+        self.assertEqual(result, "https://example.com/mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz")
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_get_custom_agent_url_for_version_no_substring_false_match(self, mock_release):
+        """Version 12.0.35.7911-1 must not match URL containing 107.0.35.7911-1."""
+        mock_release.return_value = {
+            "customAgent": {
+                "7": "https://example.com/mongodb-mms-automation-agent-107.0.35.7911-1.rhel8_x86_64.tar.gz",
+            }
+        }
+
+        result = get_custom_agent_url_for_version("12.0.35.7911-1")
+
+        self.assertEqual(result, "")
 
 
 if __name__ == "__main__":

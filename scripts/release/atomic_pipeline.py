@@ -245,6 +245,16 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
         **platform_build_args,  # Add the platform-specific build args
     }
 
+    # Pass custom agent URL to init-database image (consumed only in non-static mode).
+    # Init-database image is built once for all variants, so only use the env var
+    # (automatic CI) — not release.json customAgent, which requires the per-variant
+    # agent version that isn't available here. Manual mode is handled by the operator
+    # injecting MDB_CUSTOM_AGENT_URL at runtime.
+    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
+    if custom_agent_url:
+        logger.info(f"Passing custom agent URL to init-database image build: {custom_agent_url}")
+        args["custom_agent_url"] = custom_agent_url
+
     build_image(
         build_configuration=build_configuration,
         build_args=args,
@@ -326,6 +336,23 @@ def _build_agent(
     tasks_queue.put(executor.submit(build_agent_pipeline, build_configuration, agent_version, tools_version))
 
 
+def get_custom_agent_url(agent_version: str) -> str:
+    """Resolve custom agent URL. Manual mode takes precedence.
+
+    1. release.json customAgent (manual mode)
+    2. MDB_CUSTOM_AGENT_URL env var (automatic CI from Evergreen expansion)
+    3. Empty string (prod mode)
+    """
+    url = get_custom_agent_url_for_version(agent_version)
+    if url:
+        return url
+    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
+    if custom_agent_url:
+        logger.info(f"Using custom agent URL from MDB_CUSTOM_AGENT_URL env var: {custom_agent_url}")
+        return custom_agent_url
+    return ""
+
+
 def build_agent_pipeline(
     build_configuration: ImageBuildConfiguration,
     agent_version: str,
@@ -338,20 +365,31 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    custom_agent_url = get_custom_agent_url_for_version(agent_version)
+    custom_agent_url = get_custom_agent_url(agent_version)
     if custom_agent_url:
-        agent_base_url = custom_agent_url.rsplit("/", 1)[0]
+        # Pass the full URL directly — no probing, no suffix guessing.
+        # The URL is split into base + filename only because the Dockerfile
+        # constructs the download URL as ${mongodb_agent_url}/${filename}.
+        agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
+        # ponytail: custom URL is single-arch; same filename applied to all platforms.
+        platform_build_args = {}
+        for platform in build_configuration_copy.platforms:
+            arch = platform.split("/")[-1]
+            platform_build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+        # Tools are always from prod — probe normally.
+        platform_build_args.update(
+            generate_tools_build_args(build_configuration_copy.platforms, tools_version)
+        )
     else:
         agent_base_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
         )
-
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration_copy.platforms,
-        agent_version=agent_version,
-        tools_version=tools_version,
-        agent_base_url=agent_base_url,
-    )
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration_copy.platforms,
+            agent_version=agent_version,
+            tools_version=tools_version,
+            agent_base_url=agent_base_url,
+        )
 
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
@@ -387,11 +425,22 @@ def load_release_file() -> Dict:
 
 
 def get_custom_agent_url_for_version(agent_version: str) -> str:
-    """Look up custom agent URL by version from release.json customAgent."""
+    """Look up custom agent URL by exact version match from release.json customAgent."""
     release = load_release_file()
-    for url in release.get("customAgent", {}).values():
-        if agent_version in url:
+    custom_agents = release.get("customAgent", {})
+    for url in custom_agents.values():
+        if not url:
+            continue
+        filename = url.rsplit("/", 1)[-1]
+        if filename.startswith(f"mongodb-mms-automation-agent-{agent_version}."):
             return url
+    # Warn if customAgent has entries but none matched — likely a version mismatch.
+    non_empty = [u for u in custom_agents.values() if u]
+    if non_empty:
+        logger.warning(
+            f"customAgent has {len(non_empty)} URL(s) but none match agent version {agent_version}; "
+            "falling back. Check that the version in the URL filename matches release.json."
+        )
     return ""
 
 
