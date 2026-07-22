@@ -2,27 +2,28 @@ package memberregistration
 
 import (
 	"context"
-	"errors"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/clientcmd"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+
+	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 )
 
 const (
-	testNamespace = "mongodb"
-	testServerURL = "https://api.cluster-east.example.com:6443"
-	testToken     = "eyJ-test-token"
-	testCA        = "test-ca-data"
+	testNamespace         = "mongodb"
+	testOperatorNamespace = "mongodb-operator"
+	testServerURL         = "https://api.cluster-east.example.com:6443"
+	testToken             = "eyJ-test-token"
+	testCA                = "test-ca-data"
 )
 
 // tokenSecret returns a ServiceAccount token Secret as generate-member-resources would have
@@ -38,38 +39,52 @@ func tokenSecret(clusterName, namespace string, data map[string][]byte) *corev1.
 	}
 }
 
-// parseResources decodes a multi-document YAML manifest into unstructured objects.
-func parseResources(t *testing.T, manifest string) []*unstructured.Unstructured {
+// parseOutput decodes Generate's output into the two typed docs it emits, in order: Secret, then MemberCluster.
+func parseOutput(t *testing.T, manifest string) (corev1.Secret, operatorv1.MemberCluster) {
 	t.Helper()
-	var out []*unstructured.Unstructured
 	dec := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(manifest), 4096)
-	for {
-		obj := &unstructured.Unstructured{}
-		err := dec.Decode(obj)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		require.NoError(t, err, "failed to parse rendered manifest")
-		if obj.GetKind() == "" {
-			continue
-		}
-		out = append(out, obj)
-	}
-	return out
+
+	var secret corev1.Secret
+	require.NoError(t, dec.Decode(&secret), "decoding the first document as a Secret")
+	require.Equal(t, "Secret", secret.Kind, "credential Secret must be the first document")
+
+	var memberCluster operatorv1.MemberCluster
+	require.NoError(t, dec.Decode(&memberCluster), "decoding the second document as a MemberCluster")
+
+	require.ErrorIs(t, dec.Decode(new(struct{})), io.EOF, "expected exactly two documents")
+	return secret, memberCluster
 }
 
-func findByKind(rs []*unstructured.Unstructured, kind string) *unstructured.Unstructured {
-	for _, r := range rs {
-		if r.GetKind() == kind {
-			return r
-		}
+// wantCredentialSecret is the Secret Generate should emit. The kubeconfig payload is blanked here
+// and checked in TestGenerate_KubeconfigContents.
+func wantCredentialSecret(memberClusterName string) corev1.Secret {
+	return corev1.Secret{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mck-credential-" + memberClusterName,
+			Namespace: testOperatorNamespace,
+		},
+		Type:       corev1.SecretTypeOpaque,
+		StringData: map[string]string{credentialSecretKey: ""},
 	}
-	return nil
+}
+
+// wantMemberCluster is the MemberCluster CR Generate should emit.
+func wantMemberCluster(memberClusterName, logicalName string) operatorv1.MemberCluster {
+	return operatorv1.MemberCluster{
+		TypeMeta: metav1.TypeMeta{APIVersion: "operator.mongodb.com/v1", Kind: "MemberCluster"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      memberClusterName,
+			Namespace: testOperatorNamespace,
+		},
+		Spec: operatorv1.MemberClusterSpec{
+			ClusterName:         logicalName,
+			CredentialSecretRef: corev1.LocalObjectReference{Name: "mck-credential-" + memberClusterName},
+		},
+	}
 }
 
 func TestGenerate(t *testing.T) {
-	const operatorNamespace = "mongodb-operator"
-
 	tests := map[string]struct {
 		memberClusterName string
 		logicalName       string
@@ -96,37 +111,19 @@ func TestGenerate(t *testing.T) {
 			out, err := Generate(context.Background(), client, testServerURL, Options{
 				MemberClusterName:        tc.memberClusterName,
 				MemberClusterNamespace:   testNamespace,
-				OperatorNamespace:        operatorNamespace,
+				OperatorNamespace:        testOperatorNamespace,
 				MemberClusterLogicalName: tc.logicalName,
 			})
 			require.NoError(t, err)
 
-			resources := parseResources(t, out)
+			gotSecret, gotMemberCluster := parseOutput(t, out)
 
-			// Exactly a credential Secret and a MemberCluster CR, in that order.
-			require.Len(t, resources, 2)
-			assert.Equal(t, "Secret", resources[0].GetKind(), "credential Secret must come first")
-			assert.Equal(t, "MemberCluster", resources[1].GetKind())
+			// Contents checked in TestGenerate_KubeconfigContents; here just require it present, then blank for the compare.
+			require.NotEmpty(t, gotSecret.StringData[credentialSecretKey], "credential Secret must carry a kubeconfig")
+			gotSecret.StringData[credentialSecretKey] = ""
 
-			wantCredentialSecretName := "mck-credential-" + tc.memberClusterName
-
-			secret := findByKind(resources, "Secret")
-			require.NotNil(t, secret)
-			assert.Equal(t, wantCredentialSecretName, secret.GetName())
-			assert.Equal(t, operatorNamespace, secret.GetNamespace())
-			assert.Equal(t, "v1", secret.GetAPIVersion())
-			secretType, _, _ := unstructured.NestedString(secret.Object, "type")
-			assert.Equal(t, string(corev1.SecretTypeOpaque), secretType)
-
-			mc := findByKind(resources, "MemberCluster")
-			require.NotNil(t, mc)
-			assert.Equal(t, tc.memberClusterName, mc.GetName(), "metadata.name comes from MemberClusterName")
-			assert.Equal(t, operatorNamespace, mc.GetNamespace())
-			assert.Equal(t, "operator.mongodb.com/v1", mc.GetAPIVersion())
-			clusterName, _, _ := unstructured.NestedString(mc.Object, "spec", "clusterName")
-			assert.Equal(t, tc.logicalName, clusterName, "spec.clusterName comes from MemberClusterLogicalName")
-			credRef, _, _ := unstructured.NestedString(mc.Object, "spec", "credentialSecretRef", "name")
-			assert.Equal(t, wantCredentialSecretName, credRef, "MemberCluster must reference the credential Secret")
+			assert.Equal(t, wantCredentialSecret(tc.memberClusterName), gotSecret)
+			assert.Equal(t, wantMemberCluster(tc.memberClusterName, tc.logicalName), gotMemberCluster)
 		})
 	}
 }
@@ -140,22 +137,19 @@ func TestGenerate_KubeconfigContents(t *testing.T) {
 	out, err := Generate(context.Background(), client, testServerURL, Options{
 		MemberClusterName:        "cluster-east",
 		MemberClusterNamespace:   testNamespace,
-		OperatorNamespace:        "mongodb-operator",
+		OperatorNamespace:        testOperatorNamespace,
 		MemberClusterLogicalName: "cluster-east",
 	})
 	require.NoError(t, err)
 
-	secret := findByKind(parseResources(t, out), "Secret")
-	require.NotNil(t, secret)
-	stringData, _, err := unstructured.NestedStringMap(secret.Object, "stringData")
-	require.NoError(t, err)
-	rawKubeconfig, ok := stringData[credentialSecretKey]
+	secret, _ := parseOutput(t, out)
+	rawKubeconfig, ok := secret.StringData[credentialSecretKey]
 	require.True(t, ok, "credential Secret must have a %q key", credentialSecretKey)
 
 	cfg, err := clientcmd.Load([]byte(rawKubeconfig))
 	require.NoError(t, err)
 
-	// Single-context kubeconfig with the extracted server, CA and bearer token.
+	// Single-context kubeconfig.
 	require.Len(t, cfg.Clusters, 1)
 	require.Len(t, cfg.Contexts, 1)
 	require.Len(t, cfg.AuthInfos, 1)
@@ -208,7 +202,7 @@ func TestGenerate_Errors(t *testing.T) {
 			_, err := Generate(context.Background(), client, testServerURL, Options{
 				MemberClusterName:        "cluster-east",
 				MemberClusterNamespace:   testNamespace,
-				OperatorNamespace:        "mongodb-operator",
+				OperatorNamespace:        testOperatorNamespace,
 				MemberClusterLogicalName: "cluster-east",
 			})
 			require.Error(t, err)
