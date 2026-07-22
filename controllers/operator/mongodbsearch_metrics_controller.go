@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1" //nolint //Used to derive a stable host identifier, not for security.
 	"crypto/sha256"
@@ -357,10 +358,25 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 		}
 	}
 
-	var firstFailure error
+	initialTopologyState, err := json.Marshal(topologyState)
+	if err != nil {
+		return workflow.Failed(fmt.Errorf("failed to marshal topology state: %w", err))
+	}
+
+	var reconcileErrs error
 	var worstPhase status.Phase
 	pendingPodTerminations := false
+	preparedWork := make([]clusterWorkItem, 0, len(workList))
+	recordStatus := func(w clusterWorkItem, st workflow.Status) {
+		worstPhase = searchv1.WorstOfPhase(worstPhase, st.Phase())
+		if !st.IsOK() {
+			reconcileErrs = errors.Join(reconcileErrs, fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st)))
+		}
+	}
 
+	// Phase 1: bring every cluster's topology entry up to date in memory. Hosts whose
+	// deferral window elapsed are deregistered from Ops Manager here, before any
+	// forwarder resource is written.
 	for _, w := range workList {
 		var st workflow.Status
 		switch w.Client {
@@ -368,32 +384,37 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 			st = workflow.Pending("Member cluster %q not registered with the operator", w.ClusterName)
 		default:
 			var pending bool
-			pending, st = r.reconcileForCluster(ctx, mdbSearch, shardNames, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, w, log)
+			pending, st = r.prepareCluster(ctx, mdbSearch, shardNames, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, topologyState, w, log)
 			if pending {
 				pendingPodTerminations = true
 			}
+			if st.IsOK() {
+				preparedWork = append(preparedWork, w)
+			}
 		}
-		worstPhase = searchv1.WorstOfPhase(worstPhase, st.Phase())
-		if !st.IsOK() && firstFailure == nil {
-			firstFailure = fmt.Errorf("cluster %q: %s", w.ClusterName, searchcontroller.MessageFromStatus(st))
-		}
+		recordStatus(w, st)
 	}
 
-	removedPending, removedErr := r.cleanupRemovedClusters(ctx, mdbSearch, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, workList, log)
+	removedPending, removedErr := r.cleanupRemovedClusters(ctx, mdbSearch, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, workList, topologyState, log)
 	pendingPodTerminations = pendingPodTerminations || removedPending
 	if removedErr != nil {
 		worstPhase = searchv1.WorstOfPhase(worstPhase, status.PhaseFailed)
-		if firstFailure == nil {
-			firstFailure = removedErr
+		reconcileErrs = errors.Join(reconcileErrs, removedErr)
+	}
+
+	// Single state write for the whole reconcile, skipped when nothing changed.
+	updatedTopologyState, err := json.Marshal(topologyState)
+	if err != nil {
+		return workflow.Failed(fmt.Errorf("failed to marshal topology state: %w", err))
+	}
+	if !bytes.Equal(initialTopologyState, updatedTopologyState) {
+		if err := r.openTopologyStateStore(mdbSearch).WriteState(ctx, topologyState, log); err != nil {
+			return workflow.Failed(fmt.Errorf("failed to write topology state: %w", err))
 		}
 	}
 
 	if cleaningRemovedOperator && removedErr == nil && !removedPending && controllerutil.ContainsFinalizer(mdbSearch, util.SearchMetricsForwarderFinalizer) {
-		currentState, err := r.loadTopologyState(ctx, mdbSearch)
-		if err != nil {
-			return workflow.Failed(err)
-		}
-		if _, stateExists := currentState.Clusters[r.operatorClusterName]; !stateExists {
+		if _, stateExists := topologyState.Clusters[r.operatorClusterName]; !stateExists {
 			controllerutil.RemoveFinalizer(mdbSearch, util.SearchMetricsForwarderFinalizer)
 			if err := r.kubeClient.Update(ctx, mdbSearch); err != nil {
 				return workflow.Failed(fmt.Errorf("failed to remove finalizer after cleaning removed cluster %q: %w", r.operatorClusterName, err))
@@ -401,11 +422,16 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 		}
 	}
 
-	if firstFailure != nil {
+	// Phase 2: ensure forwarder resources only for clusters whose topology state is durable.
+	for _, w := range preparedWork {
+		recordStatus(w, r.reconcileForCluster(ctx, mdbSearch, shardNames, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, w, log))
+	}
+
+	if reconcileErrs != nil {
 		if worstPhase == status.PhaseFailed {
-			return workflow.Failed(firstFailure)
+			return workflow.Failed(reconcileErrs)
 		}
-		return workflow.Pending("%s", firstFailure)
+		return workflow.Pending("%s", reconcileErrs)
 	}
 
 	log.Info("MongoDBSearchMetricsForwarder reconciliation complete")
@@ -522,9 +548,9 @@ func validatePersistedClusterIndexes(workList []clusterWorkItem, topologyState *
 }
 
 // cleanupRemovedClusters reaps metrics forwarder resources, Ops Manager hosts, and the
-// persisted state entry for clusters present in the topology state but no longer in
+// topology state entry for clusters present in the topology state but no longer in
 // spec.clusters (including the legacy ""-keyed entry after a move to named clusters).
-// It loads the state itself so it observes the entries the per-cluster loop just wrote.
+// It mutates topologyState in place; the caller persists the state afterwards.
 // Returns pending=true while a removed cluster's forwarder Deployment is still going away.
 //
 // Host deregistration uses the CR's CURRENT Ops Manager project: if the project (or its
@@ -537,15 +563,11 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedClusters(
 	projectConfig mdbv1.ProjectConfig,
 	agentSecretName string,
 	currentWork []clusterWorkItem,
+	topologyState *searchTopologyState,
 	log *zap.SugaredLogger,
 ) (bool, error) {
-	topologyState, err := r.loadAndMigrateTopologyState(ctx, search, log)
-	if err != nil {
-		return false, err
-	}
 	removedWork := r.persistedOnlyClusterWork(search, currentWork, topologyState)
 	pending := false
-	stateChanged := false
 	var cleanupErr error
 	for _, w := range removedWork {
 		if w.Client == nil {
@@ -590,19 +612,35 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedClusters(
 			continue
 		}
 		delete(topologyState.Clusters, w.ClusterName)
-		stateChanged = true
-	}
-	if stateChanged {
-		if err := r.openTopologyStateStore(search).WriteState(ctx, topologyState, log); err != nil {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to write topology state after removed-cluster cleanup: %w", err))
-		}
 	}
 	return pending, cleanupErr
 }
 
-// reconcileForCluster runs the per-cluster reconcile: replicate dependencies, reconcile topology
-// state, render the OTel config, and ensure the ConfigMap and Deployment. Returns whether any
-// host deletions are still pending (triggering a requeue) and the workflow status.
+// prepareCluster runs phase 1 for one cluster: it updates the cluster's entry in the shared
+// in-memory topology state and deregisters Ops Manager hosts whose deferral window elapsed.
+// Returns whether any host deletions are still pending (triggering a requeue) and the
+// workflow status.
+func (r *MongoDBSearchMetricsForwarderReconciler) prepareCluster(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	shardNames []string,
+	groupID string,
+	projectConfig mdbv1.ProjectConfig,
+	agentSecretName string,
+	topologyState *searchTopologyState,
+	w clusterWorkItem,
+	log *zap.SugaredLogger,
+) (pendingTerminations bool, st workflow.Status) {
+	pending, err := r.reconcileTopologyState(ctx, search, shardNames, groupID, projectConfig, agentSecretName, topologyState, w, log)
+	if err != nil {
+		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+	}
+	return pending, workflow.OK()
+}
+
+// reconcileForCluster runs phase 2 for one cluster: replicate dependencies, render the OTel
+// config, and ensure the ConfigMap and Deployment. It runs only after the topology state has
+// been persisted, so a forwarder never starts pushing metrics for hosts the state does not track.
 func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
@@ -612,14 +650,9 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 	agentSecretName string,
 	w clusterWorkItem,
 	log *zap.SugaredLogger,
-) (pendingTerminations bool, st workflow.Status) {
+) workflow.Status {
 	if err := r.replicateForwarderDependencies(ctx, search, agentSecretName, projectConfig.SSLMMSCAConfigMap, w, log); err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: failed to replicate dependencies: %w", w.ClusterName, err))
-	}
-
-	pending, err := r.reconcileTopologyState(ctx, search, shardNames, groupID, projectConfig, agentSecretName, w, log)
-	if err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		return workflow.Failed(fmt.Errorf("cluster=%q: failed to replicate dependencies: %w", w.ClusterName, err))
 	}
 
 	agentKeySecretName := search.MetricsForwarderAgentKeySecretNameForCluster(w.ClusterIndex)
@@ -642,18 +675,18 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		ScrapeInterval:                    prometheusDefaultScrapeInterval,
 	})
 	if err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: failed to generate metrics forwarder config: %w", w.ClusterName, err))
+		return workflow.Failed(fmt.Errorf("cluster=%q: failed to generate metrics forwarder config: %w", w.ClusterName, err))
 	}
 
 	if err := r.ensureMetricsForwarderConfigMap(ctx, search, configYAML, w, log); err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		return workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
 	}
 
 	if err := r.ensureMetricsForwarderDeployment(ctx, search, configYAML, groupID, agentKeySecretName, caConfigMapName, w, log); err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		return workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
 	}
 
-	return pending, workflow.OK()
+	return workflow.OK()
 }
 
 // replicateForwarderDependencies copies the agent-key Secret and (when present) the OM CA ConfigMap
@@ -987,8 +1020,9 @@ func desiredClusterTopology(search *searchv1.MongoDBSearch, shardNames []string,
 
 // reconcileTopologyState reconciles the topology state for one cluster work item: it detects
 // removed mongot pods, advances each through the deletion state machine, deregisters hosts in Ops
-// Manager at the right moment, and persists the updated state. Returns true while any deletion is
-// still in flight, which causes the caller to requeue.
+// Manager at the right moment, and updates the cluster's entry in the shared in-memory state
+// (the caller persists it once for all clusters). Returns true while any deletion is still in
+// flight, which causes the caller to requeue.
 //
 // # Why a state machine
 //
@@ -1030,15 +1064,11 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileTopologyState(
 	groupID string,
 	projectConfig mdbv1.ProjectConfig,
 	agentSecretName string,
+	fullState *searchTopologyState,
 	w clusterWorkItem,
 	log *zap.SugaredLogger,
 ) (bool, error) {
 	current, err := desiredClusterTopology(search, shardNames, w)
-	if err != nil {
-		return false, err
-	}
-
-	fullState, err := r.loadTopologyState(ctx, search)
 	if err != nil {
 		return false, err
 	}
@@ -1098,10 +1128,6 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileTopologyState(
 		current.HostDeletionReadyAfter = hostDeletionReadyAfter
 	}
 	fullState.Clusters[w.ClusterName] = current
-
-	if err := r.openTopologyStateStore(search).WriteState(ctx, fullState, log); err != nil {
-		return false, fmt.Errorf("failed to write topology state: %w", err)
-	}
 
 	pending := len(stillTerminating) > 0 || len(hostDeletionReadyAfter) > 0
 	return pending, nil
