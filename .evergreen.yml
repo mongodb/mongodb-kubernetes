@@ -659,7 +659,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
             source .generated/context.export.env
-            scripts/mckci release promote images --commit "${revision}"
+            scripts/mckci release promote images --commit "${revision}" --latest-marker latest
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
