@@ -65,6 +65,14 @@ const (
 	labelName = "search-proxy"
 )
 
+var (
+	// errEnvoyCleanupStale reports that the live MongoDBSearch no longer matches the snapshot
+	// this cleanup was computed from (newer generation, LB re-managed, or CR replaced).
+	errEnvoyCleanupStale             = errors.New("MongoDBSearch changed during Envoy cleanup")
+	errEnvoyCleanupParentCheck       = errors.New("failed to confirm MongoDBSearch before Envoy cleanup")
+	errEnvoyCleanupOwnershipMismatch = errors.New("refusing to delete Envoy resource with non-canonical ownership")
+)
+
 // envoyRoute defines routing information for one Envoy entrypoint.
 // Per-shard routes carry exactly one UpstreamHosts entry (the shard's mongot Service FQDN).
 // The cluster-level route carries N entries — one per shard mongot Service in that cluster —
@@ -215,9 +223,22 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if !mdbSearch.IsLBModeManaged() {
 		if mdbSearch.Status.LoadBalancer != nil {
 			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log); err != nil {
-				return reconcile.Result{}, err
+				if errors.Is(err, errEnvoyCleanupStale) {
+					return reconcile.Result{Requeue: true}, nil
+				}
+				if errors.Is(err, errEnvoyCleanupParentCheck) {
+					return reconcile.Result{}, err
+				}
+				current, confirmErr := r.confirmEnvoyCleanupRequired(ctx, mdbSearch)
+				if confirmErr != nil {
+					if errors.Is(confirmErr, errEnvoyCleanupStale) {
+						return reconcile.Result{Requeue: true}, nil
+					}
+					return reconcile.Result{}, confirmErr
+				}
+				return r.updateLBStatusAfterCleanupFailure(ctx, current, workflow.Failed(err), log)
 			}
-			r.clearLBStatus(ctx, mdbSearch, log)
+			return r.clearLBStatus(ctx, mdbSearch, log)
 		}
 		return reconcile.Result{}, nil
 	}
@@ -374,19 +395,22 @@ func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, searc
 
 // clearLBStatus removes the loadBalancer substatus when LB is no longer configured.
 // An explicit null patch is required: the status helper would translate workflow.OK
-// into a Running substatus instead of removing it.
-func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
-	search.Status.LoadBalancer = nil
-	payload, err := json.Marshal([]map[string]any{
-		{"op": "replace", "path": "/status/loadBalancer", "value": nil},
-	})
+// into a Running substatus instead of removing it. The live CR is re-confirmed first
+// so a Search that was re-managed or replaced mid-cleanup keeps its status.
+func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (reconcile.Result, error) {
+	current, err := r.confirmEnvoyCleanupRequired(ctx, search)
 	if err != nil {
-		log.Warnf("Failed to clear loadBalancer status: %s", err)
-		return
+		if errors.Is(err, errEnvoyCleanupStale) {
+			return reconcile.Result{Requeue: true}, nil
+		}
+		return reconcile.Result{}, err
 	}
-	if err := r.kubeClient.Status().Patch(ctx, search, client.RawPatch(types.JSONPatchType, payload)); err != nil {
-		log.Warnf("Failed to clear loadBalancer status: %s", err)
+	if err := r.patchLBStatusForCleanup(ctx, current, nil); err != nil {
+		log.Errorf("Failed to clear loadBalancer status: %s", err)
+		return reconcile.Result{}, err
 	}
+	search.Status.LoadBalancer = nil
+	return reconcile.Result{}, nil
 }
 
 // deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged LB transition.
@@ -429,8 +453,11 @@ func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context,
 			}
 			desiredLabels := envoyLabelsForCluster(search, w.ClusterName, w.ClusterIndex)
 			if !hasCanonicalEnvoyOwnership(resource.obj, desiredLabels) {
-				errs = errors.Join(errs, fmt.Errorf("refusing to delete Envoy %s %s with non-canonical ownership in cluster %q", resource.kind, client.ObjectKeyFromObject(resource.obj), w.ClusterName))
+				errs = errors.Join(errs, fmt.Errorf("%w: %s %s in cluster %q", errEnvoyCleanupOwnershipMismatch, resource.kind, client.ObjectKeyFromObject(resource.obj), w.ClusterName))
 				continue
+			}
+			if _, err := r.confirmEnvoyCleanupRequired(ctx, search); err != nil {
+				return errors.Join(errs, err)
 			}
 			if err := w.Client.Delete(ctx, resource.obj, client.Preconditions{
 				UID:             ptr.To(resource.obj.GetUID()),
@@ -460,6 +487,48 @@ func hasCanonicalEnvoyOwnership(obj metav1.Object, desiredLabels map[string]stri
 	actualCluster, hasActualCluster := actualLabels[khandler.MongoDBSearchClusterNameLabel]
 	desiredCluster, hasDesiredCluster := desiredLabels[khandler.MongoDBSearchClusterNameLabel]
 	return hasActualCluster == hasDesiredCluster && (!hasDesiredCluster || actualCluster == desiredCluster)
+}
+
+// confirmEnvoyCleanupRequired re-reads the MongoDBSearch with the uncached reader and checks
+// that the cleanup decision still holds: same CR (UID), same spec revision (generation), and
+// the LB still unmanaged. Cleanup runs off a possibly stale cache; deleting Deployments or
+// wiping /status/loadBalancer for a CR that was re-managed or replaced would fight the next
+// reconcile. Returns errEnvoyCleanupStale when the cleanup must be re-evaluated.
+func (r *MongoDBSearchEnvoyReconciler) confirmEnvoyCleanupRequired(ctx context.Context, expected *searchv1.MongoDBSearch) (*searchv1.MongoDBSearch, error) {
+	current := &searchv1.MongoDBSearch{}
+	if err := r.apiReader.Get(ctx, expected.NamespacedName(), current); err != nil {
+		return nil, fmt.Errorf("%w: %w", errEnvoyCleanupParentCheck, err)
+	}
+	if current.UID != expected.UID || current.Generation != expected.Generation || current.IsLBModeManaged() {
+		return nil, fmt.Errorf("%w: Envoy cleanup is stale for MongoDBSearch %s", errEnvoyCleanupStale, expected.NamespacedName())
+	}
+	return current, nil
+}
+
+// updateLBStatusAfterCleanupFailure records a cleanup failure on /status/loadBalancer using
+// the generation-guarded cleanup patch, so a concurrently updated CR is never overwritten.
+func (r *MongoDBSearchEnvoyReconciler) updateLBStatusAfterCleanupFailure(ctx context.Context, search *searchv1.MongoDBSearch, st workflow.Status, log *zap.SugaredLogger) (reconcile.Result, error) {
+	partOption := searchv1.NewSearchPartOption(searchv1.SearchPartLoadBalancer)
+	search.UpdateStatus(st.Phase(), append([]status.Option{partOption}, st.StatusOptions()...)...)
+	if err := r.patchLBStatusForCleanup(ctx, search, search.Status.LoadBalancer); err != nil {
+		log.Errorf("Failed to update loadBalancer cleanup status: %s", err)
+		return reconcile.Result{}, err
+	}
+	return st.ReconcileResult()
+}
+
+// patchLBStatusForCleanup patches /status/loadBalancer with JSON-patch test preconditions on
+// uid and generation: the patch is rejected server-side if the CR changed since it was confirmed.
+func (r *MongoDBSearchEnvoyReconciler) patchLBStatusForCleanup(ctx context.Context, search *searchv1.MongoDBSearch, value any) error {
+	payload, err := json.Marshal([]map[string]any{
+		{"op": "test", "path": "/metadata/uid", "value": string(search.UID)},
+		{"op": "test", "path": "/metadata/generation", "value": search.Generation},
+		{"op": "replace", "path": "/status/loadBalancer", "value": value},
+	})
+	if err != nil {
+		return err
+	}
+	return r.kubeClient.Status().Patch(ctx, search, client.RawPatch(types.JSONPatchType, payload))
 }
 
 func (r *MongoDBSearchEnvoyReconciler) readerForCluster(clusterName string) client.Reader {
