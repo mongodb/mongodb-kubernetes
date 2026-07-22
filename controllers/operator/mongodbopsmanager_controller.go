@@ -420,33 +420,16 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring shared global resources %w", err)), log, opsManagerExtraStatusParams)
 	}
 
+	r.configureWatchersForDynamicResources(ctx, opsManager, log)
+
 	// 1. Reconcile AppDB
 	emptyResult, _ := workflow.OK().ReconcileResult()
 	retryResult := reconcile.Result{Requeue: true}
 
-	var appDbReconciler AppDBReconciler
-	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
-		appDbReconciler = r.createNewExternalAppDBReconciler(log)
-	} else {
-		var appDbReconcilerErr error
-		appDbReconciler, appDbReconcilerErr = r.createNewAppDBReconciler(ctx, opsManager, log)
-		if appDbReconcilerErr != nil {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
-		}
-
-		// TODO: make SetupCommonWatchers support opsmanager watcher setup
-		// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
-		// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
-		r.SetupCommonWatchers(opsManager.Spec.AppDB, nil, nil, opsManager.Spec.AppDB.GetName())
+	appDbReconciler, appDBReconcilerErr := r.createAppDBReconcile(ctx, opsManager, log)
+	if appDBReconcilerErr != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
 	}
-
-	// These watches cover OpsManager's own TLS certificate and backup-referenced MongoDB
-	// resources — neither is AppDB-mode-specific, so they run for both internal and
-	// external AppDB.
-	if opsManager.IsTLSEnabled() {
-		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
-	}
-	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
 	if err != nil || (result != emptyResult && result != retryResult) {
@@ -520,6 +503,14 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
 	return workflow.OK().ReconcileResult()
+}
+
+func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
+	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		return r.createNewExternalAppDBReconciler(log), nil
+	}
+
+	return r.createNewAppDBReconciler(ctx, opsManager, log)
 }
 
 // ensureSharedGlobalResources ensures that resources that are shared across watched namespaces (e.g. secrets) are in sync
@@ -989,6 +980,22 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 	}
 
 	return mutatedSts, nil
+}
+
+func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
+	} else {
+		// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
+		// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
+		r.SetupCommonWatchers(opsManager.Spec.AppDB, nil, nil, opsManager.Spec.AppDB.GetName())
+	}
+
+	if opsManager.IsTLSEnabled() {
+		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
+	}
+
+	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 }
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {

@@ -309,7 +309,6 @@ type WatcherResource interface {
 }
 
 // SetupCommonWatchers is the common shared method for all controller to watch the following resources:
-//   - OM related cm and secret
 //   - TLS related secrets, if enabled, this includes x509 internal authentication secrets
 //
 // Note: everything is watched under the same namespace as the objectKey
