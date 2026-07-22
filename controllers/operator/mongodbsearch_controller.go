@@ -95,6 +95,7 @@ type MongoDBSearchReconciler struct {
 
 	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
 	memberClusterReadersMap map[string]client.Reader
+	localNamedClusters      bool
 	operatorClusterName     string
 
 	prepareSearch prepareSearchFunc
@@ -130,6 +131,7 @@ func newMongoDBSearchReconciler(
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
 		memberClusterReadersMap: memberClusterReadersMap,
+		localNamedClusters:      operatorClusterName != "" || (len(memberClustersMap) == 0 && !env.ReadBoolOrDefault(util.SearchEnableMultiClusterEnv, false)), // nolint:forbidigo
 		operatorClusterName:     operatorClusterName,
 		prepareSearch:           newPrepareSearch(operatorClusterName),
 	}
@@ -191,6 +193,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
+	// Adopt state written by GA releases even when its data needs no change.
 	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(*searchcontroller.SearchDeploymentState) bool {
 		return false
 	})
@@ -198,7 +201,18 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(
+		r.kubeClient,
+		mdbSearch,
+		searchSource,
+		r.operatorSearchConfig,
+		r.memberClusterClientsMap,
+		state,
+		r.localNamedClusters,
+	).WithCleanupReaders(
+		r.uncachedReader,
+		r.memberClusterReadersMap,
+	)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {

@@ -42,7 +42,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 	stateCMName := types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}
 
 	newHelper := func(c client.Client) *MongoDBSearchReconcileHelper {
-		return NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(c), search, nil, OperatorSearchConfig{}, nil, nil)
+		return NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(c), search, nil, OperatorSearchConfig{}, nil, nil, false)
 	}
 	switchedOn := func(h *MongoDBSearchReconcileHelper, shard string) bool {
 		return slices.Contains(h.state.RoutingReadyMongotGroups, shard)

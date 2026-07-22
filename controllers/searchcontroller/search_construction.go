@@ -146,7 +146,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 		statefulset.WithNamespace(namespace),
 		statefulset.WithServiceName(svcName),
 		statefulset.WithLabels(labels),
-		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
 		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
@@ -202,7 +201,7 @@ func nodeAffinityModification(nodeAffinity *corev1.NodeAffinity) podtemplatespec
 // update paths — the first reconcile after STS creation then sees a spurious
 // template diff and rolls every mongot pod. Applying last also makes the user
 // override win over operator-set fields, as the CRD field documents. Protected
-// identity labels may be restored afterward without changing the merged spec.
+// lifecycle labels may be restored afterward without changing the merged spec.
 func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) statefulset.Modification {
 	if stsConfig == nil {
 		return statefulset.NOOP()
