@@ -42,20 +42,49 @@ import (
 // reports any per-cluster customer-replicated secret missing. Reconcile returns
 // (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
 // exponential backoff while the customer is fixing the gap.
-const secretsCheckRequeueAfter = 30 * time.Second
+const (
+	secretsCheckRequeueAfter = 30 * time.Second
+	searchMongotComponent    = "mongot"
+	searchProxyComponent     = "search-proxy"
+)
 
-// prepareSearchFunc is the shared pre-reconcile gate for both search reconcilers;
-// writeStatus routes validation failures to the caller's own status surface. Returns
-// skip=true when the caller must stop reconciling (validation failed, or this
-// operator does not own the CR).
-type prepareSearchFunc func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (skip bool, res reconcile.Result, err error)
+// prepareSearchFuncs are the constructor-switched pre-reconcile gates shared by
+// the search reconcilers; writeStatus routes validation failures to the
+// caller's own status surface. validate checks the UN-NARROWED spec; skip=true when
+// the caller must stop reconciling (validation failed). localize narrows
+// spec.clusters[] to this operator's entry; skip=true when another operator
+// owns the CR. Removed-cluster cleanup must run between the two: after
+// validation so an invalid spec never drives deletions (cleanup pauses while
+// the spec sits invalid and resumes once it is fixed), and before localization
+// so the desired-cluster set comes from the full spec — a narrowed spec would
+// mark sibling clusters as removed.
+type prepareSearchFuncs struct {
+	validate func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (skip bool, res reconcile.Result, err error)
+	localize func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (skip bool)
+}
 
-// newPrepareSearch picks the gate once at construction so Reconcile never branches
-// on the operator mode. ValidateSpec runs on the UN-NARROWED spec first: per-cluster
-// operator mode narrows spec.clusters[] via LocalizeToCluster, after which the MC
-// validators short-circuit on len(clusters) <= 1 and would silently accept
-// misconfigured MC specs.
-func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
+// operatorClusterNotInSearchSpec reports whether this operator serves a named
+// cluster that a NON-EMPTY spec.clusters no longer lists — the signal to clean up
+// local resources instead of reconciling. Deliberately false for an empty
+// spec.clusters: rejecting an empty topology is validation's job, not cleanup's.
+func operatorClusterNotInSearchSpec(search *searchv1.MongoDBSearch, operatorClusterName string) bool {
+	if operatorClusterName == "" || len(search.Spec.Clusters) == 0 {
+		return false
+	}
+	for _, cluster := range search.Spec.Clusters {
+		if cluster.Name == operatorClusterName {
+			return false
+		}
+	}
+	return true
+}
+
+// newPrepareSearch picks the gates once at construction so Reconcile never
+// branches on the operator mode. Validation runs on the UN-NARROWED spec:
+// per-cluster operator mode narrows spec.clusters[] via LocalizeToCluster,
+// after which the MC validators short-circuit on len(clusters) <= 1 and would
+// silently accept misconfigured MC specs.
+func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
 	validateSpec := func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
 		if vErr := search.ValidateSpec(); vErr != nil {
 			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
@@ -64,21 +93,29 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
 		return false, reconcile.Result{}, nil
 	}
 	if operatorClusterName == "" {
-		return validateSpec
+		return prepareSearchFuncs{
+			validate: validateSpec,
+			localize: func(*searchv1.MongoDBSearch, *zap.SugaredLogger) bool { return false },
+		}
 	}
-	return func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
-		if skip, r, e := validateSpec(search, log, writeStatus); skip {
-			return skip, r, e
-		}
-		if vErr := search.ValidateOperatorPerClusterIndices(); vErr != nil {
-			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
-			return true, r, e
-		}
-		if !search.LocalizeToCluster(operatorClusterName) {
-			log.Infof("spec.clusters does not list this operator's cluster %q; skipping (another operator owns this CR)", operatorClusterName)
-			return true, reconcile.Result{}, nil
-		}
-		return false, reconcile.Result{}, nil
+	return prepareSearchFuncs{
+		validate: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
+			if skip, r, e := validateSpec(search, log, writeStatus); skip {
+				return skip, r, e
+			}
+			if vErr := search.ValidateOperatorPerClusterIndices(); vErr != nil {
+				r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
+				return true, r, e
+			}
+			return false, reconcile.Result{}, nil
+		},
+		localize: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) bool {
+			if !search.LocalizeToCluster(operatorClusterName) {
+				log.Infof("spec.clusters does not list this operator's cluster %q; skipping (another operator owns this CR)", operatorClusterName)
+				return true
+			}
+			return false
+		},
 	}
 }
 
@@ -91,7 +128,7 @@ type MongoDBSearchReconciler struct {
 	clusterRouter           searchcontroller.SearchClusterRouter
 	operatorClusterName     string
 
-	prepareSearch prepareSearchFunc
+	prepareSearch prepareSearchFuncs
 }
 
 func newMongoDBSearchReconciler(
@@ -142,11 +179,31 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return reconcile.Result{}, nil
 	}
 
-	if skip, result, err := r.prepareSearch(mdbSearch, log,
+	if skip, result, err := r.prepareSearch.validate(mdbSearch, log,
 		func(st workflow.Status) (reconcile.Result, error) {
 			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, st, log)
 		}); skip {
 		return result, err
+	}
+
+	// Removed-cluster cleanup runs after validation (an invalid spec must never
+	// drive deletions) but on the PRE-localization spec (a narrowed spec would
+	// mark sibling clusters as removed). Best-effort: failures are logged, never
+	// fail the reconcile, and are retried on the next reconcile of the live CR.
+	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClusterClientsMap, memberSearchResourceCleanups(mdbSearch), log); err != nil {
+		log.Warnf("Failed to clean up Search resources on removed member clusters: %v", err)
+	}
+
+	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
+		if _, err := searchcontroller.SweepSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, localSearchResourceCleanups(mdbSearch), log); err != nil {
+			log.Warnf("Failed to clean up Search resources on removed cluster %q: %v", r.operatorClusterName, err)
+		}
+		return reconcile.Result{}, nil
+	}
+
+	if r.prepareSearch.localize(mdbSearch, log) {
+		return reconcile.Result{}, nil
 	}
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
@@ -275,6 +332,64 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 
 	r.watch.RemoveDependentWatchedResources(search.NamespacedName())
 	return nil
+}
+
+// memberSearchResourceCleanups lists the per-cluster Search resources swept on
+// member clusters removed from spec.clusters. The state ConfigMap is deliberately
+// absent: it lives on the central cluster only, and a hub whose own cluster is
+// member-registered would otherwise delete the live central state.
+func memberSearchResourceCleanups(search *searchv1.MongoDBSearch) []searchcontroller.SearchResourceCleanup {
+	return []searchcontroller.SearchResourceCleanup{
+		{Kind: "StatefulSet", Component: searchMongotComponent, NewList: func() client.ObjectList { return &appsv1.StatefulSetList{} }},
+		{Kind: "headless Service", Component: searchMongotComponent, NewList: func() client.ObjectList { return &corev1.ServiceList{} }},
+		{Kind: "proxy Service", Component: searchProxyComponent, NewList: func() client.ObjectList { return &corev1.ServiceList{} }},
+		{Kind: "ConfigMap", Component: searchMongotComponent, NewList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
+		{Kind: "x509 client auth Secret", Name: search.X509OperatorManagedSecret().Name, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
+		{Kind: "SCRAM client auth Secret", Name: search.ScramClientCertOperatorManagedSecret().Name, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
+		{Kind: "Secret", Component: searchMongotComponent, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
+	}
+}
+
+// localSearchResourceCleanups adds the central state ConfigMap: swept only when
+// THIS operator's own cluster was removed from spec.clusters.
+func localSearchResourceCleanups(search *searchv1.MongoDBSearch) []searchcontroller.SearchResourceCleanup {
+	return append(memberSearchResourceCleanups(search), searchcontroller.SearchResourceCleanup{
+		Kind: "state ConfigMap", Name: searchcontroller.SearchStateCMName(search), NewList: func() client.ObjectList { return &corev1.ConfigMapList{} },
+	})
+}
+
+func envoySearchResourceCleanups() []searchcontroller.SearchResourceCleanup {
+	return []searchcontroller.SearchResourceCleanup{
+		{Kind: "Deployment", Component: searchProxyComponent, NewList: func() client.ObjectList { return &appsv1.DeploymentList{} }},
+		{Kind: "ConfigMap", Component: searchProxyComponent, NewList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
+	}
+}
+
+// cleanupRemovedMemberSearchResources reaps the label-owned Search resources on
+// member clusters that are no longer listed in spec.clusters. Best-effort: one
+// cluster's failure never blocks the others, and anything missed is retried on
+// the next reconcile of the still-live CR.
+func cleanupRemovedMemberSearchResources(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	memberClients map[string]kubernetesClient.Client,
+	cleanups []searchcontroller.SearchResourceCleanup,
+	log *zap.SugaredLogger,
+) error {
+	desired := make(map[string]struct{}, len(search.Spec.Clusters))
+	for _, cluster := range search.Spec.Clusters {
+		desired[cluster.Name] = struct{}{}
+	}
+	var errs error
+	for clusterName, memberClient := range memberClients {
+		if _, ok := desired[clusterName]; ok {
+			continue
+		}
+		if _, err := searchcontroller.SweepSearchResources(ctx, memberClient, search, clusterName, cleanups, log); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+	return errs
 }
 
 type mongoDBSearchResourceWatch struct {
