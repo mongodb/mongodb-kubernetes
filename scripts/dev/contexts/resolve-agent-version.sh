@@ -28,6 +28,27 @@ else
   AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
 fi
 
+# Check for per-mode custom agent override
+if [[ "${ops_manager_version:-}" == "cloud_qa" ]]; then
+  CUSTOM_URL="$(jq -r '.customAgent.cloudqa // empty' "${PROJECT_DIR}/release.json")"
+elif [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
+  OM_MAJOR="${CUSTOM_OM_VERSION%%.*}"
+  CUSTOM_URL="$(jq -r --arg m "${OM_MAJOR}" '.customAgent[$m] // empty' "${PROJECT_DIR}/release.json")"
+fi
+if [[ -n "${CUSTOM_URL}" ]]; then
+  _filename="${CUSTOM_URL##*/}"
+  _filename="${_filename%.tar.gz}"
+  _rest="${_filename#mongodb-mms-automation-agent-}"
+  _extracted="${_rest%.*}"
+  if [[ -n "${_extracted}" ]]; then
+    AGENT_VERSION="${_extracted}"
+    export MDB_CUSTOM_AGENT_URL="${CUSTOM_URL}"
+  else
+    echo "resolve-agent-version.sh: failed to extract version from custom URL: ${CUSTOM_URL}" >&2
+    exit 1
+  fi
+fi
+
 export AGENT_VERSION
 export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 export MDB_COMMUNITY_AGENT_IMAGE="${AGENT_IMAGE}"

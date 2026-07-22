@@ -338,13 +338,21 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
+    custom_agent_url = get_custom_agent_url_for_version(agent_version)
+    if custom_agent_url:
+        agent_base_url = custom_agent_url.rsplit("/", 1)[0]
+    else:
+        agent_base_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        )
+
     platform_build_args = generate_agent_build_args(
-        platforms=build_configuration_copy.platforms, agent_version=agent_version, tools_version=tools_version
+        platforms=build_configuration_copy.platforms,
+        agent_version=agent_version,
+        tools_version=tools_version,
+        agent_base_url=agent_base_url,
     )
 
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {
@@ -376,6 +384,15 @@ def queue_exception_handling(tasks_queue):
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
+
+
+def get_custom_agent_url_for_version(agent_version: str) -> str:
+    """Look up custom agent URL by version from release.json customAgent."""
+    release = load_release_file()
+    for url in release.get("customAgent", {}).values():
+        if agent_version in url:
+            return url
+    return ""
 
 
 def create_olm_version_tag(version: str) -> str:
