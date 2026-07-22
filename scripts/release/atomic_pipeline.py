@@ -366,22 +366,29 @@ def build_agent_pipeline(
 
     custom_agent_url = get_custom_agent_url(agent_version)
     if custom_agent_url:
+        # Pass the full URL directly — no probing, no suffix guessing.
+        # The URL is split into base + filename only because the Dockerfile
+        # constructs the download URL as ${mongodb_agent_url}/${filename}.
         agent_base_url = custom_agent_url.rsplit("/", 1)[0]
-        # When using a custom/upstream URL, the version in the filename may differ
-        # from release.json. Use UPSTREAM_AGENT_VERSION for probing if set.
-        probe_version = os.getenv("UPSTREAM_AGENT_VERSION", "") or agent_version
+        agent_filename = custom_agent_url.rsplit("/", 1)[1]
+        platform_build_args = {}
+        for platform in build_configuration_copy.platforms:
+            arch = platform.split("/")[-1]
+            platform_build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+        # Tools are always from prod — probe normally.
+        platform_build_args.update(
+            generate_tools_build_args(build_configuration_copy.platforms, tools_version)
+        )
     else:
         agent_base_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
         )
-        probe_version = agent_version
-
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration_copy.platforms,
-        agent_version=probe_version,
-        tools_version=tools_version,
-        agent_base_url=agent_base_url,
-    )
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration_copy.platforms,
+            agent_version=agent_version,
+            tools_version=tools_version,
+            agent_base_url=agent_base_url,
+        )
 
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 

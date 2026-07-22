@@ -228,10 +228,6 @@ parameters:
     value: ""
     description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Both manual (release.json customAgent) and automatic (UPSTREAM_AGENT_URL) modes share the same code path."
 
-  - key: upstream_agent_version
-    value: ""
-    description: "Agent version string from the upstream mms-automation patch. Used for S3 filename probing when UPSTREAM_AGENT_URL is set, since the upstream version may differ from release.json."
-
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
