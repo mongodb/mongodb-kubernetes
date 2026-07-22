@@ -24,6 +24,7 @@ from tests.common.search.search_tester import SearchTester
 if TYPE_CHECKING:
     from kubetester.mongodb_search import MongoDBSearch
     from kubetester.multicluster_client import MultiClusterClient
+    from kubetester.phase import Phase
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -987,6 +988,38 @@ def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
     wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
 
 
+def wait_for_deployment_recreated(apps: Any, namespace: str, name: str, previous_uid: str, timeout: int = 300) -> None:
+    """Poll until Deployment `name` exists with a NEW uid and all desired replicas ready."""
+
+    def recreated_and_ready() -> tuple[bool, str]:
+        try:
+            deployment = apps.read_namespaced_deployment(name, namespace)
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return False, f"{name} absent"
+            raise
+        desired = deployment.spec.replicas or 0
+        ready = deployment.status.ready_replicas or 0
+        replaced = deployment.metadata.uid != previous_uid
+        return replaced and desired > 0 and ready == desired, f"replaced={replaced}, ready={ready}/{desired}"
+
+    run_periodically(recreated_and_ready, timeout=timeout, sleep_time=5, msg=f"Deployment {name} recreation")
+
+
+def wait_for_metrics_forwarder_phase(mdbs: "MongoDBSearch", phase: "Phase", timeout: int = 120) -> None:
+    def reached() -> bool:
+        mdbs.reload()
+        status = mdbs.get_metrics_forwarder_status()
+        return status is not None and status.get("phase") == phase.name
+
+    run_periodically(
+        reached,
+        timeout=timeout,
+        sleep_time=10,
+        msg=f"metrics forwarder status to reach {phase.name}",
+    )
+
+
 def protected_search_input_uids(
     core_v1: Any,
     namespace: str,
@@ -1024,24 +1057,37 @@ def protected_search_input_uids(
     return uids
 
 
+def _mc_search_artifact_readers(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    names: dict[str, str],
+) -> dict[str, Callable[[], Any]]:
+    """Direct readers for the concrete (kind, name) identities of one cluster's
+    Search artifact set (keys match `mc_search_artifact_names`)."""
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+    return {
+        f"StatefulSet/{names['sts']}": lambda: mcc.read_namespaced_stateful_set(names["sts"], namespace),
+        f"Service/{names['svc']}": lambda: mcc.read_namespaced_service(names["svc"], namespace),
+        f"Service/{names['proxy']}": lambda: mcc.read_namespaced_service(names["proxy"], namespace),
+        f"ConfigMap/{names['mongot_cm']}": lambda: mcc.read_namespaced_config_map(names["mongot_cm"], namespace),
+        f"Deployment/{names['envoy_deployment']}": lambda: apps.read_namespaced_deployment(
+            names["envoy_deployment"], namespace
+        ),
+        f"ConfigMap/{names['envoy_cm']}": lambda: mcc.read_namespaced_config_map(names["envoy_cm"], namespace),
+        f"Secret/{names['operator_tls_secret']}": lambda: core.read_namespaced_secret(
+            names["operator_tls_secret"], namespace
+        ),
+    }
+
+
 def search_artifact_uids(
     mcc: "MultiClusterClient",
     namespace: str,
     names: dict[str, str],
 ) -> dict[str, str]:
-    apps = mcc.apps_v1_api()
     core = mcc.core_v1_api()
-    resources = {
-        f"StatefulSet/{names['sts']}": mcc.read_namespaced_stateful_set(names["sts"], namespace),
-        f"Service/{names['svc']}": mcc.read_namespaced_service(names["svc"], namespace),
-        f"Service/{names['proxy']}": mcc.read_namespaced_service(names["proxy"], namespace),
-        f"ConfigMap/{names['mongot_cm']}": mcc.read_namespaced_config_map(names["mongot_cm"], namespace),
-        f"Deployment/{names['envoy_deployment']}": apps.read_namespaced_deployment(
-            names["envoy_deployment"], namespace
-        ),
-        f"ConfigMap/{names['envoy_cm']}": mcc.read_namespaced_config_map(names["envoy_cm"], namespace),
-        f"Secret/{names['operator_tls_secret']}": core.read_namespaced_secret(names["operator_tls_secret"], namespace),
-    }
+    resources = {what: read() for what, read in _mc_search_artifact_readers(mcc, namespace, names).items()}
     pvc_names = mongot_data_pvc_names(namespace, names["sts"], api_client=mcc.api_client)
     assert pvc_names, f"[{mcc.cluster_name}] expected mongot data PVCs for {names['sts']}"
     resources.update(
@@ -1059,19 +1105,36 @@ def search_artifact_uids(
 def wait_for_search_artifacts_deleted(
     mcc: "MultiClusterClient",
     namespace: str,
-    sts_name: str,
+    names: dict[str, str],
     search_name: str,
     *,
     timeout: int = 600,
 ) -> None:
-    """Label-scoped absence is the authoritative cleanup assertion; the exact-name
-    STS check on top catches accidental label stripping on the primary artifact."""
-    wait_for_resource_deleted(
-        lambda: mcc.read_namespaced_stateful_set(sts_name, namespace),
-        f"STS {sts_name} in {mcc.cluster_name}",
+    """Identity-based absence is the authoritative cleanup assertion: every concrete
+    (kind, name) captured before deletion must read back 404 — a resource that loses
+    its owner labels drops out of a label selector but not out of this poll. The
+    label-scoped emptiness List stays as a secondary check for labeled orphans
+    outside the captured inventory."""
+    readers = _mc_search_artifact_readers(mcc, namespace, names)
+
+    def identities_deleted() -> tuple[bool, str]:
+        remaining = []
+        for what, read in readers.items():
+            try:
+                read()
+                remaining.append(what)
+            except client.exceptions.ApiException as exc:
+                if exc.status != 404:
+                    raise
+        return not remaining, f"{mcc.cluster_name}: remaining={remaining}"
+
+    run_periodically(
+        identities_deleted,
         timeout=timeout,
+        sleep_time=5,
+        msg=f"{mcc.cluster_name} Search artifact identity cleanup",
     )
-    wait_for_mongot_pvcs_deleted(namespace, sts_name, api_client=mcc.api_client, timeout=300)
+    wait_for_mongot_pvcs_deleted(namespace, names["sts"], api_client=mcc.api_client, timeout=300)
     wait_for_search_owned_resources_deleted(
         mcc.apps_v1_api(),
         mcc.core_v1_api(),
