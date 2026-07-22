@@ -81,9 +81,11 @@ type envoyRoute struct {
 }
 
 type MongoDBSearchEnvoyReconciler struct {
-	kubeClient        kubernetesClient.Client
-	watch             *watch.ResourceWatcher
-	defaultEnvoyImage string
+	kubeClient          kubernetesClient.Client
+	watch               *watch.ResourceWatcher
+	defaultEnvoyImage   string
+	operatorClusterName string
+	memberClients       map[string]kubernetesClient.Client
 
 	prepareSearch prepareSearchFunc
 	// clientForCluster resolves the client for one cluster name; nil = cluster not
@@ -98,10 +100,12 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 	}
 
 	r := &MongoDBSearchEnvoyReconciler{
-		kubeClient:        kubernetesClient.NewClient(c),
-		watch:             watch.NewResourceWatcher(),
-		defaultEnvoyImage: defaultEnvoyImage,
-		prepareSearch:     newPrepareSearch(operatorClusterName),
+		kubeClient:          kubernetesClient.NewClient(c),
+		watch:               watch.NewResourceWatcher(),
+		defaultEnvoyImage:   defaultEnvoyImage,
+		operatorClusterName: operatorClusterName,
+		memberClients:       clientsMap,
+		prepareSearch:       newPrepareSearch(operatorClusterName),
 	}
 	if len(clientsMap) == 0 {
 		// Single-cluster and per-cluster-operator installs render everything locally.
@@ -167,6 +171,12 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
+	r.watch.AddWatchedResourceIfNotAdded(
+		searchcontroller.SearchStateCMName(mdbSearch),
+		mdbSearch.Namespace,
+		watch.ConfigMap,
+		mdbSearch.NamespacedName(),
+	)
 
 	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
@@ -835,13 +845,15 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbcv1.MongoDBCommunity{}, &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
-
-	// Central-cluster owned Envoy resources (single-cluster path).
-	ownerHandler := handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &searchv1.MongoDBSearch{}, handler.OnlyControllerOwner())
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, ownerHandler)); err != nil {
+	mapper := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
+	searchOwnerPredicate := watch.PredicatesForMultiClusterSearchResource()
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 		return err
 	}
-	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, ownerHandler)); err != nil {
+	// Plain ResourcesHandler: only registered dependency ConfigMaps (e.g. CA bundles)
+	// route create/update events; the rendered LB ConfigMap is not registered, so
+	// manual edits to it never trigger a re-render (Envoy hot-reloads it in place).
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
 
@@ -849,12 +861,11 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// cross-cluster owner refs don't GC. Same pattern as the AppDB MC and
 	// sharded MC controllers (see appdbreplicaset_controller.go and
 	// mongodbshardedcluster_controller.go).
-	mapper := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	for k, v := range memberClusterObjectsMap {
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)
 		}
-		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper)); err != nil {
+		if err := c.Watch(source.Kind[client.Object](v.GetCache(), &corev1.ConfigMap{}, mapper, searchOwnerPredicate)); err != nil {
 			return fmt.Errorf("failed to set Envoy ConfigMap watch on member cluster %s: %w", k, err)
 		}
 	}
