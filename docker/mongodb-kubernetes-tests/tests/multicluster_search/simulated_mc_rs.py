@@ -7,6 +7,7 @@ member_cluster_clients[:2] / member_cluster_names[:2] slice appears in this modu
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from typing import List, Tuple
 
 import kubernetes
@@ -25,6 +26,10 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import (
+    search_artifact_uids,
+    wait_for_search_artifacts_deleted,
+)
 from tests.common.search.mc_search_helper import (
     _assert_mongot_host_on_disk,
     assert_mongot_sync_source_hosts,
@@ -60,6 +65,7 @@ from tests.multicluster_search.conftest import (
     create_search_users,
     install_central_mc_operator,
     install_simulated_operators_per_member,
+    mc_search_customer_input_uids,
 )
 
 logger = test_logger.get_test_logger(__name__)
@@ -571,3 +577,59 @@ def test_cross_cluster_isolation_absence(
     Confirms each simulated operator only materialises its own LocalizeToCluster slice.
     """
     assert_cross_cluster_isolation(namespace, per_cluster_mdbs_search, MDBS_RESOURCE_NAME)
+
+
+@mark.e2e_search_simulated_mc_rs
+def test_remove_own_cluster_entry_sweeps_local_resources(
+    namespace: str,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Dropping the operator's OWN cluster entry from its local CR copy sweeps every
+    local operator-managed artifact, leaves customer inputs and the other cluster
+    untouched, and restoring the entry redeploys the local slice. (No search-state
+    ConfigMap here: the routing-ready latch that creates it never fires for an
+    RS source — the sharded simulated-MC module covers its lifecycle.)"""
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    (mcc_a, mdbs_a), (mcc_b, mdbs_b) = per_cluster_mdbs_search
+    idx_a, idx_b = _idx(mcc_a), _idx(mcc_b)
+
+    names_a = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, idx_a)
+    names_b = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, idx_b)
+
+    uids_a = search_artifact_uids(mcc_a, namespace, names_a)
+    search_artifact_uids(mcc_b, namespace, names_b)  # presence guard for the deletion poll below
+    protected_uids_b = mc_search_customer_input_uids(mcc_b, namespace, MDBS_RESOURCE_NAME, CA_CONFIGMAP_NAME, idx_b)
+
+    mdbs_b.load()
+    original_clusters = deepcopy(mdbs_b["spec"]["clusters"])
+    remaining_clusters = [deepcopy(entry) for entry in original_clusters if entry["name"] == mcc_a.cluster_name]
+    assert len(remaining_clusters) == 1, f"expected exactly one entry for {mcc_a.cluster_name}: {original_clusters}"
+    mdbs_b["spec"]["clusters"] = remaining_clusters
+    mdbs_b.update()
+
+    wait_for_search_artifacts_deleted(mcc_b, namespace, names_b, mdbs_b.name)
+    assert (
+        mc_search_customer_input_uids(mcc_b, namespace, MDBS_RESOURCE_NAME, CA_CONFIGMAP_NAME, idx_b)
+        == protected_uids_b
+    ), f"[{mcc_b.cluster_name}] customer-provided inputs must survive the local sweep"
+
+    mdbs_a.load()
+    phase_a = mdbs_a.get_status_phase()
+    assert (
+        phase_a == Phase.Running
+    ), f"[{mcc_a.cluster_name}] phase={phase_a} after {mcc_b.cluster_name} swept its local slice"
+    assert (
+        search_artifact_uids(mcc_a, namespace, names_a) == uids_a
+    ), f"[{mcc_a.cluster_name}] managed artifacts changed when {mcc_b.cluster_name} swept its local slice"
+
+    mdbs_b.load()
+    mdbs_b["spec"]["clusters"] = original_clusters
+    mdbs_b.update()
+    mdbs_b.assert_reaches_phase(Phase.Running, timeout=900)
+    assert_workload_ready_in_cluster(
+        mcc_b,
+        namespace,
+        {names_b["sts"]: MONGOT_REPLICAS_PER_CLUSTER},
+        names_b["envoy_deployment"],
+        timeout=600,
+    )
