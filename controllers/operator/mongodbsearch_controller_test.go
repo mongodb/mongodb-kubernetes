@@ -3,12 +3,15 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"testing"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -38,6 +41,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
+
+func observeControllerLogs(t *testing.T) *observer.ObservedLogs {
+	t.Helper()
+	core, logs := observer.New(zap.InfoLevel)
+	previous := zap.L()
+	zap.ReplaceGlobals(zap.New(core))
+	t.Cleanup(func() { zap.ReplaceGlobals(previous) })
+	return logs
+}
 
 func newMongoDBCommunity(name, namespace string) *mdbcv1.MongoDBCommunity {
 	return &mdbcv1.MongoDBCommunity{
@@ -195,6 +207,98 @@ func TestMongoDBSearchReconcile_NotFound(t *testing.T) {
 	assert.Equal(t, reconcile.Result{}, res)
 }
 
+func TestMongoDBSearchOnDelete_RemovesDependentWatches(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-watch-cleanup", Namespace: mock.TestNamespace}
+	otherSearchKey := types.NamespacedName{Name: "other-search", Namespace: mock.TestNamespace}
+	reconciler, _ := newSearchReconciler(nil, nil)
+
+	sharedSecret := types.NamespacedName{Name: "shared-secret", Namespace: mock.TestNamespace}
+	reconciler.watch.AddWatchedResourceIfNotAdded(sharedSecret.Name, sharedSecret.Namespace, watch.Secret, searchKey)
+	reconciler.watch.AddWatchedResourceIfNotAdded(sharedSecret.Name, sharedSecret.Namespace, watch.Secret, otherSearchKey)
+	reconciler.watch.AddWatchedResourceIfNotAdded("owned-config", mock.TestNamespace, watch.ConfigMap, searchKey)
+
+	deletedSearch := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{
+		Name: searchKey.Name, Namespace: searchKey.Namespace, UID: "deleted-search-uid",
+	}}
+	require.NoError(t, reconciler.OnDelete(ctx, deletedSearch, zap.S()))
+
+	for watchedObj, dependents := range reconciler.watch.GetWatchedResources() {
+		assert.NotContains(t, dependents, searchKey, "deleted search must be removed from watcher key %s", watchedObj)
+	}
+	assert.Contains(t, reconciler.watch.GetWatchedResources()[watch.Object{ResourceType: watch.Secret, Resource: sharedSecret}], otherSearchKey)
+}
+
+func TestMongoDBSearchOnDelete_SweepsOwnedResourcesOnMemberClusters(t *testing.T) {
+	ctx := context.Background()
+	searchKey := types.NamespacedName{Name: "missing-search", Namespace: mock.TestNamespace}
+	deletedSearch := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{
+		Name: searchKey.Name, Namespace: searchKey.Namespace, UID: "deleted-search-uid",
+	}}
+	ownerLabels := khandler.SearchManagedLabels(deletedSearch, "", "", "")
+	foreignLabels := maps.Clone(ownerLabels)
+	foreignLabels[khandler.MongoDBSearchOwnerNameLabel] = "another-search"
+
+	type clusterFixture struct {
+		ownedSts *appsv1.StatefulSet
+		ownedDep *appsv1.Deployment
+		foreign  *corev1.Service
+	}
+	newFixture := func(prefix string) clusterFixture {
+		return clusterFixture{
+			ownedSts: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-owned-sts", Namespace: searchKey.Namespace, Labels: maps.Clone(ownerLabels)}},
+			ownedDep: &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-owned-deployment", Namespace: searchKey.Namespace, Labels: maps.Clone(ownerLabels)}},
+			foreign:  &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-foreign", Namespace: searchKey.Namespace, Labels: foreignLabels}},
+		}
+	}
+	deleteErr := fmt.Errorf("injected StatefulSet sweep failure")
+	newClusterClient := func(fx clusterFixture, funcs interceptor.Funcs) client.Client {
+		return mock.NewEmptyFakeClientBuilder().
+			WithObjects(fx.ownedSts, fx.ownedDep, fx.foreign).
+			WithInterceptorFuncs(funcs).
+			Build()
+	}
+	failStsSweep := interceptor.Funcs{
+		DeleteAllOf: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteAllOfOption) error {
+			if _, ok := obj.(*appsv1.StatefulSet); ok {
+				return deleteErr
+			}
+			return c.DeleteAllOf(ctx, obj, opts...)
+		},
+	}
+	fixtureA, fixtureB, centralFixture := newFixture("member-a"), newFixture("member-b"), newFixture("central")
+	memberA := newClusterClient(fixtureA, failStsSweep)
+	memberB := newClusterClient(fixtureB, interceptor.Funcs{})
+	centralClient := newClusterClient(centralFixture, interceptor.Funcs{})
+	reconciler := newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{"member-a": memberA, "member-b": memberB}, "")
+	logs := observeControllerLogs(t)
+
+	require.NoError(t, reconciler.OnDelete(ctx, deletedSearch, zap.S()),
+		"member-cluster sweep failures are warnings, not OnDelete errors")
+
+	assert.Positive(t, logs.FilterMessageSnippet(deleteErr.Error()).Len(), "expected a warning mentioning the injected sweep failure")
+	// The failed StatefulSet sweep on member-a blocks neither the other kinds nor member-b.
+	require.NoError(t, memberA.Get(ctx, client.ObjectKeyFromObject(fixtureA.ownedSts), &appsv1.StatefulSet{}))
+	assert.True(t, apiErrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(fixtureA.ownedDep), &appsv1.Deployment{})))
+	assert.True(t, apiErrors.IsNotFound(memberB.Get(ctx, client.ObjectKeyFromObject(fixtureB.ownedSts), &appsv1.StatefulSet{})))
+	assert.True(t, apiErrors.IsNotFound(memberB.Get(ctx, client.ObjectKeyFromObject(fixtureB.ownedDep), &appsv1.Deployment{})))
+	for _, member := range []struct {
+		name    string
+		client  client.Client
+		fixture clusterFixture
+	}{
+		{name: "member-a", client: memberA, fixture: fixtureA},
+		{name: "member-b", client: memberB, fixture: fixtureB},
+	} {
+		require.NoError(t, member.client.Get(ctx, client.ObjectKeyFromObject(member.fixture.foreign), &corev1.Service{}),
+			"[%s] another Search's resources are never selected", member.name)
+	}
+	// Central-cluster resources carry controller owner references and are left
+	// to native garbage collection — the sweep never touches the central cluster.
+	require.NoError(t, centralClient.Get(ctx, client.ObjectKeyFromObject(centralFixture.ownedSts), &appsv1.StatefulSet{}))
+	require.NoError(t, centralClient.Get(ctx, client.ObjectKeyFromObject(centralFixture.ownedDep), &appsv1.Deployment{}))
+}
+
 func TestMongoDBSearchDeploymentWatchesRouteLifecycleEvents(t *testing.T) {
 	reconciler, _ := newSearchReconciler(nil)
 	topologies := []struct {
@@ -303,6 +407,56 @@ func TestRegisterTLSResourceWatchesIncludesShardedMemberDependencies(t *testing.
 	}
 	for _, resource := range expected {
 		assert.Contains(t, watched[resource], search.NamespacedName(), "missing dependency watch for %s", resource)
+	}
+}
+
+func TestMongoDBSearchReconcile_DeletionTimestampTakesPriorityOverDisableAnnotation(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name          string
+		newReconciler func(t *testing.T, search *searchv1.MongoDBSearch) (reconcile.Reconciler, client.Client)
+		wantLog       string
+		wantAbsentLog string
+	}{
+		{
+			name: "main controller",
+			newReconciler: func(t *testing.T, search *searchv1.MongoDBSearch) (reconcile.Reconciler, client.Client) {
+				return newSearchReconciler(nil, search)
+			},
+			wantLog:       "is deleting; skipping main-controller reconcile",
+			wantAbsentLog: "reconciliation disabled",
+		},
+		{
+			name: "envoy controller",
+			newReconciler: func(t *testing.T, search *searchv1.MongoDBSearch) (reconcile.Reconciler, client.Client) {
+				c := fake.NewClientBuilder().WithScheme(envoyTestScheme(t)).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+				return newMongoDBSearchEnvoyReconciler(c, "envoy:latest", nil, ""), c
+			},
+			wantLog: "is deleting; skipping envoy reconcile",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := observeControllerLogs(t)
+			now := metav1.Now()
+			search := newMongoDBSearch("search", mock.TestNamespace, "missing-source")
+			search.DeletionTimestamp = &now
+			search.Finalizers = []string{"kubernetes"}
+			search.Annotations = map[string]string{searchv1.DisableReconciliationAnnotation: "true"}
+			reconciler, c := tc.newReconciler(t, search)
+
+			res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, res)
+
+			updated := &searchv1.MongoDBSearch{}
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
+			assert.Empty(t, updated.Status.Phase)
+			assert.Nil(t, updated.Status.LoadBalancer)
+			assert.Equal(t, 1, logs.FilterMessageSnippet(tc.wantLog).Len())
+			if tc.wantAbsentLog != "" {
+				assert.Zero(t, logs.FilterMessageSnippet(tc.wantAbsentLog).Len())
+			}
+		})
 	}
 }
 

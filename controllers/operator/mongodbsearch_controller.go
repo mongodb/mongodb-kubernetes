@@ -2,10 +2,14 @@ package operator
 
 import (
 	"context"
+	"errors"
+	"maps"
+	"slices"
 	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -125,6 +129,11 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
+	if !mdbSearch.DeletionTimestamp.IsZero() {
+		log.Infof("MongoDBSearch %s/%s is deleting; skipping main-controller reconcile", mdbSearch.Namespace, mdbSearch.Name)
+		return reconcile.Result{}, nil
+	}
+
 	// Short-circuit: the disable-reconciliation annotation allows to
 	// pause reconciliation on a single CR so owned objects can be mutated
 	// without the operator reverting them.
@@ -238,6 +247,39 @@ func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context,
 	return getSearchSource(ctx, kubeClient, r.watch, search, log)
 }
 
+// OnDelete runs one best-effort cleanup pass when a MongoDBSearch is deleted.
+// Kubernetes garbage collection only works within a single cluster: resources
+// on the CR's own cluster carry owner references and are collected by
+// Kubernetes, while an owner reference on a member-cluster object pointing at
+// the central-cluster CR does nothing. This pass therefore deletes
+// member-cluster resources itself, selecting them by the search-name and
+// search-namespace labels. A same-name successor CR created within the
+// deletion window may transiently match that selection — an accepted race.
+// There are no retries and no post-restart recovery: anything this pass misses
+// is logged and left to manual cleanup.
+func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
+	search, ok := obj.(*searchv1.MongoDBSearch)
+	if !ok {
+		return xerrors.Errorf("expected a deleted MongoDBSearch, got %T", obj)
+	}
+
+	for _, clusterName := range slices.Sorted(maps.Keys(r.memberClusterClientsMap)) {
+		memberClient := r.memberClusterClientsMap[clusterName]
+		errs := deleteOwnedClusterResources(ctx, memberClient, clusterName, search, log)
+		// deleteOwnedClusterResources' kind list has no Deployment, but Search
+		// also owns per-cluster Envoy and metrics-forwarder Deployments.
+		if err := memberClient.DeleteAllOf(ctx, &appsv1.Deployment{}, &mdbv1.MongodbCleanUpOptions{Namespace: search.Namespace, Labels: search.GetOwnerLabels()}); err != nil {
+			errs = errors.Join(errs, err)
+		}
+		if errs != nil {
+			log.Warnf("Failed to clean up resources of deleted MongoDBSearch %s on cluster %q: %v", search.NamespacedName(), clusterName, errs)
+		}
+	}
+
+	r.watch.RemoveDependentWatchedResources(search.NamespacedName())
+	return nil
+}
+
 type mongoDBSearchResourceWatch struct {
 	obj        client.Object
 	handler    handler.EventHandler
@@ -248,7 +290,9 @@ func centralMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSe
 	searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	searchOwnerPredicates := []predicate.Predicate{watch.PredicatesForMultiClusterSearchResource()}
 	return []mongoDBSearchResourceWatch{
-		{obj: &searchv1.MongoDBSearch{}, handler: &handler.EnqueueRequestForObject{}},
+		// The delete override runs the one-shot best-effort cleanup pass with the
+		// deleted CR object; create/update events enqueue normally.
+		{obj: &searchv1.MongoDBSearch{}, handler: &ResourceEventHandler{deleter: r}},
 		{obj: &mdbv1.MongoDB{}, handler: &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
 		{obj: &mdbcv1.MongoDBCommunity{}, handler: &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
 		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
