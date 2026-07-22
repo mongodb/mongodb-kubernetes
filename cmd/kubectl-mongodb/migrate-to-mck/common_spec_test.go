@@ -295,6 +295,50 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 	assert.Equal(t, util.X509, result.Authentication.InternalCluster)
 }
 
+func TestBuildSecurity_CustomCAFilePathIsSet(t *testing.T) {
+	ac := testAC(
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigScramSha256Option}},
+		map[string]om.Process{"host-0": {}},
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+	ac.AgentSSL = &om.AgentSSL{CAFilePath: "/etc/ssl/custom/ca.pem"}
+
+	result, err := buildSecurity(ac, "mdb", "my-rs")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.TLSConfig)
+	assert.Equal(t, "/etc/ssl/custom/ca.pem", result.TLSConfig.CAFilePath)
+}
+
+func TestBuildSecurity_DefaultCAFilePathIsNotSet(t *testing.T) {
+	ac := testAC(
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigScramSha256Option}},
+		map[string]om.Process{"host-0": {}},
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+	ac.AgentSSL = &om.AgentSSL{CAFilePath: defaultCAFilePath}
+
+	result, err := buildSecurity(ac, "mdb", "my-rs")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.TLSConfig)
+	assert.Empty(t, result.TLSConfig.CAFilePath, "default CA path must not be written to the CR")
+}
+
+func TestBuildSecurity_NilAgentSSLLeavesCAFilePathEmpty(t *testing.T) {
+	ac := testAC(
+		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigScramSha256Option}},
+		map[string]om.Process{"host-0": {}},
+		[]om.ReplicaSetMember{{"host": "host-0"}},
+	)
+
+	result, err := buildSecurity(ac, "mdb", "my-rs")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.TLSConfig)
+	assert.Empty(t, result.TLSConfig.CAFilePath)
+}
+
 func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {

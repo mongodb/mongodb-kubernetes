@@ -209,9 +209,9 @@ func TestValidate_X509Auth(t *testing.T) {
 			ConnectionString: fmt.Sprintf(
 				"mongodb://%s/?directConnection=true&serverSelectionTimeoutMS=5000", addr,
 			),
-			AuthMechanism: "MONGODB-X509",
-			CAPath:        filepath.Join(certsDir, "ca.crt"),
-			CertPath:      filepath.Join(certsDir, "client.pem"),
+			AuthMechanism:   "MONGODB-X509",
+			MongodTLSCAPath: filepath.Join(certsDir, "ca.crt"),
+			CertPath:        filepath.Join(certsDir, "client.pem"),
 		}
 		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
 	})
