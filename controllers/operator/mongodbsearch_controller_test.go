@@ -980,7 +980,7 @@ func newOperatorPerClusterShardedMongoDBSearch(name, namespace string) *searchv1
 		},
 	}
 	return &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, UID: types.UID(name + "-uid")},
 		Spec: searchv1.MongoDBSearchSpec{
 			Version: "1.70.1",
 			Source: &searchv1.MongoDBSource{
@@ -1011,6 +1011,62 @@ func operatorPerClusterShardedTLSSecrets(search *searchv1.MongoDBSearch, cluster
 		})
 	}
 	return out
+}
+
+func TestMongoDBSearchReconcile_ShardReductionSweepsStaleResourcesAndTLSSecret(t *testing.T) {
+	ctx := t.Context()
+	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+	sourceSecrets := operatorPerClusterShardedTLSSecrets(search, 0)
+	for i, obj := range sourceSecrets {
+		secret := obj.(*corev1.Secret)
+		secret.UID = types.UID(fmt.Sprintf("source-secret-%d-uid", i))
+		require.NoError(t, c.Create(ctx, secret))
+	}
+
+	got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
+	require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+	for _, shardName := range []string{"sh-0", "sh-1"} {
+		require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(0, shardName), &appsv1.StatefulSet{}))
+		require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(0, shardName), &corev1.Service{}))
+		require.NoError(t, c.Get(ctx, search.MongotConfigMapForClusterShard(0, shardName), &corev1.ConfigMap{}))
+		require.NoError(t, c.Get(ctx, search.TLSOperatorSecretForClusterShard(0, shardName), &corev1.Secret{}))
+	}
+
+	liveSearch := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, search.NamespacedName(), liveSearch))
+	liveSearch.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards = liveSearch.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards[:1]
+	require.NoError(t, c.Update(ctx, liveSearch))
+
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+
+	require.NoError(t, err)
+	assert.Positive(t, result.RequeueAfter)
+	updatedSearch := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, search.NamespacedName(), updatedSearch))
+	assert.Equal(t, status.PhaseRunning, updatedSearch.Status.Phase, updatedSearch.Status.Message)
+	for _, stale := range []struct {
+		key types.NamespacedName
+		obj client.Object
+	}{
+		{key: search.MongotStatefulSetForClusterShard(0, "sh-1"), obj: &appsv1.StatefulSet{}},
+		{key: search.MongotServiceForClusterShard(0, "sh-1"), obj: &corev1.Service{}},
+		{key: search.MongotConfigMapForClusterShard(0, "sh-1"), obj: &corev1.ConfigMap{}},
+		{key: search.TLSOperatorSecretForClusterShard(0, "sh-1"), obj: &corev1.Secret{}},
+	} {
+		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, stale.key, stale.obj)), "%T %s", stale.obj, stale.key)
+	}
+	require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(0, "sh-0"), &appsv1.StatefulSet{}))
+	require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(0, "sh-0"), &corev1.Service{}))
+	require.NoError(t, c.Get(ctx, search.MongotConfigMapForClusterShard(0, "sh-0"), &corev1.ConfigMap{}))
+	require.NoError(t, c.Get(ctx, search.TLSOperatorSecretForClusterShard(0, "sh-0"), &corev1.Secret{}))
+	for _, obj := range sourceSecrets {
+		want := obj.(*corev1.Secret)
+		actual := &corev1.Secret{}
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(want), actual))
+		assert.Equal(t, want.UID, actual.UID)
+		assert.Equal(t, want.Data, actual.Data)
+	}
 }
 
 func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly(t *testing.T) {

@@ -86,6 +86,7 @@ type MongoDBSearchReconciler struct {
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
 	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
+	clusterRouter           searchcontroller.SearchClusterRouter
 	operatorClusterName     string
 
 	prepareSearch prepareSearchFunc
@@ -102,11 +103,13 @@ func newMongoDBSearchReconciler(
 		clientsMap[k] = kubernetesClient.NewClient(v)
 	}
 
+	central := kubernetesClient.NewClient(kubeClient)
 	return &MongoDBSearchReconciler{
-		kubeClient:              kubernetesClient.NewClient(kubeClient),
+		kubeClient:              central,
 		watch:                   watch.NewResourceWatcher(),
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
+		clusterRouter:           searchcontroller.NewSearchClusterRouter(central, clientsMap, operatorClusterName),
 		operatorClusterName:     operatorClusterName,
 		prepareSearch:           newPrepareSearch(operatorClusterName),
 	}
@@ -182,7 +185,15 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)
 	}
 
-	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state)
+	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(
+		r.kubeClient,
+		mdbSearch,
+		searchSource,
+		r.operatorSearchConfig,
+		r.memberClusterClientsMap,
+		state,
+		r.clusterRouter.NamedClustersAreLocal,
+	)
 
 	result, err := reconcileHelper.Reconcile(ctx, log).ReconcileResult()
 	if err != nil {
