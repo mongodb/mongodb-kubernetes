@@ -246,9 +246,11 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     }
 
     # Pass custom agent URL to init-database image (consumed only in non-static mode).
-    # Same code path as static: manual (release.json customAgent) first,
-    # then MDB_CUSTOM_AGENT_URL env var (automatic CI).
-    custom_agent_url = get_custom_agent_url(release.get("agentVersion", ""))
+    # Init-database image is built once for all variants, so only use the env var
+    # (automatic CI) — not release.json customAgent, which requires the per-variant
+    # agent version that isn't available here. Manual mode is handled by the operator
+    # injecting MDB_CUSTOM_AGENT_URL at runtime.
+    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
     if custom_agent_url:
         logger.info(f"Passing custom agent URL to init-database image build: {custom_agent_url}")
         args["custom_agent_url"] = custom_agent_url
@@ -423,11 +425,22 @@ def load_release_file() -> Dict:
 
 
 def get_custom_agent_url_for_version(agent_version: str) -> str:
-    """Look up custom agent URL by version from release.json customAgent."""
+    """Look up custom agent URL by exact version match from release.json customAgent."""
     release = load_release_file()
-    for url in release.get("customAgent", {}).values():
-        if agent_version in url:
+    custom_agents = release.get("customAgent", {})
+    for url in custom_agents.values():
+        if not url:
+            continue
+        filename = url.rsplit("/", 1)[-1]
+        if filename.startswith(f"mongodb-mms-automation-agent-{agent_version}."):
             return url
+    # Warn if customAgent has entries but none matched — likely a version mismatch.
+    non_empty = [u for u in custom_agents.values() if u]
+    if non_empty:
+        logger.warning(
+            f"customAgent has {len(non_empty)} URL(s) but none match agent version {agent_version}; "
+            "falling back. Check that the version in the URL filename matches release.json."
+        )
     return ""
 
 

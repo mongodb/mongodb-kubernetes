@@ -1516,7 +1516,7 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "agent_integration" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-large
@@ -1527,7 +1527,7 @@ buildvariants:
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static", "agent_integration" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-medium
@@ -1547,7 +1547,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "static", "agent_integration" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "static" ]
     <<: *production_code_paths
     run_on:
       - ubuntu2404-medium

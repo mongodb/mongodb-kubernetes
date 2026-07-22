@@ -255,28 +255,28 @@ class TestCustomAgentUrlResolution(unittest.TestCase):
 
     @patch("scripts.release.atomic_pipeline.load_release_file")
     def test_get_custom_agent_url_for_version_matches_version_in_url(self, mock_release):
-        """get_custom_agent_url_for_version returns URL containing the agent version."""
+        """get_custom_agent_url_for_version returns URL with exact version match."""
         mock_release.return_value = {
             "customAgent": {
-                "8": "https://example.com/agent-109.0.0.9188-1.tar.gz",
-                "7": "https://example.com/agent-107.0.0.1234-1.tar.gz",
+                "8": "https://example.com/mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz",
+                "7": "https://example.com/mongodb-mms-automation-agent-107.0.0.1234-1.rhel8_x86_64.tar.gz",
             }
         }
 
         result = get_custom_agent_url_for_version("109.0.0.9188-1")
 
-        self.assertEqual(result, "https://example.com/agent-109.0.0.9188-1.tar.gz")
+        self.assertEqual(result, "https://example.com/mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz")
 
     @patch("scripts.release.atomic_pipeline.load_release_file")
-    def test_get_custom_agent_url_for_version_returns_empty_when_no_match(self, mock_release):
-        """get_custom_agent_url_for_version returns empty when no URL matches the version."""
+    def test_get_custom_agent_url_for_version_no_substring_false_match(self, mock_release):
+        """Version 12.0.35.7911-1 must not match URL containing 107.0.35.7911-1."""
         mock_release.return_value = {
             "customAgent": {
-                "8": "https://example.com/agent-107.0.0.1234-1.tar.gz",
+                "7": "https://example.com/mongodb-mms-automation-agent-107.0.35.7911-1.rhel8_x86_64.tar.gz",
             }
         }
 
-        result = get_custom_agent_url_for_version("109.0.0.9188-1")
+        result = get_custom_agent_url_for_version("12.0.35.7911-1")
 
         self.assertEqual(result, "")
 
