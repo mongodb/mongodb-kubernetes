@@ -272,11 +272,14 @@ func TestReadSearchState_UIDGuardBehavior(t *testing.T) {
 	tests := []struct {
 		name           string
 		recordedUID    *string
+		controllerUID  *types.UID
 		expectedGroups []string
 	}{
-		{name: "missing uid marker adopts legacy state", expectedGroups: []string{"stored-shard"}},
-		{name: "uid mismatch returns fresh state", recordedUID: ptr.To("old-search-uid")},
-		{name: "matching uid keeps stored state", recordedUID: ptr.To(string(search.UID)), expectedGroups: []string{"stored-shard"}},
+		{name: "missing uid marker without controller adopts legacy state", expectedGroups: []string{"stored-shard"}},
+		{name: "missing uid marker with current controller adopts legacy state", controllerUID: ptr.To(search.UID), expectedGroups: []string{"stored-shard"}},
+		{name: "missing uid marker with stale controller returns fresh state", controllerUID: ptr.To(types.UID("old-search-uid"))},
+		{name: "matching uid keeps stored state despite stale controller", recordedUID: ptr.To(string(search.UID)), controllerUID: ptr.To(types.UID("old-search-uid")), expectedGroups: []string{"stored-shard"}},
+		{name: "uid mismatch returns fresh state despite current controller", recordedUID: ptr.To("old-search-uid"), controllerUID: ptr.To(search.UID)},
 	}
 
 	for _, tc := range tests {
@@ -288,11 +291,17 @@ func TestReadSearchState_UIDGuardBehavior(t *testing.T) {
 			if tc.recordedUID != nil {
 				labels[khandler.MongoDBSearchOwnerUIDLabel] = *tc.recordedUID
 			}
+			var ownerReferences []metav1.OwnerReference
+			if tc.controllerUID != nil {
+				ownerReferences = kube.BaseOwnerReference(search)
+				ownerReferences[0].UID = *tc.controllerUID
+			}
 			stateCM := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      SearchStateCMName(search),
-					Namespace: search.Namespace,
-					Labels:    labels,
+					Name:            SearchStateCMName(search),
+					Namespace:       search.Namespace,
+					Labels:          labels,
+					OwnerReferences: ownerReferences,
 				},
 				Data: map[string]string{searchStateKey: string(storedStateRaw)},
 			}
@@ -308,6 +317,76 @@ func TestReadSearchState_UIDGuardBehavior(t *testing.T) {
 			assert.Equal(t, tc.recordedUID != nil, hasUIDLabel, "ReadSearchState must stay read-only")
 			if tc.recordedUID != nil {
 				assert.Equal(t, *tc.recordedUID, recordedUID, "ReadSearchState must stay read-only")
+			}
+			controller := metav1.GetControllerOf(cm)
+			if tc.controllerUID == nil {
+				assert.Nil(t, controller)
+			} else {
+				require.NotNil(t, controller)
+				assert.Equal(t, *tc.controllerUID, controller.UID, "ReadSearchState must stay read-only")
+			}
+		})
+	}
+}
+
+func TestMutateSearchState_UIDGuardBehavior(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch("mysearch", mock.TestNamespace)
+	search.UID = "new-search-uid"
+
+	storedStateRaw, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"stored-shard"}})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		controllerUID  *types.UID
+		expectedGroups []string
+	}{
+		{name: "missing uid marker without controller adopts legacy state", expectedGroups: []string{"stored-shard", "new-shard"}},
+		{name: "missing uid marker with current controller adopts legacy state", controllerUID: ptr.To(search.UID), expectedGroups: []string{"stored-shard", "new-shard"}},
+		{name: "missing uid marker with stale controller resets state", controllerUID: ptr.To(types.UID("old-search-uid")), expectedGroups: []string{"new-shard"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var ownerReferences []metav1.OwnerReference
+			if tc.controllerUID != nil {
+				ownerReferences = kube.BaseOwnerReference(search)
+				ownerReferences[0].UID = *tc.controllerUID
+			}
+			stateCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            SearchStateCMName(search),
+					Namespace:       search.Namespace,
+					Labels:          search.GetOwnerLabels(),
+					OwnerReferences: ownerReferences,
+				},
+				Data: map[string]string{searchStateKey: string(storedStateRaw)},
+			}
+			c := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(stateCM).Build())
+
+			state, err := MutateSearchState(ctx, c, search, func(state *SearchDeploymentState) bool {
+				state.RoutingReadyMongotGroups = append(state.RoutingReadyMongotGroups, "new-shard")
+				return true
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedGroups, state.RoutingReadyMongotGroups)
+
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, c.Get(ctx, types.NamespacedName{Name: stateCM.Name, Namespace: stateCM.Namespace}, cm))
+			var storedState SearchDeploymentState
+			require.NoError(t, decodeStateJSON(cm, &storedState))
+			assert.Equal(t, tc.expectedGroups, storedState.RoutingReadyMongotGroups)
+			assert.Equal(t, string(search.UID), cm.Labels[khandler.MongoDBSearchOwnerUIDLabel])
+			assert.True(t, slices.ContainsFunc(cm.OwnerReferences, func(ref metav1.OwnerReference) bool {
+				return ref.UID == search.UID
+			}))
+			controller := metav1.GetControllerOf(cm)
+			if tc.controllerUID == nil {
+				assert.Nil(t, controller)
+			} else {
+				require.NotNil(t, controller)
+				assert.Equal(t, *tc.controllerUID, controller.UID, "existing controller reference must be preserved")
 			}
 		})
 	}
