@@ -222,10 +222,6 @@ parameters:
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
 
-  - key: mdb_custom_agent_url
-    value: ""
-    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Both manual (release.json customAgent) and automatic (MDB_CUSTOM_AGENT_URL) modes share the same code path."
-
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -273,10 +269,6 @@ patch_aliases:
   - alias: "race"
     description: "Run race detector variants"
     variant_tags: [ "race" ]
-    task: ".*"
-  - alias: "agent_integration"
-    description: "Run static and non-static E2E pairs with a custom agent from upstream (triggered by mms-automation Patch Trigger Alias)"
-    variant_tags: [ "agent_integration" ]
     task: ".*"
 
 # Triggered whenever the GitHub PR is created
@@ -1613,7 +1605,7 @@ buildvariants:
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "patch", "om7", "agent_integration" ]
+    tags: [ "staging", "e2e_test_suite", "patch", "om7" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: *base_om7_dependency
@@ -1625,7 +1617,7 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static", "om7", "agent_integration" ]
+    tags: [ "staging", "e2e_test_suite", "static", "om7" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1636,7 +1628,7 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "agent_integration" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
     <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2204-medium-high-memory
@@ -1650,7 +1642,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static", "agent_integration" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
