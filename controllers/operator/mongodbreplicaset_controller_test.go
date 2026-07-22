@@ -1901,7 +1901,7 @@ func TestAdoptionGate_BlockedMessage(t *testing.T) {
 			ownerRefs: []metav1.OwnerReference{{
 				APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: "om-uid-1111",
 			}},
-			expectedMessage: `StatefulSet my-om-db is managed by Ops Manager "my-om": either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this MongoDB resource`,
+			expectedMessage: `This MongoDB resource is unmanaged: StatefulSet my-om-db is managed by Ops Manager "my-om". Either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this resource`,
 		},
 		{
 			name: "non-OM foreign owner keeps the detach-waiting message",

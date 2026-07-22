@@ -345,7 +345,7 @@ func (r *ReplicaSetReconcilerHelper) checkAdoptionGate(ctx context.Context, mdb 
 	blockedMessage := fmt.Sprintf("waiting for Ops Manager to finish detaching AppDB StatefulSet %s", mdb.Name)
 	for _, ref := range sts.OwnerReferences {
 		if ref.Kind == "MongoDBOpsManager" {
-			blockedMessage = fmt.Sprintf("StatefulSet %s is managed by Ops Manager %q: either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this MongoDB resource", mdb.Name, ref.Name)
+			blockedMessage = fmt.Sprintf("This MongoDB resource is unmanaged: StatefulSet %s is managed by Ops Manager %q. Either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this resource", mdb.Name, ref.Name)
 			break
 		}
 	}

@@ -153,8 +153,10 @@ that the readiness-based filtering would otherwise drop, leaving the CR reconcil
 
 ## Open items
 
-1. The CR's released-state message and phase (Pending vs a dedicated condition) — cosmetic,
-   decide at implementation.
+1. ~~The CR's released-state message and phase.~~ **Resolved:** the released window keeps its
+   Pending "released … can be deleted" message; once the OM owns the StatefulSet, the adoption
+   gate reports Pending "This MongoDB resource is unmanaged: StatefulSet … is managed by Ops
+   Manager …. Either update the Ops Manager specification or delete this resource".
 2. Whether `reAdoptInternalAppDBIfNeeded` keeps its name (it no longer only "re-adopts"; it
    arbitrates ownership) — rename candidate: `ensureAppDBStatefulSetOwnership`.
 3. `persistent: false` role-AppDB CRs: consider a validation warning (data loss on fallback path).

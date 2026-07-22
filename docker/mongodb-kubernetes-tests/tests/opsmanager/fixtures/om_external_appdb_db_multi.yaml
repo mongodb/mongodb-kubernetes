@@ -20,6 +20,6 @@ spec:
       modes: ["SCRAM"]
       ignoreUnknownUsers: true
   # populated at runtime with the real member-cluster names/counts (see
-  # tests/opsmanager/external_appdb_helpers.py:appdb_role_resource), mirroring
+  # tests/opsmanager/om_external_appdb_test_helpers.py:appdb_role_resource), mirroring
   # tests/multicluster_search/fixtures/simulated-mc-mongodb.yaml
   clusterSpecList: []

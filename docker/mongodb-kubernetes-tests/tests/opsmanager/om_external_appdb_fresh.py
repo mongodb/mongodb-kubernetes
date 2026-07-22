@@ -12,8 +12,10 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
-from tests.opsmanager.external_appdb_helpers import (
+from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
+    assert_owned_by_mongodb,
+    assert_owned_by_ops_manager,
     assert_sentinel_doc_present,
     configure_appdb_role_mongodb,
     meta_om_resource,
@@ -25,13 +27,13 @@ from tests.opsmanager.external_appdb_helpers import (
 """
 E2E test coverage for External AppDB via MongoDB CR reference:
   - Procedure 1: Fresh Start
-  - Procedure 3: Reverse Migration
+  - Procedure 3: Reverse Migration (graceful)
 
 The classes form one continuous story on a single Primary OM, in order:
   1. TestDeployMetaOpsManager - Prerequisite: deploy the management plane (Meta OM)
   2. TestFreshStartExternalAppDB - Procedure 1: Fresh Start (the Primary OM CR has no
      spec.applicationDatabase and never had an internal AppDB)
-  3. TestReverseMigrationAfterFreshStart - Procedure 3: Reverse Migration back to internal AppDB
+  3. TestReverseMigrationAfterFreshStart - Procedure 3: Reverse Migration (graceful) back to internal AppDB
      handled by the Primary OM CR spec.applicationDatabase. Here we first remove
      spec.externalApplicationDatabaseRef, add spec.applicationDatabase and wait for Primary OM to
      migrate to internal AppDB. After that we delete detached MongoDB CR (External AppDB).
@@ -52,8 +54,7 @@ def meta_om(namespace: str, custom_version: Optional[str], custom_appdb_version:
 @fixture(scope="module")
 def primary_om(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
-        #TODO rename this with om_external_appdb prefix
-        yaml_fixture("primary_om_with_external_appdb.yaml"),
+        yaml_fixture("om_external_appdb_primary_om_no_appdb.yaml"),
         namespace=namespace,
     )
     resource.set_version(custom_version)
@@ -95,7 +96,7 @@ class TestDeployMetaOpsManager:
 @pytest.mark.e2e_om_external_appdb_fresh
 class TestFreshStartExternalAppDB:
     """Procedure 1: create the External AppDB (MongoDB role: AppDB) CR managed by Meta OM, then create the Primary
-    OM CR with externalApplicationDatabaseRef set from the start and no spec.applicationDatabase -
+    OM CR with spec.externalApplicationDatabaseRef set from the start and no spec.applicationDatabase -
     no internal AppDB ever exists for this OM CR."""
 
     def test_create_appdb_role_mongodb(self, external_appdb: MongoDB, meta_om: MongoDBOpsManager, namespace: str):
@@ -108,19 +109,22 @@ class TestFreshStartExternalAppDB:
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_no_internal_appdb_statefulset_created(self, namespace: str):
-        # the referenced CR's StatefulSet (created by the MongoDB controller) is the only one with
-        # this name; the OM controller must never have created an internal AppDB StatefulSet of its
-        # own - assert the StatefulSet is not owned by the OM CR
+    def test_external_appdb_statefulset_created(self, namespace: str):
+        # the StatefulSet belongs solely to the MongoDB CR - the OM controller must never have
+        # touched its ownership in the fresh-start flow
         sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
-        owner_kinds = {ref.kind for ref in (sts.metadata.owner_references or [])}
-        assert "MongoDBOpsManager" not in owner_kinds
+        assert_owned_by_mongodb(sts.metadata, DB_NAME)
 
-    def test_shared_password_secret_exists(self, namespace: str):
-        secret = read_secret(namespace, password_secret_name(OM_NAME))
-        assert "password" in secret
+    def test_password_secret(self, namespace: str):
+        # ownership follows the AppDB's manager: in the fresh start the MongoDB CR created the
+        # shared password secret, so it must carry the CR's OwnerReference
+        sec = k8s_client.CoreV1Api().read_namespaced_secret(password_secret_name(OM_NAME), namespace)
+        assert_owned_by_mongodb(sec.metadata, DB_NAME)
+        assert "password" in read_secret(namespace, password_secret_name(OM_NAME))
 
-    def test_fixed_connection_string_secret_has_working_uri(self, primary_om: MongoDBOpsManager, namespace: str):
+    def test_connection_string_secret(self, primary_om: MongoDBOpsManager, namespace: str):
+        # the connection-string secret is created by the OM controller (never by the referenced
+        # CR, per the design) and intentionally carries no OwnerReferences
         cnx_string = primary_om.read_appdb_connection_url()
         expected_hosts = {f"{DB_NAME}-{i}.{DB_NAME}-svc.{namespace}.svc.cluster.local:27017" for i in range(3)}
 
@@ -130,9 +134,6 @@ class TestFreshStartExternalAppDB:
 
         client = pymongo.MongoClient(cnx_string, serverSelectionTimeoutMS=30000)
         try:
-            # a real, authenticated command against the referenced MongoDB CR through OM's fixed
-            # secret - raises on connectivity/auth failure; the assertions prove we reached the
-            # referenced CR's replica set with the expected topology
             hello = client.admin.command("hello")
             assert hello["setName"] == DB_NAME
             assert set(hello["hosts"]) == expected_hosts
@@ -142,13 +143,13 @@ class TestFreshStartExternalAppDB:
 
 @pytest.mark.e2e_om_external_appdb_fresh
 class TestReverseMigrationAfterFreshStart:
-    """Procedure 3 v2 (graceful), continuing from TestFreshStartExternalAppDB's end state: the
-    MongoDB CR is NOT deleted to start the migration. Reconfiguring the OM (remove ref, add
-    spec.applicationDatabase) triggers the release handshake; the CR is deleted only after the
+    """Procedure 3: Reconfiguring the OM (remove spec.externalApplicationDatabaseRef, add
+    spec.applicationDatabase) triggers the release handshake; the MongoDB CR is deleted only after the
     handover completes, and must not disturb anything the OM now owns."""
 
-    password_secret_before: ClassVar[dict[str, str]]
+    connection_string_before: ClassVar[str]
     shared_secret_uids: ClassVar[dict[str, str]]
+    shared_secret_data: ClassVar[dict[str, dict]]
 
     # every shared handover secret the OM claims at adoption; all of them would be
     # garbage-collected by the CR deletion if the ownership transfer failed
@@ -157,34 +158,52 @@ class TestReverseMigrationAfterFreshStart:
     def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager):
         write_sentinel_doc(primary_om.read_appdb_connection_url())
 
-    def test_capture_secrets_before_reverse_migration(self, namespace: str):
-        self.__class__.password_secret_before = read_secret(namespace, password_secret_name(OM_NAME))
-        self.__class__.shared_secret_uids = {
-            name: k8s_client.CoreV1Api().read_namespaced_secret(name, namespace).metadata.uid
-            for name in self.SHARED_SECRET_NAMES
+    def test_capture_secrets_before_reverse_migration(self, primary_om: MongoDBOpsManager, namespace: str):
+        # graceful path: same hosts + same password => the computed connection string value must
+        # never change (and therefore Primary OM pods never roll)
+        self.__class__.connection_string_before = primary_om.read_appdb_connection_url()
+        secrets = {
+            name: k8s_client.CoreV1Api().read_namespaced_secret(name, namespace) for name in self.SHARED_SECRET_NAMES
         }
+        self.__class__.shared_secret_uids = {name: s.metadata.uid for name, s in secrets.items()}
+        self.__class__.shared_secret_data = {name: s.data for name, s in secrets.items()}
+
+    def _assert_shared_secrets_claimed_and_unchanged(self, namespace: str):
+        for name in self.SHARED_SECRET_NAMES:
+            sec = k8s_client.CoreV1Api().read_namespaced_secret(name, namespace)
+            assert sec.metadata.uid == self.shared_secret_uids[name], f"secret {name} was recreated"
+            assert sec.data == self.shared_secret_data[name], f"secret {name} contents changed"
+            assert_owned_by_ops_manager(sec.metadata, OM_NAME)
 
     def test_reverse_migration_reconfigure_om(self, primary_om: MongoDBOpsManager, custom_appdb_version: str):
-        # v2: the MongoDB CR stays; reconfiguring the OM alone starts the release handshake.
-        # update() sends a JSON merge patch: only an explicit null removes a field
         primary_om.load()
         primary_om["spec"]["externalApplicationDatabaseRef"] = None
         primary_om["spec"]["applicationDatabase"] = {"members": 3, "version": custom_appdb_version}
         primary_om.update()
 
-    def test_mongodb_cr_reaches_released_state(self, external_appdb: MongoDB):
-        # the released message shows only in the short window between the CR stripping its
-        # ownerReference and the OM adopting the StatefulSet; afterwards the adoption gate reports
-        # the generalized "managed by Ops Manager" message - both prove the release happened
+    def test_external_appdb_is_unmanaged(self, external_appdb: MongoDB):
+        # the released message shows only in the short window before the OM adopts; afterwards
+        # the adoption gate reports the "unmanaged" message - both prove the release happened
         external_appdb.assert_reaches_phase(
             Phase.Pending,
-            msg_regexp=".*(AppDB StatefulSet to Ops Manager|is managed by Ops Manager).*",
+            msg_regexp=".*(unmanaged|AppDB StatefulSet to Ops Manager).*",
             timeout=300,
         )
 
     def test_internal_appdb_management_resumes(self, primary_om: MongoDBOpsManager):
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    def test_internal_appdb_statefulset_created(self, namespace: str):
+        # after adoption the StatefulSet belongs solely to the Ops Manager
+        sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
+        assert_owned_by_ops_manager(sts.metadata, OM_NAME)
+
+    def test_om_secrets_only_updated_owner_reference(self, primary_om: MongoDBOpsManager, namespace: str):
+        # the OM-claimed shared secrets must survive the handover with identical contents; only
+        # their ownership changed (MongoDB CR -> Ops Manager)
+        self._assert_shared_secrets_claimed_and_unchanged(namespace)
+        assert primary_om.read_appdb_connection_url() == self.connection_string_before
 
     def test_delete_mongodb_cr_after_handover(self, external_appdb: MongoDB, namespace: str):
         external_appdb.delete()
@@ -202,17 +221,13 @@ class TestReverseMigrationAfterFreshStart:
 
         KubernetesTester.wait_until(cr_is_gone, timeout=300)
 
-    def test_om_untouched_by_cr_deletion(self, primary_om: MongoDBOpsManager, namespace: str):
-        # every OM-claimed shared secret must survive the CR deletion (same object, not recreated)
-        for name in self.SHARED_SECRET_NAMES:
-            sec = k8s_client.CoreV1Api().read_namespaced_secret(name, namespace)
-            assert sec.metadata.uid == self.shared_secret_uids[name], f"secret {name} was recreated"
-        primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=300)
+    def test_om_unaffected_by_cr_deletion(self, primary_om: MongoDBOpsManager, namespace: str):
+        # the deletion is post-handover cleanup: statuses must not dip, the shared secrets and
+        # the connection string must be untouched
+        primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=120)
+        primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=120)
+        self._assert_shared_secrets_claimed_and_unchanged(namespace)
+        assert primary_om.read_appdb_connection_url() == self.connection_string_before
 
     def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager):
         assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
-
-    def test_password_secret_unchanged_after_reverse_migration(self, namespace: str):
-        # graceful-path property: shared password identical across the whole handover
-        password_secret_now = read_secret(namespace, password_secret_name(OM_NAME))
-        assert password_secret_now == self.password_secret_before

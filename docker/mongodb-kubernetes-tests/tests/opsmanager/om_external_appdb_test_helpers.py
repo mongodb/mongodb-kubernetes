@@ -25,6 +25,25 @@ def ref_kind_for_appdb() -> str:
     return "MongoDBMultiCluster" if is_multi_cluster() else "MongoDB"
 
 
+def _assert_single_controller_owner_reference(metadata, kind: str, name: str):
+    refs = metadata.owner_references or []
+    assert len(refs) == 1, f"{metadata.name} must have exactly one ownerReference, got {refs}"
+    assert refs[0].kind == kind
+    assert refs[0].name == name
+    assert refs[0].controller
+
+
+def assert_owned_by_mongodb(metadata, name: str):
+    """Asserts the resource is owned solely by the external AppDB CR (MongoDB, or
+    MongoDBMultiCluster in multi-cluster runs)."""
+    _assert_single_controller_owner_reference(metadata, ref_kind_for_appdb(), name)
+
+
+def assert_owned_by_ops_manager(metadata, name: str):
+    """Asserts the resource is owned solely by the MongoDBOpsManager resource."""
+    _assert_single_controller_owner_reference(metadata, "MongoDBOpsManager", name)
+
+
 # TODO if only single cluster, simplify
 def appdb_role_resource(
     namespace: str,

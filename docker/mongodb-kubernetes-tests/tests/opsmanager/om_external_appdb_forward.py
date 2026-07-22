@@ -11,7 +11,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
-from tests.opsmanager.external_appdb_helpers import (
+from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
     assert_sentinel_doc_present,
     configure_appdb_role_mongodb,
