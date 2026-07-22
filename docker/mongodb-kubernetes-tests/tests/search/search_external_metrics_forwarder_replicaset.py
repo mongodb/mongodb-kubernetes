@@ -28,6 +28,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import wait_for_metrics_forwarder_phase
 from tests.common.search.rs_search_helper import create_rs_lb_certificates, create_rs_search_tls_cert
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import (
@@ -179,17 +180,7 @@ def test_create_search_resource(helper: SearchDeploymentHelper, mdb: MongoDB, md
 
 @mark.e2e_search_external_metrics_forwarder_replicaset
 def test_metrics_forwarder_status(om: MongoDBOpsManager, mdbs: MongoDBSearch):
-    def check_metrics_forwarder_status():
-        mdbs.reload()
-        status = mdbs.get_metrics_forwarder_status()
-        return status is not None and status.get("phase") == Phase.Running.name
-
-    run_periodically(
-        check_metrics_forwarder_status,
-        timeout=120,
-        sleep_time=10,
-        msg="metrics forwarder status to reach Running",
-    )
+    wait_for_metrics_forwarder_phase(mdbs, Phase.Running)
 
     tester = om.get_om_tester(project_name=MDB_RESOURCE_NAME)
     tester.assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
@@ -220,12 +211,7 @@ def test_metrics_forwarder_recreates_deleted_deployment(om: MongoDBOpsManager, m
     run_periodically(deployment_recreated_and_ready, timeout=300, sleep_time=5)
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
-    def metrics_forwarder_running():
-        mdbs.reload()
-        status = mdbs.get_metrics_forwarder_status()
-        return status is not None and status.get("phase") == Phase.Running.name
-
-    run_periodically(metrics_forwarder_running, timeout=120, sleep_time=10)
+    wait_for_metrics_forwarder_phase(mdbs, Phase.Running)
     om.get_om_tester(project_name=MDB_RESOURCE_NAME).assert_mongot_hosts_converged(mdbs.mongot_pod_hostnames())
 
 
@@ -251,17 +237,7 @@ def test_disable_metrics_forwarder(mdbs: MongoDBSearch):
     mdbs["spec"]["observability"]["metricsForwarder"]["mode"] = "disabled"
     mdbs.update()
 
-    def check_metrics_forwarder_status():
-        mdbs.reload()
-        status = mdbs.get_metrics_forwarder_status()
-        return status is not None and status.get("phase") == Phase.Disabled.name
-
-    run_periodically(
-        check_metrics_forwarder_status,
-        timeout=120,
-        sleep_time=10,
-        msg="metrics forwarder status to reach Disabled",
-    )
+    wait_for_metrics_forwarder_phase(mdbs, Phase.Disabled)
 
     # Verify resources are cleaned up. The forwarder Deployment/ConfigMap are named after the
     # MongoDBSearch resource (not the source MongoDB).

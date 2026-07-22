@@ -189,6 +189,19 @@ def shard_proxy_svc_hostname_template(search_name: str, namespace: str, cluster_
     return f"{search_name}-search-{cluster_index}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
 
 
+def mc_search_artifact_names(search_name: str, cluster_index: int) -> dict[str, str]:
+    """Names of the operator-managed per-cluster Search artifacts (RS-MC managed-LB set)."""
+    return {
+        "sts": mongot_statefulset_name_for_cluster(search_name, cluster_index),
+        "svc": mongot_service_name_for_cluster(search_name, cluster_index),
+        "proxy": mc_proxy_svc_name(search_name, cluster_index),
+        "mongot_cm": mongot_configmap_name_for_cluster(search_name, cluster_index),
+        "envoy_deployment": lb_deployment_name(search_name, cluster_index),
+        "envoy_cm": lb_configmap_name(search_name, cluster_index),
+        "operator_tls_secret": operator_managed_tls_secret_name(search_name),
+    }
+
+
 # ============================================================================
 # Managed load balancer resources
 # ============================================================================

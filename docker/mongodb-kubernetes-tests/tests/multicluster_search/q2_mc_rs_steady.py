@@ -47,7 +47,6 @@ from tests.common.search import search_resource_names
 from tests.common.search.connectivity import (
     CLUSTER_LOCATION_TAG_KEY,
     mongot_data_pvc_names,
-    protected_search_input_uids,
     search_artifact_uids,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
@@ -62,6 +61,7 @@ from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
 from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
+from tests.multicluster_search.conftest import mc_search_customer_input_uids
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -116,6 +116,10 @@ MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 SOURCE_CERT_PREFIX = "clustercert"
 SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
+
+
+def _customer_input_uids(mcc: MultiClusterClient, namespace: str, cluster_index: int) -> dict[str, str]:
+    return mc_search_customer_input_uids(mcc, namespace, MDBS_RESOURCE_NAME, CA_CONFIGMAP_NAME, cluster_index)
 
 
 # =============================================================================
@@ -1233,17 +1237,6 @@ def test_remove_and_readd_search_cluster_entry(
     helper: MCSearchDeploymentHelper,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    def artifact_names(cluster_index: int) -> dict[str, str]:
-        return {
-            "sts": search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index),
-            "svc": search_resource_names.mongot_service_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index),
-            "proxy": search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, cluster_index),
-            "mongot_cm": search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, cluster_index),
-            "envoy_deployment": search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_index),
-            "envoy_cm": search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_index),
-            "operator_tls_secret": search_resource_names.operator_managed_tls_secret_name(MDBS_RESOURCE_NAME),
-        }
-
     def assert_cluster_query(cluster_name: str, cluster_index: int) -> None:
         tester = _direct_search_tester_for_cluster(mdb, cluster_index, USER_NAME, USER_PASSWORD)
         movies = SampleMoviesSearchHelper(search_tester=tester)
@@ -1272,22 +1265,6 @@ def test_remove_and_readd_search_cluster_entry(
         clients
     ), f"spec.clusters names {sorted(cluster_entries)} do not match member clients {sorted(clients)}"
 
-    source_tls_secret_name = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-    sync_user_secret_name = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
-
-    def customer_input_uids(mcc: MultiClusterClient, cluster_index: int) -> dict[str, str]:
-        return protected_search_input_uids(
-            mcc.core_v1_api(),
-            namespace,
-            source_tls_secret_name,
-            sync_user_secret_name,
-            CA_CONFIGMAP_NAME,
-            additional_secret_names=(
-                search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, cluster_index),
-                search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, cluster_index),
-            ),
-        )
-
     snapshots: dict[str, tuple[dict[str, str], dict[str, str], dict[str, str]]] = {}
     for cluster_name, entry in cluster_entries.items():
         cluster_index = entry["index"]
@@ -1296,11 +1273,11 @@ def test_remove_and_readd_search_cluster_entry(
             f"{helper.cluster_index(cluster_name)}"
         )
         mcc = clients[cluster_name]
-        names = artifact_names(cluster_index)
+        names = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, cluster_index)
         snapshots[cluster_name] = (
             names,
             search_artifact_uids(mcc, namespace, names),
-            customer_input_uids(mcc, cluster_index),
+            _customer_input_uids(mcc, namespace, cluster_index),
         )
 
     retained_name = member_cluster_clients[0].cluster_name
@@ -1317,7 +1294,7 @@ def test_remove_and_readd_search_cluster_entry(
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
     mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True)
     wait_for_search_artifacts_deleted(removed, namespace, removed_names["sts"], mdbs.name)
-    assert customer_input_uids(removed, removed_entry["index"]) == removed_protected_uids
+    assert _customer_input_uids(removed, namespace, removed_entry["index"]) == removed_protected_uids
     assert (
         search_artifact_uids(retained, namespace, retained_names) == retained_uids
     ), f"[{retained_name}] managed artifact UIDs changed when {removed_name} was removed"
@@ -1493,36 +1470,12 @@ def test_delete_search_resource_cleans_all_member_cluster_artifacts(
     member_cluster_clients: List[MultiClusterClient],
 ):
     resource_by_cluster: List[tuple[MultiClusterClient, int, dict[str, str], dict[str, str]]] = []
-    source_tls_secret_name = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-    sync_user_secret_name = f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password"
-
-    def customer_input_uids(mcc: MultiClusterClient, cluster_index: int) -> dict[str, str]:
-        return protected_search_input_uids(
-            mcc.core_v1_api(),
-            namespace,
-            source_tls_secret_name,
-            sync_user_secret_name,
-            CA_CONFIGMAP_NAME,
-            additional_secret_names=(
-                search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, cluster_index),
-                search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, cluster_index),
-            ),
-        )
-
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
-        names = {
-            "sts": search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
-            "svc": search_resource_names.mongot_service_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
-            "proxy": search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, cluster_idx),
-            "mongot_cm": search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, cluster_idx),
-            "envoy_deployment": search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_idx),
-            "envoy_cm": search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_idx),
-            "operator_tls_secret": search_resource_names.operator_managed_tls_secret_name(MDBS_RESOURCE_NAME),
-        }
+        names = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, cluster_idx)
 
         search_artifact_uids(mcc, namespace, names)
-        protected_uids = customer_input_uids(mcc, cluster_idx)
+        protected_uids = _customer_input_uids(mcc, namespace, cluster_idx)
 
         resource_by_cluster.append((mcc, cluster_idx, names, protected_uids))
 
@@ -1531,4 +1484,4 @@ def test_delete_search_resource_cleans_all_member_cluster_artifacts(
 
     for mcc, cluster_idx, names, protected_uids in resource_by_cluster:
         wait_for_search_artifacts_deleted(mcc, namespace, names["sts"], mdbs.name)
-        assert customer_input_uids(mcc, cluster_idx) == protected_uids
+        assert _customer_input_uids(mcc, namespace, cluster_idx) == protected_uids

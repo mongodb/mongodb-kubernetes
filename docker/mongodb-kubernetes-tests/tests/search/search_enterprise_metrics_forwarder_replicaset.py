@@ -11,7 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.search.connectivity import wait_for_resource_deleted
+from tests.common.search.connectivity import wait_for_metrics_forwarder_phase, wait_for_resource_deleted
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_resource_names import (
     metrics_forwarder_configmap_name,
@@ -127,17 +127,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_metrics_forwarder_replicaset
 def test_metrics_forwarder_status(om: MongoDBOpsManager, mdbs: MongoDBSearch):
-    def check_metrics_forwarder_status():
-        mdbs.reload()
-        status = mdbs.get_metrics_forwarder_status()
-        return status is not None and status.get("phase") == Phase.Running.name
-
-    run_periodically(
-        check_metrics_forwarder_status,
-        timeout=120,
-        sleep_time=10,
-        msg="metrics forwarder status to reach Running",
-    )
+    wait_for_metrics_forwarder_phase(mdbs, Phase.Running)
 
     # Per-cluster surface: single-cluster + managed LB + metrics forwarder enabled, so the
     # one status.clusters entry must report search, loadBalancer AND metricsForwarder Running.
@@ -169,17 +159,7 @@ def test_disable_metrics_forwarder(mdbs: MongoDBSearch):
     mdbs["spec"]["observability"]["metricsForwarder"]["mode"] = "disabled"
     mdbs.update()
 
-    def check_metrics_forwarder_status():
-        mdbs.update()
-        status = mdbs.get_metrics_forwarder_status()
-        return status is not None and status.get("phase") == Phase.Disabled.name
-
-    run_periodically(
-        check_metrics_forwarder_status,
-        timeout=120,
-        sleep_time=10,
-        msg="metrics forwarder status to reach Disabled",
-    )
+    wait_for_metrics_forwarder_phase(mdbs, Phase.Disabled)
 
     # Verify resources are cleaned up
     def check_deployment_deleted():
@@ -237,17 +217,7 @@ def test_deleteing_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: Mo
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
 
-    def metrics_forwarder_running():
-        mdbs.reload()
-        status = mdbs.get_metrics_forwarder_status()
-        return status is not None and status.get("phase") == Phase.Running.name
-
-    run_periodically(
-        metrics_forwarder_running,
-        timeout=120,
-        sleep_time=10,
-        msg="metrics forwarder status to reconverge before Search deletion",
-    )
+    wait_for_metrics_forwarder_phase(mdbs, Phase.Running)
 
     deployment_name = metrics_forwarder_deployment_name(MDB_RESOURCE_NAME)
     configmap_name = metrics_forwarder_configmap_name(MDB_RESOURCE_NAME)

@@ -24,6 +24,7 @@ from tests.common.search.search_tester import SearchTester
 if TYPE_CHECKING:
     from kubetester.mongodb_search import MongoDBSearch
     from kubetester.multicluster_client import MultiClusterClient
+    from kubetester.phase import Phase
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -985,6 +986,20 @@ def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: in
 
 def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
     wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
+
+
+def wait_for_metrics_forwarder_phase(mdbs: "MongoDBSearch", phase: "Phase", timeout: int = 120) -> None:
+    def reached() -> bool:
+        mdbs.reload()
+        status = mdbs.get_metrics_forwarder_status()
+        return status is not None and status.get("phase") == phase.name
+
+    run_periodically(
+        reached,
+        timeout=timeout,
+        sleep_time=10,
+        msg=f"metrics forwarder status to reach {phase.name}",
+    )
 
 
 def protected_search_input_uids(
