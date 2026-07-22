@@ -159,6 +159,41 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{}, nil
 	}
 
+	topologyCurrent, err := cleanupRemovedMemberSearchResources(
+		ctx,
+		r.apiReader,
+		mdbSearch,
+		r.memberReaders,
+		r.memberClients,
+		envoySearchResourceCleanups(),
+		log,
+	)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if !topologyCurrent {
+		return reconcile.Result{Requeue: true}, nil
+	}
+	if isRemovedSearchOperatorCluster(mdbSearch, r.operatorClusterName) {
+		topologyCurrent, err := cleanupRemovedLocalSearchResources(
+			ctx,
+			r.apiReader,
+			r.apiReader,
+			r.kubeClient,
+			mdbSearch,
+			r.operatorClusterName,
+			envoySearchResourceCleanups(),
+			log,
+		)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if !topologyCurrent {
+			return reconcile.Result{Requeue: true}, nil
+		}
+		return reconcile.Result{}, nil
+	}
+
 	// Envoy validation failures surface on /status/loadBalancer so the Envoy sub-status
 	// stays authoritative for LB shape errors.
 	if skip, result, err := r.prepareSearch(mdbSearch, log,

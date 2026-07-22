@@ -565,6 +565,32 @@ func TestDeleteMetricsForwarderResourcesFromState_MigratesMarkerlessStateBeforeD
 	assert.Less(t, slices.Index(events, "state-write"), slices.Index(events, "resource-delete"))
 }
 
+func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t *testing.T) {
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "search-uid"
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{
+		ClusterIndex: ptr.To(0),
+	})
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM)
+	currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
+
+	st := r.reconcileCore(t.Context(), currentSearch, zap.S())
+
+	require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
+	topologyState := getFullTopologyState(t, fakeClient, search)
+	assert.NotContains(t, topologyState.Clusters, "")
+	require.Contains(t, topologyState.Clusters, "cluster-a")
+	require.NotNil(t, topologyState.Clusters["cluster-a"].ClusterIndex)
+	assert.Equal(t, 0, *topologyState.Clusters["cluster-a"].ClusterIndex)
+	require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
+		Name: search.MetricsForwarderDeploymentNameForCluster(0), Namespace: search.Namespace,
+	}, &appsv1.Deployment{}))
+}
+
 func TestReconcileCoreRegistersMetricsCredentialAndCAWatches(t *testing.T) {
 	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
@@ -734,6 +760,59 @@ func TestReconcileCore_RejectsChangedPersistedClusterIndex(t *testing.T) {
 		Name: search.MetricsForwarderDeploymentNameForCluster(7), Namespace: search.Namespace,
 	}, &appsv1.Deployment{})
 	assert.True(t, apierrors.IsNotFound(err))
+}
+
+func TestCleanupRemovedClusters_LegacyStateCleansCentralResourcesAndStateEntry(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "search-uid"
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: ptr.To(0)})
+	legacyDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.MetricsForwarderDeploymentNameForCluster(0),
+		Namespace: search.Namespace,
+		Labels:    metricsForwarderLabelsForCluster(search, "", 0),
+	}}
+	r, centralClient := newMetricsForwarderReconciler(testDefaultImage, search, stateCM, legacyDeployment)
+	memberDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.MetricsForwarderDeploymentNameForCluster(0),
+		Namespace: search.Namespace,
+		Labels:    metricsForwarderLabelsForCluster(search, "cluster-a", 0),
+	}}
+	memberClient := mock.NewEmptyFakeClientBuilder().WithObjects(memberDeployment).Build()
+	memberKubeClient := kubernetesClient.NewClient(memberClient)
+	r.isLocalCluster = func(clusterName string) bool { return clusterName == "" }
+	r.clientForCluster = func(clusterName string) kubernetesClient.Client {
+		if clusterName == "" {
+			return kubernetesClient.NewClient(centralClient)
+		}
+		return memberKubeClient
+	}
+	r.readerForCluster = func(clusterName string) client.Reader {
+		if clusterName == "" {
+			return centralClient
+		}
+		return memberClient
+	}
+	currentWork := []clusterWorkItem{{
+		ClusterName: "cluster-a", ClusterIndex: 0, Client: memberKubeClient,
+	}}
+
+	pending, err := r.cleanupRemovedClusters(
+		t.Context(), search, testGroupID, mdbv1.ProjectConfig{}, "agent-key", currentWork, zap.S(),
+	)
+	require.NoError(t, err)
+	assert.True(t, pending)
+	assert.True(t, apierrors.IsNotFound(centralClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})))
+	require.NoError(t, memberClient.Get(t.Context(), client.ObjectKeyFromObject(memberDeployment), &appsv1.Deployment{}))
+	assert.Contains(t, getFullTopologyState(t, centralClient, search).Clusters, "")
+
+	pending, err = r.cleanupRemovedClusters(
+		t.Context(), search, testGroupID, mdbv1.ProjectConfig{}, "agent-key", currentWork, zap.S(),
+	)
+	require.NoError(t, err)
+	assert.False(t, pending)
+	assert.NotContains(t, getFullTopologyState(t, centralClient, search).Clusters, "")
+	require.NoError(t, memberClient.Get(t.Context(), client.ObjectKeyFromObject(memberDeployment), &appsv1.Deployment{}))
 }
 
 func reconcileMetricsForwarder(t *testing.T, r *MongoDBSearchMetricsForwarderReconciler, namespace, name string) reconcile.Result {
@@ -1627,6 +1706,287 @@ func TestPreDeletionCleanup_HostCleanupFailureRetainsFinalizer(t *testing.T) {
 	assert.Contains(t, searchcontroller.MessageFromStatus(st), "injected cluster-a host cleanup failure")
 	assert.Contains(t, search.Finalizers, util.SearchMetricsForwarderFinalizer,
 		"finalizer must stay until host cleanup succeeds")
+}
+
+func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T) {
+	pendingPodName := "pending-removed-cluster-mongot"
+	deferredPodName := "deferred-removed-cluster-mongot"
+	for _, tc := range []struct {
+		name           string
+		deleteSearch   bool
+		topology       map[string]clusterTopologyState
+		extraHostIDs   []string
+		wantSearchGone bool
+	}{
+		{
+			name:         "during Search deletion",
+			deleteSearch: true,
+			topology: map[string]clusterTopologyState{
+				"cluster-a": {ClusterIndex: ptr.To(0)},
+				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+			},
+			wantSearchGone: true,
+		},
+		{
+			name: "after cluster removal",
+			topology: map[string]clusterTopologyState{
+				"cluster-b": {
+					ClusterIndex:           ptr.To(1),
+					Replicas:               1,
+					PendingHostDeletions:   []string{pendingPodName},
+					HostDeletionReadyAfter: map[string]int64{deferredPodName: time.Now().Add(time.Hour).UnixNano()},
+				},
+			},
+			extraHostIDs: []string{
+				mongotHostID(testGroupID, testNamespace, pendingPodName),
+				mongotHostID(testGroupID, testNamespace, deferredPodName),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+			search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+			projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+			agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+			stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+			stateJSON, err := json.Marshal(searchTopologyState{Clusters: tc.topology})
+			require.NoError(t, err)
+			stateCM.Data[stateKey] = string(stateJSON)
+			removedClusterDep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name:      search.MetricsForwarderDeploymentNameForCluster(1),
+				Namespace: testNamespace,
+				Labels:    metricsForwarderLabelsForCluster(search, "cluster-b", 1),
+			}}
+			r, fakeClient := newMetricsForwarderReconciler(
+				testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM, removedClusterDep,
+			)
+			r.operatorClusterName = "cluster-b"
+			var deletedHostIDs []string
+			r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+			if tc.deleteSearch {
+				require.NoError(t, fakeClient.Delete(t.Context(), search))
+			}
+
+			result := reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+			assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+			assert.Empty(t, deletedHostIDs)
+			reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+			assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{})))
+			stsName := search.StatefulSetNamespacedNameForCluster(1).Name
+			wantHostIDs := append([]string{
+				mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-0", stsName)),
+			}, tc.extraHostIDs...)
+			assert.ElementsMatch(t, wantHostIDs, deletedHostIDs)
+			err = fakeClient.Get(t.Context(), client.ObjectKeyFromObject(search), &searchv1.MongoDBSearch{})
+			if tc.wantSearchGone {
+				assert.True(t, apierrors.IsNotFound(err), "expected persisted cleanup before finalizer removal")
+				return
+			}
+			require.NoError(t, err)
+			assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+
+			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+			assert.False(t, result.Requeue)
+			assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
+		})
+	}
+}
+
+func TestReconcile_RemovedPerClusterOperatorPreservesReaddedCluster(t *testing.T) {
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "search-uid"
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+	liveSearch := search.DeepCopy()
+	liveSearch.Spec.Clusters = append(liveSearch.Spec.Clusters, searchv1.ClusterSpec{Name: "cluster-b", Index: ptr.To(int32(1))})
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	agentSecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+	}})
+	require.NoError(t, err)
+	stateCM.Data[stateKey] = string(stateJSON)
+	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.MetricsForwarderDeploymentNameForCluster(1),
+		Namespace: search.Namespace,
+		UID:       "cluster-b-forwarder",
+		Labels:    metricsForwarderLabelsForCluster(search, "cluster-b", 1),
+	}}
+
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentSecret, stateCM, deployment)
+	r.operatorClusterName = "cluster-b"
+	r.stateReader = mock.NewEmptyFakeClientBuilder().WithObjects(liveSearch, stateCM.DeepCopy()).Build()
+	var deletedHostIDs []string
+	r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+
+	result := reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+	assert.True(t, result.Requeue || result.RequeueAfter > 0)
+	// The forwarder Deployment delete is recoverable (recreated once the operator's cache
+	// catches up with the re-added cluster); the irreversible pieces are guarded: no Ops
+	// Manager host deregistration and the persisted state entry stays.
+	assert.Empty(t, deletedHostIDs)
+	assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
+	assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+}
+
+func TestCleanupRemovedClusters_UncachedGuardBlocksHostDeregistration(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		liveSearch func(search *searchv1.MongoDBSearch) *searchv1.MongoDBSearch
+	}{
+		{
+			name: "removed cluster re-added on the live CR",
+			liveSearch: func(search *searchv1.MongoDBSearch) *searchv1.MongoDBSearch {
+				live := search.DeepCopy()
+				live.Spec.Clusters = append(live.Spec.Clusters, searchv1.ClusterSpec{Name: "cluster-b", Index: ptr.To(int32(1))})
+				return live
+			},
+		},
+		{
+			name: "same-name replacement CR with a different UID",
+			liveSearch: func(search *searchv1.MongoDBSearch) *searchv1.MongoDBSearch {
+				live := search.DeepCopy()
+				live.UID = "replacement-search-uid"
+				return live
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+			search.UID = "search-uid"
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+			stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+			stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+			}})
+			require.NoError(t, err)
+			stateCM.Data[stateKey] = string(stateJSON)
+			agentKeySecret := newTestAgentKeySecret("agent-key-secret", search.Namespace)
+			r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, search, agentKeySecret, stateCM)
+			r.operatorClusterName = "cluster-b"
+			reader := &changingSearchReader{
+				Reader:   fakeClient,
+				searches: []*searchv1.MongoDBSearch{tc.liveSearch(search)},
+			}
+			r.stateReader = reader
+			var deletedHostIDs []string
+			r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+
+			pending, err := r.cleanupRemovedClusters(
+				t.Context(),
+				search,
+				testGroupID,
+				mdbv1.ProjectConfig{},
+				"agent-key-secret",
+				nil,
+				zap.S(),
+			)
+			require.NoError(t, err)
+			assert.False(t, pending)
+			assert.Empty(t, deletedHostIDs, "hosts must not be deregistered when the live CR does not confirm the removal")
+			assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b",
+				"the persisted state entry must be retained for the next reconcile")
+		})
+	}
+}
+
+func TestCleanupRemovedClustersSkipsReaddedTargetWithoutSuppressingOtherCleanup(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.UID = "search-uid"
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	liveSearch := search.DeepCopy()
+	liveSearch.Spec.Clusters = append(liveSearch.Spec.Clusters, searchv1.ClusterSpec{Name: "cluster-b", Index: ptr.To(int32(1))})
+	clusterBDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      search.MetricsForwarderDeploymentNameForCluster(1),
+		Namespace: search.Namespace,
+		UID:       "cluster-b-forwarder",
+		Labels:    metricsForwarderLabelsForCluster(search, "cluster-b", 1),
+	}}
+	clusterB := mock.NewEmptyFakeClientBuilder().WithObjects(clusterBDeployment).Build()
+	clusterC := mock.NewEmptyFakeClientBuilder().Build()
+	agentKeySecret := newTestAgentKeySecret("agent-key-secret", search.Namespace)
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+		"cluster-c": {ClusterIndex: ptr.To(2), Replicas: 1},
+	}})
+	require.NoError(t, err)
+	stateCM.Data[stateKey] = string(stateJSON)
+	central := mock.NewEmptyFakeClientBuilder().WithObjects(search, agentKeySecret, stateCM).Build()
+	r := newMongoDBSearchMetricsForwarderReconciler(
+		central,
+		testDefaultImage,
+		map[string]client.Client{"cluster-b": clusterB, "cluster-c": clusterC},
+		"",
+	)
+	r.stateReader = mock.NewEmptyFakeClientBuilder().WithObjects(liveSearch, stateCM.DeepCopy()).Build()
+	var deletedHostIDs []string
+	r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+
+	pending, err := r.cleanupRemovedClusters(
+		t.Context(),
+		search,
+		testGroupID,
+		mdbv1.ProjectConfig{},
+		"agent-key-secret",
+		nil,
+		zap.S(),
+	)
+
+	require.NoError(t, err)
+	assert.True(t, pending, "the re-added cluster's Deployment delete must requeue")
+	topologyState := getFullTopologyState(t, central, search)
+	assert.Contains(t, topologyState.Clusters, "cluster-b", "re-added cluster's state entry must be retained")
+	assert.NotContains(t, topologyState.Clusters, "cluster-c")
+	assert.Equal(t, []string{
+		mongotHostID(testGroupID, testNamespace, fmt.Sprintf("%s-0", search.StatefulSetNamespacedNameForCluster(2).Name)),
+	}, deletedHostIDs, "only the truly removed cluster's hosts are deregistered")
+}
+
+func TestReconcile_RemovedPerClusterOperatorRetriesFailedFinalizerRemoval(t *testing.T) {
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
+	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
+	agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
+	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
+	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
+		"cluster-b": {ClusterIndex: ptr.To(1)},
+	}})
+	require.NoError(t, err)
+	stateCM.Data[stateKey] = string(stateJSON)
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM)
+	r.operatorClusterName = "cluster-b"
+
+	fakeClientWithWatch, ok := fakeClient.(client.WithWatch)
+	require.True(t, ok)
+	failFinalizerUpdate := true
+	r.kubeClient = kubernetesClient.NewClient(interceptor.NewClient(fakeClientWithWatch, interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if _, ok := obj.(*searchv1.MongoDBSearch); ok && failFinalizerUpdate {
+				failFinalizerUpdate = false
+				return fmt.Errorf("injected finalizer update failure")
+			}
+			return cl.Update(ctx, obj, opts...)
+		},
+	}))
+
+	firstResult := reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+	assert.True(t, firstResult.RequeueAfter > 0 || firstResult.Requeue)
+	assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer,
+		"finalizer must survive a failed removal update and be retried")
+
+	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+	finalState := getFullTopologyState(t, fakeClient, search)
+	assert.NotContains(t, finalState.Clusters, "cluster-b")
+	assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
 }
 
 func TestReconcile_DeletionWhileEnabled_WaitsForDeploymentThenDeregistersHosts(t *testing.T) {

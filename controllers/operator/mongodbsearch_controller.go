@@ -44,13 +44,29 @@ import (
 // reports any per-cluster customer-replicated secret missing. Reconcile returns
 // (Result{RequeueAfter: secretsCheckRequeueAfter}, nil) so we don't trigger
 // exponential backoff while the customer is fixing the gap.
-const secretsCheckRequeueAfter = 30 * time.Second
+const (
+	secretsCheckRequeueAfter = 30 * time.Second
+	searchMongotComponent    = "mongot"
+	searchProxyComponent     = "search-proxy"
+)
 
 // prepareSearchFunc is the shared pre-reconcile gate for both search reconcilers;
 // writeStatus routes validation failures to the caller's own status surface. Returns
 // skip=true when the caller must stop reconciling (validation failed, or this
 // operator does not own the CR).
 type prepareSearchFunc func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (skip bool, res reconcile.Result, err error)
+
+func isRemovedSearchOperatorCluster(search *searchv1.MongoDBSearch, operatorClusterName string) bool {
+	if operatorClusterName == "" || len(search.Spec.Clusters) == 0 {
+		return false
+	}
+	for _, cluster := range search.Spec.Clusters {
+		if cluster.Name == operatorClusterName {
+			return false
+		}
+	}
+	return true
+}
 
 // newPrepareSearch picks the gate once at construction so Reconcile never branches
 // on the operator mode. ValidateSpec runs on the UN-NARROWED spec first: per-cluster
@@ -181,6 +197,43 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	if mdbSearch.IsReconciliationDisabled() {
 		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping",
 			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
+	}
+
+	topologyCurrent, err := cleanupRemovedMemberSearchResources(
+		ctx,
+		r.uncachedReader,
+		mdbSearch,
+		r.memberClusterReadersMap,
+		r.memberClusterClientsMap,
+		mainSearchResourceCleanups(mdbSearch),
+		log,
+	)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if !topologyCurrent {
+		return reconcile.Result{Requeue: true}, nil
+	}
+
+	if isRemovedSearchOperatorCluster(mdbSearch, r.operatorClusterName) {
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
+		topologyCurrent, err := cleanupRemovedLocalSearchResources(
+			ctx,
+			r.uncachedReader,
+			r.uncachedReader,
+			r.kubeClient,
+			mdbSearch,
+			r.operatorClusterName,
+			mainSearchResourceCleanups(mdbSearch),
+			log,
+		)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if !topologyCurrent {
+			return reconcile.Result{Requeue: true}, nil
+		}
 		return reconcile.Result{}, nil
 	}
 
@@ -340,6 +393,172 @@ type searchSweepCluster struct {
 	listReader   client.Reader
 	parentReader client.Reader
 	deleteClient kubernetesClient.Client
+}
+
+type searchResourceCleanup struct {
+	kind        string
+	name        string
+	component   string
+	omitCluster bool
+	newList     func() client.ObjectList
+}
+
+func mainSearchResourceCleanups(search *searchv1.MongoDBSearch) []searchResourceCleanup {
+	return []searchResourceCleanup{
+		{kind: "StatefulSet", component: searchMongotComponent, newList: func() client.ObjectList { return &appsv1.StatefulSetList{} }},
+		{kind: "headless Service", component: searchMongotComponent, newList: func() client.ObjectList { return &corev1.ServiceList{} }},
+		{kind: "proxy Service", component: searchProxyComponent, newList: func() client.ObjectList { return &corev1.ServiceList{} }},
+		{kind: "ConfigMap", component: searchMongotComponent, newList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
+		{kind: "state ConfigMap", name: searchcontroller.SearchStateCMName(search), omitCluster: true, newList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
+		{kind: "x509 client auth Secret", name: search.X509OperatorManagedSecret().Name, newList: func() client.ObjectList { return &corev1.SecretList{} }},
+		{kind: "SCRAM client auth Secret", name: search.ScramClientCertOperatorManagedSecret().Name, newList: func() client.ObjectList { return &corev1.SecretList{} }},
+		{kind: "Secret", component: searchMongotComponent, newList: func() client.ObjectList { return &corev1.SecretList{} }},
+	}
+}
+
+func envoySearchResourceCleanups() []searchResourceCleanup {
+	return []searchResourceCleanup{
+		{kind: "Deployment", component: searchProxyComponent, newList: func() client.ObjectList { return &appsv1.DeploymentList{} }},
+		{kind: "ConfigMap", component: searchProxyComponent, newList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
+	}
+}
+
+func cleanupRemovedMemberSearchResources(
+	ctx context.Context,
+	parentReader client.Reader,
+	search *searchv1.MongoDBSearch,
+	memberReaders map[string]client.Reader,
+	memberClients map[string]kubernetesClient.Client,
+	cleanups []searchResourceCleanup,
+	log *zap.SugaredLogger,
+) (bool, error) {
+	desired := make(map[string]struct{}, len(search.Spec.Clusters))
+	for _, cluster := range search.Spec.Clusters {
+		desired[cluster.Name] = struct{}{}
+	}
+	var errs error
+	topologyCurrent := true
+	for clusterName, memberClient := range memberClients {
+		if _, ok := desired[clusterName]; ok {
+			continue
+		}
+		memberReader := memberReaders[clusterName]
+		if memberReader == nil {
+			errs = errors.Join(errs, xerrors.Errorf("cannot clean removed cluster %q MongoDBSearch resources without an API reader", clusterName))
+			continue
+		}
+		clusterCurrent, err := cleanupRemovedLocalSearchResources(
+			ctx,
+			parentReader,
+			memberReader,
+			memberClient,
+			search,
+			clusterName,
+			cleanups,
+			log,
+		)
+		topologyCurrent = topologyCurrent && clusterCurrent
+		errs = errors.Join(errs, err)
+	}
+	return topologyCurrent, errs
+}
+
+func cleanupRemovedLocalSearchResources(
+	ctx context.Context,
+	parentReader client.Reader,
+	listReader client.Reader,
+	deleteClient kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+	clusterName string,
+	cleanups []searchResourceCleanup,
+	log *zap.SugaredLogger,
+) (bool, error) {
+	if search.UID == "" {
+		return false, xerrors.Errorf("cannot clean removed cluster %q resources for MongoDBSearch %s without a UID", clusterName, search.NamespacedName())
+	}
+	// One up-front uncached confirmation that the cluster really is removed from the
+	// live CR; the label + UID + precondition gates below make each delete safe.
+	removed, err := confirmSearchClusterRemoved(ctx, parentReader, search, clusterName)
+	if err != nil {
+		return false, err
+	}
+	if !removed {
+		return false, nil
+	}
+	var errs error
+	for _, cleanup := range cleanups {
+		selector := client.MatchingLabels{
+			khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+			khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			khandler.MongoDBSearchOwnerUIDLabel:       string(search.UID),
+		}
+		if !cleanup.omitCluster {
+			selector[khandler.MongoDBSearchClusterNameLabel] = clusterName
+		}
+		if cleanup.component != "" {
+			selector[khandler.MongoDBSearchComponentLabel] = cleanup.component
+		}
+		list := cleanup.newList()
+		if err := listReader.List(ctx, list, client.InNamespace(search.Namespace), selector); err != nil {
+			errs = errors.Join(errs, xerrors.Errorf("failed listing removed cluster %q MongoDBSearch %ss: %w", clusterName, cleanup.kind, err))
+			continue
+		}
+		items, err := meta.ExtractList(list)
+		if err != nil {
+			errs = errors.Join(errs, xerrors.Errorf("failed extracting removed cluster %q MongoDBSearch %s list: %w", clusterName, cleanup.kind, err))
+			continue
+		}
+		for _, item := range items {
+			obj, ok := item.(client.Object)
+			if !ok {
+				continue
+			}
+			current, ok := obj.DeepCopyObject().(client.Object)
+			if !ok {
+				continue
+			}
+			if err := listReader.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				errs = errors.Join(errs, xerrors.Errorf("failed confirming removed cluster %q MongoDBSearch %s %s: %w", clusterName, cleanup.kind, obj.GetName(), err))
+				continue
+			}
+			if cleanup.name != "" && current.GetName() != cleanup.name {
+				continue
+			}
+			if current.GetUID() != obj.GetUID() ||
+				current.GetLabels()[khandler.MongoDBSearchOwnerUIDLabel] != string(search.UID) {
+				continue
+			}
+			if !cleanup.omitCluster && current.GetLabels()[khandler.MongoDBSearchClusterNameLabel] != clusterName {
+				continue
+			}
+			if cleanup.component != "" && current.GetLabels()[khandler.MongoDBSearchComponentLabel] != cleanup.component {
+				continue
+			}
+			if err := deleteClient.Delete(ctx, current, client.Preconditions{
+				UID:             ptr.To(current.GetUID()),
+				ResourceVersion: ptr.To(current.GetResourceVersion()),
+			}); err != nil && !apierrors.IsNotFound(err) {
+				errs = errors.Join(errs, xerrors.Errorf("failed deleting removed cluster %q MongoDBSearch %s %s: %w", clusterName, cleanup.kind, obj.GetName(), err))
+				continue
+			}
+			log.Infof("Deleted removed cluster %q MongoDBSearch %s %s", clusterName, cleanup.kind, obj.GetName())
+		}
+	}
+	return true, errs
+}
+
+func confirmSearchClusterRemoved(ctx context.Context, reader client.Reader, expected *searchv1.MongoDBSearch, clusterName string) (bool, error) {
+	current := &searchv1.MongoDBSearch{}
+	if err := reader.Get(ctx, expected.NamespacedName(), current); err != nil {
+		return false, xerrors.Errorf("failed confirming cluster %q removal from MongoDBSearch %s: %w", clusterName, expected.NamespacedName(), err)
+	}
+	if current.UID != expected.UID {
+		return false, nil
+	}
+	return isRemovedSearchOperatorCluster(current, clusterName), nil
 }
 
 func (r *MongoDBSearchReconciler) sweepOwnedResourceKind(
