@@ -4,7 +4,7 @@ Test for agent build mapping functionality and validation functions.
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from scripts.release.agent.validation import (
     generate_agent_build_args,

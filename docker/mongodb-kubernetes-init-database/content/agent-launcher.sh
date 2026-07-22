@@ -24,7 +24,7 @@ tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 source /opt/scripts/agent-launcher-lib.sh
 
 # Source custom agent URLs if present (baked into init-database image at build time).
-# In automatic CI mode, UPSTREAM_AGENT_URL is baked here; in manual mode, the
+# In automatic CI mode, MDB_CUSTOM_AGENT_URL is baked here; in manual mode, the
 # operator injects MDB_CUSTOM_AGENT_URL at runtime instead.
 if [ -f /opt/scripts/custom-agent-urls.sh ]; then
   source /opt/scripts/custom-agent-urls.sh

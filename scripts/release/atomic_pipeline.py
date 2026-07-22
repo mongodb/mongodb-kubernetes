@@ -245,9 +245,9 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
         **platform_build_args,  # Add the platform-specific build args
     }
 
-    # Pass custom agent URL for non-static architecture.
+    # Pass custom agent URL to init-database image (consumed only in non-static mode).
     # Same code path as static: manual (release.json customAgent) first,
-    # then UPSTREAM_AGENT_URL env var (automatic CI).
+    # then MDB_CUSTOM_AGENT_URL env var (automatic CI).
     custom_agent_url = get_custom_agent_url(release.get("agentVersion", ""))
     if custom_agent_url:
         logger.info(f"Passing custom agent URL to init-database image build: {custom_agent_url}")
@@ -368,8 +368,8 @@ def build_agent_pipeline(
         # Pass the full URL directly — no probing, no suffix guessing.
         # The URL is split into base + filename only because the Dockerfile
         # constructs the download URL as ${mongodb_agent_url}/${filename}.
-        agent_base_url = custom_agent_url.rsplit("/", 1)[0]
-        agent_filename = custom_agent_url.rsplit("/", 1)[1]
+        agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
+        # ponytail: custom URL is single-arch; same filename applied to all platforms.
         platform_build_args = {}
         for platform in build_configuration_copy.platforms:
             arch = platform.split("/")[-1]
