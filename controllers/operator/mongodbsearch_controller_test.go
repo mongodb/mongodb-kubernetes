@@ -724,7 +724,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 
 			// Owner labels stamp cross-cluster identity — owner refs do not
 			// carry between clusters, so labels are the link back to the CR.
-			assertSearchOwnerLabels(t, search, tc.clusterName, sts, headlessSvc, proxySvc, cm)
+			assertSearchOwnerLabels(t, search, sts, headlessSvc, proxySvc, cm)
 		})
 	}
 }
@@ -790,17 +790,16 @@ func driveSearchReconcileToRunning(
 }
 
 // assertSearchOwnerLabels verifies the cross-cluster enqueue labels (owner name/
-// namespace + cluster name) on every operator-created object. Watch routing
+// namespace) on every operator-created object. Watch routing
 // (EnqueueMemberClusterObjectToSearch) and label-based GC depend on these, so a
 // path that creates resources without them passes existence checks but breaks
 // re-enqueue in e2e only.
-func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, clusterName string, objs ...client.Object) {
+func assertSearchOwnerLabels(t *testing.T, search *searchv1.MongoDBSearch, objs ...client.Object) {
 	t.Helper()
 	for _, obj := range objs {
 		labels := obj.GetLabels()
 		assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel], "owner-name label on %T %s", obj, obj.GetName())
 		assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel], "owner-namespace label on %T %s", obj, obj.GetName())
-		assert.Equal(t, clusterName, labels[khandler.MongoDBSearchClusterNameLabel], "cluster-name label on %T %s", obj, obj.GetName())
 	}
 }
 
@@ -869,7 +868,7 @@ func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T)
 			require.NoError(t, c.Get(ctx, search.SearchServiceNamespacedNameForCluster(tc.wantIdx), headless),
 				"headless search Service at pinned index %d must exist", tc.wantIdx)
 
-			assertSearchOwnerLabels(t, search, tc.opCluster, sts, cm, proxy, headless)
+			assertSearchOwnerLabels(t, search, sts, cm, proxy, headless)
 
 			// The other cluster's index MUST be untouched — this operator never wrote it.
 			err := c.Get(ctx, search.StatefulSetNamespacedNameForCluster(tc.wrongIdx), &appsv1.StatefulSet{})
@@ -960,7 +959,7 @@ func newOperatorPerClusterShardedMongoDBSearch(name, namespace string) *searchv1
 		},
 	}
 	return &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, UID: types.UID(name + "-uid")},
 		Spec: searchv1.MongoDBSearchSpec{
 			Version: "1.70.1",
 			Source: &searchv1.MongoDBSource{
@@ -993,6 +992,62 @@ func operatorPerClusterShardedTLSSecrets(search *searchv1.MongoDBSearch, cluster
 	return out
 }
 
+func TestMongoDBSearchReconcile_ShardReductionSweepsStaleResourcesAndTLSSecret(t *testing.T) {
+	ctx := t.Context()
+	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
+	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+	sourceSecrets := operatorPerClusterShardedTLSSecrets(search, 0)
+	for i, obj := range sourceSecrets {
+		secret := obj.(*corev1.Secret)
+		secret.UID = types.UID(fmt.Sprintf("source-secret-%d-uid", i))
+		require.NoError(t, c.Create(ctx, secret))
+	}
+
+	got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
+	require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+	for _, shardName := range []string{"sh-0", "sh-1"} {
+		require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(0, shardName), &appsv1.StatefulSet{}))
+		require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(0, shardName), &corev1.Service{}))
+		require.NoError(t, c.Get(ctx, search.MongotConfigMapForClusterShard(0, shardName), &corev1.ConfigMap{}))
+		require.NoError(t, c.Get(ctx, search.TLSOperatorSecretForClusterShard(0, shardName), &corev1.Secret{}))
+	}
+
+	liveSearch := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, search.NamespacedName(), liveSearch))
+	liveSearch.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards = liveSearch.Spec.Source.ExternalMongoDBSource.ShardedCluster.Shards[:1]
+	require.NoError(t, c.Update(ctx, liveSearch))
+
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+
+	require.NoError(t, err)
+	assert.Positive(t, result.RequeueAfter)
+	updatedSearch := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, search.NamespacedName(), updatedSearch))
+	assert.Equal(t, status.PhaseRunning, updatedSearch.Status.Phase, updatedSearch.Status.Message)
+	for _, stale := range []struct {
+		key types.NamespacedName
+		obj client.Object
+	}{
+		{key: search.MongotStatefulSetForClusterShard(0, "sh-1"), obj: &appsv1.StatefulSet{}},
+		{key: search.MongotServiceForClusterShard(0, "sh-1"), obj: &corev1.Service{}},
+		{key: search.MongotConfigMapForClusterShard(0, "sh-1"), obj: &corev1.ConfigMap{}},
+		{key: search.TLSOperatorSecretForClusterShard(0, "sh-1"), obj: &corev1.Secret{}},
+	} {
+		assert.True(t, apiErrors.IsNotFound(c.Get(ctx, stale.key, stale.obj)), "%T %s", stale.obj, stale.key)
+	}
+	require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(0, "sh-0"), &appsv1.StatefulSet{}))
+	require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(0, "sh-0"), &corev1.Service{}))
+	require.NoError(t, c.Get(ctx, search.MongotConfigMapForClusterShard(0, "sh-0"), &corev1.ConfigMap{}))
+	require.NoError(t, c.Get(ctx, search.TLSOperatorSecretForClusterShard(0, "sh-0"), &corev1.Secret{}))
+	for _, obj := range sourceSecrets {
+		want := obj.(*corev1.Secret)
+		actual := &corev1.Secret{}
+		require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(want), actual))
+		assert.Equal(t, want.UID, actual.UID)
+		assert.Equal(t, want.Data, actual.Data)
+	}
+}
+
 func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly(t *testing.T) {
 	for _, tc := range operatorPerClusterProjectionCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1022,13 +1077,13 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 				require.NoError(t, c.Get(ctx, search.MongotServiceForClusterShard(tc.wantIdx, shard), svc),
 					"headless Service for shard %s must exist", shard)
 
-				assertSearchOwnerLabels(t, search, tc.opCluster, sts, cm, svc)
+				assertSearchOwnerLabels(t, search, sts, cm, svc)
 			}
 
 			clusterLevelProxy := &corev1.Service{}
 			require.NoError(t, c.Get(ctx, search.ProxyServiceNamespacedNameForCluster(tc.wantIdx), clusterLevelProxy),
 				"cluster-level proxy Service at pinned index %d must exist", tc.wantIdx)
-			assertSearchOwnerLabels(t, search, tc.opCluster, clusterLevelProxy)
+			assertSearchOwnerLabels(t, search, clusterLevelProxy)
 
 			// The other operator's index MUST be untouched.
 			for _, shard := range []string{"sh-0", "sh-1"} {

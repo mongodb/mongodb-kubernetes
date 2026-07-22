@@ -91,7 +91,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		newCM := configmap.Builder().
 			SetName(cmName).
 			SetNamespace(search.Namespace).
-			SetLabels(searchOwnerLabels(search, "")).
+			SetLabels(searchOwnerLabels(search)).
 			SetOwnerReferences(kube.BaseOwnerReference(search)).
 			SetDataField(searchStateKey, string(data)).
 			Build()
@@ -110,7 +110,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 	if cm.Labels == nil {
 		cm.Labels = map[string]string{}
 	}
-	for key, value := range searchOwnerLabels(search, "") {
+	for key, value := range searchOwnerLabels(search) {
 		if cm.Labels[key] != value {
 			cm.Labels[key] = value
 			metadataChanged = true

@@ -41,7 +41,8 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 	stateCMName := types.NamespacedName{Name: "mysearch-search-state", Namespace: mock.TestNamespace}
 
 	newHelper := func(c client.Client) *MongoDBSearchReconcileHelper {
-		return NewMongoDBSearchReconcileHelper(kubernetesClient.NewClient(c), search, nil, OperatorSearchConfig{}, nil, nil)
+		central := kubernetesClient.NewClient(c)
+		return NewMongoDBSearchReconcileHelper(central, search, nil, OperatorSearchConfig{}, SearchClusterRouter{central: central}, nil)
 	}
 	switchedOn := func(h *MongoDBSearchReconcileHelper, shard string) bool {
 		return slices.Contains(h.state.RoutingReadyMongotGroups, shard)
@@ -66,7 +67,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		assert.Equal(t, []string{"sh-0"}, readState(t, c).RoutingReadyMongotGroups)
 		require.Len(t, cm.OwnerReferences, 1)
 		assert.Equal(t, search.UID, cm.OwnerReferences[0].UID)
-		for k, v := range searchOwnerLabels(search, "") {
+		for k, v := range searchOwnerLabels(search) {
 			assert.Equal(t, v, cm.Labels[k], "owner label %s", k)
 		}
 	})
@@ -102,7 +103,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 
 		cm := &corev1.ConfigMap{}
 		require.NoError(t, c.Get(ctx, stateCMName, cm))
-		for k, v := range searchOwnerLabels(search, "") {
+		for k, v := range searchOwnerLabels(search) {
 			assert.Equal(t, v, cm.Labels[k], "owner label %s", k)
 		}
 		require.Len(t, cm.OwnerReferences, 1, "current-CR owner reference must not be duplicated")
