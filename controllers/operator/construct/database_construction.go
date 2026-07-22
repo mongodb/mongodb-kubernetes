@@ -1074,8 +1074,10 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	// The agent extracts MongoDB binaries and places the keyfile under this directory. It must match
 	// the volume mount path (see GetNonPersistentAgentVolumeMounts) and options.downloadBase in the
 	// automation config, in both static and non-static architectures.
-	if opts.DownloadBase != "" {
-		vars = append(vars, corev1.EnvVar{Name: DownloadBaseEnv, Value: opts.DownloadBase})
+	// Only set the env var when it differs from the launcher's default (see agent-launcher.sh),
+	// which matches util.DefaultPvcMmsMountPath.
+	if downloadBase := opts.GetDownloadBase(); downloadBase != util.DefaultPvcMmsMountPath {
+		vars = append(vars, corev1.EnvVar{Name: DownloadBaseEnv, Value: downloadBase})
 	}
 
 	// append any additional env vars specified.

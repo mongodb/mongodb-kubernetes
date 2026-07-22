@@ -436,6 +436,23 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
 			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
 	})
+
+	t.Run("default download base does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+		// No DownloadBase configured, so GetDownloadBase returns util.DefaultPvcMmsMountPath.
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.DatabaseContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		for _, env := range sts.Spec.Template.Spec.Containers[agentIdx].Env {
+			assert.NotEqual(t, DownloadBaseEnv, env.Name)
+		}
+	})
 }
 
 func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
