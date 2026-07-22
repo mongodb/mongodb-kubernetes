@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"slices"
 	"sort"
@@ -595,16 +596,22 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {
 		if !rs.PodSpec.IsAgentImageOverridden() {
-			// Because OM is not available when starting AppDB, we read the version from the mapping
-			// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
-			// It avoids unnecessary reconciles, race conditions...
-			agentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
-			if err != nil {
-				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
-			}
+			// When a custom agent URL is set, use the overridden AGENT_VERSION instead of the mapping.
+			// The mapping is production data; AGENT_VERSION is already overridden by resolve-agent-version.sh.
+			if customAgentVersion := os.Getenv(util.EnvVarAgentVersion); customAgentVersion != "" { // nolint:forbidigo
+				appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, customAgentVersion)
+			} else {
+				// Because OM is not available when starting AppDB, we read the version from the mapping
+				// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
+				// It avoids unnecessary reconciles, race conditions...
+				agentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+				if err != nil {
+					log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
+					return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log, appDbStatusOption)
+				}
 
-			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, agentVersion)
+				appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, agentVersion)
+			}
 		}
 	} else {
 		// AgentImageEnv contains the full container image uri e.g. quay.io/mongodb/mongodb-agent:107.0.0.8502-1

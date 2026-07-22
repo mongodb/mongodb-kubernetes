@@ -559,6 +559,12 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec) []corev1.EnvVar {
 			Value: appDbSpec.ClusterDomain,
 		},
 	}
+
+	// Custom agent URL for non-static agent delivery (agent-launcher-lib.sh path).
+	if customAgentURL := os.Getenv(util.EnvVarCustomAgentURL); customAgentURL != "" { // nolint:forbidigo
+		envVars = append(envVars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: customAgentURL})
+	}
+
 	return envVars
 }
 

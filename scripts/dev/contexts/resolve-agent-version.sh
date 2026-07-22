@@ -29,6 +29,7 @@ else
 fi
 
 # Check for per-mode custom agent override
+CUSTOM_URL=""
 if [[ "${ops_manager_version:-}" == "cloud_qa" ]]; then
   CUSTOM_URL="$(jq -r '.customAgent.cloudqa // empty' "${PROJECT_DIR}/release.json")"
 elif [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
