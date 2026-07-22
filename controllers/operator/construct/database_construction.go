@@ -150,6 +150,16 @@ func (d DatabaseStatefulSetOptions) GetStatefulSetName() string {
 	return d.Name
 }
 
+// GetDownloadBase returns the configured download base, falling back to util.DefaultPvcMmsMountPath
+// when unset. Leaving DownloadBase empty in the struct therefore yields the same behavior as before
+// the field was introduced.
+func (d DatabaseStatefulSetOptions) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
 // a database StatefulSet.
 type databaseStatefulSetSource interface {
@@ -185,6 +195,8 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
+			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
 		}
 
 		for _, opt := range additionalOpts {
@@ -721,7 +733,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
-	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.DownloadBase)
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.GetDownloadBase())
 
 	return volumesToAdd, volumeMounts
 }
