@@ -801,6 +801,15 @@ func agentVersionFromURL(url string) string {
 
 // deleteClusterResources removes all resources that are associated with the given resource owner in a given cluster.
 func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
+	errs := deleteOwnedClusterResources(ctx, client, clusterName, resourceOwner, log)
+
+	r.resourceWatcher.RemoveDependentWatchedResources(resourceOwner.ObjectKey())
+
+	return errs
+}
+
+// deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.
+func deleteOwnedClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
 	objectKey := resourceOwner.ObjectKey()
 
 	// cleanup resources in the namespace as the MongoDB with the corresponding label.
@@ -833,8 +842,6 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	} else {
 		log.Infof("Removed Secrets associated with %s in cluster %s", objectKey, clusterName)
 	}
-
-	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
 
 	return errs
 }
