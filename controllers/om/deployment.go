@@ -718,6 +718,11 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 }
 
 func (d Deployment) SetDownloadBase(downloadBase string) {
+	// Only persist options.downloadBase when it differs from the agent's default (see
+	// agent-launcher.sh), which matches util.DefaultPvcMmsMountPath.
+	if downloadBase == "" || downloadBase == util.DefaultPvcMmsMountPath {
+		return
+	}
 	d["options"] = map[string]interface{}{"downloadBase": downloadBase}
 }
 

@@ -1015,9 +1015,20 @@ func TestLimitVotingMembers_AppliesNormallyWhenNoExternalMembers(t *testing.T) {
 }
 
 func TestSetDownloadBase(t *testing.T) {
-	d := NewDeployment()
+	t.Run("custom download base is set", func(t *testing.T) {
+		d := NewDeployment()
 
-	d.SetDownloadBase("/custom/download/base")
+		d.SetDownloadBase("/custom/download/base")
 
-	assert.Equal(t, "/custom/download/base", d.DownloadBase())
+		assert.Equal(t, "/custom/download/base", d.DownloadBase())
+	})
+
+	t.Run("default download base is not set", func(t *testing.T) {
+		d := NewDeployment()
+
+		d.SetDownloadBase(util.DefaultPvcMmsMountPath)
+
+		assert.Empty(t, d.DownloadBase())
+		assert.NotContains(t, d, "options")
+	})
 }
