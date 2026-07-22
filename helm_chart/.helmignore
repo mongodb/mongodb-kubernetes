@@ -1,0 +1,4 @@
+# Go source lives in this directory only so the chart can be embedded into the
+# `kubectl mongodb` plugin (see embed.go). It is not part of the chart and must
+# not be packaged by `helm package`.
+*.go
