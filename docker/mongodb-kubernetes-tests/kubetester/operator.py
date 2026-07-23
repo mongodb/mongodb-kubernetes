@@ -20,6 +20,7 @@ from kubetester.helm import (
 from tests import test_logger
 
 OPERATOR_CRDS = (
+    "memberclusters.operator.mongodb.com",
     "mongodb.mongodb.com",
     "mongodbusers.mongodb.com",
     "operatorconfigs.operator.mongodb.com",
