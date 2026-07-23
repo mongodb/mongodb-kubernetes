@@ -27,6 +27,11 @@ func buildSecurity(ac *om.AutomationConfig, certsSecretPrefix, resourceName stri
 		security.CertificatesSecretsPrefix = certsSecretPrefix
 		// Explicitly set the CA ConfigMap to the operator default "<resourceName>-ca" (see database_volumes.go).
 		security.TLSConfig = &mdbv1.TLSConfig{CA: fmt.Sprintf("%s-ca", resourceName)}
+		// Preserve a custom CA file path from the automation config. When it matches the operator
+		// default the field is omitted so the operator uses its default mount path.
+		if ac.AgentSSL != nil && ac.AgentSSL.CAFilePath != "" && ac.AgentSSL.CAFilePath != defaultCAFilePath {
+			security.TLSConfig.CAFilePath = ac.AgentSSL.CAFilePath
+		}
 		hasSettings = true
 	}
 

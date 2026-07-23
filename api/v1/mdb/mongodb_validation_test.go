@@ -193,6 +193,26 @@ func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
 	assert.Errorf(t, err, "'resourceType' cannot be changed once created")
 }
 
+func TestMongoDB_DownloadBaseImmutable(t *testing.T) {
+	t.Run("Changing downloadBase is rejected", func(t *testing.T) {
+		oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		oldRs.Spec.DownloadBase = "/var/lib/mongodb-mms-automation"
+		newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		newRs.Spec.DownloadBase = "/data/mongodb-mms-automation"
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		assert.EqualError(t, err, "'spec.downloadBase' cannot be changed once created")
+	})
+
+	t.Run("Keeping downloadBase unchanged is allowed", func(t *testing.T) {
+		oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		oldRs.Spec.DownloadBase = "/var/lib/mongodb-mms-automation"
+		newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		newRs.Spec.DownloadBase = "/var/lib/mongodb-mms-automation"
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		assert.NoError(t, err)
+	})
+}
+
 func TestMongoDB_NoSimultaneousTLSDisablingAndScaling(t *testing.T) {
 	tests := []struct {
 		name                 string

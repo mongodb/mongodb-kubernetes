@@ -717,6 +717,15 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 	l.Debugf(">> Deployment: \n %s \n", string(b))
 }
 
+func (d Deployment) SetDownloadBase(downloadBase string) {
+	// Only persist options.downloadBase when it differs from the agent's default (see
+	// agent-launcher.sh), which matches util.DefaultPvcMmsMountPath.
+	if downloadBase == "" || downloadBase == util.DefaultPvcMmsMountPath {
+		return
+	}
+	d["options"] = map[string]interface{}{"downloadBase": downloadBase}
+}
+
 // ProcessesCopy returns the COPY of processes in the deployment.
 func (d Deployment) ProcessesCopy() []Process {
 	return d.deepCopy().GetProcesses()

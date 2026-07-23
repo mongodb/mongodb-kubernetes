@@ -96,6 +96,11 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
 		},
 		{
+			name:    "TLS with a non-default CAFilePath sets spec.security.tls.caFilePath",
+			fixture: "singlecluster/replicaset/tls/custom_ca_path/custom_ca_path",
+			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
+		},
+		{
 			name:    "TLS allowTLS with clientCertificateMode REQUIRE sets allowConnectionsWithoutCertificates to false",
 			fixture: "singlecluster/replicaset/tls/allow/allow",
 			opts:    GenerateOptions{CertsSecretPrefix: "mdb"},
@@ -159,6 +164,10 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 		{
 			name:    "member tags are preserved in externalMembers",
 			fixture: "singlecluster/replicaset/member_options/member_options",
+		},
+		{
+			name:    "non-default options.downloadBase is carried over to spec.downloadBase",
+			fixture: "singlecluster/replicaset/download_base/download_base",
 		},
 	}
 	runFixtureCases(t, cases)

@@ -12,6 +12,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func secretsByName(objs []client.Object) map[string]string {
@@ -235,4 +236,29 @@ func TestGenerateMongoDBCR_ShardedMissingShardReplicaSet(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "shard0")
 	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestBuildDbCommonSpec_DownloadBase(t *testing.T) {
+	makeAC := func(downloadBase string) *om.AutomationConfig {
+		ac := baseValidReplicaSetAC()
+		options := ac.Deployment["options"].(map[string]interface{})
+		options["downloadBase"] = downloadBase
+		ac.Deployment["options"] = options
+		return ac
+	}
+	opts := GenerateOptions{ConfigMapName: "cm", CredentialsSecretName: "creds", Namespace: "mongodb"}
+
+	t.Run("non-default value is carried over", func(t *testing.T) {
+		ac := makeAC("/opt/mongodb/automation")
+		spec, err := buildDbCommonSpec(ac, opts, "7.0.12-ent", "", mdbv1.ReplicaSet, "my-rs")
+		require.NoError(t, err)
+		assert.Equal(t, "/opt/mongodb/automation", spec.DownloadBase)
+	})
+
+	t.Run("default value is not set", func(t *testing.T) {
+		ac := makeAC(util.DefaultPvcMmsMountPath)
+		spec, err := buildDbCommonSpec(ac, opts, "7.0.12-ent", "", mdbv1.ReplicaSet, "my-rs")
+		require.NoError(t, err)
+		assert.Equal(t, "", spec.DownloadBase)
+	})
 }

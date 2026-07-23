@@ -56,6 +56,10 @@ type MongoDBMultiCluster struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
+func (m *MongoDBMultiCluster) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDBMultiCluster) GetProjectConfigMapNamespace() string {
 	return m.Namespace
 }

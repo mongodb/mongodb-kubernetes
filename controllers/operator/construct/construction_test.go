@@ -81,7 +81,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
@@ -106,7 +106,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
@@ -138,7 +138,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
@@ -167,7 +167,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
-		{Name: util.PvMms, MountPath: util.PvcMmsMountPath, SubPath: util.PvcMms},
+		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
@@ -330,6 +330,42 @@ func TestPodSpec_Requirements(t *testing.T) {
 
 func defaultPodVars() *env.PodEnvVars {
 	return &env.PodEnvVars{BaseURL: "http://localhost:8080", ProjectID: "myProject", User: "user@some.com"}
+}
+
+// assertAgentDownloadMount asserts that exactly one volume mount uses the agent
+// empty-dir volume with the download-base subpath, mounted at expectedPath.
+func assertAgentDownloadMount(t *testing.T, set appsv1.StatefulSet, expectedPath string) {
+	found := false
+	for _, c := range set.Spec.Template.Spec.Containers {
+		for _, m := range c.VolumeMounts {
+			if m.Name == util.PvMms && m.SubPath == util.PvcMms {
+				assert.Equal(t, expectedPath, m.MountPath, "agent download volume mount path")
+				found = true
+			}
+		}
+	}
+	assert.True(t, found, "expected an agent download volume mount (%s/%s)", util.PvMms, util.PvcMms)
+}
+
+func TestBuildStatefulSet_CustomDownloadBase(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+	rs := mdbv1.NewReplicaSetBuilder().Build()
+	rs.Spec.DownloadBase = "/custom/download/base"
+
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+	assertAgentDownloadMount(t, set, "/custom/download/base")
+}
+
+func TestBuildStatefulSet_DefaultDownloadBase(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+	rs := mdbv1.NewReplicaSetBuilder().Build()
+
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+	assertAgentDownloadMount(t, set, util.DefaultPvcMmsMountPath)
 }
 
 func TestPodAntiAffinityOverride(t *testing.T) {

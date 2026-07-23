@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -27,6 +28,63 @@ func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 	mock.InitDefaultEnvVariables()
+}
+
+func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
+	t.Run("custom path uses KeyToPath directory mount", func(t *testing.T) {
+		customPath := "/etc/ssl/certs/ca.pem"
+		src := &tlsVolumeSource{
+			security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{
+					Enabled:    true,
+					CA:         "my-ca-configmap",
+					CAFilePath: customPath,
+				},
+			},
+			databaseOpts: DatabaseStatefulSetOptions{Name: "my-rs"},
+			logger:       zap.S(),
+		}
+
+		volumes, mounts := src.getVolumesAndMounts()
+
+		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == path.Dir(customPath) && m.SubPath == "" && m.ReadOnly
+		}), "custom CAFilePath should mount at the parent directory")
+		assert.False(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == util.TLSCaMountPath
+		}), "default TLSCaMountPath should not be present in custom mode")
+		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+			cm := v.ConfigMap
+			return cm != nil &&
+				len(cm.Items) == 1 &&
+				cm.Items[0].Key == tls.CAConfigMapKey &&
+				cm.Items[0].Path == path.Base(customPath)
+		}), "custom CAFilePath volume should map ca-pem key to the custom filename")
+	})
+
+	t.Run("default path mounts whole ConfigMap at TLSCaMountPath", func(t *testing.T) {
+		src := &tlsVolumeSource{
+			security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{
+					Enabled: true,
+					CA:      "my-ca-configmap",
+				},
+			},
+			databaseOpts: DatabaseStatefulSetOptions{Name: "my-rs"},
+			logger:       zap.S(),
+		}
+
+		volumes, mounts := src.getVolumesAndMounts()
+
+		// Default mode: full directory mount at TLSCaMountPath, no KeyToPath items.
+		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == util.TLSCaMountPath
+		}), "default mode should mount at TLSCaMountPath")
+		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+			cm := v.ConfigMap
+			return cm != nil && len(cm.Items) == 0
+		}), "default mode should not restrict ConfigMap keys via Items")
+	})
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
@@ -344,6 +402,86 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentStderrEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-stderr.log")})
 	})
+}
+
+func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
+	t.Run("static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.Static))
+
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		mdb.Spec.DownloadBase = "/custom/download/base"
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.AgentContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
+			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
+	})
+
+	t.Run("non-static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		mdb.Spec.DownloadBase = "/custom/download/base"
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.DatabaseContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
+			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
+	})
+
+	t.Run("default download base does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+		// No DownloadBase configured, so GetDownloadBase returns util.DefaultPvcMmsMountPath.
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.DatabaseContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		for _, env := range sts.Spec.Template.Spec.Containers[agentIdx].Env {
+			assert.NotEqual(t, DownloadBaseEnv, env.Name)
+		}
+	})
+}
+
+func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+	sc := mdbv1.NewClusterBuilder().Build()
+	sc.Spec.DownloadBase = "/custom/download/base"
+
+	kubeClient, _ := mock.NewDefaultFakeClient(sc)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+	configServerSpec := createConfigSrvSpec(sc)
+	mongosSpec := createMongosSpec(sc)
+
+	withPodVars := func(options *DatabaseStatefulSetOptions) {
+		options.PodVars = defaultPodVars()
+	}
+
+	cases := map[string]func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions{
+		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars),
+		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars),
+		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars),
+	}
+
+	for name, optFunc := range cases {
+		t.Run(name, func(t *testing.T) {
+			set := DatabaseStatefulSet(*sc, optFunc, zap.S())
+			assertAgentDownloadMount(t, set, "/custom/download/base")
+		})
+	}
 }
 
 func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {

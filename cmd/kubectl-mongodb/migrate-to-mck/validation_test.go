@@ -28,7 +28,7 @@ func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfi
 // so the mutation is the only thing that can trip the validation.
 func baseValidReplicaSetAC() *om.AutomationConfig {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"options": map[string]interface{}{"downloadBase": util.PvcMmsMountPath},
+		"options": map[string]interface{}{"downloadBase": util.DefaultPvcMmsMountPath},
 		"processes": []interface{}{
 			map[string]interface{}{
 				"name": "my-rs-0", "processType": string(om.ProcessTypeMongod),
@@ -280,14 +280,11 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "CAFilePath") {
-			hasWarning = true
-			assert.Contains(t, r.Message, "/etc/ssl/ca.pem")
+		if r.Severity == SeverityError && strings.Contains(r.Message, "will be overwritten") {
+			t.Errorf("non-default CAFilePath must no longer produce an overwrite error: %s", r.Message)
 		}
 	}
-	assert.True(t, hasWarning, "expected error when CAFilePath differs from default")
 }
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
@@ -295,16 +292,62 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 	options := ac.Deployment["options"].(map[string]interface{})
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
+	// keyFile tracks downloadBase, so keep it consistent to isolate the downloadBase check.
+	ac.Auth.KeyFile = "/opt/mongodb/automation/keyfile"
 
-	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
+	results, sourceProcess := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+
+	require.NotNil(t, sourceProcess, "non-default downloadBase must not abort validation")
+
+	hasWarning := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "downloadBase") {
-			hasError = true
+		if r.Severity == SeverityError {
+			assert.NotContains(t, r.Message, "downloadBase", "downloadBase must not produce an error")
+			assert.NotContains(t, r.Message, "keyFile", "consistent keyFile must not produce an error")
+		}
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "downloadBase") {
+			hasWarning = true
 			assert.Contains(t, r.Message, "/opt/mongodb/automation")
+			assert.Contains(t, r.Message, "spec.downloadBase")
 		}
 	}
-	assert.True(t, hasError, "expected error when downloadBase differs from default")
+	assert.True(t, hasWarning, "expected a warning when downloadBase differs from default")
+}
+
+func TestValidation_KeyFileRelativeToDownloadBase(t *testing.T) {
+	t.Run("keyFile under non-default downloadBase is accepted", func(t *testing.T) {
+		ac := baseValidReplicaSetAC()
+		options := ac.Deployment["options"].(map[string]interface{})
+		options["downloadBase"] = "/opt/mongodb/automation"
+		ac.Deployment["options"] = options
+		ac.Auth.KeyFile = "/opt/mongodb/automation/keyfile"
+
+		results, sourceProcess := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+		require.NotNil(t, sourceProcess, "keyFile matching downloadBase must not abort validation")
+		for _, r := range results {
+			if r.Severity == SeverityError {
+				assert.NotContains(t, r.Message, "keyFile", "keyFile under downloadBase must not error")
+			}
+		}
+	})
+
+	t.Run("default keyFile with non-default downloadBase is rejected", func(t *testing.T) {
+		ac := baseValidReplicaSetAC()
+		options := ac.Deployment["options"].(map[string]interface{})
+		options["downloadBase"] = "/opt/mongodb/automation"
+		ac.Deployment["options"] = options
+		// keyFile left at the default path -- now a mismatch against the download base.
+
+		results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+		hasError := false
+		for _, r := range results {
+			if r.Severity == SeverityError && strings.Contains(r.Message, "keyFile") {
+				hasError = true
+				assert.Contains(t, r.Message, "/opt/mongodb/automation/keyfile")
+			}
+		}
+		assert.True(t, hasError, "expected a keyFile error when it does not match the download base")
+	})
 }
 
 func TestValidation_NonDefaultKeyFileWindows(t *testing.T) {
@@ -471,6 +514,13 @@ func TestValidateAgentTLS_WarnsAboutGeneratedServerTLSResources(t *testing.T) {
 	assert.Contains(t, results[0].Message, "<certsSecretPrefix>-<resourceName>-cert")
 	assert.Contains(t, results[0].Message, "tls.crt")
 	assert.Contains(t, results[0].Message, "tls.key")
+}
+
+func TestValidateAgentTLS_NonDefaultCAFilePathWarnsWithoutError(t *testing.T) {
+	results := validateAgentTLS(&om.AgentSSL{CAFilePath: "/etc/ssl/ca.pem"})
+
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityWarning, results[0].Severity)
 }
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
