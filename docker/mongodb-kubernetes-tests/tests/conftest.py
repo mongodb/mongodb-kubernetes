@@ -61,11 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import (
-    running_locally,
-    wait_for_operator_pod_present,
-    wait_for_operator_pod_restart,
-)
+from kubetester.kubetester import running_locally, wait_for_operator_pod_present, wait_for_operator_pod_restart
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
