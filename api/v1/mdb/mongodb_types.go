@@ -395,6 +395,14 @@ type MongoDbStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
+	// reconcile while migration is active. The next reconcile compares this to the current external count
+	// to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
+	// NOTE: This field is only used for MongoDB CR resources. It is always nil when MongoDbStatus is
+	// embedded in OpsManager's AppDbStatus, but appears in the CRD schema due to Go struct embedding.
+	// This is accepted technical debt until AppDbStatus is decoupled from MongoDbStatus.
+	// +optional
+	MigrationObservedExternalMembersCount *int `json:"migrationObservedExternalMembersCount,omitempty"`
 }
 
 type BackupMode string
@@ -1534,6 +1542,27 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
+func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int) {
+	extCount := len(m.Spec.GetExternalMembers())
+
+	if extCount == 0 {
+		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
+		m.Status.MigrationObservedExternalMembersCount = nil
+		// Only flip Migrating to False if migration was previously active.
+		if cond := meta.FindStatusCondition(m.Status.Conditions, status.ConditionMigrating); cond != nil && cond.Status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(false, ""))
+		}
+		return
+	}
+
+	isDryRun := m.GetAnnotations()[util.MigrationDryRunAnnotation] == "true"
+	desiredK8sMembers := m.Spec.Members
+
+	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorStatusMembers)
+
+	meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(true, migratingReason))
+}
+
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
@@ -1550,16 +1579,12 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
 		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
-	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
-		c := option.(status.MigrationConditionOption).Condition
-		c.ObservedGeneration = m.GetGeneration()
-		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
-	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
 		if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
 			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
+		m.applyComputedReplicaSetMigrationStatus(m.Status.Members)
 	case ShardedCluster:
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
 			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
@@ -1573,10 +1598,17 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		}
 	}
 
+	if option, exists := status.GetOption(statusOptions, status.MigrationStatusOption{}); exists {
+		c := option.(status.MigrationStatusOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
+	}
+
 	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 		m.Status.Message = ""
+		m.Status.MigrationObservedExternalMembersCount = new(len(m.Spec.GetExternalMembers()))
 
 		switch m.Spec.ResourceType {
 		case ShardedCluster:

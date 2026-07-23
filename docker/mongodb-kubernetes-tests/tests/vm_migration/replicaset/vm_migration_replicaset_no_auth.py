@@ -15,7 +15,6 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
-    assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
     generated_user_docs,
@@ -31,7 +30,7 @@ from tests.vm_migration.vm_migration_replicaset_helper import (
     assert_k8s_process_names,
     deploy_vm_service,
     deploy_vm_statefulset,
-    promote_and_prune,
+    promote_and_prune_extend,
     vm_replica_set_tester,
 )
 
@@ -141,7 +140,12 @@ def generated_cr(generated_cr_yaml: str) -> dict:
 
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr: dict) -> MongoDB:
-    return apply_generated_mongodb_resource(namespace, generated_cr, customer_sets_disabled_tls_mode=True)
+    # Start VM-only (spec.members == 0) so this scenario exercises the incremental extend flow:
+    # K8s members are grown one at a time in promote_and_prune_extend, asserting the Migrating
+    # reason Extending. The other replicaset scenarios use the pre-provisioned promote_and_prune.
+    return apply_generated_mongodb_resource(
+        namespace, generated_cr, customer_sets_disabled_tls_mode=True, initial_members=0
+    )
 
 
 @fixture(scope="module")
@@ -252,9 +256,11 @@ def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 
-@mark.e2e_vm_migration_replicaset_no_auth
-def test_max_voting_members_validation(mdb_migration: MongoDB):
-    assert_max_voting_members_validation(mdb_migration)
+# Note: the max-voting-members validation is covered by the other replicaset scenarios (which
+# pre-provision K8s members and flip their votes). It is intentionally omitted here: this scenario
+# starts VM-only and grows members incrementally, and the operator forbids removing Kubernetes
+# members during migration, so the "scale up to trip the limit, then scale back down" approach
+# cannot recover to a valid state.
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
@@ -277,7 +283,7 @@ def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTe
 
 @mark.e2e_vm_migration_replicaset_no_auth
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
-    promote_and_prune(mdb_migration, vm_sts)
+    promote_and_prune_extend(mdb_migration, vm_sts)
 
 
 @mark.e2e_vm_migration_replicaset_no_auth

@@ -143,12 +143,14 @@ class MongoTester:
     def __init__(
         self,
         connection_string: str,
-        use_ssl: bool,
+        use_ssl: Optional[bool] = None,
         ca_path: Optional[str] = None,
     ):
-        self.default_opts = with_tls(use_ssl, ca_path)
-        self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
+        self.default_opts = {"serverSelectionTimeoutMs": "120000"}
         self.cnx_string = connection_string
+        # Do not duplicate tls setting if connection string already has it
+        if "ssl" not in connection_string and "tls" not in connection_string and use_ssl is not None:
+            self.default_opts = with_tls(use_ssl, ca_path)
         self.client = None
         logging.info(
             f"Initialized MongoTester with connection string: {connection_string}, TLS: {use_ssl} and CA Path: {ca_path}"

@@ -21,6 +21,14 @@ from tests.vm_migration.vm_migration_common_helper import (
     assert_migration_tool_version_annotation,
     generated_mongodb_doc,
 )
+from tests.vm_migration.vm_migration_dry_run import (
+    MIGRATING_CONDITION_REASON_EXTENDING,
+    MIGRATING_CONDITION_REASON_IN_PROGRESS,
+    MIGRATING_CONDITION_REASON_PRUNING,
+    wait_until_migrating_condition_reason,
+    wait_until_phase_and_migrating_condition_reason,
+    wait_until_running_and_migration_complete,
+)
 
 # minimum K8s StatefulSet members deployed alongside VM external members.
 # MIN_K8S_MONGOD must exceed 7 when added to the external member count so the voting-limit validation always runs.
@@ -66,7 +74,15 @@ def apply_generated_mongodb_resource(
     resource_name: str | None = None,
     customer_sets_disabled_tls_mode: bool = False,
     prepare_external_resources=None,
+    initial_members: int | None = None,
 ) -> MongoDB:
+    """Apply the generated MongoDB CR.
+
+    By default all K8s members are pre-provisioned (votes/priority 0) alongside the VM external
+    members; ``promote_and_prune`` then re-prioritizes and prunes. Pass ``initial_members=0`` to
+    start VM-only and grow ``spec.members`` incrementally via ``promote_and_prune_extend`` (the
+    extend-then-prune flow that exercises the ``Migrating`` reason ``Extending``).
+    """
     resource_doc = (
         generated_cr_yaml if isinstance(generated_cr_yaml, dict) else generated_mongodb_doc(generated_cr_yaml)
     )
@@ -81,7 +97,9 @@ def apply_generated_mongodb_resource(
         )["mode"] = "disabled"
 
     external_count = len(resource_doc["spec"].get("externalMembers", []))
-    num_members = max(external_count, MIN_K8S_MONGOD)
+    num_members = external_count if initial_members is None else initial_members
+    if initial_members is None:
+        num_members = max(external_count, MIN_K8S_MONGOD)
     resource_doc["spec"]["members"] = num_members
     resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(num_members)]
 
@@ -150,6 +168,63 @@ def promote_and_prune(mdb_migration, vm_sts):
         mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
         mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+        assert_connection_string_contains_current_hosts(mdb_migration)
+
+    # Once every VM external member has been pruned the operator marks the migration finished:
+    # Migrating=False (reason MigrationComplete) and migrationObservedExternalMembersCount unset.
+    wait_until_running_and_migration_complete(mdb_migration)
+
+
+def promote_and_prune_extend(mdb_migration, vm_sts):
+    """Incremental VM → K8s cutover: grow spec.members one at a time, then prune one VM per step.
+
+    Unlike promote_and_prune (which pre-provisions all K8s members and only re-prioritizes), this
+    starts VM-only (spec.members == 0) and adds a K8s member per iteration, exercising the
+    ``Migrating`` lifecycle reasons the operator emits: ``Extending`` when a member is added,
+    ``Pruning`` when a VM member is removed, ``InProgress`` once counts stabilize, and finally
+    ``MigrationComplete`` after the last VM member is pruned.
+    """
+    try_load(mdb_migration)
+    if not isinstance(mdb_migration["spec"].get("memberConfig"), list):
+        mdb_migration["spec"]["memberConfig"] = []
+
+    # externalMembers shrinks each iteration; snapshot the count so reruns stay bounded.
+    total_vms = len(mdb_migration["spec"]["externalMembers"])
+    for i in range(total_vms):
+        is_last = i == total_vms - 1
+
+        # --- Extend: add one K8s member pinned to votes/priority 0 ---
+        mdb_migration["spec"]["members"] = i + 1
+        if len(mdb_migration["spec"]["memberConfig"]) <= i:
+            mdb_migration["spec"]["memberConfig"].append({"priority": "0", "votes": 0})
+        else:
+            mdb_migration["spec"]["memberConfig"][i] = {"priority": "0", "votes": 0}
+        mdb_migration.update()
+        wait_until_migrating_condition_reason(mdb_migration, MIGRATING_CONDITION_REASON_EXTENDING, timeout=600)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+        assert_connection_string_contains_current_hosts(mdb_migration)
+
+        # --- Prune: remove one VM member ---
+        mdb_migration["spec"]["externalMembers"].pop()
+        mdb_migration.update()
+        if is_last:
+            wait_until_running_and_migration_complete(mdb_migration)
+        else:
+            # Pruning is a single-reconcile transient state — check Running + Pruning atomically in
+            # one poll so the next reconcile flipping it to InProgress can't race the assertion.
+            wait_until_phase_and_migrating_condition_reason(
+                mdb_migration, "Running", MIGRATING_CONDITION_REASON_PRUNING, timeout=600
+            )
+
+        # --- Re-prioritize: restore full votes/priority for the promoted member ---
+        mdb_migration["spec"]["memberConfig"][i] = {"priority": "1", "votes": 1}
+        mdb_migration.update()
+        if is_last:
+            mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+        else:
+            wait_until_phase_and_migrating_condition_reason(
+                mdb_migration, "Running", MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=600
+            )
         assert_connection_string_contains_current_hosts(mdb_migration)
 
 

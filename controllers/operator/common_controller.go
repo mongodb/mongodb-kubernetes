@@ -1504,7 +1504,7 @@ func (r *ReconcileCommonController) runConnectivityJob(
 		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
 		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
 			return workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
-				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),
 				)))
 		}
@@ -1515,7 +1515,7 @@ func (r *ReconcileCommonController) runConnectivityJob(
 		userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, sel, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)).
-				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
 				)))
 		}
@@ -1527,7 +1527,7 @@ func (r *ReconcileCommonController) runConnectivityJob(
 	result := opMigration.RunConnectivityJob(ctx, r.client, job)
 	if result.Err != nil {
 		return workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)).
-			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+			WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 				result.Phase, result.Reason, result.Message,
 			)))
 	}
@@ -1538,18 +1538,18 @@ func (r *ReconcileCommonController) runConnectivityJob(
 	case status.MigrationPhaseConnectivityCheckRunning:
 		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", util.MigrationDryRunAnnotation).
 			WithRetry(30).
-			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
-				status.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
+			WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckRunning, string(status.NetworkConnectivityVerifiedReasonRunning), "Connectivity validation Job is in progress",
 			)))
 	case status.MigrationPhaseConnectivityCheckPassed:
 		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", util.MigrationDryRunAnnotation).
-			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+			WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 				status.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
 			)))
 	default:
 		return workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)).
 			WithRetry(300).
-			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+			WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 				status.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
 			)))
 	}

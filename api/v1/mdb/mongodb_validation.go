@@ -348,6 +348,10 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 
 func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
 	if ms.ResourceType == ReplicaSet && ms.Members == 0 {
+		// VM-to-K8s migration: the replica set can exist with only externalMembers until in-cluster members are added.
+		if len(ms.GetExternalMembers()) > 0 {
+			return v1.ValidationSuccess()
+		}
 		return v1.ValidationError("'spec.members' must be specified if type of MongoDB is %s", ms.ResourceType)
 	}
 	return v1.ValidationSuccess()
@@ -622,7 +626,8 @@ func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationcon
 // atMostOneMigrationChangeAtATime enforces that during migration (when
 // externalMembers is present on the old object) only one type of change may
 // occur per update: adding Kubernetes members, removing external members, or
-// updating member votes/priority, never two types simultaneously.
+// updating member votes/priority — never two types simultaneously. Kubernetes
+// members may not be removed while migration is in progress.
 func atMostOneMigrationChangeAtATime(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if len(oldObj.ExternalMembers) == 0 {
 		return v1.ValidationSuccess()

@@ -934,7 +934,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		operatorImage := r.imageUrls[util.OperatorImageEnv]
 		if operatorImage == "" {
 			return r.updateStatus(ctx, sc, workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)).
-				WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+				WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
 					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
 					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
 				))), log)
@@ -2713,7 +2713,7 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 	healthyClusters := getHealthyMemberClusters(r.mongosMemberClusters)
 	if len(healthyClusters) == 0 {
 		return workflow.Failed(fmt.Errorf("connectivity dry-run: no healthy mongos member cluster available")).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+			WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
 				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoHealthyMemberCluster",
 				"No healthy mongos member cluster is available to build the validation Job.",
 			)))
@@ -2727,7 +2727,7 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 	}
 	if len(mongosHostnames) == 0 {
 		return workflow.Failed(fmt.Errorf("connectivity dry-run: no external mongos members configured")).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+			WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
 				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoExternalMongos",
 				"No external mongos members are configured. Add mongos external members to spec.externalMembers before running the connectivity dry-run.",
 			)))

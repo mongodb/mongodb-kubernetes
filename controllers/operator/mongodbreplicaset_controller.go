@@ -329,10 +329,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if operatorImage == "" {
 			return r.updateStatus(ctx,
 				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
-				)),
+				mdbstatus.NewMigrationStatusOptionWithCondition(
+					mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+						"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+					),
+				),
 			)
 		}
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
@@ -883,7 +884,9 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // so it uses the same credentials volumes and mounts as the STS.
 //
 // The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
-// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// outcomes. The Migrating condition Reason is Validating while the dry-run annotation is set;
+// NetworkConnectivityVerified on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed;
+// while the Job runs, reason is NetworkConnectivityVerifiedReasonRunning ("Running").
 // While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
 // failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
@@ -893,9 +896,9 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	if err != nil {
 		return r.updateStatus(ctx,
 			workflow.Failed(xerrors.Errorf("connectivity dry-run: building StatefulSet options: %w", err)),
-			mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-				mdbstatus.MigrationPhaseConnectivityCheckFailed, "BuildStatefulSetOptions", err.Error(),
-			)),
+			mdbstatus.NewMigrationStatusOptionWithCondition(
+				mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "BuildStatefulSetOptions", err.Error()),
+			),
 		)
 	}
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
@@ -912,7 +915,6 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	dryRunStatus := r.reconciler.runConnectivityJob(ctx, rs, &sts, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, operatorImage, log)
 	return r.updateStatus(ctx, dryRunStatus, dryRunStatus.StatusOptions()...)
 }
-
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
