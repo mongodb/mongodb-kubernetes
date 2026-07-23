@@ -226,6 +226,10 @@ parameters:
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
 
+  - key: mdb_custom_agent_url
+    value: ""
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"

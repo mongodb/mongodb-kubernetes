@@ -12,6 +12,7 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
+from scripts.release.atomic_pipeline import get_custom_agent_url
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -186,6 +187,68 @@ class TestIntegration(unittest.TestCase):
         agent_args = generate_agent_build_args(platforms, agent_version, tools_version)
         self.assertIn("mongodb_agent_version_amd64", agent_args)
         self.assertIn("mongodb_tools_version_amd64", agent_args)
+
+
+class TestCustomAgentUrlResolution(unittest.TestCase):
+    """Tests for get_custom_agent_url.
+
+    Verifies the parameter precedence:
+    1. release.json customAgent (manual mode — single string URL)
+    2. MDB_CUSTOM_AGENT_URL env var (automatic CI mode)
+    3. Empty string (prod mode)
+    """
+
+    def setUp(self):
+        self.manual_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+            "builds/patches/abc123/automation-agent/local/"
+            "mongodb-mms-automation-agent-109.0.0.9188-1.rhel8_x86_64.tar.gz"
+        )
+        self.automatic_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+            "builds/patches/6a588a96814ba600072a706d/automation-agent/local/"
+            "mongodb-mms-automation-agent-109.0.0.9188-1.linux_x86_64.tar.gz"
+        )
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_manual_takes_precedence_over_env_var(self, mock_release):
+        """release.json customAgent takes precedence over MDB_CUSTOM_AGENT_URL env var."""
+        mock_release.return_value = {"customAgent": self.manual_url}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": self.automatic_url}):
+            result = get_custom_agent_url()
+
+        self.assertEqual(result, self.manual_url)
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_falls_back_to_env_var_when_no_manual(self, mock_release):
+        """Without release.json customAgent, falls back to MDB_CUSTOM_AGENT_URL env var."""
+        mock_release.return_value = {"customAgent": ""}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": self.automatic_url}):
+            result = get_custom_agent_url()
+
+        self.assertEqual(result, self.automatic_url)
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_returns_empty_when_no_custom_agent(self, mock_release):
+        """Returns empty string when neither manual nor env var has a URL."""
+        mock_release.return_value = {"customAgent": ""}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=True):
+            result = get_custom_agent_url()
+
+        self.assertEqual(result, "")
+
+    @patch("scripts.release.atomic_pipeline.load_release_file")
+    def test_returns_empty_when_custom_agent_key_missing(self, mock_release):
+        """Returns empty string when release.json has no customAgent key."""
+        mock_release.return_value = {"agentVersion": "108.0.12.8846-1"}
+
+        with patch.dict("os.environ", {"MDB_CUSTOM_AGENT_URL": ""}, clear=True):
+            result = get_custom_agent_url()
+
+        self.assertEqual(result, "")
 
 
 if __name__ == "__main__":

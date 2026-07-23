@@ -69,6 +69,14 @@ RUN microdnf -y update --nodocs \
     && microdnf -y install --nodocs tar gzip \
     && microdnf clean all
 
+# Custom agent URL support: bake the URL into a shell script that
+# agent-launcher.sh sources at runtime. Reuses the existing MDB_CUSTOM_AGENT_URL
+# check in download_agent() — no new env vars. Guarded so operator runtime
+# injection still takes precedence.
+ARG custom_agent_url
+RUN printf '#!/bin/sh\n[ -z "${MDB_CUSTOM_AGENT_URL:-}" ] && export MDB_CUSTOM_AGENT_URL="%s"\n' \
+    "${custom_agent_url:-}" > /scripts/custom-agent-urls.sh
+
 ARG version
 LABEL name="MongoDB Kubernetes Init Database" \
       version="mongodb-kubernetes-init-database-${version}" \
@@ -80,4 +88,4 @@ LABEL name="MongoDB Kubernetes Init Database" \
 
 USER 2000
 
-ENTRYPOINT [ "/bin/cp", "-f", "-r", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/probes/readinessprobe", "/probes/probe.sh", "/tools", "/opt/scripts/" ]
+ENTRYPOINT [ "/bin/cp", "-f", "-r", "/scripts/agent-launcher.sh", "/scripts/agent-launcher-lib.sh", "/scripts/custom-agent-urls.sh", "/probes/readinessprobe", "/probes/probe.sh", "/tools", "/opt/scripts/" ]

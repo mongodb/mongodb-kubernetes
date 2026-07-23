@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 import requests
 
@@ -54,7 +54,7 @@ class PlatformConfiguration:
         return build_args
 
     def generate_agent_build_args(
-        self, platforms: List[str], agent_version: str, tools_version: str, agent_base_url: Optional[str] = None
+        self, platforms: List[str], agent_version: str, tools_version: str
     ) -> Dict[str, str]:
         """
         Generate build arguments for agent image based on platform mappings.
@@ -75,7 +75,7 @@ class PlatformConfiguration:
 
             arch = platform.split("/")[-1]
 
-            agent_filename = get_working_agent_filename(agent_version, platform, agent_base_url=agent_base_url)
+            agent_filename = get_working_agent_filename(agent_version, platform)
             tools_filename = get_working_tools_filename(tools_version, platform)
 
             # Only add build args if we have valid filenames
@@ -103,11 +103,11 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
 
 
 def generate_agent_build_args(
-    platforms: List[str], agent_version: str, tools_version: str, agent_base_url: Optional[str] = None
+    platforms: List[str], agent_version: str, tools_version: str
 ) -> Dict[str, str]:
     """Generate build arguments for agent image based on platform mappings."""
     return _platform_config.generate_agent_build_args(
-        platforms, agent_version, tools_version, agent_base_url=agent_base_url
+        platforms, agent_version, tools_version
     )
 
 
@@ -180,7 +180,7 @@ def _find_working_filename(
     return ""
 
 
-def get_working_agent_filename(agent_version: str, platform: str, agent_base_url: Optional[str] = None) -> str:
+def get_working_agent_filename(agent_version: str, platform: str) -> str:
     """
     Get the actual working agent filename for a specific platform and version.
     Tries multiple RHEL versions and returns the first one that works.
@@ -188,15 +188,13 @@ def get_working_agent_filename(agent_version: str, platform: str, agent_base_url
     Args:
         agent_version: MongoDB agent version to check
         platform: Platform to check
-        agent_base_url: Optional base URL for custom agent patches. When None, uses the prod URL.
 
     Returns:
         The working filename, or the first filename if none work
     """
-    if agent_base_url is None:
-        agent_base_url = (
-            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-        )
+    agent_base_url = (
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+    )
 
     return _find_working_filename(agent_version, platform, agent_base_url, _build_agent_filenames, "agent")
 

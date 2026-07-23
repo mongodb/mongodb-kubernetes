@@ -28,16 +28,8 @@ else
   AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
 fi
 
-# Check for per-mode custom agent override
-CUSTOM_URL=""
-if [[ "${ops_manager_version:-}" == "cloud_qa" ]]; then
-  CUSTOM_URL="$(jq -r '.customAgent.cloudqa // empty' "${PROJECT_DIR}/release.json")"
-elif [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
-  OM_MAJOR="${CUSTOM_OM_VERSION%%.*}"
-  CUSTOM_URL="$(jq -r --arg m "${OM_MAJOR}" '.customAgent[$m] // empty' "${PROJECT_DIR}/release.json")"
-elif [[ -n "${COMMUNITY_CONTEXT:-}" ]]; then
-  CUSTOM_URL="$(jq -r '.customAgent.community // empty' "${PROJECT_DIR}/release.json")"
-fi
+# Check for custom agent override (single URL for all variants)
+CUSTOM_URL="$(jq -r '.customAgent // empty' "${PROJECT_DIR}/release.json")"
 if [[ -n "${CUSTOM_URL}" ]]; then
   _filename="${CUSTOM_URL##*/}"
   _filename="${_filename%.tar.gz}"
