@@ -116,6 +116,25 @@ def migration_connection_strings(mdb_migration: MongoDB) -> tuple[str, str]:
     return secret.get("connectionString.standard", ""), secret.get("connectionString.standardSrv", "")
 
 
+def connection_string_tester(
+    mdb_migration: MongoDB, use_ssl: bool = False, ca_path: Optional[str] = None
+) -> MongoTester:
+    """Return a MongoTester seeded from the operator-managed connection-string secret.
+
+    Unlike ``mdb_migration.tester()`` (which builds K8s pod FQDNs from ``status.members`` and
+    therefore targets nothing while the replica set is still VM-only), the ``standard`` connection
+    string always lists the CURRENT active members: the external VM hosts early in migration, the
+    K8s pods after promotion, and the full K8s set once every VM member is pruned.
+    """
+    try_load(mdb_migration)
+    conn_str, _ = migration_connection_strings(mdb_migration)
+    assert conn_str, (
+        f"connection-string secret {mdb_migration.name}-connection-string has no "
+        f"'connectionString.standard' value yet"
+    )
+    return MongoTester(conn_str, use_ssl, ca_path)
+
+
 def k8s_hostnames(mdb_migration: MongoDB) -> list[str]:
     service_name = f"{mdb_migration.name}-svc"
     return [
