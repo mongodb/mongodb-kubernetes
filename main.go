@@ -282,13 +282,15 @@ func run() error {
 			return err
 		}
 
+		// Watch MemberCluster CRs so the operator rebuilds its member-cluster client map when
+		// membership changes, including the first cluster registered after a single-cluster
+		// install. TODO(m1kola): slice-3: make this reactive (no restart).
+		if err := mgr.Add(membercluster.NewWatcher(mgr.GetCache(), cancel)); err != nil {
+			return err
+		}
+
 		if usingMemberClusterCRs {
 			log.Infof("Discovered %d member cluster(s) from MemberCluster CRs", len(memberClusterClients))
-			// Watch MemberCluster CRs so the operator restarts and rebuilds this map when
-			// cluster membership changes. TODO(m1kola): slice-3: make this reactive (no restart).
-			if err := mgr.Add(membercluster.NewWatcher(mgr.GetCache(), cancel)); err != nil {
-				return err
-			}
 		} else {
 			// TODO(m1kola): slice-3: legacy fallback — discover member clusters from the
 			// <operator>-member-list ConfigMap + the monolithic mounted kubeconfig. Kept so

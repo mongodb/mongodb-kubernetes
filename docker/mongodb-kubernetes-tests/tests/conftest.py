@@ -61,7 +61,11 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import (
+    running_locally,
+    wait_for_operator_pod_present,
+    wait_for_operator_pod_restart,
+)
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -931,6 +935,16 @@ def _install_multi_cluster_operator(
     # after this runs. Slice 9 (no-restart hot reload, or an interim local restart-loop) makes it
     # seamless. See docs/dev/multi-cluster-config-tooling.md.
     if configure_member_clusters is not None:
+        # Registering the MemberCluster CRs makes the operator restart and rebuild its
+        # member-cluster client map. Snapshot the restart count first, then wait for the
+        # restart so tests don't race it. The local operator has no pod to restart (see the
+        # slice-9 TODO above).
+        previous_restart_count = None
+        if not local_operator():
+            previous_restart_count = wait_for_operator_pod_present(
+                namespace, operator_name, api_client=central_cluster_client
+            )
+
         configure_multi_cluster_members(
             configure_member_clusters,
             namespace,
@@ -938,6 +952,11 @@ def _install_multi_cluster_operator(
             central_cluster_name,
             watched_namespaces=member_clusters_watched_namespaces,
         )
+
+        if not local_operator():
+            wait_for_operator_pod_restart(
+                namespace, operator_name, previous_restart_count, api_client=central_cluster_client
+            )
         operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
