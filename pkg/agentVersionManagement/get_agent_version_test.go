@@ -184,6 +184,60 @@ func TestGetAgentVersionManager(t *testing.T) {
 	}
 }
 
+func TestGetAgentVersionWithCustomAgentURL(t *testing.T) {
+	tempFilePath, closer := createTempMapping(t)
+	defer func() {
+		_ = closer()
+	}()
+
+	versionManager, err := InitializeAgentVersionManager(tempFilePath)
+	assert.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		url     string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "Extract version from rhel8 URL",
+			url:  "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz",
+			want: "108.0.26.9047-1",
+		},
+		{
+			name: "Extract version from ubuntu URL",
+			url:  "https://example.com/mongodb-mms-automation-agent-107.0.1.8507-1.ubuntu2204_x86_64.tar.gz",
+			want: "107.0.1.8507-1",
+		},
+		{
+			name: "Version without suffix gets -1 appended",
+			url:  "https://example.com/mongodb-mms-automation-agent-108.0.26.9047.rhel8_x86_64.tar.gz",
+			want: "108.0.26.9047-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("MDB_CUSTOM_AGENT_URL", tt.url)
+			got, err := versionManager.GetAgentVersion(om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"), "7.0.0", false)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+
+	// Verify that without MDB_CUSTOM_AGENT_URL, the existing logic is used
+	t.Run("Without custom agent URL, falls back to Ops Manager", func(t *testing.T) {
+		t.Setenv("MDB_CUSTOM_AGENT_URL", "")
+		got, err := versionManager.GetAgentVersion(om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"), "7.0.0", false)
+		assert.NoError(t, err)
+		assert.Equal(t, "11.0.5.6963-1", got)
+	})
+}
+
 func createTempMapping(t *testing.T) (string, func() error) {
 	tempDirectory := t.TempDir()
 	tempFileName := "version_mapping.json"

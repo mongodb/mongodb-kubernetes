@@ -3,6 +3,7 @@ package agentVersionManagement
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,10 @@ var om7StaticContainersSupport = semver.Version{
 }
 
 var initializationMutex sync.Mutex
+
+// agentVersionRegex extracts the agent version from a custom agent tarball URL.
+// Example: .../mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz → 108.0.26.9047-1
+var agentVersionRegex = regexp.MustCompile(`mongodb-mms-automation-agent-(\d+\.\d+\.\d+\.\d+(?:-\d+)?)`)
 
 // AgentVersionManager handles the retrieval of agent versions.
 // See https://docs.google.com/document/d/1rsj_Ng3IRGv74y1yMTiztfc0LEpBVizjGWFQTaYBz60/edit#heading=h.9frez6xnhit0
@@ -136,6 +141,15 @@ Unlike OM, there is no full guarantee that minor versions support each other for
 // GetAgentVersion returns the agent version to use with the Ops Manager
 // readFromMapping is true in the case of AppDB, because they are started before OM, so we cannot rely on the endpoint
 func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
+	// If a custom agent URL is set, extract and return the version from the URL.
+	// This takes precedence over all other version resolution (Ops Manager API, mapping file,
+	// Cloud Manager) because the custom agent URL specifies the exact agent binary to use.
+	if customAgentURL := os.Getenv("MDB_CUSTOM_AGENT_URL"); customAgentURL != "" {
+		if version, err := extractAgentVersionFromURL(customAgentURL); err == nil {
+			return addVersionSuffixIfAbsent(version), nil
+		}
+	}
+
 	isCM := versionutil.OpsManagerVersion{VersionString: omVersion}.IsCloudManager()
 	if isCM {
 		return m.getAgentVersionForCloudManagerFromMapping()
@@ -247,4 +261,14 @@ func (m *AgentVersionManager) getClosestAgentVersionForOM(omVersion string) (str
 	latestAvailableOmVersion := m.latestOMVersionsByMajor[majorOmVersion]
 	latestAgentVersion := m.omToAgentVersionMapping[omv1.OpsManagerVersion(latestAvailableOmVersion)] // TODO: return smallest one for monitoring agent not automation agent
 	return addVersionSuffixIfAbsent(latestAgentVersion.AgentVersion), nil
+}
+
+// extractAgentVersionFromURL extracts the agent version from a custom agent tarball URL.
+// Example: .../mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz → 108.0.26.9047-1
+func extractAgentVersionFromURL(url string) (string, error) {
+	matches := agentVersionRegex.FindStringSubmatch(url)
+	if len(matches) < 2 {
+		return "", xerrors.Errorf("could not extract agent version from URL: %s", url)
+	}
+	return matches[1], nil
 }

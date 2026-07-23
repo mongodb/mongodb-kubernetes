@@ -11,7 +11,6 @@
       <sourceFolder url="file://$MODULE_DIR$/.worktrees/custom-agent-testing/venv/lib/python3.13/site-packages/virtualenv/util" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
-      <excludeFolder url="file://$MODULE_DIR$/.worktrees/custom-agent-testing/.venv" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
