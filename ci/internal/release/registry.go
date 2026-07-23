@@ -10,6 +10,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
 // ErrTagNotFound is returned by Registry.Digest when the reference does not
@@ -57,13 +59,34 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 	if err != nil {
 		return fmt.Errorf("get %s: %w", srcRef, err)
 	}
+
+	var img v1.Image
+	var idx v1.ImageIndex
+	if desc.MediaType.IsIndex() {
+		idx, err = desc.ImageIndex()
+		if err != nil {
+			return fmt.Errorf("get index %s: %w", srcRef, err)
+		}
+	} else {
+		img, err = desc.Image()
+		if err != nil {
+			return fmt.Errorf("get image %s: %w", srcRef, err)
+		}
+	}
+
 	for _, tag := range tags {
 		dst, err := name.NewTag(fmt.Sprintf("%s/%s:%s", t.host, dstRepo, tag), t.nameOpts()...)
 		if err != nil {
 			return fmt.Errorf("parse target tag %s: %w", tag, err)
 		}
-		if err := remote.Tag(dst, desc, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
-			return fmt.Errorf("tag %s: %w", tag, err)
+		if idx != nil {
+			if err := remote.WriteIndex(dst, idx, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
+				return fmt.Errorf("write index %s: %w", tag, err)
+			}
+		} else {
+			if err := remote.Write(dst, img, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
+				return fmt.Errorf("write image %s: %w", tag, err)
+			}
 		}
 	}
 	return nil

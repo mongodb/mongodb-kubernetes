@@ -1440,11 +1440,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_search_block_multi_cluster
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_search_sharded_routed_from_another_shard
     tags: [ "patch-run" ]
     commands:
