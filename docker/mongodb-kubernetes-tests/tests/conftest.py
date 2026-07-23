@@ -931,6 +931,7 @@ def _install_multi_cluster_operator(
     # after this runs. Slice 9 (no-restart hot reload, or an interim local restart-loop) makes it
     # seamless. See docs/dev/multi-cluster-config-tooling.md.
     if configure_member_clusters is not None:
+        assert operator_name is not None
         # Registering the MemberCluster CRs makes the operator restart and rebuild its
         # member-cluster client map. Snapshot the restart count first, then wait for the
         # restart so tests don't race it. The local operator has no pod to restart (see the
