@@ -53,6 +53,11 @@ func Discover(ctx context.Context, c client.Reader, namespace string, clientTime
 			continue
 		}
 		restConfig.Timeout = time.Duration(clientTimeoutSeconds) * time.Second
+
+		// TODO(m1kola): We should validate that the clusterName is unique across all MemberCluster CRs, and return an error if not OR better, report it in the status of the MemberCluster CR. For now, we just log a warning and overwrite the previous entry.
+		if _, exists := restConfigs[mc.Spec.ClusterName]; exists {
+			zap.S().Warnf("Duplicate clusterName %q found in MemberCluster CRs; overwriting previous entry", mc.Spec.ClusterName)
+		}
 		restConfigs[mc.Spec.ClusterName] = restConfig
 	}
 
