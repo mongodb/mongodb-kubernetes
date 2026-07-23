@@ -54,6 +54,7 @@ import (
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/membercluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
@@ -184,6 +185,14 @@ func run() error {
 				},
 			},
 		},
+		// Restrict the MemberCluster informer to the operator's own namespace, so only
+		// MemberCluster CRs there (the operator's source of truth for cluster membership) can
+		// trigger the membercluster.Watcher restart.
+		&operatorv1.MemberCluster{}: {
+			Namespaces: map[string]cache.Config{
+				currentNamespace: {},
+			},
+		},
 	}
 
 	if isInLocalMode() {
@@ -261,20 +270,45 @@ func run() error {
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
+		// Discover member clusters from MemberCluster CRs + their per-cluster credential Secrets.
+		// A direct (uncached) client is used because the manager cache is not started yet.
+		directClient, err := client.New(cfg, client.Options{Scheme: scheme})
 		if err != nil {
 			return err
 		}
 
-		log.Infof("Watching Member clusters: %s", memberClustersNames)
-
-		if len(memberClustersNames) == 0 {
-			log.Warnf("The operator did not detect any member clusters")
-		}
-
-		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath(), memberClusterClientTimeout)
+		memberClusterClients, usingMemberClusterCRs, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
 		if err != nil {
 			return err
+		}
+
+		if usingMemberClusterCRs {
+			log.Infof("Discovered %d member cluster(s) from MemberCluster CRs", len(memberClusterClients))
+			// Watch MemberCluster CRs so the operator restarts and rebuilds this map when
+			// cluster membership changes. TODO(m1kola): slice-3: make this reactive (no restart).
+			if err := mgr.Add(membercluster.NewWatcher(mgr.GetCache(), cancel)); err != nil {
+				return err
+			}
+		} else {
+			// TODO(m1kola): slice-3: legacy fallback — discover member clusters from the
+			// <operator>-member-list ConfigMap + the monolithic mounted kubeconfig. Kept so
+			// existing multi-cluster installs keep working; removed in slice 6 once all installs
+			// use MemberCluster CRs.
+			memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
+			if err != nil {
+				return err
+			}
+
+			log.Infof("Watching Member clusters (legacy discovery): %s", memberClustersNames)
+
+			if len(memberClustersNames) == 0 {
+				log.Warnf("The operator did not detect any member clusters")
+			}
+
+			memberClusterClients, err = multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath(), memberClusterClientTimeout)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Add the cluster object to the manager corresponding to each member clusters.
