@@ -28,18 +28,29 @@ to consume `MemberCluster` CRs (keeping a legacy fallback), then the legacy path
 | # | Slice | Jira | Status | Notes |
 |---|-------|------|--------|-------|
 | 1 | `generate-member-resources` command | CLOUDP-423293 | in progress | Embeds the Helm chart (Helm SDK); gated member-cluster RBAC templates; renders to stdout. Front-loads the Helm-SDK dependency risk. |
-| 2 | `generate-member-registration` command | CLOUDP-423293 | todo | Reads an SA token from a member cluster; emits a credential Secret + `MemberCluster` CR. No Helm SDK. |
+| 2 | `generate-member-registration` command | CLOUDP-423293 | in progress | Reads an SA token from a member cluster; emits a credential Secret + `MemberCluster` CR. No Helm SDK. |
 | 3 | Operator `MemberCluster` wiring + watch | _tbd_ | todo | Build the per-cluster client map from `MemberCluster` CRs + credential Secrets. **End goal: reactive add/remove, no restart** (mechanism is an open question — feasibility spike at slice-3 planning). Keeps a legacy fallback tagged `TODO(m1kola): slice-3`. |
 | 4 | RBAC validation | _tbd_ | todo | `RBACValid` condition validated against the `mongodb.com/rbac-version` annotation emitted by slice 1; startup gate + periodic re-check. |
 | 5 | Migrate MC E2E to new tooling | _tbd_ | todo | Switch the two `conftest.py` fixtures + direct callers. Apply the generated RBAC to **every** member cluster including central (do not `skip_central_cluster`) — validates the additive apply. |
 | 6 | Clean break | _tbd_ | todo | Remove `setup`/`recovery`, the legacy discovery + fallback, and dead `common.go` RBAC/kubeconfig code. |
 | 7 | Member-scoped workload ServiceAccounts | _tbd_ | todo | End-state so `generate-member-resources` output touches **nothing** from helm/OLM. Un-hardcode the workload pod SA names in the operator (`construct/appdb_construction.go:500`, `construct/opsmanager_construction.go:480`; database SA already per-CR overridable) so pods on member clusters run under member-scoped SAs; emit member-scoped workload RBAC instead of the interim fixed-name `database-roles.yaml`. Single-cluster keeps using the helm-install SAs. |
+| 8 | RBAC de-duplication | _tbd_ | todo | Single source of truth for the operator's shared workload rules (services/secrets/configmaps/statefulsets/deployments/pods) so extending a permission is one edit, not two. Aim for: base role = shared + central-only (CRDs/operatorconfigs); member role = shared + member extras (serviceaccounts get, nodes, kube-system, /version). Mechanism left open (shared partial, restructured/parameterised template, generating member from the same source, …). Deferred deliberately — see below. |
 
-**Dependencies:** 3 → {1, 2}; 4 → {1, 3}; 5 → {1, 2}; 6 → 5; 7 → 3 (needs multi-cluster reconcile working; can land any time after).
+**Dependencies:** 3 → {1, 2}; 4 → {1, 3}; 5 → {1, 2}; 6 → 5; 7 → 3 (needs multi-cluster reconcile working; can land any time after); 8 → {5, 7} (runs on the settled, E2E-covered shape).
 
 ## Interim vs end-state: workload RBAC
 
 Member RBAC must be **additive** and never touch helm/OLM-provided resources. The operator's own member RBAC (`mck-member-*`) already satisfies this. The **workload** pod SAs do not yet: they are fixed-name and hard-coded in pod construction, so slice 1's `generate-member-resources` emits `database-roles.yaml` (fixed names), which re-applies over the helm/OLM copies on the operator's own cluster — a harmless idempotent apply, but not truly additive. Slice 7 reaches the end-state by making the operator use member-scoped workload SAs on member clusters. Until then the interim is tagged `TODO(m1kola): slice-1` in `pkg/kubectl-mongodb/memberresources`.
+
+## RBAC de-duplication (slice 8, deferred)
+
+The operator's workload-management rules (services/secrets/configmaps/statefulsets/deployments/pods) live in **both** `helm_chart/templates/member-cluster-rbac.yaml` and `helm_chart/templates/operator-roles-base.yaml` — the operator needs them on its own cluster (single-cluster workloads) and on member clusters, so they're conceptually one set. They have **drifted**:
+- the member role adds `deletecollection` on secrets/configmaps/services/statefulsets/deployments; the base role has it only on pods;
+- PVCs are inline in the member role but in a separate `operator-roles-pvc-resize.yaml` role in the base install.
+
+So extending a permission today means editing two places, with re-drift risk. **Do not fix this until anyone edits both sides in the meantime — keep them in sync.**
+
+It is deferred to slice 8 (after 5 and 7) on purpose: the dedup's correctness is "the operator still has sufficient permissions on both cluster types", which is best proven by the **full E2E suite** (single-cluster exercises the base role; multi-cluster the member role) — not the current unit render tests, which only check YAML shape. Deferring until E2E runs against the new tooling also makes the proper single-canonical-set unification safe to apply to the **base** role (not just align the member role down), and lets the shape settle after slices 4/7 first. The Go source already models the target split (`getMemberRules()` shared; `buildCentralEntityRole` = central + shared; `buildMemberEntityRole` = shared + member extras) in `pkg/kubectl-mongodb/common/common.go`.
 
 ## Key decisions
 
