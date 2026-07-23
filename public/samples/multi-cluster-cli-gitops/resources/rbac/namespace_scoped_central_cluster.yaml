@@ -47,6 +47,7 @@ rules:
   - operator.mongodb.com
   resources:
   - operatorconfigs
+  - memberclusters
   verbs:
   - get
   - list
