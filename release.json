@@ -8,10 +8,10 @@
   "databaseImageVersion": "1.10.0",
   "agentVersion": "108.0.12.8846-1",
   "customAgent": {
-    "8": "",
+    "8": "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz",
     "7": "",
     "cloudqa": "",
-    "community": ""
+    "community": "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz"
   },
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
