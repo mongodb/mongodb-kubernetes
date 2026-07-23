@@ -927,6 +927,13 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	return d.AdditionalMongodConfig
 }
 
+func (d *DbCommonSpec) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
 // GetExternalMembersHostnames returns the hostname list (host:port) the
 // caller should embed in this MongoDB resource's connection string:
 func (m *MongoDB) GetExternalMembersHostnames() []string {
@@ -973,13 +980,6 @@ func (s *Security) GetTLSCAFilePath(defaultPath string) string {
 		return defaultPath
 	}
 	return s.TLSConfig.GetCAFilePath(defaultPath)
-}
-
-func (d *DbCommonSpec) GetDownloadBase() string {
-	if d.DownloadBase != "" {
-		return d.DownloadBase
-	}
-	return util.DefaultPvcMmsMountPath
 }
 
 func (s *Security) IsTLSEnabled() bool {
