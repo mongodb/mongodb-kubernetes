@@ -69,6 +69,7 @@ const (
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+	DownloadBaseEnv                  = "MMS_DOWNLOAD_BASE"
 )
 
 type StsType int
@@ -134,6 +135,8 @@ type DatabaseStatefulSetOptions struct {
 
 	AgentDebug      bool
 	AgentDebugImage string
+
+	DownloadBase string
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -147,6 +150,16 @@ func (d DatabaseStatefulSetOptions) GetStatefulSetName() string {
 	return d.Name
 }
 
+// GetDownloadBase returns the configured download base, falling back to util.DefaultPvcMmsMountPath
+// when unset. Leaving DownloadBase empty in the struct therefore yields the same behavior as before
+// the field was introduced.
+func (d DatabaseStatefulSetOptions) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
 // a database StatefulSet.
 type databaseStatefulSetSource interface {
@@ -158,6 +171,8 @@ type databaseStatefulSetSource interface {
 	GetPrometheus() *mdbcv1.Prometheus
 
 	GetAnnotations() map[string]string
+
+	GetDownloadBase() string
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -180,6 +195,8 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
+			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
 		}
 
 		for _, opt := range additionalOpts {
@@ -212,6 +229,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 ReplicaSet,
+			DownloadBase:            mdb.Spec.GetDownloadBase(),
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -257,6 +275,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		MultiClusterMode:        cfg.mdb.Spec.IsMultiCluster(),
 		Persistent:              cfg.persistent,
 		StsType:                 cfg.stsType,
+		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
 	if cfg.mdb.Spec.IsMultiCluster() {
@@ -714,7 +733,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
-	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.GetDownloadBase())
 
 	return volumesToAdd, volumeMounts
 }
@@ -763,6 +782,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
@@ -1063,6 +1083,15 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
 	}
 
+	// The agent extracts MongoDB binaries and places the keyfile under this directory. It must match
+	// the volume mount path (see GetNonPersistentAgentVolumeMounts) and options.downloadBase in the
+	// automation config, in both static and non-static architectures.
+	// Only set the env var when it differs from the launcher's default (see agent-launcher.sh),
+	// which matches util.DefaultPvcMmsMountPath.
+	if downloadBase := opts.GetDownloadBase(); downloadBase != util.DefaultPvcMmsMountPath {
+		vars = append(vars, corev1.EnvVar{Name: DownloadBaseEnv, Value: downloadBase})
+	}
+
 	// append any additional env vars specified.
 	vars = append(vars, opts.ExtraEnvs...)
 
@@ -1132,12 +1161,12 @@ func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts [
 }
 
 // GetNonPersistentAgentVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the Agent container.
-func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, downloadBase string) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvMms))
 
 	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
 	// This one is published by the Dockerfile
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, downloadBase, statefulset.WithSubPath(util.PvcMms)))
 
 	// Runtime data for MMS
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))

@@ -89,6 +89,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (m *MongoDB) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDB) IsAgentImageOverridden() bool {
 	if m.Spec.PodSpec.IsAgentImageOverridden() {
 		return true
@@ -478,6 +482,15 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// DownloadBase is the directory on the MongoDB host where the automation agent
+	// downloads and extracts MongoDB binaries. It is always used by the operator, and
+	// the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+	// defaults to "/var/lib/mongodb-mms-automation".
+	// This field should only be set (and only if needed) when migrating an existing
+	// VM-based deployment to the operator.
+	// +optional
+	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -912,6 +925,13 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
 }
 
 // GetExternalMembersHostnames returns the hostname list (host:port) the

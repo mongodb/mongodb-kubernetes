@@ -28,7 +28,7 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kuber
 		auth.AutoPwd = opts.AutoPwd
 		auth.Disabled = false
 		auth.AuthoritativeSet = opts.AuthoritativeSet
-		auth.KeyFile = util.AutomationAgentKeyFilePathInContainer
+		auth.KeyFile = opts.GetKeyfilePath()
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
 		auth.AutoUser = opts.AutomationSubject

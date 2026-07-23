@@ -1013,3 +1013,22 @@ func TestLimitVotingMembers_AppliesNormallyWhenNoExternalMembers(t *testing.T) {
 	assert.Equal(t, 0, got[7].Votes(), "8th member should be zeroed")
 	assert.Equal(t, float32(0), got[7].Priority(), "8th member priority should be zeroed")
 }
+
+func TestSetDownloadBase(t *testing.T) {
+	t.Run("custom download base is set", func(t *testing.T) {
+		d := NewDeployment()
+
+		d.SetDownloadBase("/custom/download/base")
+
+		assert.Equal(t, "/custom/download/base", d.DownloadBase())
+	})
+
+	t.Run("default download base is not set", func(t *testing.T) {
+		d := NewDeployment()
+
+		d.SetDownloadBase(util.DefaultPvcMmsMountPath)
+
+		assert.Empty(t, d.DownloadBase())
+		assert.NotContains(t, d, "options")
+	})
+}

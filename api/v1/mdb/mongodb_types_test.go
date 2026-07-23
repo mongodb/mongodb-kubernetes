@@ -745,3 +745,15 @@ func TestGetExternalMembersHostnames_ShardedCluster_OnlyMongodMembers_ReturnsEmp
 	got := sc.GetExternalMembersHostnames()
 	assert.Empty(t, got, "sharded must drop non-mongos entries (mongod and untyped)")
 }
+
+func TestGetDownloadBase(t *testing.T) {
+	t.Run("returns default when unset", func(t *testing.T) {
+		spec := DbCommonSpec{}
+		assert.Equal(t, util.DefaultPvcMmsMountPath, spec.GetDownloadBase())
+	})
+
+	t.Run("returns configured value when set", func(t *testing.T) {
+		spec := DbCommonSpec{DownloadBase: "/custom/download/base"}
+		assert.Equal(t, "/custom/download/base", spec.GetDownloadBase())
+	})
+}

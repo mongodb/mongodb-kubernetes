@@ -383,6 +383,13 @@ func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(d DbCommonSpec) v1
 	return v1.ValidationSuccess()
 }
 
+func downloadBaseImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if newObj.GetDownloadBase() != oldObj.GetDownloadBase() {
+		return v1.ValidationError("'spec.downloadBase' cannot be changed once created")
+	}
+	return v1.ValidationSuccess()
+}
+
 func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if newObj.ResourceType != oldObj.ResourceType {
 		return v1.ValidationError("'resourceType' cannot be changed once created")
@@ -687,6 +694,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
+		downloadBaseImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
 		atMostOneMigrationChangeAtATime,
