@@ -193,6 +193,14 @@ spec:
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ .Values.agent.version }}"
             - name: {{ $agentImageRepository }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}"
+            {{- if .Values.agent.mdbAgentVersion }}
+            - name: MDB_AGENT_VERSION
+              value: "{{ .Values.agent.mdbAgentVersion }}"
+            {{- end }}
+            {{- if .Values.agent.customAgentUrl }}
+            - name: MDB_CUSTOM_AGENT_URL
+              value: "{{ .Values.agent.customAgentUrl }}"
+            {{- end }}
             - name: {{ $mongodbImageEnv }}
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL

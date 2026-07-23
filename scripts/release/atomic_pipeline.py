@@ -340,18 +340,24 @@ def build_agent_pipeline(
 
     custom_agent_url = get_custom_agent_url_for_version(agent_version)
     if custom_agent_url:
-        agent_base_url = custom_agent_url.rsplit("/", 1)[0]
+        agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
+        platform_build_args = {}
+        for platform in build_configuration_copy.platforms:
+            arch = platform.split("/")[-1]
+            platform_build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+        platform_build_args.update(
+            generate_tools_build_args(build_configuration_copy.platforms, tools_version)
+        )
     else:
         agent_base_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
         )
-
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration_copy.platforms,
-        agent_version=agent_version,
-        tools_version=tools_version,
-        agent_base_url=agent_base_url,
-    )
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration_copy.platforms,
+            agent_version=agent_version,
+            tools_version=tools_version,
+            agent_base_url=agent_base_url,
+        )
 
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 

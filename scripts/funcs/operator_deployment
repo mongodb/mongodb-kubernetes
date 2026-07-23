@@ -26,6 +26,8 @@ get_operator_helm_values() {
     "initDatabase.version=${INIT_DATABASE_VERSION}"
     "database.version=${DATABASE_VERSION}"
     "agent.version=${AGENT_VERSION}"
+    "agent.mdbAgentVersion=${MDB_AGENT_VERSION:-}"
+    "agent.customAgentUrl=${MDB_CUSTOM_AGENT_URL:-}"
     "readinessProbe.version=${READINESS_PROBE_VERSION}"
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
@@ -106,6 +108,10 @@ get_operator_helm_values() {
 
   if [[ "${MDB_WEBHOOK_NAME:-}" != "" ]]; then
     config+=("operator.webhook.name=${MDB_WEBHOOK_NAME}")
+  fi
+
+  if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
+    config+=("community.agent.version=${AGENT_VERSION}")
   fi
 
   echo "${config[@]}"
