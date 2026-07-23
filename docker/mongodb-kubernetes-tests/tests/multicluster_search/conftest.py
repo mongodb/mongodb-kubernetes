@@ -99,8 +99,10 @@ def _install_simulated_operator(
 
     helm_args["operator.name"] = SIMULATED_OPERATOR_NAME
     helm_args["operator.createOperatorServiceAccount"] = "true"
-    # MongoDB-resource-pod SAs are pre-created by run_kube_config_creation_tool — Helm 3
-    # ownership-metadata check fails if we re-render them.
+    # MongoDB-resource-pod SAs are pre-created on the member clusters by generate-member-resources'
+    # database-roles — Helm 3 ownership-metadata check fails if we re-render them here.
+    # TODO(m1kola): slice-7: revisit once workload pod SAs are member-scoped; the interim
+    # fixed-name database-roles that make this workaround necessary go away in slice 7.
     helm_args["operator.createResourcesServiceAccountsAndRoles"] = "false"
     helm_args["operator.clusterIdentity.clusterName"] = mcc.cluster_name
 

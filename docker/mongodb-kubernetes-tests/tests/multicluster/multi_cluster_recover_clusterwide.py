@@ -21,13 +21,9 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    _install_multi_cluster_operator,
-    run_kube_config_creation_tool,
-    run_multi_cluster_recovery_tool,
-)
+from tests.conftest import _install_multi_cluster_operator
 
-from ..constants import MULTI_CLUSTER_OPERATOR_NAME, OPERATOR_NAME
+from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_service_entries_objects
 from .multi_cluster_clusterwide import create_namespace
@@ -91,15 +87,6 @@ def install_operator(
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
     member_cluster_namespaces = mdba_ns + "," + mdbb_ns
-    run_kube_config_creation_tool(
-        member_cluster_names,
-        namespace,
-        namespace,
-        member_cluster_names,
-        True,
-        service_account_name=MULTI_CLUSTER_OPERATOR_NAME,
-        operator_name=OPERATOR_NAME,
-    )
 
     return _install_multi_cluster_operator(
         namespace,
@@ -108,12 +95,13 @@ def install_operator(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
             "multiCluster.performFailOver": "false",
         },
         central_cluster_name,
         operator_name=MULTI_CLUSTER_OPERATOR_NAME,
+        configure_member_clusters=member_cluster_names,
+        member_clusters_watched_namespaces=member_cluster_namespaces,
     )
 
 
@@ -171,20 +159,26 @@ def test_delete_cluster_role_and_binding(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    role_names = [
+    # Cluster-scoped RBAC isn't namespaced, so it survives teardown between runs; delete any
+    # leftovers before installing so the operator starts from a clean slate.
+
+    # Operator base cluster-scoped RBAC on the central cluster (Helm, operator.name-based).
+    # TODO(m1kola): slice-8: these base role names may change once the base/member roles are
+    # de-duplicated.
+    central_role_names = [
         "mongodb-kubernetes-operator-multi-cluster-role",
         "mongodb-kubernetes-operator-multi-cluster",
         "mongodb-kubernetes-operator-multi-cluster-role-binding",
     ]
-
-    for name in role_names:
+    for name in central_role_names:
         delete_cluster_role(name, central_cluster_client)
         delete_cluster_role_binding(name, central_cluster_client)
 
-    for name in role_names:
-        for client in member_cluster_clients:
-            delete_cluster_role(name, client.api_client)
-            delete_cluster_role_binding(name, client.api_client)
+    # Member-cluster RBAC (mck-member-<cluster>-*) is cluster-scoped in the clusterwide variant.
+    for mcc in member_cluster_clients:
+        for name in (f"mck-member-{mcc.cluster_name}-role", f"mck-member-{mcc.cluster_name}-role-binding"):
+            delete_cluster_role(name, mcc.api_client)
+            delete_cluster_role_binding(name, mcc.api_client)
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
@@ -322,12 +316,22 @@ def test_mongodb_multi_nsb_is_stable(mongodb_multi_b: MongoDBMulti):
 def test_recover_operator_remove_cluster(
     member_cluster_names: List[str],
     namespace: str,
-    mdba_ns: str,
-    mdbb_ns: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[:-1], namespace, mdba_ns, True)
-    assert return_code == 0
+    # The surviving set is member_cluster_names[:-1], so de-register the last cluster: delete
+    # its MemberCluster CR and credential Secret from the central cluster.
+    removed_cluster_name = member_cluster_names[-1]
+    kubernetes.client.CustomObjectsApi(central_cluster_client).delete_namespaced_custom_object(
+        group="operator.mongodb.com",
+        version="v1",
+        namespace=namespace,
+        plural="memberclusters",
+        name=removed_cluster_name,
+    )
+    kubernetes.client.CoreV1Api(api_client=central_cluster_client).delete_namespaced_secret(
+        name=f"mck-credential-{removed_cluster_name}",
+        namespace=namespace,
+    )
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
         namespace=namespace,

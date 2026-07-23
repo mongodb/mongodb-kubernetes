@@ -8,7 +8,7 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import run_kube_config_creation_tool, run_multi_cluster_recovery_tool
+from tests.conftest import configure_multi_cluster_members
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -67,7 +67,6 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.wait_for_operator_ready()
@@ -82,10 +81,11 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 def test_recover_operator_add_cluster(
     member_cluster_names: List[str],
     namespace: str,
+    central_cluster_name: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names, namespace, namespace)
-    assert return_code == 0
+    # Register the previously left-out member cluster.
+    configure_multi_cluster_members([member_cluster_names[-1]], namespace, namespace, central_cluster_name)
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
         namespace=namespace,
@@ -109,8 +109,20 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    return_code = run_multi_cluster_recovery_tool(member_cluster_names[1:], namespace, namespace)
-    assert return_code == 0
+    # The surviving set is member_cluster_names[1:], so de-register the first cluster: delete
+    # its MemberCluster CR and credential Secret from the central cluster.
+    removed_cluster_name = member_cluster_names[0]
+    kubernetes.client.CustomObjectsApi(central_cluster_client).delete_namespaced_custom_object(
+        group="operator.mongodb.com",
+        version="v1",
+        namespace=namespace,
+        plural="memberclusters",
+        name=removed_cluster_name,
+    )
+    kubernetes.client.CoreV1Api(api_client=central_cluster_client).delete_namespaced_secret(
+        name=f"mck-credential-{removed_cluster_name}",
+        namespace=namespace,
+    )
     operator = Operator(
         name=MULTI_CLUSTER_OPERATOR_NAME,
         namespace=namespace,

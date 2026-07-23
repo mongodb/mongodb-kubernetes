@@ -2,7 +2,6 @@ from typing import Callable, List
 
 import kubernetes
 import pytest
-from kubernetes import client
 from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
@@ -13,7 +12,7 @@ from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import run_kube_config_creation_tool
+from tests.conftest import configure_multi_cluster_members
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -73,7 +72,6 @@ def test_deploy_operator(
     member_cluster_names: List[str],
     namespace: str,
 ):
-    run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
     operator.wait_for_operator_ready()
@@ -110,22 +108,19 @@ def test_ops_manager_has_been_updated_correctly_before_scaling():
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
-def test_delete_deployment(namespace: str, central_cluster_client: kubernetes.client.ApiClient):
-    client.AppsV1Api(api_client=central_cluster_client).delete_namespaced_deployment(
-        MULTI_CLUSTER_OPERATOR_NAME, namespace
-    )
-
-
-@pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
-def test_re_deploy_operator(
-    install_multi_cluster_operator_set_members_fn: Callable[[List[str]], Operator],
+def test_register_new_cluster(
     member_cluster_names: List[str],
     namespace: str,
+    central_cluster_name: str,
+    central_cluster_client: kubernetes.client.ApiClient,
 ):
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
-
-    # deploy the operator without all clusters
-    operator = install_multi_cluster_operator_set_members_fn(member_cluster_names)
+    # Register the newly-added member cluster.
+    configure_multi_cluster_members([member_cluster_names[-1]], namespace, namespace, central_cluster_name)
+    operator = Operator(
+        name=MULTI_CLUSTER_OPERATOR_NAME,
+        namespace=namespace,
+        api_client=central_cluster_client,
+    )
     operator.wait_for_operator_ready()
 
 
