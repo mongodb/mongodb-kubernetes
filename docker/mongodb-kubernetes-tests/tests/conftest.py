@@ -932,12 +932,24 @@ def _install_multi_cluster_operator(
     # seamless. See docs/dev/multi-cluster-config-tooling.md.
     if configure_member_clusters is not None:
         assert operator_name is not None
-        # Registering the MemberCluster CRs makes the operator restart and rebuild its
-        # member-cluster client map. Snapshot the restart count first, then wait for the
-        # restart so tests don't race it. The local operator has no pod to restart (see the
-        # slice-9 TODO above).
+        # A fresh registration makes the operator restart to rebuild its member-cluster client map;
+        # snapshot the restart count first and wait for that restart so tests don't race it. If the
+        # MemberCluster CRs already exist (e.g. reinstalling the operator in an already-configured
+        # namespace) the operator picks them up at startup and does not restart, so skip the wait. The
+        # local operator has no pod to restart (see the slice-9 TODO above).
+        try:
+            existing_member_crs = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
+                group="operator.mongodb.com",
+                version="v1",
+                namespace=namespace,
+                plural="memberclusters",
+            )["items"]
+        except client.rest.ApiException:
+            existing_member_crs = []
+        wait_for_registration_restart = not local_operator() and len(existing_member_crs) == 0
+
         previous_restart_count = None
-        if not local_operator():
+        if wait_for_registration_restart:
             previous_restart_count = wait_for_operator_pod_present(
                 namespace, operator_name, api_client=central_cluster_client
             )
@@ -950,7 +962,7 @@ def _install_multi_cluster_operator(
             watched_namespaces=member_clusters_watched_namespaces,
         )
 
-        if not local_operator():
+        if wait_for_registration_restart:
             wait_for_operator_pod_restart(
                 namespace, operator_name, previous_restart_count, api_client=central_cluster_client
             )
