@@ -2,6 +2,7 @@
 
 """This atomic_pipeline script knows about the details of our Docker images
 and where to fetch and calculate parameters."""
+
 import datetime
 import json
 import os
@@ -64,7 +65,8 @@ def build_image(
     for registry in registries:
         arch_suffix = ""
         if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
-            arch_suffix = f"-{build_configuration.platforms[0].split("/")[1]}"
+            platform_arch = build_configuration.platforms[0].split("/")[1]
+            arch_suffix = f"-{platform_arch}"
 
         tag = f"{registry}:{build_configuration.version}{arch_suffix}"
         if build_configuration.skip_if_exists and builder.check_if_image_exists(tag):
@@ -345,9 +347,7 @@ def build_agent_pipeline(
         for platform in build_configuration_copy.platforms:
             arch = platform.split("/")[-1]
             platform_build_args[f"mongodb_agent_version_{arch}"] = agent_filename
-        platform_build_args.update(
-            generate_tools_build_args(build_configuration_copy.platforms, tools_version)
-        )
+        platform_build_args.update(generate_tools_build_args(build_configuration_copy.platforms, tools_version))
     else:
         agent_base_url = (
             "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"

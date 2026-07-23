@@ -594,5 +594,6 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "MDB_LOG_FILE_MONGODB",
             "MDB_LOG_FILE_MONGODB_AUDIT",
             "MDB_STATIC_CONTAINERS_ARCHITECTURE",
+            "MDB_AGENT_VERSION",
         ]
         assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
