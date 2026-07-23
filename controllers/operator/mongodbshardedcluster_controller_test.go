@@ -2276,3 +2276,17 @@ func TestShardedRSK8sConfigMatchesDesiredConfiguration(t *testing.T) {
 		assert.Equal(t, desired.MemberConfig, memberConfig, "shard %d memberConfig", shardIdx)
 	}
 }
+
+func TestReconcileShardedCluster_SetsDownloadBase(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.DownloadBase = "/custom/download/base"
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assert.Equal(t, "/custom/download/base", mockedConn.GetDeployment().DownloadBase())
+}

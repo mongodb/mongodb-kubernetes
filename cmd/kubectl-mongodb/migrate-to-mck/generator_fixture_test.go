@@ -165,6 +165,10 @@ func TestFixtureMatch_ReplicaSet(t *testing.T) {
 			name:    "member tags are preserved in externalMembers",
 			fixture: "singlecluster/replicaset/member_options/member_options",
 		},
+		{
+			name:    "non-default options.downloadBase is carried over to spec.downloadBase",
+			fixture: "singlecluster/replicaset/download_base/download_base",
+		},
 	}
 	runFixtureCases(t, cases)
 }

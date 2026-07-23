@@ -25,10 +25,9 @@ type ValidationResult struct {
 }
 
 var (
-	defaultKeyFile                = util.AutomationAgentKeyFilePathInContainer
 	defaultKeyFileWindows         = util.AutomationAgentWindowsKeyFilePath
 	defaultCAFilePath             = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	defaultDownloadBase           = util.PvcMmsMountPath
+	defaultDownloadBase           = util.DefaultPvcMmsMountPath
 	defaultMonitoringAgentLogPath = fmt.Sprintf("%s/monitoring-agent.log", util.PvcMountPathLogs)
 	defaultBackupAgentLogPath     = fmt.Sprintf("%s/backup-agent.log", util.PvcMountPathLogs)
 	defaultAuthSchemaVersion      = om.CalculateAuthSchemaVersion()
@@ -48,7 +47,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		}
 	}
 
-	results = append(results, validateAuth(ac.Auth)...)
+	results = append(results, validateAuth(ac.Auth, ac.Deployment.DownloadBase())...)
 	results = append(results, validateScram(ac.Auth)...)
 	results = append(results, validateX509(ac.Auth, ac.AgentSSL)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
@@ -183,7 +182,9 @@ func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
 }
 
 // validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.
-func validateAuth(auth *om.Auth) []ValidationResult {
+// keyFile is expected under the deployment's downloadBase, matching the operator
+// (common_controller.go: KeyfilePath = downloadBase + "/keyfile").
+func validateAuth(auth *om.Auth, downloadBase string) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
 	}
@@ -196,10 +197,16 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 			Message:  "auth.autoUser is empty. The operator requires an automation agent user when authentication is enabled.",
 		})
 	}
-	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
+
+	base := downloadBase
+	if base == "" {
+		base = defaultDownloadBase
+	}
+	expectedKeyFile := base + "/keyfile"
+	if auth.KeyFile != "" && auth.KeyFile != expectedKeyFile {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.keyFile %q differs from the operator default %q. This value is not configurable via the Custom Resource.", auth.KeyFile, defaultKeyFile),
+			Message:  fmt.Sprintf("auth.keyFile %q differs from the expected path %q (derived from options.downloadBase). This value is not configurable via the Custom Resource.", auth.KeyFile, expectedKeyFile),
 		})
 	}
 	if auth.KeyFileWindows != "" && auth.KeyFileWindows != defaultKeyFileWindows {
@@ -355,15 +362,16 @@ func validateLDAP(ac *om.AutomationConfig) []ValidationResult {
 	return results
 }
 
-// validateProjectOptions checks options.downloadBase against the operator default.
+// validateProjectOptions carries options.downloadBase over to spec.downloadBase and warns the
+// user when it differs from the operator default so they can review the generated value.
 func validateProjectOptions(d om.Deployment) []ValidationResult {
 	downloadBase := d.DownloadBase()
 	if downloadBase == "" || downloadBase == defaultDownloadBase {
 		return nil
 	}
 	return []ValidationResult{{
-		Severity: SeverityError,
-		Message:  fmt.Sprintf("options.downloadBase %q differs from the operator default %q. This value is not configurable via the Custom Resource.", downloadBase, defaultDownloadBase),
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("options.downloadBase %q will be carried over to spec.downloadBase in the generated Custom Resource.", downloadBase),
 	}}
 }
 

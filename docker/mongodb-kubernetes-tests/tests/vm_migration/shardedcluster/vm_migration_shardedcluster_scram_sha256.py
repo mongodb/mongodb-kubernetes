@@ -52,6 +52,7 @@ CONFIGSRV_SVC_NAME = "vm-sharded-configsrv"
 SHARD_SVC_NAME = "vm-sharded-shard"
 MONGOS_SVC_NAME = "vm-sharded-mongos"
 MDB_RESOURCE_NAME = "sharded-migration"
+DOWNLOAD_BASE = "/var/lib/custom-mms-automation"
 VM_CONFIG_RS_NAME = "vm-config"
 VM_SHARD_RS_NAME = "vm-shard-0"
 VM_MONGOS_NAME = "vm-mongos"
@@ -160,9 +161,11 @@ def _configure_ac_scram_sha256(namespace: str, om_tester: OMTester, mdb_version:
         "autoAuthRestrictions": [],
         "autoPwd": "mms-automation-agent-password",
         "key": "bXlrZXlmaWxlY29udGVudHM=",
-        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+        "keyfile": f"{DOWNLOAD_BASE}/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
+
+    ac["options"] = {"downloadBase": DOWNLOAD_BASE}
 
     ac["roles"] = [
         {
@@ -326,6 +329,14 @@ def test_custom_roles_in_generated_cr(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256
+def test_download_base_carried_over(generated_cr: dict):
+    """The non-default options.downloadBase is carried into spec.downloadBase."""
+    assert (
+        generated_cr["spec"].get("downloadBase") == DOWNLOAD_BASE
+    ), f"Expected spec.downloadBase={DOWNLOAD_BASE}, got: {generated_cr['spec'].get('downloadBase')}"
+
+
+@mark.e2e_vm_migration_shardedcluster_scram_sha256
 def test_vm_deployment_automation_config(om_tester: OMTester):
     ac_tester = om_tester.get_automation_config_tester()
     vm_total = MIN_VM_CONFIGSRV + MIN_VM_SHARD + MIN_VM_MONGOS
@@ -347,6 +358,44 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_shardedcluster_scram_sha256
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
+
+
+@mark.e2e_vm_migration_shardedcluster_scram_sha256
+def test_keyfile_placed_in_operator_pods(namespace: str, mdb_migration: MongoDB):
+    """The operator places the keyfile at <downloadBase>/keyfile in every migrated sharded pod."""
+    keyfile_path = f"{DOWNLOAD_BASE}/keyfile"
+    name = mdb_migration.name
+    spec = mdb_migration["spec"]
+
+    pod_names = []
+    for i in range(spec["configServerCount"]):
+        pod_names.append(f"{name}-config-{i}")
+    for shard in range(spec["shardCount"]):
+        for i in range(spec["mongodsPerShardCount"]):
+            pod_names.append(f"{name}-{shard}-{i}")
+    for i in range(spec["mongosCount"]):
+        pod_names.append(f"{name}-mongos-{i}")
+
+    for pod_name in pod_names:
+        output = KubernetesTester.run_command_in_pod_container(
+            pod_name,
+            namespace,
+            ["sh", "-c", f"test -f {keyfile_path} && echo FOUND"],
+            container="mongodb-enterprise-database",
+        )
+        assert "FOUND" in output, f"keyfile not found at {keyfile_path} in pod {pod_name}; got: {output!r}"
+
+
+@mark.e2e_vm_migration_shardedcluster_scram_sha256
+def test_operator_preserves_download_base_and_keyfile(om_tester: OMTester):
+    """After the operator takes over, the automation config keeps the custom downloadBase/keyfile."""
+    ac = om_tester.api_get_automation_config()
+    assert (
+        ac.get("options", {}).get("downloadBase") == DOWNLOAD_BASE
+    ), f"Expected options.downloadBase={DOWNLOAD_BASE}, got: {ac.get('options', {}).get('downloadBase')}"
+    assert (
+        ac.get("auth", {}).get("keyfile") == f"{DOWNLOAD_BASE}/keyfile"
+    ), f"Expected auth.keyfile={DOWNLOAD_BASE}/keyfile, got: {ac.get('auth', {}).get('keyfile')}"
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256
