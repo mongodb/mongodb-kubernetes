@@ -15,6 +15,7 @@ import (
 	"helm.sh/helm/v3/pkg/engine"
 
 	helmchart "github.com/mongodb/mongodb-kubernetes/helm_chart"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
 
 // memberTemplates are the chart templates rendered into the output, in order. Everything a
@@ -61,7 +62,7 @@ func Render(clusterName, namespace string, watchedNamespaces []string, imagePull
 	}
 
 	renderValues, err := chartutil.ToRenderValues(chrt, values, chartutil.ReleaseOptions{
-		Name:      "mck-member-" + clusterName,
+		Name:      resourcenames.MemberClusterResourceName(clusterName),
 		Namespace: namespace,
 	}, chartutil.DefaultCapabilities)
 	if err != nil {
