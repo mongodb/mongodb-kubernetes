@@ -277,6 +277,7 @@ def list_operator_crds() -> List[V1CustomResourceDefinition]:
         key=lambda crd: crd.metadata.name,
     )
 
+
 def add_to_custom_env_vars_value(helm_args: dict, key: str, value: str) -> None:
     existing = helm_args.get("customEnvVars")
     env_vars = existing.split("&") if existing else []
