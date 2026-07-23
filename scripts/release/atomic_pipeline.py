@@ -395,9 +395,9 @@ def load_release_file() -> Dict:
 def get_custom_agent_url_for_version(agent_version: str) -> str:
     """Look up custom agent URL by version from release.json customAgent."""
     release = load_release_file()
-    for url in release.get("customAgent", {}).values():
-        if agent_version in url:
-            return url
+    url = release.get("customAgent", "")
+    if url and agent_version in url:
+        return url
     return ""
 
 
