@@ -2209,11 +2209,12 @@ buildvariants:
   # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
   - name: mckci_release_promote
     display_name: mckci_release_promote
-    allowed_requesters: [ "commit" ]
+    allowed_requesters: [ "commit", "patch" ]
     depends_on:
       - name: "*"
         variant: ".staging"
         status: "success"
+        patch_optional: true
     run_on:
       - ubuntu2404-small
     tasks:
