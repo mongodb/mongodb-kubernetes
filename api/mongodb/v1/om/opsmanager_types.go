@@ -65,7 +65,7 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
 	if om.IsTLSEnabled() {
 		opsManagerCA := om.Spec.GetOpsManagerCA()
 		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
@@ -75,7 +75,7 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 		ca := cm.Data["mms-ca.crt"]
 		return mdbv1.ProjectConfig{
 			BaseURL:     om.CentralURL(),
-			ProjectName: om.Spec.AppDB.Name(),
+			ProjectName: om.AppDBName(),
 			SSLProjectConfig: env.SSLProjectConfig{
 				SSLRequireValidMMSServerCertificates: true,
 				SSLMMSCAConfigMap:                    opsManagerCA,
@@ -86,7 +86,7 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 
 	return mdbv1.ProjectConfig{
 		BaseURL:     om.CentralURL(),
-		ProjectName: om.Spec.AppDB.Name(),
+		ProjectName: om.AppDBName(),
 	}, nil
 }
 
@@ -663,6 +663,7 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.Backup.Members = 1
 	}
 
+	//TODO check if we should instantiate the AppDBSpec here
 	if om.Spec.AppDB == nil {
 		om.Spec.AppDB = &AppDBSpec{}
 	}
@@ -684,6 +685,8 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 	return specSecurity
 }
 
+func (om *MongoDBOpsManager) AppDBName() string { return om.Name + "-db" }
+
 func (om *MongoDBOpsManager) SvcName() string {
 	return om.Name + "-svc"
 }
@@ -693,7 +696,7 @@ func (om *MongoDBOpsManager) ExternalSvcName() string {
 }
 
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
-	return om.Spec.AppDB.Name() + "-connection-string"
+	return om.AppDBName() + "-connection-string"
 }
 
 func (om *MongoDBOpsManager) BackupDaemonServiceName() string {

@@ -143,7 +143,7 @@ func appDBRoleReadyMultiReplicaSet() *MongoDBMultiCluster {
 	}
 	mrs.Spec.Role = mdbv1.RoleAppDB
 	mrs.Spec.Security.Authentication.Enabled = true
-	mrs.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{mdbv1.AuthMode(util.SCRAM)}
+	mrs.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{util.SCRAM}
 	mrs.Spec.Security.Authentication.IgnoreUnknownUsers = true
 	return mrs
 }

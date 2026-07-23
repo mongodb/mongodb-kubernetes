@@ -783,12 +783,6 @@ func TestMongoDB_AppDBRoleValidation(t *testing.T) {
 			expectedErrorMessage: "spec.members must be >= 3 when spec.role is AppDB",
 		},
 		{
-			name: "role AppDB with version below 4.0.0 is no longer restricted",
-			mutate: func(rs *MongoDB) {
-				rs.Spec.Version = "3.6.0"
-			},
-		},
-		{
 			name: "role AppDB with resourceType ShardedCluster",
 			mutate: func(rs *MongoDB) {
 				rs.Spec.ResourceType = ShardedCluster

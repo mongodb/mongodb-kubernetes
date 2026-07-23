@@ -1834,6 +1834,7 @@ func (r *ReconcileAppDbReplicaSet) generatePasswordAndCreateSecret(ctx context.C
 
 // ensureAppDbPassword will return the password that was specified by the user, or the auto generated password stored in
 // the secret (generate it and store in secret otherwise)
+// TODO is the forward and reverse migration take into account that the user can provide it's own secret with password?
 func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
 	password, err := r.readAppDbPassword(ctx, opsManager)
 	if err != nil {
@@ -1930,7 +1931,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return env.PodEnvVars{}, xerrors.Errorf("error reading existing podVars: %w", err)
 	}
 
-	projectConfig, err := opsManager.GetAppDBProjectConfig(ctx, r.SecretClient, r.client)
+	projectConfig, err := opsManager.GetAppDBProjectConfig(ctx, r.client)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error getting existing project config: %w", err)
 	}

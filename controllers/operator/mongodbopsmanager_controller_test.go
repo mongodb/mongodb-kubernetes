@@ -1407,11 +1407,6 @@ func withExternalAppDBRef(om *omv1.MongoDBOpsManager, ref *omv1.ExternalApplicat
 	return om
 }
 
-func TestExpectedAppDBResourceName(t *testing.T) {
-	testOm := DefaultOpsManagerBuilder().SetName("my-om").Build()
-	assert.Equal(t, "my-om-db", ExpectedAppDBResourceName(testOm))
-}
-
 func TestOpsManagerReconcile_ExternalAppDBRef_SkipsInternalAppDBReconciliation(t *testing.T) {
 	ctx := context.Background()
 

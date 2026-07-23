@@ -243,12 +243,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'4.4.0_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.0_0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
-		"Low AppDB version is no longer restricted": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetAppDbVersion("3.6.12").
-				Build(),
-			expectedPart: status.None,
-		},
 		"Valid 4.0.0 OpsManager version": {
 			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
 			expectedPart: status.None,

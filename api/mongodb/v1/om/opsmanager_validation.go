@@ -55,9 +55,6 @@ func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 }
 
 func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.ExternalApplicationDatabaseRef != nil {
-		return v1.ValidationSuccess()
-	}
 	version := os.AppDB.GetMongoDBVersion()
 	if _, err := semver.Make(version); err != nil {
 		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err), status.AppDb)

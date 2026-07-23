@@ -817,7 +817,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
@@ -827,6 +827,10 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetRole() string {
+	return d.Role
 }
 
 func (s *Security) IsTLSEnabled() bool {
