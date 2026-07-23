@@ -403,7 +403,7 @@ func getCentralRules() []rbacv1.PolicyRule {
 		},
 		{
 			Verbs:     []string{"get", "list", "watch"},
-			Resources: []string{"operatorconfigs"},
+			Resources: []string{"operatorconfigs", "memberclusters"},
 			APIGroups: []string{"operator.mongodb.com"},
 		},
 	}
