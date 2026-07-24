@@ -2168,7 +2168,7 @@ buildvariants:
     tasks:
       - name: migrate_all_agents
 
-  # Runs on every merge to master and releases images auxiliary to the operator release like OM and the Agent
+  # Runs on every merge to master or a backporting branch and releases images auxiliary to the operator release like OM and the Agent
   - name: release_om_and_agents
     display_name: release_om_and_agents
     allowed_requesters: [ "patch" , "commit"]
@@ -2179,7 +2179,8 @@ buildvariants:
       - name: release_om_and_agents
 
   # Notification task - runs after all staging tasks complete to report build status.
-  # Runs after all staging tests (including GKE snippets) succeed on master merge.
+  # Runs after all staging tests (including GKE snippets) succeed on a merge to
+  # master or a backporting branch.
   # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
   - name: mckci_release_promote
     display_name: mckci_release_promote

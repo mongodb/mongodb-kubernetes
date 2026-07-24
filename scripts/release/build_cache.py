@@ -5,8 +5,8 @@ This module consolidates all caching logic: cache write decisions,
 ECR repository management, and BuildKit cache configuration generation.
 
 Cache Strategy:
-- All builds read from the master cache
-- Only mainline merges (gitter_request) write to master cache
+- Each branch (master, v1, v2, ...) has its own cache, keyed by branch_name
+- Only mainline merges (gitter_request) write to their branch's cache
 - PRs, manual patches, and other builds are read-only to prevent cache pollution
 """
 
@@ -26,7 +26,7 @@ _LIFECYCLE_POLICY_PATH = Path(__file__).parent / "cache_lifecycle_policy.json"
 
 def should_write_cache() -> bool:
     """
-    Determine if this build should write to the master cache.
+    Determine if this build should write to its branch's cache.
 
     Only mainline merges (gitter_request) write to cache.
     All other builds (PRs, manual patches, etc.) are read-only.
@@ -37,6 +37,11 @@ def should_write_cache() -> bool:
     should_write = requester == "gitter_request"
     logger.debug(f"Cache write decision: requester={requester}, write={should_write}")
     return should_write
+
+
+def _cache_branch() -> str:
+    """The branch whose cache this build reads from and (maybe) writes to."""
+    return os.environ.get("branch_name", "master")
 
 
 def get_cache_lifecycle_policy() -> dict:
@@ -113,8 +118,8 @@ def build_cache_configuration(
     """
     Build cache configuration for BuildKit remote cache.
 
-    All builds read from the master cache.
-    Only mainline merges and merge queue builds write to the master cache.
+    All builds read from their branch's cache (master, v1, v2, ...).
+    Only mainline merges and merge queue builds write to that cache.
 
     Uses mode=max to cache all intermediate layers (not just final), oci-mediatypes for
     broad registry compatibility, and image-manifest to store cache as a proper manifest.
@@ -122,23 +127,24 @@ def build_cache_configuration(
     :param base_registry: Base registry URL for cache
     :return: tuple of (cache_from_refs, cache_to_refs) where cache_to_refs may be None
     """
-    master_ref = f"{base_registry}:master"
+    branch = _cache_branch()
+    branch_ref = f"{base_registry}:{branch}"
 
-    # All builds read from master cache
-    cache_from_refs = [{"type": "registry", "ref": master_ref}]
+    # All builds read from their branch's cache
+    cache_from_refs = [{"type": "registry", "ref": branch_ref}]
 
-    # Only mainline merges write to master cache
+    # Only mainline merges write to their branch's cache
     if should_write_cache():
         cache_to_refs = {
             "type": "registry",
-            "ref": master_ref,
+            "ref": branch_ref,
             "mode": "max",
             "oci-mediatypes": "true",
             "image-manifest": "true",
         }
-        logger.info("Cache config: read from master, write to master")
+        logger.info(f"Cache config: read from {branch}, write to {branch}")
     else:
         cache_to_refs = None
-        logger.info("Cache config: read from master (read-only)")
+        logger.info(f"Cache config: read from {branch} (read-only)")
 
     return cache_from_refs, cache_to_refs

@@ -73,6 +73,8 @@ def build_image(
             tags.append(tag)
             if build_configuration.latest_tag:
                 tags.append(f"{registry}:latest{arch_suffix}")
+            if build_configuration.branch_latest_tag:
+                tags.append(f"{registry}:{build_configuration.branch_latest_tag}{arch_suffix}")
             if build_configuration.olm_tag:
                 olm_tag = create_olm_version_tag(build_configuration.version)
                 tags.append(f"{registry}:{olm_tag}{arch_suffix}")

@@ -40,6 +40,7 @@ def make_mock_version(
     message: str = "Test commit",
     status: str = "succeeded",
     order: int = 100,
+    branch: str = "master",
 ) -> VersionInfo:
     """Create a mock VersionInfo for testing."""
     mock_version = MagicMock()
@@ -49,6 +50,7 @@ def make_mock_version(
     mock_version.message = message
     mock_version.status = status
     mock_version.order = order
+    mock_version.branch = branch
     mock_version.json = {"author_id": author_id}
     mock_version.build_variants_status = []
     return VersionInfo(version=mock_version)
@@ -83,6 +85,16 @@ class TestFormatSlackMessage:
         assert "Run #6411" in message["text"]
         run_block = message["blocks"][1]["fields"][0]["text"]
         assert "#6411" in run_block
+
+    def test_backport_branch_failure_message(self):
+        message = make_message(failed_tasks=FEW_TASKS, branch="v1")
+        assert "v1 build failed" in message["text"]
+        assert "v1 Build Failures" in message["blocks"][0]["text"]["text"]
+
+    def test_backport_branch_success_message(self):
+        message = make_message(branch="v2")
+        assert "v2 build passed" in message["text"]
+        assert "v2 Build Passed" in message["blocks"][0]["text"]["text"]
 
     def test_groups_failures_by_variant(self):
         message = make_message(failed_tasks=FEW_TASKS)
