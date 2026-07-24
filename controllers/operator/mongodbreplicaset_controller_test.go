@@ -1853,9 +1853,9 @@ func TestAdoptionGate_BlocksWithoutAnnotation(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
+	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
-	assert.True(t, blocked)
+	assert.False(t, owned, "foreign STS without migration annotation must block adoption")
 }
 
 func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) {
@@ -1868,9 +1868,9 @@ func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) 
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
+	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
-	assert.True(t, blocked, "must stay blocked while the foreign OwnerReference is still present, even with the annotation")
+	assert.False(t, owned, "must stay blocked while the foreign OwnerReference is still present, even with the annotation")
 }
 
 func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
@@ -1883,32 +1883,27 @@ func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
+	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
-	assert.False(t, blocked)
+	assert.True(t, owned, "adoption should proceed when migration-ready annotation is present and no foreign owners")
 }
 
-func TestAdoptionGate_BlockedMessage(t *testing.T) {
+func TestAdoptionGate_BlocksWithForeignOwners(t *testing.T) {
 	tests := []struct {
-		name            string
-		ownerRefs       []metav1.OwnerReference
-		expectedMessage string
+		name      string
+		ownerRefs []metav1.OwnerReference
 	}{
 		{
-			// valid both mid-forward-migration (detach not started) and after a completed
-			// reverse migration (this CR is a deletable leftover)
-			name: "OM-owned StatefulSet names the Ops Manager and both user actions",
+			name: "OM-owned StatefulSet blocks adoption",
 			ownerRefs: []metav1.OwnerReference{{
 				APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: "om-uid-1111",
 			}},
-			expectedMessage: `This MongoDB resource is unmanaged: StatefulSet my-om-db is managed by Ops Manager "my-om". Either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this resource`,
 		},
 		{
-			name: "non-OM foreign owner keeps the detach-waiting message",
+			name: "non-OM foreign owner blocks adoption",
 			ownerRefs: []metav1.OwnerReference{{
 				APIVersion: "v1", Kind: "ConfigMap", Name: "some-unrelated-owner", UID: "cm-uid-3333",
 			}},
-			expectedMessage: "waiting for Ops Manager to finish detaching AppDB StatefulSet my-om-db",
 		},
 	}
 	for _, tt := range tests {
@@ -1920,10 +1915,9 @@ func TestAdoptionGate_BlockedMessage(t *testing.T) {
 			require.NoError(t, kubeClient.Create(ctx, &sts))
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-			blocked, blockedMessage, err := helper.checkAdoptionGate(ctx, mdb)
+			owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 			require.NoError(t, err)
-			require.True(t, blocked)
-			assert.Equal(t, tt.expectedMessage, blockedMessage)
+			assert.False(t, owned)
 		})
 	}
 }
@@ -1934,9 +1928,9 @@ func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
 	reconciler, _, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
+	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
-	assert.False(t, blocked, "Fresh Start: no StatefulSet exists yet, no adoption gate applies")
+	assert.True(t, owned, "Fresh Start: no StatefulSet exists yet, adoption succeeds")
 }
 
 func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
@@ -1964,7 +1958,7 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 		sts *appsv1.StatefulSet
 	}{
 		{
-			name: "removes migration-ready annotation after adoption",
+			name: "removes migration-ready annotation during adoption",
 			sts: ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").
 				SetOwnerReferences(nil).
 				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true", "other": "kept"}).Build()),
@@ -1987,13 +1981,21 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 			}
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-			require.NoError(t, helper.consumeAdoptionSignal(ctx, mdb))
+			owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+			require.NoError(t, err)
 
-			if tt.sts != nil {
+			if tt.name == "removes migration-ready annotation after adoption" {
 				result := appsv1.StatefulSet{}
 				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
 				assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation,
 					"the migration-ready annotation must be consumed on adoption, or the OM controller would re-adopt prematurely on reverse migration")
+				assert.True(t, owned, "should own the STS after consuming migration signal")
+			} else if tt.name == "no-op when annotation absent" {
+				result := appsv1.StatefulSet{}
+				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
+				assert.False(t, owned, "STS with no ownerRefs and no migration signals cannot be adopted")
+			} else if tt.name == "no-op when StatefulSet does not exist" {
+				assert.True(t, owned, "Fresh Start case: ownership succeeds without STS")
 			}
 		})
 	}
@@ -2030,26 +2032,26 @@ func TestReleaseStatefulSetIfRequested(t *testing.T) {
 		name              string
 		annotations       map[string]string
 		crOwned           bool
-		expectedReleased  bool
+		expectedOwned     bool
 		expectedOwnerRefs int
 	}{
 		{
-			name:              "release requested on owned StatefulSet: strips ownerRef, keeps annotation",
+			name:              "release requested on owned StatefulSet: strips ownerRef",
 			annotations:       map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
 			crOwned:           true,
-			expectedReleased:  true,
+			expectedOwned:     false,
 			expectedOwnerRefs: 0,
 		},
 		{
 			name:              "release requested on already-released StatefulSet: stays released",
 			annotations:       map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
-			expectedReleased:  true,
+			expectedOwned:     false,
 			expectedOwnerRefs: 0,
 		},
 		{
 			name:              "no release request: untouched",
 			crOwned:           true,
-			expectedReleased:  false,
+			expectedOwned:     true,
 			expectedOwnerRefs: 1,
 		},
 	}
@@ -2057,7 +2059,7 @@ func TestReleaseStatefulSetIfRequested(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-			mdb.UID = types.UID("cr-uid-2222") // UID matching requires non-empty UIDs
+			mdb.UID = types.UID("cr-uid-2222")
 			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
@@ -2068,24 +2070,18 @@ func TestReleaseStatefulSetIfRequested(t *testing.T) {
 			sts := DefaultStatefulSetBuilder().SetName(mdb.Name).SetOwnerReferences(refs).SetAnnotations(tt.annotations).Build()
 			require.NoError(t, kubeClient.Create(ctx, &sts))
 
-			released, err := helper.releaseStatefulSetIfRequested(ctx, mdb)
+			owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedReleased, released)
+			assert.Equal(t, tt.expectedOwned, owned)
 
 			result := appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
 			assert.Len(t, result.OwnerReferences, tt.expectedOwnerRefs)
-			if tt.expectedReleased {
-				assert.Equal(t, "true", result.Annotations[util.AppDBReverseMigrationReadyAnnotation],
-					"the release request must stay on the StatefulSet until the OM adopts it")
-			}
 		})
 	}
 }
 
-func TestAdoptionGate_BlocksWhileReleaseRequested(t *testing.T) {
-	// defensive condition: a stale, unconsumed appdb-migration-ready must not let the CR
-	// re-adopt a StatefulSet the OM has requested released
+func TestAdoptionGate_ForwardMigrationTakesPrecedence(t *testing.T) {
 	ctx := context.Background()
 	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
 		SetOwnerReferences(nil).
@@ -2098,9 +2094,9 @@ func TestAdoptionGate_BlocksWhileReleaseRequested(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	blocked, _, err := helper.checkAdoptionGate(ctx, mdb)
+	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
-	assert.True(t, blocked)
+	assert.True(t, owned, "forward migration takes precedence: reclaim ownership even if reverse is also requested")
 }
 
 func TestEnsureAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
@@ -2164,8 +2160,7 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(rs), rs))
 	assert.Equal(t, status.PhasePending, rs.Status.Phase)
-	// the status machinery capitalizes the first letter of the message
-	assert.Contains(t, rs.Status.Message, "AppDB StatefulSet to Ops Manager; this resource can be deleted")
+	assert.Contains(t, rs.Status.Message, "This AppDB resource is ownerless: After successful reverse migration to Ops Manager CR delete this resource")
 
 	for _, name := range []string{passwordName, keyfileName} {
 		s := corev1.Secret{}

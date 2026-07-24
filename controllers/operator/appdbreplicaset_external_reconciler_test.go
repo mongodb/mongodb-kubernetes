@@ -164,7 +164,7 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *te
 	require.NoError(t, reconciler.client.Create(ctx, mdb))
 	require.NoError(t, reconciler.client.Create(ctx, &sts))
 
-	err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
+	err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm)
 	assert.NoError(t, err)
 
 	resultSts := appsv1.StatefulSet{}
@@ -183,7 +183,7 @@ func TestEnsureAppDBStatefulSetOwnership_NoOpWhenNoStatefulSetExists(t *testing.
 	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	require.NoError(t, reconciler.client.Create(ctx, mdb))
 
-	err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
+	err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm)
 	assert.NoError(t, err, "Fresh Start: no internal AppDB StatefulSet ever existed, detach must be a no-op")
 }
 
@@ -209,8 +209,8 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 	require.NoError(t, reconciler.client.Create(ctx, mdb))
 	require.NoError(t, reconciler.client.Create(ctx, &sts))
 
-	require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S()))
-	require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S()))
+	require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm))
+	require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm))
 
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
@@ -267,7 +267,7 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyStripsHealthyAppDBMemberClusters(t 
 	require.NoError(t, reconciler.client.Create(ctx, &sts))
 
 	require.NotPanics(t, func() {
-		err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
+		err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm)
 		assert.NoError(t, err)
 	})
 }
@@ -378,7 +378,7 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testi
 			require.NoError(t, reconciler.client.Create(ctx, mdb))
 			require.NoError(t, reconciler.client.Create(ctx, &sts))
 
-			require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S()))
+			require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm))
 
 			resultSts := appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))

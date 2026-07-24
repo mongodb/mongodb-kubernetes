@@ -684,7 +684,7 @@ func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, 
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
 	if err := r.client.Update(ctx, &sts); err != nil {
-		return xerrors.Errorf("failed to reclaim StatefulSet: %w", err)
+		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
 	}
 
 	return nil

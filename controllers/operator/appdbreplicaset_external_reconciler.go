@@ -2,9 +2,11 @@ package operator
 
 import (
 	"context"
+	"slices"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -45,7 +47,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, o
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error validating externalApplicationDatabaseRef: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
-	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, e.log); err != nil {
+	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager); err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error detaching internal AppDB: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
@@ -90,7 +92,7 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 //   - owned by this OM: strip OM's OwnerReference and set util.AppDBMigrationReadyAnnotation
 //     so the referenced MongoDB CR can adopt
 //   - foreign-owned (a MongoDB CR) or already detached: no-op - the CR owns the StatefulSet
-func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) error {
+func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
 	sts := appsv1.StatefulSet{}
 	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.ExternalApplicationDatabaseRef.Name)
 	if err := e.client.Get(ctx, stsKey, &sts); err != nil {
@@ -100,19 +102,17 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 		return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
 	}
 
-	ownedByThisOM := false
-	for _, ref := range sts.OwnerReferences {
-		if ref.UID == opsManager.UID {
-			ownedByThisOM = true
-			break
-		}
+	ownedByThisOM := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == opsManager.UID
+	})
+
+	// If not owned by this Ops Manager, no-op
+	if !ownedByThisOM {
+		return nil
 	}
 
-	if ownedByThisOM {
-		return e.requestAppDBForwardMigration(ctx, sts)
-	}
-
-	return nil
+	// Request forward migration if owned by this Ops Manager
+	return e.requestAppDBForwardMigration(ctx, sts)
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx context.Context, sts appsv1.StatefulSet) error {

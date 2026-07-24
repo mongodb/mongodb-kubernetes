@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -115,7 +116,7 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 		log:        log,
 	}
 
-	if err := helper.initialize(ctx); err != nil {
+	if err := helper.initialize(); err != nil {
 		return nil, err
 	}
 
@@ -168,275 +169,12 @@ func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	return vaultMap
 }
 
-func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
+func (r *ReplicaSetReconcilerHelper) initialize() error {
 	state, err := r.readState()
 	if err != nil {
 		return xerrors.Errorf("failed to initialize replica set state: %w", err)
 	}
 	r.deploymentState = state
-	return nil
-}
-
-// ensureAppDBRoleUser mirrors the internal AppDB reconciler's ensureAppDbPassword
-// (appdbreplicaset_controller.go:1595) + AppDBSpec.GetAuthUsers (appdb_types.go:200-236),
-// relocated here for role: AppDB CRs so both internal and external AppDB share the
-// exact same password secret and user shape.
-//
-// The password secret name is computed directly from this CR's own name (mdb.Name is
-// already required to equal <om-name>-db by the naming convention, the exact same
-// value AppDBSpec.Name() produces for internal AppDB) — no suffix-stripping or
-// OM-name derivation is performed.
-func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
-	if mdb.Spec.Role != mdbv1.RoleAppDB {
-		return nil
-	}
-
-	secretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
-	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
-
-	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
-	if err != nil && !secret.SecretNotExist(err) {
-		return xerrors.Errorf("failed to check for existing password secret: %w", err)
-	}
-
-	password := existingData[util.OpsManagerPasswordKey]
-	if password != "" {
-		// forward migration: the secret pre-exists (created by internal AppDB, OM refs stripped
-		// by detach) - claim it so ownership follows the AppDB's manager
-		if err := r.claimSecretForCR(ctx, mdb, secretName); err != nil {
-			return err
-		}
-	} else {
-		password, err = generate.RandomFixedLengthStringOfSize(20)
-		if err != nil {
-			return xerrors.Errorf("failed to generate password: %w", err)
-		}
-
-		newSecret := secret.Builder().
-			SetName(secretName).
-			SetNamespace(mdb.Namespace).
-			SetField(util.OpsManagerPasswordKey, password).
-			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
-			Build()
-
-		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
-			return xerrors.Errorf("failed to create password secret: %w", err)
-		}
-	}
-
-	// Inject the synthetic mongodb-ops-manager user directly into OM's automation
-	// config via the same read-modify-write mechanism MongoDBUserReconciler already
-	// uses (handleScramShaUser, mongodbuser_controller.go:369) — the generic MongoDB
-	// controller has no local automation-config builder to merge a user into; it
-	// pushes auth to OM via the OM connection. ac.Auth.EnsureUser
-	// (controllers/om/automation_config.go:342) is idempotent, safe to call every
-	// reconcile.
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		omUser := om.MongoDBUser{
-			Username:                   util.OpsManagerMongoDBUserName,
-			Database:                   util.DefaultUserDatabase,
-			Roles:                      []*om.Role{},
-			AuthenticationRestrictions: []string{},
-			Mechanisms:                 []string{},
-		}
-		for _, role := range []string{"readWriteAnyDatabase", "dbAdminAnyDatabase", "clusterMonitor", "backup", "restore", "hostManager"} {
-			omUser.AddRole(&om.Role{Role: role, Database: "admin"})
-		}
-		if err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
-			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
-		}
-		ac.Auth.EnsureUser(omUser)
-		return nil
-	}, r.log)
-}
-
-// ensureAppDBRoleKeyfile keeps the cluster keyfile of an AppDB-role CR's project in sync with
-// the shared "<name>-keyfile" secret - the exact secret the internal AppDB reconciler reads and
-// persists (AppDBSpec.GetAgentKeyfileSecretNamespacedName; mdb.Name is required by the naming
-// convention to equal AppDBSpec.Name()). Without key continuity, a migration's rolling pod
-// replacement mixes generations with different keyfiles, __system intra-cluster auth fails with
-// "storedKey mismatch", and the replaced member sticks in RECOVERING forever.
-//
-// If the secret exists (forward migration, or a fresh start after an earlier reverse migration),
-// the project's automation-config key is forced to its value; if absent (first fresh start), the
-// project's key is persisted into the secret so a later reverse migration reuses it.
-//
-// This sets the key project-wide, so the CR's project must be dedicated to this AppDB CR -
-// co-hosted deployments would be rolled by the key change.
-func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
-	if mdb.Spec.Role != mdbv1.RoleAppDB {
-		return nil
-	}
-
-	secretName := fmt.Sprintf("%s-keyfile", mdb.Name)
-	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
-
-	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
-	if err != nil && !secret.SecretNotExist(err) {
-		return xerrors.Errorf("failed to check for existing keyfile secret: %w", err)
-	}
-	sharedKey := existingData[constants.AgentKeyfileKey]
-	if sharedKey != "" {
-		// forward migration: the secret pre-exists (created by internal AppDB, OM refs stripped
-		// by detach) - claim it so ownership follows the AppDB's manager
-		if err := r.claimSecretForCR(ctx, mdb, secretName); err != nil {
-			return err
-		}
-	}
-
-	var projectKey string
-	// ReadUpdateAutomationConfig only pushes when the config actually changed, so forcing an
-	// already-matching key is a no-op against Ops Manager.
-	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		if sharedKey != "" {
-			ac.Auth.Key = sharedKey
-			return nil
-		}
-		if err := ac.EnsureKeyFileContents(); err != nil {
-			return xerrors.Errorf("failed to ensure keyfile contents: %w", err)
-		}
-		projectKey = ac.Auth.Key
-		return nil
-	}, r.log)
-	if err != nil {
-		return err
-	}
-
-	if sharedKey == "" {
-		newSecret := secret.Builder().
-			SetName(secretName).
-			SetNamespace(mdb.Namespace).
-			SetField(constants.AgentKeyfileKey, projectKey).
-			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
-			Build()
-		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
-			return xerrors.Errorf("failed to create keyfile secret: %w", err)
-		}
-	}
-	return nil
-}
-
-// checkAdoptionGate implements the two-signal takeover gate described in Procedure 2 of the
-// AppDB-CR-reference design: adoption of a foreign StatefulSet (one that doesn't already carry
-// this CR's own OwnerReference) is blocked unless the OM controller's util.AppDBMigrationReadyAnnotation
-// is present AND the foreign OwnerReference is gone. Either signal alone is not sufficient — this
-// guards against ever adopting a StatefulSet the OM controller hasn't actually finished detaching.
-// Returns (blocked, blockedMessage, error); re-evaluated fresh every reconcile, no state is
-// persisted. The message names the Ops Manager owning the StatefulSet when there is one — that
-// state is valid both mid-forward-migration (detach not started) and after a completed reverse
-// migration (this CR is a deletable leftover), and the user action differs, so the message
-// describes both.
-func (r *ReplicaSetReconcilerHelper) checkAdoptionGate(ctx context.Context, mdb *mdbv1.MongoDB) (bool, string, error) {
-	sts := appsv1.StatefulSet{}
-	err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts)
-	if errors.IsNotFound(err) {
-		return false, "", nil // Fresh Start: no existing StatefulSet, no adoption gate applies
-	}
-	if err != nil {
-		return false, "", xerrors.Errorf("failed to check existing StatefulSet: %w", err)
-	}
-
-	for _, ref := range sts.OwnerReferences {
-		if mdb.UID != "" && ref.UID == mdb.UID {
-			return false, "", nil // already owned by this CR, not a foreign StatefulSet
-		}
-	}
-
-	blockedMessage := fmt.Sprintf("waiting for Ops Manager to finish detaching AppDB StatefulSet %s", mdb.Name)
-	for _, ref := range sts.OwnerReferences {
-		if ref.Kind == "MongoDBOpsManager" {
-			blockedMessage = fmt.Sprintf("This MongoDB resource is unmanaged: StatefulSet %s is managed by Ops Manager %q. Either update the Ops Manager specification (spec.externalApplicationDatabaseRef) or delete this resource", mdb.Name, ref.Name)
-			break
-		}
-	}
-
-	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
-		return true, blockedMessage, nil // OM requested a release; never adopt while the request stands
-	}
-
-	annotationReady := sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString
-	foreignOwnerRefGone := len(sts.OwnerReferences) == 0
-
-	return !annotationReady || !foreignOwnerRefGone, blockedMessage, nil
-}
-
-// claimSecretForCR sets this CR's OwnerReference on a shared handover secret it did not create
-// (forward migration: created by internal AppDB, OM refs stripped by detach). Ownership follows
-// the AppDB's manager; on plain CR deletion the secret is then garbage-collected together with
-// the StatefulSet, and the recreate-from-scratch path regenerates credentials uniformly.
-func (r *ReplicaSetReconcilerHelper) claimSecretForCR(ctx context.Context, mdb *mdbv1.MongoDB, name string) error {
-	s := corev1.Secret{}
-	if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s); err != nil {
-		return xerrors.Errorf("failed to fetch secret %s while claiming ownership: %w", name, err)
-	}
-	for _, ref := range s.OwnerReferences {
-		if ref.UID == mdb.UID {
-			return nil
-		}
-	}
-	s.OwnerReferences = kube.BaseOwnerReference(mdb)
-	if err := r.reconciler.client.Update(ctx, &s); err != nil {
-		return xerrors.Errorf("failed to claim secret %s: %w", name, err)
-	}
-	return nil
-}
-
-// releaseStatefulSetIfRequested answers a reverse-migration release request: when the OM's
-// internal AppDB reconciler has set util.AppDBReverseMigrationReadyAnnotation on this CR's
-// StatefulSet, strip this CR's OwnerReference (the annotation stays until the OM adopts).
-// Returns true while the release request is in effect - the caller must stop managing the
-// StatefulSet and report the released state.
-func (r *ReplicaSetReconcilerHelper) releaseStatefulSetIfRequested(ctx context.Context, mdb *mdbv1.MongoDB) (bool, error) {
-	sts := appsv1.StatefulSet{}
-	err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts)
-	if errors.IsNotFound(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, xerrors.Errorf("failed to fetch StatefulSet during release check: %w", err)
-	}
-
-	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] != trueString {
-		return false, nil
-	}
-
-	remaining := make([]metav1.OwnerReference, 0, len(sts.OwnerReferences))
-	for _, ref := range sts.OwnerReferences {
-		if ref.UID != mdb.UID {
-			remaining = append(remaining, ref)
-		}
-	}
-	if len(remaining) != len(sts.OwnerReferences) {
-		sts.OwnerReferences = remaining
-		if err := r.reconciler.client.Update(ctx, &sts); err != nil {
-			return false, xerrors.Errorf("failed to release StatefulSet: %w", err)
-		}
-	}
-	return true, nil
-}
-
-// consumeAdoptionSignal removes the migration-ready annotation from the StatefulSet once adoption
-// is unblocked, mirroring how the OM controller's ensureAppDBStatefulSetOwnership consumes it on adoption.
-// Leaving the annotation in place after adoption would let the OM controller re-adopt the
-// StatefulSet immediately on reverse migration, without waiting for this CR's detach finalizer.
-func (r *ReplicaSetReconcilerHelper) consumeAdoptionSignal(ctx context.Context, mdb *mdbv1.MongoDB) error {
-	sts := appsv1.StatefulSet{}
-	err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts)
-	if errors.IsNotFound(err) {
-		return nil // Fresh Start: no existing StatefulSet, nothing to consume
-	}
-	if err != nil {
-		return xerrors.Errorf("failed to fetch StatefulSet while consuming adoption signal: %w", err)
-	}
-
-	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == "" {
-		return nil
-	}
-
-	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
-	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
-		return xerrors.Errorf("failed to remove %s annotation: %w", util.AppDBMigrationReadyAnnotation, err)
-	}
 	return nil
 }
 
@@ -483,27 +221,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	if rs.Spec.Role == mdbv1.RoleAppDB {
-		// The release check and adoption gate run BEFORE the user/keyfile ensure steps: those
-		// steps claim the shared handover secrets for this CR, and a released (or gate-blocked)
-		// CR must not steal them back from the Ops Manager that owns the AppDB now - the CR's
-		// eventual deletion would garbage-collect secrets the running internal AppDB depends on.
-		released, err := r.releaseStatefulSetIfRequested(ctx, rs)
+		mongoDBOwned, err := r.ensureAppDBStatefulSetOwnership(ctx, rs)
 		if err != nil {
 			return r.updateStatus(ctx, workflow.Failed(err))
 		}
-		if released {
-			return r.updateStatus(ctx, workflow.Pending("released AppDB StatefulSet to Ops Manager; this resource can be deleted"))
-		}
-
-		blocked, blockedMessage, err := r.checkAdoptionGate(ctx, rs)
-		if err != nil {
-			return r.updateStatus(ctx, workflow.Failed(err))
-		}
-		if blocked {
-			return r.updateStatus(ctx, workflow.Pending("%s", blockedMessage))
-		}
-		if err := r.consumeAdoptionSignal(ctx, rs); err != nil {
-			return r.updateStatus(ctx, workflow.Failed(err))
+		if !mongoDBOwned {
+			return r.updateStatus(ctx, workflow.Pending("This AppDB resource is ownerless: After successful reverse migration to Ops Manager CR delete this resource"))
 		}
 
 		if err := r.ensureAppDBRoleUser(ctx, rs, conn); err != nil {
@@ -1101,6 +824,218 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
+}
+
+// ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
+//   - absent: nothing to detach - Fresh Start, the MongoDB reconciler creates its own StatefulSet
+//   - if util.AppDBMigrationReadyAnnotation is present - Forward Migration, reclaim the AppDB Statefulset
+//   - if util.AppDBReverseMigrationReadyAnnotation is present and owned by this MongoDB - Reverse Migration,
+//     release the AppDB Statefulset, so the Ops Manager can reclaim it
+//   - foreign-owned (a MongoDB CR): no-op - other MongoDB CR owns the StatefulSet
+func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context.Context, mdb *mdbv1.MongoDB) (bool, error) {
+	sts := appsv1.StatefulSet{}
+	if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts); err != nil {
+		if errors.IsNotFound(err) {
+			return true, nil //No existing StatefulSet, nothing to detach - Fresh Start
+		}
+		return false, xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err)
+	}
+
+	// Forward Migration, reclaim the AppDB Statefulset
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString && len(sts.OwnerReferences) == 0 {
+		return r.reclaimAppDBStatefulsetOwnership(ctx, mdb, sts)
+	}
+
+	ownedByThisMongoDB := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == mdb.UID
+	})
+
+	// Reverse Migration, release the AppDB Statefulset
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString && ownedByThisMongoDB {
+		return r.releaseAppDBStatefulsetOwnership(ctx, sts)
+	}
+
+	return ownedByThisMongoDB, nil
+}
+
+func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) (bool, error) {
+	sts.OwnerReferences = kube.BaseOwnerReference(mdb)
+	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
+	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
+		return false, xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return true, nil
+}
+
+func (r *ReplicaSetReconcilerHelper) releaseAppDBStatefulsetOwnership(ctx context.Context, sts appsv1.StatefulSet) (bool, error) {
+	sts.OwnerReferences = nil
+	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
+		return false, xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return false, nil
+}
+
+// ensureAppDBRoleUser mirrors the internal AppDB reconciler's ensureAppDbPassword
+// (appdbreplicaset_controller.go:1595) + AppDBSpec.GetAuthUsers (appdb_types.go:200-236),
+// relocated here for role: AppDB CRs so both internal and external AppDB share the
+// exact same password secret and user shape.
+//
+// The password secret name is computed directly from this CR's own name (mdb.Name is
+// already required to equal <om-name>-db by the naming convention, the exact same
+// value AppDBSpec.Name() produces for internal AppDB) — no suffix-stripping or
+// OM-name derivation is performed.
+func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+
+	secretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
+	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
+
+	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to check for existing password secret: %w", err)
+	}
+
+	password := existingData[util.OpsManagerPasswordKey]
+	if password != "" {
+		// forward migration: the secret pre-exists (created by internal AppDB, OM refs stripped
+		// by detach) - claim it so ownership follows the AppDB's manager
+		if err := r.claimSecretForCR(ctx, mdb, secretName); err != nil {
+			return err
+		}
+	} else {
+		password, err = generate.RandomFixedLengthStringOfSize(20)
+		if err != nil {
+			return xerrors.Errorf("failed to generate password: %w", err)
+		}
+
+		newSecret := secret.Builder().
+			SetName(secretName).
+			SetNamespace(mdb.Namespace).
+			SetField(util.OpsManagerPasswordKey, password).
+			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
+			Build()
+
+		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
+			return xerrors.Errorf("failed to create password secret: %w", err)
+		}
+	}
+
+	// Inject the synthetic mongodb-ops-manager user directly into OM's automation
+	// config via the same read-modify-write mechanism MongoDBUserReconciler already
+	// uses (handleScramShaUser, mongodbuser_controller.go:369) — the generic MongoDB
+	// controller has no local automation-config builder to merge a user into; it
+	// pushes auth to OM via the OM connection. ac.Auth.EnsureUser
+	// (controllers/om/automation_config.go:342) is idempotent, safe to call every
+	// reconcile.
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		omUser := om.MongoDBUser{
+			Username:                   util.OpsManagerMongoDBUserName,
+			Database:                   util.DefaultUserDatabase,
+			Roles:                      []*om.Role{},
+			AuthenticationRestrictions: []string{},
+			Mechanisms:                 []string{},
+		}
+		for _, role := range []string{"readWriteAnyDatabase", "dbAdminAnyDatabase", "clusterMonitor", "backup", "restore", "hostManager"} {
+			omUser.AddRole(&om.Role{Role: role, Database: "admin"})
+		}
+		if err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
+			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
+		}
+		ac.Auth.EnsureUser(omUser)
+		return nil
+	}, r.log)
+}
+
+// ensureAppDBRoleKeyfile keeps the cluster keyfile of an AppDB-role CR's project in sync with
+// the shared "<name>-keyfile" secret - the exact secret the internal AppDB reconciler reads and
+// persists (AppDBSpec.GetAgentKeyfileSecretNamespacedName; mdb.Name is required by the naming
+// convention to equal AppDBSpec.Name()). Without key continuity, a migration's rolling pod
+// replacement mixes generations with different keyfiles, __system intra-cluster auth fails with
+// "storedKey mismatch", and the replaced member sticks in RECOVERING forever.
+//
+// If the secret exists (forward migration, or a fresh start after an earlier reverse migration),
+// the project's automation-config key is forced to its value; if absent (first fresh start), the
+// project's key is persisted into the secret so a later reverse migration reuses it.
+//
+// This sets the key project-wide, so the CR's project must be dedicated to this AppDB CR -
+// co-hosted deployments would be rolled by the key change.
+func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+
+	secretName := fmt.Sprintf("%s-keyfile", mdb.Name)
+	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
+
+	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to check for existing keyfile secret: %w", err)
+	}
+	sharedKey := existingData[constants.AgentKeyfileKey]
+	if sharedKey != "" {
+		// forward migration: the secret pre-exists (created by internal AppDB, OM refs stripped
+		// by detach) - claim it so ownership follows the AppDB's manager
+		if err := r.claimSecretForCR(ctx, mdb, secretName); err != nil {
+			return err
+		}
+	}
+
+	var projectKey string
+	// ReadUpdateAutomationConfig only pushes when the config actually changed, so forcing an
+	// already-matching key is a no-op against Ops Manager.
+	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if sharedKey != "" {
+			ac.Auth.Key = sharedKey
+			return nil
+		}
+		if err := ac.EnsureKeyFileContents(); err != nil {
+			return xerrors.Errorf("failed to ensure keyfile contents: %w", err)
+		}
+		projectKey = ac.Auth.Key
+		return nil
+	}, r.log)
+	if err != nil {
+		return err
+	}
+
+	if sharedKey == "" {
+		newSecret := secret.Builder().
+			SetName(secretName).
+			SetNamespace(mdb.Namespace).
+			SetField(constants.AgentKeyfileKey, projectKey).
+			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
+			Build()
+		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
+			return xerrors.Errorf("failed to create keyfile secret: %w", err)
+		}
+	}
+	return nil
+}
+
+// claimSecretForCR sets this CR's OwnerReference on a shared handover secret it did not create
+// (forward migration: created by internal AppDB, OM refs stripped by detach). Ownership follows
+// the AppDB's manager; on plain CR deletion the secret is then garbage-collected together with
+// the StatefulSet, and the recreate-from-scratch path regenerates credentials uniformly.
+func (r *ReplicaSetReconcilerHelper) claimSecretForCR(ctx context.Context, mdb *mdbv1.MongoDB, name string) error {
+	s := corev1.Secret{}
+	if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s); err != nil {
+		return xerrors.Errorf("failed to fetch secret %s while claiming ownership: %w", name, err)
+	}
+	for _, ref := range s.OwnerReferences {
+		if ref.UID == mdb.UID {
+			return nil
+		}
+	}
+	s.OwnerReferences = kube.BaseOwnerReference(mdb)
+	if err := r.reconciler.client.Update(ctx, &s); err != nil {
+		return xerrors.Errorf("failed to claim secret %s: %w", name, err)
+	}
+	return nil
 }
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
