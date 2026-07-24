@@ -60,7 +60,8 @@ class Operator(object):
             helm_args = {}
 
         helm_args["namespace"] = namespace
-        helm_args["operator.env"] = "dev"
+
+        add_to_custom_env_vars_value(helm_args, "OPERATOR_ENV", "dev")
 
         # the import is done here to prevent circular dependency
         from tests.conftest import local_operator
@@ -275,3 +276,10 @@ def list_operator_crds() -> List[V1CustomResourceDefinition]:
         ],
         key=lambda crd: crd.metadata.name,
     )
+
+
+def add_to_custom_env_vars_value(helm_args: dict, key: str, value: str) -> None:
+    existing = helm_args.get("customEnvVars")
+    env_vars = existing.split("&") if existing else []
+    env_vars.append(f"{key}={value}")
+    helm_args["customEnvVars"] = "&".join(env_vars)
