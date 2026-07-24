@@ -262,10 +262,10 @@ run_tests() {
 
 collect_om_pod_logs() {
     local context="${1}"
-    echo "Collecting OM pod logs from context ${context}, namespace ${NAMESPACE}"
+    echo "Collecting OM pod migration logs from context ${context}, namespace ${NAMESPACE}"
 
     local pods
-    pods=$(kubectl --context "${context}" -n "${NAMESPACE}" get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\\n"}{end}' 2>/dev/null || true)
+    pods=$(kubectl --context "${context}" -n "${NAMESPACE}" get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
     if [[ -z "${pods}" ]]; then
         echo "No pods found in namespace ${NAMESPACE} on context ${context}"
         return
@@ -276,27 +276,15 @@ collect_om_pod_logs() {
             continue
         fi
 
-        echo "  Collecting logs from pod: ${pod}"
-        local containers
-        containers=$(kubectl --context "${context}" -n "${NAMESPACE}" get pod "${pod}" -o jsonpath='{range .spec.containers[*]}{.name}{"\\n"}{end}' 2>/dev/null || true)
-        for container in ${containers}; do
-            local safe_container
-            safe_container=$(echo "${container}" | tr '/' '_')
-            local log_file="logs/om_${pod}_${safe_container}.log"
-            kubectl --context "${context}" -n "${NAMESPACE}" logs "${pod}" -c "${container}" > "${log_file}" 2>&1 || true
-        done
-
-        # Try to copy migration logs from OM pods (/mongodb-ops-manager/logs/mms-migration/)
-        for container in ${containers}; do
-            local mig_list
-            mig_list=$(kubectl --context "${context}" -n "${NAMESPACE}" exec "${pod}" -c "${container}" -- ls /mongodb-ops-manager/logs/mms-migration/ 2>/dev/null || true)
-            if [[ -n "${mig_list}" ]]; then
-                echo "  Found migration logs in pod ${pod}, container ${container}"
-                for mig_file in ${mig_list}; do
-                    kubectl --context "${context}" -n "${NAMESPACE}" exec "${pod}" -c "${container}" -- cat "/mongodb-ops-manager/logs/mms-migration/${mig_file}" > "logs/om_${pod}_migration_${mig_file}" 2>/dev/null || true
-                done
-            fi
-        done
+        # ponytail: existing diagnostics already collects container logs; we only need migration logs from /mongodb-ops-manager/logs/mms-migration/
+        local mig_list
+        mig_list=$(kubectl --context "${context}" -n "${NAMESPACE}" exec "${pod}" -c mongodb-ops-manager -- ls /mongodb-ops-manager/logs/mms-migration/ 2>/dev/null || true)
+        if [[ -n "${mig_list}" ]]; then
+            echo "  Found migration logs in pod ${pod}"
+            for mig_file in ${mig_list}; do
+                kubectl --context "${context}" -n "${NAMESPACE}" exec "${pod}" -c mongodb-ops-manager -- cat "/mongodb-ops-manager/logs/mms-migration/${mig_file}" > "logs/om_${pod}_migration_${mig_file}" 2>/dev/null || true
+            done
+        fi
     done
 }
 
