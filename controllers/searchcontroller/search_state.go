@@ -73,7 +73,8 @@ func ReadSearchState(
 // search state ConfigMap: a stale base yields 409 Conflict and the reconcile
 // requeues, instead of silently losing a concurrent write (do NOT replace this
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
-// true when the state changed and must be persisted.
+// true when the state changed and must be persisted. Every update also repairs
+// owner labels missing from ConfigMaps written by released 1.9.x operators.
 func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
 	cmName := SearchStateCMName(search)
 	cm := &corev1.ConfigMap{}
@@ -90,7 +91,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		newCM := configmap.Builder().
 			SetName(cmName).
 			SetNamespace(search.Namespace).
-			SetLabels(search.GetOwnerLabels()).
+			SetLabels(searchOwnerLabels(search, "")).
 			SetOwnerReferences(kube.BaseOwnerReference(search)).
 			SetDataField(searchStateKey, string(data)).
 			Build()
@@ -103,9 +104,23 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 	if err != nil {
 		return nil, err
 	}
-	if !mutate(state) {
+
+	stateChanged := mutate(state)
+	metadataChanged := false
+	if cm.Labels == nil {
+		cm.Labels = map[string]string{}
+	}
+	for key, value := range searchOwnerLabels(search, "") {
+		if cm.Labels[key] != value {
+			cm.Labels[key] = value
+			metadataChanged = true
+		}
+	}
+
+	if !stateChanged && !metadataChanged {
 		return state, nil
 	}
+
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, err

@@ -15,8 +15,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
@@ -29,8 +31,9 @@ func decodeStateJSON(cm *corev1.ConfigMap, dst interface{}) error {
 }
 
 // The routing-ready switch persists through RV-checked read-modify-writes on the
-// state ConfigMap: creation with owner metadata, monotonic appends, no-op
-// rewrites, pruning, and 409 Conflict on a stale base instead of a silent lost update.
+// state ConfigMap: creation with owner identity, monotonic appends, legacy label
+// repair, no-op rewrites, pruning, and 409 Conflict on a stale base instead of a
+// silent lost update.
 func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 	ctx := context.Background()
 	search := newTestMongoDBSearch("mysearch", mock.TestNamespace)
@@ -52,7 +55,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		return st
 	}
 
-	t.Run("first mark creates the state CM with owner metadata", func(t *testing.T) {
+	t.Run("first mark creates the state CM with owner identity", func(t *testing.T) {
 		c := mock.NewEmptyFakeClientBuilder().Build()
 		helper := newHelper(c)
 		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
@@ -63,7 +66,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 		assert.Equal(t, []string{"sh-0"}, readState(t, c).RoutingReadyMongotGroups)
 		require.Len(t, cm.OwnerReferences, 1)
 		assert.Equal(t, search.UID, cm.OwnerReferences[0].UID)
-		for k, v := range search.GetOwnerLabels() {
+		for k, v := range searchOwnerLabels(search, "") {
 			assert.Equal(t, v, cm.Labels[k], "owner label %s", k)
 		}
 	})
@@ -78,6 +81,43 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 
 		require.NoError(t, newHelper(c).markRoutingReady(ctx, "sh-1"))
 		assert.Equal(t, []string{"sh-0", "sh-1"}, readState(t, c).RoutingReadyMongotGroups)
+	})
+
+	t.Run("mark repairs owner labels on a legacy state CM", func(t *testing.T) {
+		raw, err := json.Marshal(SearchDeploymentState{RoutingReadyMongotGroups: []string{"legacy-shard"}})
+		require.NoError(t, err)
+		legacyCM := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            SearchStateCMName(search),
+				Namespace:       search.Namespace,
+				Labels:          search.GetOwnerLabels(),
+				OwnerReferences: kube.BaseOwnerReference(search),
+			},
+			Data: map[string]string{searchStateKey: string(raw)},
+		}
+		c := mock.NewEmptyFakeClientBuilder().WithObjects(legacyCM).Build()
+		helper := newHelper(c)
+		require.NoError(t, helper.markRoutingReady(ctx, "sh-0"))
+		assert.Equal(t, []string{"legacy-shard", "sh-0"}, helper.state.RoutingReadyMongotGroups)
+
+		cm := &corev1.ConfigMap{}
+		require.NoError(t, c.Get(ctx, stateCMName, cm))
+		for k, v := range searchOwnerLabels(search, "") {
+			assert.Equal(t, v, cm.Labels[k], "owner label %s", k)
+		}
+		require.Len(t, cm.OwnerReferences, 1, "current-CR owner reference must not be duplicated")
+	})
+
+	t.Run("no-op mutation does not create missing state", func(t *testing.T) {
+		c := mock.NewEmptyFakeClientBuilder().Build()
+		state, err := MutateSearchState(ctx, kubernetesClient.NewClient(c), search, func(*SearchDeploymentState) bool {
+			return false
+		})
+		require.NoError(t, err)
+		assert.Empty(t, state.RoutingReadyMongotGroups)
+
+		err = c.Get(ctx, stateCMName, &corev1.ConfigMap{})
+		assert.True(t, apierrors.IsNotFound(err), "no-op mutation must not create the state CM")
 	})
 
 	t.Run("already-on switch is a no-op write", func(t *testing.T) {

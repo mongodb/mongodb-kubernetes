@@ -1677,11 +1677,17 @@ func newTestMongoDBSearchWithReplicas(name, namespace, mdbName string, replicas 
 }
 
 // TestReconcileTopologyState_FirstReconcile_RecordsCurrentReplicas verifies that the first call
-// creates a state ConfigMap recording the current replica count and returns pending=false.
+// records the current replica count in the state ConfigMap and returns pending=false. The
+// pre-existing ConfigMap carries nil Data (as after a hand-edit): it must read as fresh state
+// and must not panic the state write.
 func TestReconcileTopologyState_FirstReconcile_RecordsCurrentReplicas(t *testing.T) {
 	search := newTestMongoDBSearchWithReplicas(testSearchName, testNamespace, testMDBName, 2)
 	agentSecret := newTestAgentKeySecret("agent-key-secret", testNamespace)
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, search, agentSecret)
+	emptyStateCM := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name:      fmt.Sprintf("%s-metrics-forwarder-state", search.Name),
+		Namespace: testNamespace,
+	}}
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, search, agentSecret, emptyStateCM)
 
 	var deletedHostIDs []string
 	r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
