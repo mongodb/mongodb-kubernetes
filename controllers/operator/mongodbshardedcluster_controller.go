@@ -2446,6 +2446,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
+		WithCustomAgentURL(r.commonController.customAgentURL),
+
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2482,6 +2484,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
+		WithCustomAgentURL(r.commonController.customAgentURL),
+
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
@@ -2520,6 +2524,8 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
+		WithCustomAgentURL(r.commonController.customAgentURL),
+
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),

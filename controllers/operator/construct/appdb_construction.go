@@ -51,6 +51,7 @@ type AppDBStatefulSetOptions struct {
 	AgentImage     string
 
 	PrometheusTLSCertHash string
+	CustomAgentURL        string
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
@@ -500,7 +501,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				upgradeInitContainer,
 				readinessInitContainer,
 				podtemplatespec.WithContainer(util.AgentContainerName,
-					container.WithEnvs(appdbContainerEnv(*appDb)...),
+					container.WithEnvs(appdbContainerEnv(*appDb, opts.CustomAgentURL)...),
 				),
 				vaultModification(*appDb, podVars, opts),
 				appDbPodSpec(opts.InitAppDBImage, opsManager, defaultArchitecture),
@@ -540,7 +541,7 @@ func IsEnterprise() bool {
 }
 
 // appdbContainerEnv returns the set of env var needed by the AppDB.
-func appdbContainerEnv(appDbSpec om.AppDBSpec) []corev1.EnvVar {
+func appdbContainerEnv(appDbSpec om.AppDBSpec, customAgentURL string) []corev1.EnvVar {
 	envVars := []corev1.EnvVar{
 		{
 			Name:      podNamespaceEnv,
@@ -559,6 +560,11 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec) []corev1.EnvVar {
 			Value: appDbSpec.ClusterDomain,
 		},
 	}
+
+	if customAgentURL != "" {
+		envVars = append(envVars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: customAgentURL})
+	}
+
 	return envVars
 }
 

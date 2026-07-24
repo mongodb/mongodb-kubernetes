@@ -79,6 +79,8 @@ variables:
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: build_readiness_probe_image
@@ -197,6 +199,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
       # Wait for OM images to be published to quay.io on commit builds (staging).
@@ -221,6 +225,10 @@ parameters:
   - key: MDB_BASH_DEBUG
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
+
+  - key: mdb_custom_agent_url
+    value: ""
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
 
 # Triggered manually or by PCT.
 patch_aliases:

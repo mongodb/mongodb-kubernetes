@@ -590,8 +590,9 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
-		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
-		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture),
+		InitAppDBImage:  images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
+		MongodbImage:    images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture),
+		CustomAgentURL:  r.customAgentURL,
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {
 		if !rs.PodSpec.IsAgentImageOverridden() {
@@ -603,7 +604,6 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
 			}
-
 			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, agentVersion)
 		}
 	} else {

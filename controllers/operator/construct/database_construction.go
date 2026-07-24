@@ -2,7 +2,6 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -105,7 +104,8 @@ type DatabaseStatefulSetOptions struct {
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
-	AgentImage             string
+	AgentImage     string
+	CustomAgentURL string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -1029,10 +1029,9 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
-	// This is only used for debugging
-	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
-		zap.S().Debugf("using a custom agent version: %s", agentVersion)
-		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	if opts.CustomAgentURL != "" {
+		zap.S().Debugf("using a custom agent URL: %s", opts.CustomAgentURL)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: opts.CustomAgentURL})
 	}
 
 	// append any additional env vars specified.
