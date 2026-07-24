@@ -37,32 +37,24 @@ def collect_om_migration_logs(ops_manager: MongoDBOpsManager) -> None:
     for api_client, pod in ops_manager.read_om_pods():
         pod_name = pod.metadata.name
         try:
-            # run_command_in_pod_container returns combined stdout+stderr; use sh -c
-            # with 2>/dev/null so a missing directory returns empty, not an error string.
-            listing = KubernetesTester.run_command_in_pod_container(
+            # Directly cat the known migration log path. We don't use find
+            # because find may not be in the OM container's PATH.
+            mig_log_path = "/mongodb-ops-manager/logs/mms-migration.log"
+            file_content = KubernetesTester.run_command_in_pod_container(
                 pod_name,
                 ops_manager.namespace,
-                ["sh", "-c", "find /mongodb-ops-manager/logs/ -maxdepth 1 -name '*migration*' -type f 2>/dev/null"],
+                ["cat", mig_log_path],
                 container="mongodb-ops-manager",
                 api_client=api_client,
             )
-            if not listing.strip():
-                logger.info(f"No migration logs in pod {pod_name}")
+            if file_content.strip():
+                logger.info(f"Collected migration log from pod {pod_name} ({len(file_content)} bytes)")
+                with open(os.path.join(dest_dir, f"{pod_name}_mms-migration.log"), "w") as f:
+                    f.write(file_content)
             else:
-                logger.info(f"Found migration logs in pod {pod_name}: {listing.strip()}")
-                for mig_path in listing.strip().split():
-                    mig_name = mig_path.split("/")[-1]
-                    file_content = KubernetesTester.run_command_in_pod_container(
-                        pod_name,
-                        ops_manager.namespace,
-                        ["cat", mig_path],
-                        container="mongodb-ops-manager",
-                        api_client=api_client,
-                    )
-                    with open(os.path.join(dest_dir, f"{pod_name}_migration_{mig_name}"), "w") as f:
-                        f.write(file_content)
+                logger.info(f"No migration log content in pod {pod_name}")
 
-            # Also capture full container logs at this point — they contain the
+            # Also capture full container logs — they contain the
             # NoMigrationPathException stack trace on failure.
             log_content = KubernetesTester.read_pod_logs(
                 ops_manager.namespace,
