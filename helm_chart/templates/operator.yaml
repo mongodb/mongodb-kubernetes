@@ -311,6 +311,9 @@ spec:
         {{- end }}
 
 {{- with .Values.operator }}
+  {{- with .priorityClassName }}
+      priorityClassName: {{ . }}
+  {{- end }}
   {{- with .nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
