@@ -205,10 +205,6 @@ MAX_DETAILED_FAILURES = 10
 def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) -> set[tuple[str, str]]:
     """Get the set of (display_name, build_variant) tuples that failed on the previous master version.
 
-    Uses recent_versions_by_project to find the version with the highest order
-    below the current version's order, then reuses get_failed_and_running_tasks
-    to collect its failures.
-
     Returns an empty set if no previous version is found or if the lookup fails.
     """
     current_order = getattr(version_info, "order", None)
@@ -218,14 +214,23 @@ def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) 
 
     global _api_call_count
     _api_call_count += 1
-    recent = api.recent_versions_by_project(project_id)
+    recent = api.recent_versions_by_project(project_id, params={"limit": "50"})
 
-    candidates = [v for v in recent.versions if getattr(v, "order", None) is not None and v.order < current_order]
+    # Work around evergreen.py bug: RecentVersions.versions passes a list to
+    # Version() instead of individual dicts, so all fields are None.
+    # Access the raw JSON directly.
+    all_versions = [
+        v for wrapper in recent.json.get("versions", [])
+        for v in wrapper.get("versions", [])
+        if v.get("order") is not None
+    ]
+
+    candidates = [v for v in all_versions if v["order"] < current_order]
     if not candidates:
         print("No previous master version found", file=sys.stderr)
         return set()
 
-    prev_version_id = max(candidates, key=lambda v: v.order).version_id
+    prev_version_id = max(candidates, key=lambda v: v["order"])["version_id"]
     print(f"Checking previous master version: {prev_version_id}", file=sys.stderr)
     prev_failed, _ = get_failed_and_running_tasks(api, prev_version_id, NOTIFICATION_TASKS)
     return {(t.display_name, t.build_variant) for t in prev_failed}
@@ -506,7 +511,9 @@ def main() -> None:
         try:
             prev_failed = get_previous_version_failures(api, version_info)
             prev_matches = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in prev_failed)
-            print(f"  {prev_matches} of {len(failed_tasks)} failed tasks also failed on previous master", file=sys.stderr)
+            print(
+                f"  {prev_matches} of {len(failed_tasks)} failed tasks also failed on previous master", file=sys.stderr
+            )
         except Exception as e:
             print(f"Warning: previous master lookup failed: {e}", file=sys.stderr)
 

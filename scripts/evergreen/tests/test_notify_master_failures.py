@@ -161,8 +161,7 @@ class TestFormatSlackMessage:
         version_info = make_mock_version(status="failed")
         message = format_slack_message(version_info, FEW_TASKS, prev_failed=prev_failed)
         text = " ".join(
-            b["text"]["text"] for b in message["blocks"]
-            if b["type"] == "section" and isinstance(b.get("text"), dict)
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
         assert "2 of 3" in text
         assert "previous master" in text
@@ -270,20 +269,18 @@ class TestGetPreviousVersionFailures:
     @patch("scripts.evergreen.notify_master_failures.get_failed_and_running_tasks")
     def test_finds_previous_version(self, mock_failed_tasks):
         """Should find the version with the highest order below current and return its failures."""
-        mock_v1 = MagicMock()
-        mock_v1.version_id = "v1"
-        mock_v1.order = 95
-
-        mock_v2 = MagicMock()
-        mock_v2.version_id = "v2"
-        mock_v2.order = 99  # closest below current
-
-        mock_v3 = MagicMock()
-        mock_v3.version_id = "v3"
-        mock_v3.order = 101  # above current, should be skipped
-
+        # Simulate the raw JSON structure from recent_versions_by_project:
+        # {"versions": [{"rolled_up": False, "versions": [{...}, ...]}, ...]}
         mock_api = MagicMock()
-        mock_api.recent_versions_by_project.return_value.versions = [mock_v1, mock_v2, mock_v3]
+        mock_api.recent_versions_by_project.return_value.json = {
+            "versions": [
+                {"rolled_up": False, "versions": [
+                    {"version_id": "v1", "order": 95},
+                    {"version_id": "v2", "order": 99},  # closest below current
+                    {"version_id": "v3", "order": 101},  # above current, should be skipped
+                ]},
+            ]
+        }
 
         prev_failed_task = make_mock_task("e2e_prev_fail", "variant_a")
         mock_failed_tasks.return_value = ([prev_failed_task], [])
