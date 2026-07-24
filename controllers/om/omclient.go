@@ -185,6 +185,18 @@ type HTTPOmConnection struct {
 	clientOpts []func(*api.Client) error // Additional options for the HTTP client (e.g., for testing)
 }
 
+// SetPUTHook registers a callback on the underlying HTTP client invoked after every successful PUT to
+// Ops Manager. path is the full API path; body is the serialized JSON that was sent.
+// Used for AC snapshot debugging (MDB_AC_SNAPSHOT=true).
+// Must be called after the connection has been used at least once (client is initialized lazily).
+func (oc *HTTPOmConnection) SetPUTHook(hook func(path string, body []byte)) {
+	client, err := oc.getHTTPClient()
+	if err != nil {
+		return
+	}
+	client.AfterSuccessfulPUT = hook
+}
+
 func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
 	// We don't have to wait for each step for the agent to reach goal state as setting logrotation does not require order
 	if logRotateSetting.Mongod.LogRotate == nil && logRotateSetting.MonitoringAgent.LogRotate == nil &&
