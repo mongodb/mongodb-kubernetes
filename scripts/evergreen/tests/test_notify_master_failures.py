@@ -11,6 +11,7 @@ from scripts.evergreen.notify_master_failures import (
     VersionInfo,
     format_slack_message,
     get_failed_and_running_tasks,
+    get_previous_version_failures,
     print_stdout_report,
     send_slack_notification,
 )
@@ -154,6 +155,19 @@ class TestFormatSlackMessage:
                 break
         assert "over 18–47 runs" in summary_text
 
+    def test_prev_failed_in_slack(self):
+        """Summary line + per-task annotation when tasks also failed on previous master."""
+        prev_failed = {("e2e_task_1", "variant_a"), ("e2e_task_2", "variant_a")}
+        version_info = make_mock_version(status="failed")
+        message = format_slack_message(version_info, FEW_TASKS, prev_failed=prev_failed)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"]
+            if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert "2 of 3" in text
+        assert "previous master" in text
+        assert "also on previous master" in text
+
 
 class TestPrintStdoutReport:
     def _report(self, failed_tasks=None, running_tasks=None, **kwargs):
@@ -252,6 +266,37 @@ class TestGetFailedAndRunningTasks:
         assert failed[0].display_name == "e2e_real_fail"
 
 
+class TestGetPreviousVersionFailures:
+    @patch("scripts.evergreen.notify_master_failures.get_failed_and_running_tasks")
+    def test_finds_previous_version(self, mock_failed_tasks):
+        """Should find the version with the highest order below current and return its failures."""
+        mock_v1 = MagicMock()
+        mock_v1.version_id = "v1"
+        mock_v1.order = 95
+
+        mock_v2 = MagicMock()
+        mock_v2.version_id = "v2"
+        mock_v2.order = 99  # closest below current
+
+        mock_v3 = MagicMock()
+        mock_v3.version_id = "v3"
+        mock_v3.order = 101  # above current, should be skipped
+
+        mock_api = MagicMock()
+        mock_api.recent_versions_by_project.return_value.versions = [mock_v1, mock_v2, mock_v3]
+
+        prev_failed_task = make_mock_task("e2e_prev_fail", "variant_a")
+        mock_failed_tasks.return_value = ([prev_failed_task], [])
+
+        version_info = make_mock_version(order=100)
+        version_info.version.project = "my-project"
+
+        result = get_previous_version_failures(mock_api, version_info)
+
+        assert ("e2e_prev_fail", "variant_a") in result
+        assert mock_failed_tasks.call_args[0][1] == "v2"
+
+
 class TestSendSlackNotification:
     @patch("scripts.evergreen.notify_master_failures.requests.post")
     def test_success(self, mock_post):
@@ -273,15 +318,17 @@ class TestMainOutputBehavior:
             patch("scripts.evergreen.notify_master_failures.get_evergreen_api") as api,
             patch("scripts.evergreen.notify_master_failures.wait_for_version_completion") as wait,
             patch("scripts.evergreen.notify_master_failures.get_failed_and_running_tasks") as tasks,
+            patch("scripts.evergreen.notify_master_failures.get_previous_version_failures") as prev_failed,
             patch("scripts.evergreen.notify_master_failures.send_slack_notification") as slack,
             patch("scripts.evergreen.notify_master_failures.print_stdout_report") as stdout,
         ):
             api.return_value = MagicMock()
             slack.return_value = True
+            prev_failed.return_value = set()
             monkeypatch.setenv("version_id", "test")
             monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
             monkeypatch.delenv("NOTIFY_ON_SUCCESS", raising=False)
-            yield {"wait": wait, "tasks": tasks, "slack": slack, "stdout": stdout}
+            yield {"wait": wait, "tasks": tasks, "slack": slack, "stdout": stdout, "prev_failed": prev_failed}
 
     def _run(self, mocks, status, failed=None, running=None, args=None):
         mocks["wait"].return_value = make_mock_version(
