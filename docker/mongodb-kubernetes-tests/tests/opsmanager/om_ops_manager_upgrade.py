@@ -42,7 +42,7 @@ def collect_om_migration_logs(ops_manager: MongoDBOpsManager) -> None:
             listing = KubernetesTester.run_command_in_pod_container(
                 pod_name,
                 ops_manager.namespace,
-                ["sh", "-c", "find /mongodb-ops-manager/logs/mms-migration/ -type f 2>/dev/null"],
+                ["sh", "-c", "find /mongodb-ops-manager/logs/ -maxdepth 1 -name '*migration*' -type f 2>/dev/null"],
                 container="mongodb-ops-manager",
                 api_client=api_client,
             )
