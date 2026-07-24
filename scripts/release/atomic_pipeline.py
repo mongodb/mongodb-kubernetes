@@ -65,8 +65,7 @@ def build_image(
     for registry in registries:
         arch_suffix = ""
         if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
-            platform_arch = build_configuration.platforms[0].split("/")[1]
-            arch_suffix = f"-{platform_arch}"
+            arch_suffix = f"-{build_configuration.platforms[0].split('/')[1]}"
 
         tag = f"{registry}:{build_configuration.version}{arch_suffix}"
         if build_configuration.skip_if_exists and builder.check_if_image_exists(tag):
@@ -340,8 +339,9 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    custom_agent_url = get_custom_agent_url()
+    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
     if custom_agent_url:
+        # Custom agent URLs are single-arch (x86_64); multi-arch not supported.
         agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
         platform_build_args = {}
         for platform in build_configuration_copy.platforms:
@@ -389,23 +389,6 @@ def queue_exception_handling(tasks_queue):
 def load_release_file() -> Dict:
     with open("release.json") as release:
         return json.load(release)
-
-
-def get_custom_agent_url() -> str:
-    """Resolve custom agent URL. Manual mode takes precedence.
-
-    1. release.json customAgent (manual mode — single URL for all variants)
-    2. MDB_CUSTOM_AGENT_URL env var (automatic CI from Evergreen expansion)
-    3. Empty string (prod mode)
-    """
-    url = load_release_file().get("customAgent", "")
-    if url:
-        return url
-    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
-    if custom_agent_url:
-        logger.info(f"Using custom agent URL from MDB_CUSTOM_AGENT_URL env var: {custom_agent_url}")
-        return custom_agent_url
-    return ""
 
 
 def create_olm_version_tag(version: str) -> str:

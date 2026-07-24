@@ -596,10 +596,13 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {
 		if !rs.PodSpec.IsAgentImageOverridden() {
+			// Because OM is not available when starting AppDB, we read the version from the mapping
+			// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
+			// It avoids unnecessary reconciles, race conditions...
 			agentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
-				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log, appDbStatusOption)
+				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
 			}
 			appdbOpts.AgentImage = images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, agentVersion)
 		}

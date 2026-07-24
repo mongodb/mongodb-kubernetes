@@ -143,13 +143,6 @@ func WithCustomAgentURL(url string) func(*construct.DatabaseStatefulSetOptions) 
 	}
 }
 
-// WithCustomAgentVersion sets the CustomAgentVersion field.
-func WithCustomAgentVersion(version string) func(*construct.DatabaseStatefulSetOptions) {
-	return func(opts *construct.DatabaseStatefulSetOptions) {
-		opts.CustomAgentVersion = version
-	}
-}
-
 func WithAgentDebug(debug bool) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.AgentDebug = debug

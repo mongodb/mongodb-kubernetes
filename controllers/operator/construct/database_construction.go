@@ -104,9 +104,8 @@ type DatabaseStatefulSetOptions struct {
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
-	AgentImage             string
-	CustomAgentVersion     string
-	CustomAgentURL         string
+	AgentImage     string
+	CustomAgentURL string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -1028,11 +1027,6 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 				Value: strconv.FormatBool(opts.PodVars.SSLRequireValidMMSServerCertificates),
 			},
 		)
-	}
-
-	if opts.CustomAgentVersion != "" {
-		zap.S().Debugf("using a custom agent version: %s", opts.CustomAgentVersion)
-		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.CustomAgentVersion})
 	}
 
 	if opts.CustomAgentURL != "" {

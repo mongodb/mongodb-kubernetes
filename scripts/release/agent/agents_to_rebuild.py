@@ -50,21 +50,6 @@ def get_tools_version_for_agent(agent_version: str) -> str:
     return ops_manager_mapping.get("cloud_manager_tools", "100.12.2")
 
 
-def extract_agent_version_from_url(url: str) -> str:
-    """Extract agent version from a custom agent tarball URL filename."""
-    filename = url.rsplit("/", 1)[-1].removesuffix(".tar.gz")
-    return filename.replace("mongodb-mms-automation-agent-", "").rsplit(".", 1)[0]
-
-
-def _custom_agents_from_release(release_data: Dict) -> List[Tuple[str, str]]:
-    """Extract (agent_version, tools_version) tuples from customAgent URL in release.json."""
-    url = release_data.get("customAgent", "")
-    if not url:
-        return []
-    agent_version = extract_agent_version_from_url(url)
-    return [(agent_version, get_tools_version_for_agent(agent_version))]
-
-
 def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
     """Returns list of (agent_version, tools_version) tuples for all agents in release.json"""
     agents = []
@@ -96,9 +81,6 @@ def get_all_agents_for_rebuild() -> List[Tuple[str, str]]:
         tools_version = get_tools_version_for_agent(main_agent_version)
         agents.append((main_agent_version, tools_version))
 
-    # Add custom agent version from customAgent in release.json
-    agents.extend(_custom_agents_from_release(release_data))
-
     return list(set(agents))
 
 
@@ -128,8 +110,5 @@ def get_currently_used_agents() -> List[Tuple[str, str]]:
     main_agent_version = release_data.get("agentVersion")
     if main_agent_version:
         agents.append((main_agent_version, get_tools_version_for_agent(main_agent_version)))
-
-    # Add custom agent version from customAgent in release.json
-    agents.extend(_custom_agents_from_release(release_data))
 
     return list(set(agents))

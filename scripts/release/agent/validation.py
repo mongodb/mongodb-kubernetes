@@ -53,9 +53,7 @@ class PlatformConfiguration:
 
         return build_args
 
-    def generate_agent_build_args(
-        self, platforms: List[str], agent_version: str, tools_version: str
-    ) -> Dict[str, str]:
+    def generate_agent_build_args(self, platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
         """
         Generate build arguments for agent image based on platform mappings.
 
@@ -102,13 +100,9 @@ def generate_tools_build_args(platforms: List[str], tools_version: str) -> Dict[
     return _platform_config.generate_tools_build_args(platforms, tools_version)
 
 
-def generate_agent_build_args(
-    platforms: List[str], agent_version: str, tools_version: str
-) -> Dict[str, str]:
+def generate_agent_build_args(platforms: List[str], agent_version: str, tools_version: str) -> Dict[str, str]:
     """Generate build arguments for agent image based on platform mappings."""
-    return _platform_config.generate_agent_build_args(
-        platforms, agent_version, tools_version
-    )
+    return _platform_config.generate_agent_build_args(platforms, agent_version, tools_version)
 
 
 def _build_agent_filenames(agent_info: dict, agent_version: str, platform: str) -> List[str]:
