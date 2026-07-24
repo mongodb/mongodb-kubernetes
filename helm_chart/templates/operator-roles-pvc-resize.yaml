@@ -1,10 +1,11 @@
+{{ $ns := include "mongodb-kubernetes-operator.namespace" .  -}}
 {{ if .Values.operator.createOperatorServiceAccount }}
 {{ if .Values.operator.enablePVCResize }}
 
-{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
+{{- $watchNamespace := list $ns }}
 {{- if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq }}
+{{- $watchNamespace = concat $watchNamespace (list $ns) | uniq }}
 {{- end }}
 
 
@@ -16,9 +17,9 @@
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-pvc-resize
+  name: {{ .Values.operator.name }}-{{ $ns }}-pvc-resize
 {{- if eq $roleScope "Role" }}
-  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+  namespace: {{ $ns }}
 {{- end }}
 rules:
   - apiGroups:
@@ -47,16 +48,16 @@ kind: RoleBinding
 {{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ $.Values.operator.name }}-pvc-resize-binding
+  name: {{ $.Values.operator.name }}-{{ $ns }}-pvc-resize-binding
   {{ $namespaceBlock }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
-  name: {{ $.Values.operator.name }}-pvc-resize
+  name: {{ $.Values.operator.name }}-{{ $ns }}-pvc-resize
 subjects:
   - kind: ServiceAccount
     name: {{ $.Values.operator.name }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
+    namespace: {{ $ns }}
 {{- end }}
 
 {{- end}}{{/* if .Values.operator.enablePVCResize */}}
