@@ -98,6 +98,11 @@ def mongot_tls_cert_name(search_name: str, certs_secret_prefix: str = "") -> str
     return f"{search_name}-search-cert"
 
 
+def operator_managed_tls_secret_name(search_name: str) -> str:
+    """Operator-created copy of the RS mongot TLS certificate Secret."""
+    return f"{search_name}-search-certificate-key"
+
+
 # ============================================================================
 # Sharded cluster resources
 # ============================================================================
@@ -130,6 +135,11 @@ def shard_tls_cert_name(
     if certs_secret_prefix:
         return f"{certs_secret_prefix}-{search_name}-search-{cluster_index}-{shard_name}-cert"
     return f"{search_name}-search-{cluster_index}-{shard_name}-cert"
+
+
+def shard_operator_managed_tls_secret_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
+    """Operator-created copy of a shard mongot TLS certificate Secret."""
+    return f"{search_name}-search-{cluster_index}-{shard_name}-certificate-key"
 
 
 def shard_proxy_service_name(search_name: str, shard_name: str, cluster_index: int = 0) -> str:
@@ -177,6 +187,19 @@ def shard_proxy_svc_hostname_template(search_name: str, namespace: str, cluster_
     """externalHostname for a sharded managed LB: the per-shard proxy-svc FQDN
     with the {shardName} placeholder kept for the operator to resolve."""
     return f"{search_name}-search-{cluster_index}-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local"
+
+
+def mc_search_artifact_names(search_name: str, cluster_index: int) -> dict[str, str]:
+    """Names of the operator-managed per-cluster Search artifacts (RS-MC managed-LB set)."""
+    return {
+        "sts": mongot_statefulset_name_for_cluster(search_name, cluster_index),
+        "svc": mongot_service_name_for_cluster(search_name, cluster_index),
+        "proxy": mc_proxy_svc_name(search_name, cluster_index),
+        "mongot_cm": mongot_configmap_name_for_cluster(search_name, cluster_index),
+        "envoy_deployment": lb_deployment_name(search_name, cluster_index),
+        "envoy_cm": lb_configmap_name(search_name, cluster_index),
+        "operator_tls_secret": operator_managed_tls_secret_name(search_name),
+    }
 
 
 # ============================================================================

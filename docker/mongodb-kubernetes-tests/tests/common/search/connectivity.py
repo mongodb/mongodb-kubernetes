@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import pymongo
 import pymongo.errors
@@ -20,6 +20,11 @@ from kubetester.kubetester import run_periodically
 from pymongo.read_preferences import Nearest
 from tests import test_logger
 from tests.common.search.search_tester import SearchTester
+
+if TYPE_CHECKING:
+    from kubetester.mongodb_search import MongoDBSearch
+    from kubetester.multicluster_client import MultiClusterClient
+    from kubetester.phase import Phase
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -39,6 +44,9 @@ FAILURE_SEARCH_NOT_ENABLED = "search_not_enabled"
 # only an explicit index-state rejection proves the bad Ready-while-syncing mode.
 FAILURE_MONGOT_UNREACHABLE = "mongot_unreachable"
 FAILURE_OTHER = "other"
+
+SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
+SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
 
 _CURSOR_LOST_MESSAGE_RE = re.compile(
     r"cursor id .*?(not found|was killed)|remote error from mongot|rst_stream",
@@ -894,14 +902,9 @@ def wait_for_mongot_pvcs_deleted(
     named ``<template>-<sts>-<ordinal>``, so we match on the ``-<sts>-`` infix.
     ``api_client`` must target the cluster hosting the STS.
     """
-    core = client.CoreV1Api(api_client=api_client)
 
     def deleted() -> tuple[bool, str]:
-        remaining = [
-            pvc.metadata.name
-            for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
-            if f"-{sts_name}-" in f"-{pvc.metadata.name}"
-        ]
+        remaining = mongot_data_pvc_names(namespace, sts_name, api_client=api_client)
         return not remaining, ("all deleted" if not remaining else f"remaining={remaining}")
 
     run_periodically(
@@ -909,6 +912,188 @@ def wait_for_mongot_pvcs_deleted(
         timeout=timeout,
         sleep_time=sleep_time,
         msg=f"mongot PVCs for STS {sts_name} to be deleted",
+    )
+
+
+def _search_owned_top_level_resources(
+    apps_v1: Any,
+    core_v1: Any,
+    namespace: str,
+    search_name: str,
+) -> dict[str, list[Any]]:
+    selector = f"{SEARCH_OWNER_NAME_LABEL}={search_name},{SEARCH_OWNER_NAMESPACE_LABEL}={namespace}"
+    return {
+        "StatefulSet": apps_v1.list_namespaced_stateful_set(namespace, label_selector=selector).items,
+        "Deployment": apps_v1.list_namespaced_deployment(namespace, label_selector=selector).items,
+        "Service": core_v1.list_namespaced_service(namespace, label_selector=selector).items,
+        "ConfigMap": core_v1.list_namespaced_config_map(namespace, label_selector=selector).items,
+        "Secret": core_v1.list_namespaced_secret(namespace, label_selector=selector).items,
+    }
+
+
+def wait_for_search_owned_resources_deleted(
+    apps_v1: Any,
+    core_v1: Any,
+    namespace: str,
+    search_name: str,
+    *,
+    where: str,
+    timeout: int = 600,
+) -> None:
+    def deleted() -> tuple[bool, str]:
+        resources = _search_owned_top_level_resources(apps_v1, core_v1, namespace, search_name)
+        remaining = [
+            f"{kind}/{resource.metadata.name}(uid={resource.metadata.uid})"
+            for kind, items in resources.items()
+            for resource in items
+        ]
+        return not remaining, f"{where}: remaining={remaining}"
+
+    run_periodically(
+        deleted,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{where} Search-owned top-level resource cleanup",
+    )
+
+
+def mongot_data_pvc_names(
+    namespace: str,
+    sts_name: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> list[str]:
+    core = client.CoreV1Api(api_client=api_client)
+    return [
+        pvc.metadata.name
+        for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
+        if f"-{sts_name}-" in f"-{pvc.metadata.name}"
+    ]
+
+
+def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: int = 300) -> None:
+    def deleted() -> tuple[bool, str]:
+        try:
+            read_fn()
+            return False, f"{what} still present"
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return True, f"{what} deleted"
+            raise
+
+    run_periodically(deleted, timeout=timeout, sleep_time=5, msg=f"{what} cleanup")
+
+
+def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
+    wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
+
+
+def wait_for_metrics_forwarder_phase(mdbs: "MongoDBSearch", phase: "Phase", timeout: int = 120) -> None:
+    def reached() -> bool:
+        mdbs.reload()
+        status = mdbs.get_metrics_forwarder_status()
+        return status is not None and status.get("phase") == phase.name
+
+    run_periodically(
+        reached,
+        timeout=timeout,
+        sleep_time=10,
+        msg=f"metrics forwarder status to reach {phase.name}",
+    )
+
+
+def protected_search_input_uids(
+    core_v1: Any,
+    namespace: str,
+    source_tls_secret_name: str,
+    sync_user_secret_name: str,
+    ca_configmap_name: str,
+    *,
+    additional_secret_names: tuple[str, ...] = (),
+) -> dict[str, str]:
+    def uid(resource: Any, what: str) -> str:
+        value = resource.metadata.uid
+        assert value, f"{what} has no UID"
+        return value
+
+    uids = {
+        "source_tls_secret": uid(
+            core_v1.read_namespaced_secret(source_tls_secret_name, namespace),
+            f"Secret {source_tls_secret_name}",
+        ),
+        "sync_user_secret": uid(
+            core_v1.read_namespaced_secret(sync_user_secret_name, namespace),
+            f"Secret {sync_user_secret_name}",
+        ),
+        "ca_configmap": uid(
+            core_v1.read_namespaced_config_map(ca_configmap_name, namespace),
+            f"ConfigMap {ca_configmap_name}",
+        ),
+    }
+    uids.update(
+        {
+            f"secret/{name}": uid(core_v1.read_namespaced_secret(name, namespace), f"Secret {name}")
+            for name in additional_secret_names
+        }
+    )
+    return uids
+
+
+def search_artifact_uids(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    names: dict[str, str],
+) -> dict[str, str]:
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+    resources = {
+        f"StatefulSet/{names['sts']}": mcc.read_namespaced_stateful_set(names["sts"], namespace),
+        f"Service/{names['svc']}": mcc.read_namespaced_service(names["svc"], namespace),
+        f"Service/{names['proxy']}": mcc.read_namespaced_service(names["proxy"], namespace),
+        f"ConfigMap/{names['mongot_cm']}": mcc.read_namespaced_config_map(names["mongot_cm"], namespace),
+        f"Deployment/{names['envoy_deployment']}": apps.read_namespaced_deployment(
+            names["envoy_deployment"], namespace
+        ),
+        f"ConfigMap/{names['envoy_cm']}": mcc.read_namespaced_config_map(names["envoy_cm"], namespace),
+        f"Secret/{names['operator_tls_secret']}": core.read_namespaced_secret(names["operator_tls_secret"], namespace),
+    }
+    pvc_names = mongot_data_pvc_names(namespace, names["sts"], api_client=mcc.api_client)
+    assert pvc_names, f"[{mcc.cluster_name}] expected mongot data PVCs for {names['sts']}"
+    resources.update(
+        {
+            f"PersistentVolumeClaim/{name}": core.read_namespaced_persistent_volume_claim(name, namespace)
+            for name in pvc_names
+        }
+    )
+
+    uids = {what: resource.metadata.uid for what, resource in resources.items()}
+    assert all(uids.values()), f"[{mcc.cluster_name}] Search artifact without UID: {uids}"
+    return uids
+
+
+def wait_for_search_artifacts_deleted(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    sts_name: str,
+    search_name: str,
+    *,
+    timeout: int = 600,
+) -> None:
+    """Label-scoped absence is the authoritative cleanup assertion; the exact-name
+    STS check on top catches accidental label stripping on the primary artifact."""
+    wait_for_resource_deleted(
+        lambda: mcc.read_namespaced_stateful_set(sts_name, namespace),
+        f"STS {sts_name} in {mcc.cluster_name}",
+        timeout=timeout,
+    )
+    wait_for_mongot_pvcs_deleted(namespace, sts_name, api_client=mcc.api_client, timeout=300)
+    wait_for_search_owned_resources_deleted(
+        mcc.apps_v1_api(),
+        mcc.core_v1_api(),
+        namespace,
+        search_name,
+        where=mcc.cluster_name,
+        timeout=timeout,
     )
 
 

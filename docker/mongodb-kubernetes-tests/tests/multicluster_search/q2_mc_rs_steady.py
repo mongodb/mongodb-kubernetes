@@ -16,6 +16,7 @@ is exercised opportunistically when the deployed mongot image supports replicati
 import json
 import os
 import re
+from copy import deepcopy
 from typing import Dict, List
 
 import kubernetes
@@ -23,6 +24,7 @@ import pymongo.errors
 import pytest
 import yaml
 from kubernetes.client import CoreV1Api
+from kubernetes.client.rest import ApiException
 from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
@@ -37,9 +39,18 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
+from tests.common.multicluster.multicluster_utils import (
+    assert_deployment_ready_in_cluster,
+    assert_workload_ready_in_cluster,
+)
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
+from tests.common.search.connectivity import (
+    CLUSTER_LOCATION_TAG_KEY,
+    mongot_data_pvc_names,
+    search_artifact_uids,
+    wait_for_search_artifacts_deleted,
+    wait_for_search_deleted,
+)
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
     EmbeddedMoviesSearchHelper,
@@ -50,6 +61,7 @@ from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
 from tests.conftest import get_issuer_ca_filepath
 from tests.multicluster.conftest import cluster_spec_list
+from tests.multicluster_search.conftest import mc_search_customer_input_uids
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -104,6 +116,10 @@ MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 SOURCE_CERT_PREFIX = "clustercert"
 SOURCE_BUNDLE_SECRET = f"{SOURCE_CERT_PREFIX}-{MDB_RESOURCE_NAME}-cert"
+
+
+def _customer_input_uids(mcc: MultiClusterClient, namespace: str, cluster_index: int) -> dict[str, str]:
+    return mc_search_customer_input_uids(mcc, namespace, MDBS_RESOURCE_NAME, CA_CONFIGMAP_NAME, cluster_index)
 
 
 # =============================================================================
@@ -500,19 +516,9 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
 
-def _per_cluster_mongot_config_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror MongotConfigConfigMapNameForCluster."""
-    return f"{mdbs_name}-search-{cluster_index}-config"
-
-
-def _per_cluster_envoy_deployment_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror LoadBalancerDeploymentNameForCluster: `{name}-search-lb-{clusterIndex}`."""
-    return f"{mdbs_name}-search-lb-{cluster_index}"
-
-
-def _per_cluster_envoy_configmap_name(mdbs_name: str, cluster_index: int) -> str:
-    """Mirror LoadBalancerConfigMapNameForCluster: `{name}-search-lb-{clusterIndex}-config`."""
-    return f"{mdbs_name}-search-lb-{cluster_index}-config"
+def _assert_no_owner_refs(owner_refs: list | None, where: str) -> None:
+    owner_refs = owner_refs or []
+    assert not owner_refs, f"{where} must have no ownerReferences in multi-cluster mode, got {owner_refs}"
 
 
 def _read_mongod_set_parameter(
@@ -609,7 +615,7 @@ def test_verify_per_cluster_mongot_resources(
         idx = helper.cluster_index(mcc.cluster_name)
         sts_name = f"{MDBS_RESOURCE_NAME}-search-{idx}"
         svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-svc"
-        cm_name = _per_cluster_mongot_config_name(MDBS_RESOURCE_NAME, idx)
+        cm_name = search_resource_names.mongot_configmap_name_for_cluster(MDBS_RESOURCE_NAME, idx)
         proxy_svc_name = f"{MDBS_RESOURCE_NAME}-search-{idx}-proxy-svc"
 
         sts = mcc.read_namespaced_stateful_set(sts_name, namespace)
@@ -746,8 +752,8 @@ def test_verify_per_cluster_envoy_deployment(
     """
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
-        envoy_deployment_name = _per_cluster_envoy_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
-        envoy_cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
+        envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, cluster_idx)
+        envoy_cm_name = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         apps = mcc.apps_v1_api()
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
@@ -758,6 +764,103 @@ def test_verify_per_cluster_envoy_deployment(
         _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_named_single_cluster_shape_no_owner_refs_and_cleanup(
+    namespace: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    mdb: MongoDBMulti,
+    mdbs: MongoDBSearch,
+    ca_configmap: str,
+):
+    target_cluster = member_cluster_clients[0]
+    target_cluster_name = target_cluster.cluster_name
+    target_cluster_index = _idx(target_cluster)
+    named_single_name = f"{MDBS_RESOURCE_NAME}-named-single"
+
+    named_single = MongoDBSearch.from_yaml(
+        yaml_fixture("search-q2-mc-rs-search.yaml"),
+        name=named_single_name,
+        namespace=namespace,
+    )
+    named_single.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
+    try_load(named_single)
+
+    seeds = [f"{svc}.{namespace}.svc.cluster.local:27017" for svc in mdb.service_names()]
+    named_single["spec"]["source"] = {
+        "username": MONGOT_USER_NAME,
+        "passwordSecretRef": {
+            "name": f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+            "key": "password",
+        },
+        "external": {
+            "hostAndPorts": seeds,
+            "tls": {"ca": {"name": ca_configmap}},
+        },
+    }
+    named_single["spec"]["security"] = {
+        "tls": {
+            "certificateKeySecretRef": {
+                "name": search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+            }
+        },
+    }
+    named_single["spec"]["clusters"] = [
+        {
+            "name": target_cluster_name,
+            "index": target_cluster_index,
+            "replicas": MONGOT_REPLICAS_PER_CLUSTER,
+            "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: target_cluster_name}]},
+        }
+    ]
+
+    named_single.update()
+    named_single.assert_reaches_phase(Phase.Running, timeout=900)
+
+    named_single.load()
+    assert len(named_single["spec"]["clusters"]) == 1
+    assert named_single["spec"]["clusters"][0]["name"] == target_cluster_name
+
+    sts_name = search_resource_names.mongot_statefulset_name_for_cluster(named_single_name, target_cluster_index)
+    svc_name = search_resource_names.mongot_service_name_for_cluster(named_single_name, target_cluster_index)
+    cm_name = search_resource_names.mongot_configmap_name_for_cluster(named_single_name, target_cluster_index)
+    operator_tls_secret = search_resource_names.operator_managed_tls_secret_name(named_single_name)
+
+    sts = target_cluster.read_namespaced_stateful_set(sts_name, namespace)
+    svc = target_cluster.read_namespaced_service(svc_name, namespace)
+    cm = target_cluster.read_namespaced_config_map(cm_name, namespace)
+    tls_secret = target_cluster.core_v1_api().read_namespaced_secret(operator_tls_secret, namespace)
+    _assert_no_owner_refs(sts.metadata.owner_references, f"STS {sts_name} ({target_cluster_name})")
+    _assert_no_owner_refs(svc.metadata.owner_references, f"Service {svc_name} ({target_cluster_name})")
+    _assert_no_owner_refs(cm.metadata.owner_references, f"ConfigMap {cm_name} ({target_cluster_name})")
+    _assert_no_owner_refs(tls_secret.metadata.owner_references, f"Secret {operator_tls_secret} ({target_cluster_name})")
+
+    for other_cluster in member_cluster_clients:
+        if other_cluster.cluster_name == target_cluster_name:
+            continue
+        try:
+            other_cluster.read_namespaced_stateful_set(sts_name, namespace)
+            raise AssertionError(
+                f"[{other_cluster.cluster_name}] unexpectedly found {sts_name}; "
+                f"named single-cluster spec should only materialize resources on {target_cluster_name}"
+            )
+        except ApiException as exc:
+            assert exc.status == 404, f"[{other_cluster.cluster_name}] unexpected error while reading {sts_name}: {exc}"
+
+    pvcs_before = mongot_data_pvc_names(namespace, sts_name, api_client=target_cluster.api_client)
+    assert pvcs_before, f"expected at least one mongot data PVC for {sts_name} before delete"
+
+    main_sts_name = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, target_cluster_index)
+    main_sts_uid = target_cluster.read_namespaced_stateful_set(main_sts_name, namespace).metadata.uid
+
+    named_single.delete()
+    wait_for_search_deleted(named_single, timeout=600)
+    wait_for_search_artifacts_deleted(target_cluster, namespace, sts_name, named_single_name)
+    assert (
+        target_cluster.read_namespaced_stateful_set(main_sts_name, namespace).metadata.uid == main_sts_uid
+    ), f"main Search STS {main_sts_name} must be untouched by the {named_single_name} cleanup"
 
 
 @mark.e2e_search_q2_mc_rs_steady
@@ -855,7 +958,7 @@ def test_per_cluster_envoy_sni_observed(
     """
     for mcc in member_cluster_clients:
         cluster_idx = helper.cluster_index(mcc.cluster_name)
-        cm_name = _per_cluster_envoy_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
+        cm_name = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, cluster_idx)
         expected_fqdn = search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, cluster_idx)
 
         cm = mcc.core_v1_api().read_namespaced_config_map(name=cm_name, namespace=namespace)
@@ -1126,6 +1229,100 @@ def test_per_cluster_vector_search_query(
         )
 
 
+@mark.e2e_search_q2_mc_rs_steady
+def test_remove_and_readd_search_cluster_entry(
+    namespace: str,
+    mdb: MongoDBMulti,
+    mdbs: MongoDBSearch,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    def assert_cluster_query(cluster_name: str, cluster_index: int) -> None:
+        tester = _direct_search_tester_for_cluster(mdb, cluster_index, USER_NAME, USER_PASSWORD)
+        movies = SampleMoviesSearchHelper(search_tester=tester)
+
+        def execute_search() -> tuple[bool, str]:
+            try:
+                results = movies.text_search_movies("Star Wars")
+                return bool(results), f"[{cluster_name}] $search returned {len(results)} results"
+            except pymongo.errors.PyMongoError as exc:
+                return False, f"[{cluster_name}] $search error: {exc}"
+
+        run_periodically(
+            execute_search,
+            timeout=SEARCH_INDEX_READY_TIMEOUT,
+            sleep_time=5,
+            msg=f"[{cluster_name}] $search query after cluster-entry update",
+        )
+
+    assert (
+        len(member_cluster_clients) == 2
+    ), f"cluster-entry lifecycle requires exactly two member clusters, got {len(member_cluster_clients)}"
+    mdbs.load()
+    cluster_entries = {entry["name"]: deepcopy(entry) for entry in mdbs["spec"]["clusters"]}
+    clients = {mcc.cluster_name: mcc for mcc in member_cluster_clients}
+    assert set(cluster_entries) == set(
+        clients
+    ), f"spec.clusters names {sorted(cluster_entries)} do not match member clients {sorted(clients)}"
+
+    snapshots: dict[str, tuple[dict[str, str], dict[str, str], dict[str, str]]] = {}
+    for cluster_name, entry in cluster_entries.items():
+        cluster_index = entry["index"]
+        assert cluster_index == helper.cluster_index(cluster_name), (
+            f"{cluster_name}: spec index {cluster_index} differs from stable mapping "
+            f"{helper.cluster_index(cluster_name)}"
+        )
+        mcc = clients[cluster_name]
+        names = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, cluster_index)
+        snapshots[cluster_name] = (
+            names,
+            search_artifact_uids(mcc, namespace, names),
+            _customer_input_uids(mcc, namespace, cluster_index),
+        )
+
+    retained_name = member_cluster_clients[0].cluster_name
+    removed_name = member_cluster_clients[1].cluster_name
+    retained_entry = cluster_entries[retained_name]
+    removed_entry = cluster_entries[removed_name]
+    retained = clients[retained_name]
+    removed = clients[removed_name]
+    retained_names, retained_uids, _ = snapshots[retained_name]
+    removed_names, _, removed_protected_uids = snapshots[removed_name]
+
+    mdbs["spec"]["clusters"] = [deepcopy(retained_entry)]
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+    mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True)
+    wait_for_search_artifacts_deleted(removed, namespace, removed_names["sts"], mdbs.name)
+    assert _customer_input_uids(removed, namespace, removed_entry["index"]) == removed_protected_uids
+    assert (
+        search_artifact_uids(retained, namespace, retained_names) == retained_uids
+    ), f"[{retained_name}] managed artifact UIDs changed when {removed_name} was removed"
+    assert_workload_ready_in_cluster(
+        retained,
+        namespace,
+        {retained_names["sts"]: MONGOT_REPLICAS_PER_CLUSTER},
+        retained_names["envoy_deployment"],
+        timeout=300,
+    )
+    assert_cluster_query(retained_name, retained_entry["index"])
+
+    # Restore the two-cluster topology for the tests that follow. Re-adding the
+    # entry is ordinary reconciliation, so no lifecycle assertions are made here.
+    mdbs.load()
+    mdbs["spec"]["clusters"].append(deepcopy(removed_entry))
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+    mdbs.assert_cluster_statuses(expected_count=2, expect_managed_lb=True)
+    assert_workload_ready_in_cluster(
+        removed,
+        namespace,
+        {removed_names["sts"]: MONGOT_REPLICAS_PER_CLUSTER},
+        removed_names["envoy_deployment"],
+        timeout=600,
+    )
+
+
 # Larger than any node in the e2e kind clusters — guarantees Unschedulable.
 UNSCHEDULABLE_MEMORY = "10000Gi"
 STATUS_DEGRADE_TIMEOUT = 300
@@ -1263,3 +1460,28 @@ def test_envoy_fault_recovers(mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=STATUS_RECOVER_TIMEOUT)
     # Final: every cluster fully Running again.
     mdbs.assert_cluster_statuses(expected_count=len(MEMBERS_PER_CLUSTER), expect_managed_lb=True)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_delete_search_resource_cleans_all_member_cluster_artifacts(
+    namespace: str,
+    mdbs: MongoDBSearch,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    resource_by_cluster: List[tuple[MultiClusterClient, int, dict[str, str], dict[str, str]]] = []
+    for mcc in member_cluster_clients:
+        cluster_idx = helper.cluster_index(mcc.cluster_name)
+        names = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, cluster_idx)
+
+        search_artifact_uids(mcc, namespace, names)
+        protected_uids = _customer_input_uids(mcc, namespace, cluster_idx)
+
+        resource_by_cluster.append((mcc, cluster_idx, names, protected_uids))
+
+    mdbs.delete()
+    wait_for_search_deleted(mdbs, timeout=600)
+
+    for mcc, cluster_idx, names, protected_uids in resource_by_cluster:
+        wait_for_search_artifacts_deleted(mcc, namespace, names["sts"], mdbs.name)
+        assert _customer_input_uids(mcc, namespace, cluster_idx) == protected_uids
