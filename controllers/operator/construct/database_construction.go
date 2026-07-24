@@ -2,7 +2,6 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -106,6 +105,8 @@ type DatabaseStatefulSetOptions struct {
 	DatabaseNonStaticImage string
 	MongodbImage           string
 	AgentImage             string
+	CustomAgentVersion     string
+	CustomAgentURL         string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -1029,16 +1030,14 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
-	// This is only used for debugging
-	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
-		zap.S().Debugf("using a custom agent version: %s", agentVersion)
-		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	if opts.CustomAgentVersion != "" {
+		zap.S().Debugf("using a custom agent version: %s", opts.CustomAgentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.CustomAgentVersion})
 	}
 
-	// Custom agent URL for non-static agent delivery (agent-launcher-lib.sh path).
-	if customAgentURL := os.Getenv(util.EnvVarCustomAgentURL); customAgentURL != "" { // nolint:forbidigo
-		zap.S().Debugf("using a custom agent URL: %s", customAgentURL)
-		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: customAgentURL})
+	if opts.CustomAgentURL != "" {
+		zap.S().Debugf("using a custom agent URL: %s", opts.CustomAgentURL)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: opts.CustomAgentURL})
 	}
 
 	// append any additional env vars specified.

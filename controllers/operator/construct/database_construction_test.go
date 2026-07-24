@@ -140,10 +140,6 @@ func TestStatefulsetCreationSuccessful(t *testing.T) {
 }
 
 func TestDatabaseEnvVars(t *testing.T) {
-	// MDB_AGENT_VERSION may be set in the CI environment; unset it so the test
-	// is deterministic (databaseEnvVars adds it when non-empty).
-	t.Setenv(util.EnvVarAgentVersion, "")
-
 	envVars := defaultPodVars()
 	opts := DatabaseStatefulSetOptions{PodVars: envVars}
 	podEnv := databaseEnvVars(opts)

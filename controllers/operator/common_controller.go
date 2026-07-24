@@ -64,6 +64,9 @@ type ReconcileCommonController struct {
 	secrets.SecretClient
 
 	resourceWatcher *watch.ResourceWatcher
+
+	customAgentURL     string
+	customAgentVersion string
 }
 
 func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
@@ -90,14 +93,27 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 			panic(xerrors.Errorf("unable to log in with vault client: %w", err))
 		}
 	}
+	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "")     // nolint:forbidigo
+	customAgentVersion := env.ReadOrDefault(util.EnvVarAgentVersion, "")   // nolint:forbidigo
+
 	return &ReconcileCommonController{
 		client: newClient,
 		SecretClient: secrets.SecretClient{
 			VaultClient: vaultClient,
 			KubeClient:  newClient,
 		},
-		resourceWatcher: watch.NewResourceWatcher(),
+		resourceWatcher:    watch.NewResourceWatcher(),
+		customAgentURL:     customAgentURL,
+		customAgentVersion: customAgentVersion,
 	}
+}
+
+func (r *ReconcileCommonController) CustomAgentURL() string {
+	return r.customAgentURL
+}
+
+func (r *ReconcileCommonController) CustomAgentVersion() string {
+	return r.customAgentVersion
 }
 
 func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
