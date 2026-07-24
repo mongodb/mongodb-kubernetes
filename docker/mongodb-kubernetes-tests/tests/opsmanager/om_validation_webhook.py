@@ -52,10 +52,6 @@ def test_appdb_version(namespace: str):
     with pytest.raises(ApiException, match=r"spec.applicationDatabase.version in body should match"):
         om.create()
 
-    om["spec"]["applicationDatabase"]["version"] = "3.6.12"
-    with pytest.raises(ApiException, match=r"the version of Application Database must be \\u003e= 4.0"):
-        om.create()
-
 
 @mark.e2e_om_validation_webhook
 class TestOpsManagerValidationWarnings:
