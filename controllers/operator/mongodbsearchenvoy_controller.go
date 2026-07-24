@@ -555,6 +555,9 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 			dep.Labels = merge.StringToStringMap(dep.Labels, managedLB.Deployment.MetadataWrapper.Labels)
 			dep.Annotations = merge.StringToStringMap(dep.Annotations, managedLB.Deployment.MetadataWrapper.Annotations)
 		}
+		// Identity labels are merged after user label overrides so users cannot
+		// detach the Deployment from its owning MongoDBSearch.
+		dep.Labels = merge.StringToStringMap(dep.Labels, labels)
 
 		if clusterName == "" {
 			return controllerutil.SetOwnerReference(search, dep, c.Scheme())
@@ -780,17 +783,7 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // clusterIndex is used for the "app" label (resource name); clusterName is used
 // for the cluster-name label so label selectors remain name-keyed.
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
-	labels := map[string]string{
-		"app":                                search.LoadBalancerDeploymentNameForCluster(clusterIndex),
-		"component":                          labelName,
-		khandler.MongoDBSearchOwnerNameLabel: search.Name,
-		khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
-	}
-	// In single-cluster legacy mode (clusterName==""), omit the per-cluster label so existing watchers continue to match.
-	if clusterName != "" {
-		labels[khandler.MongoDBSearchClusterNameLabel] = clusterName
-	}
-	return labels
+	return khandler.SearchManagedLabels(search, search.LoadBalancerDeploymentNameForCluster(clusterIndex), labelName, clusterName)
 }
 
 // envoyReplicas returns the cluster's desired Envoy replica count.

@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -367,11 +368,16 @@ func TestMetricsForwarderLabels(t *testing.T) {
 
 	labels := metricsForwarderLabels(search)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", labels["app"])
-	assert.Equal(t, metricsForwarderLabelName, labels["component"])
+	assert.Equal(t, metricsForwarderLabelName, labels[khandler.MongoDBSearchComponentLabel])
+	assert.NotContains(t, labels, khandler.MongoDBSearchClusterNameLabel)
+
+	memberLabels := metricsForwarderLabelsForCluster(search, "us-east", 3)
+	assert.Equal(t, search.MetricsForwarderDeploymentNameForCluster(3), memberLabels["app"])
+	assert.Equal(t, "us-east", memberLabels[khandler.MongoDBSearchClusterNameLabel])
 
 	podLabels := metricsForwarderPodLabels(search)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", podLabels["app"])
-	assert.NotContains(t, podLabels, "component")
+	assert.NotContains(t, podLabels, khandler.MongoDBSearchComponentLabel)
 }
 
 func TestMetricsForwarderResourceRequirements_Defaults(t *testing.T) {

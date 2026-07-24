@@ -31,7 +31,7 @@ type TLSConfigurableResource interface {
 // ensureTLSSecret will create or update the operator-managed Secret containing
 // the concatenated certificate and key from the user-provided Secret.
 // Returns the file name of the concatenated certificate and key
-func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource) (string, error) {
+func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource, labels map[string]string, ownerReferences []metav1.OwnerReference) (string, error) {
 	certKey, err := getPemOrConcatenatedCrtAndKey(ctx, getUpdateCreator, resource.TLSSecretNamespacedName())
 	if err != nil {
 		return "", err
@@ -43,7 +43,8 @@ func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreat
 		SetName(resource.TLSOperatorSecretNamespacedName().Name).
 		SetNamespace(resource.TLSOperatorSecretNamespacedName().Namespace).
 		SetField(fileName, certKey).
-		SetOwnerReferences(resource.GetOwnerReferences()).
+		SetLabels(labels).
+		SetOwnerReferences(ownerReferences).
 		Build()
 
 	return fileName, secret.CreateOrUpdate(ctx, getUpdateCreator, operatorSecret)
