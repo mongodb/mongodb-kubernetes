@@ -767,6 +767,8 @@ functions:
           - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
+        env:
+          MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
         binary: scripts/evergreen/e2e/e2e.sh
 
   e2e_test_perf:
@@ -794,6 +796,7 @@ functions:
           PERF_TASK_DEPLOYMENTS: ${PERF_TASK_DEPLOYMENTS}
           PERF_TASK_REPLICAS: ${PERF_TASK_REPLICAS}
           TEST_NAME_OVERRIDE: ${TEST_NAME_OVERRIDE}
+          MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
         binary: scripts/evergreen/e2e/e2e.sh
 
   test_golang_unit:
