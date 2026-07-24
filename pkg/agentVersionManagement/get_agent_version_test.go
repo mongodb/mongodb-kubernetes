@@ -173,7 +173,7 @@ func TestGetAgentVersionManager(t *testing.T) {
 
 	for _, tt := range getAgentVersionTests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := versionManager.GetAgentVersion(tt.args.omConnection, tt.args.omVersion, tt.args.readFromMapping)
+			got, err := versionManager.GetAgentVersion(tt.args.omConnection, tt.args.omVersion, tt.args.readFromMapping, "")
 			if tt.wantErr {
 				assert.Error(t, err, "GetAgentVersion() should return an error")
 			} else {
@@ -194,35 +194,33 @@ func TestGetAgentVersionWithCustomAgentVersion(t *testing.T) {
 	assert.NoError(t, err)
 
 	tests := []struct {
-		name    string
-		version string
-		want    string
+		name             string
+		customAgentVersion string
+		want             string
 	}{
 		{
-			name:    "Custom agent version is returned directly",
-			version: "108.0.26.9047-1",
-			want:    "108.0.26.9047-1",
+			name:             "Custom agent version is returned directly",
+			customAgentVersion: "108.0.26.9047-1",
+			want:             "108.0.26.9047-1",
 		},
 		{
-			name:    "Another custom version",
-			version: "107.0.1.8507-1",
-			want:    "107.0.1.8507-1",
+			name:             "Another custom version",
+			customAgentVersion: "107.0.1.8507-1",
+			want:             "107.0.1.8507-1",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("MDB_AGENT_VERSION", tt.version)
-			got, err := versionManager.GetAgentVersion(om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"), "7.0.0", false)
+			got, err := versionManager.GetAgentVersion(om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"), "7.0.0", false, tt.customAgentVersion)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}
 
-	// Verify that without MDB_AGENT_VERSION, the existing logic is used
+	// Verify that without a custom agent version, the existing logic is used
 	t.Run("Without custom agent version, falls back to Ops Manager", func(t *testing.T) {
-		t.Setenv("MDB_AGENT_VERSION", "")
-		got, err := versionManager.GetAgentVersion(om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"), "7.0.0", false)
+		got, err := versionManager.GetAgentVersion(om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"), "7.0.0", false, "")
 		assert.NoError(t, err)
 		assert.Equal(t, "11.0.5.6963-1", got)
 	})

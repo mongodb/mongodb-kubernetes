@@ -135,12 +135,11 @@ Unlike OM, there is no full guarantee that minor versions support each other for
 
 // GetAgentVersion returns the agent version to use with the Ops Manager
 // readFromMapping is true in the case of AppDB, because they are started before OM, so we cannot rely on the endpoint
-func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
-	// If a custom agent version is set via env var, use it directly.
-	// This takes precedence over all other version resolution (Ops Manager API, mapping file,
-	// Cloud Manager) because the env var is explicitly set by CI to override the agent version.
-	if v := os.Getenv("MDB_AGENT_VERSION"); v != "" { // nolint:forbidigo
-		return v, nil
+// customAgentVersion, when non-empty, overrides all other version resolution (Ops Manager API, mapping file,
+// Cloud Manager). The caller reads it from the environment in the controller layer.
+func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion string, readFromMapping bool, customAgentVersion string) (string, error) {
+	if customAgentVersion != "" {
+		return customAgentVersion, nil
 	}
 
 	isCM := versionutil.OpsManagerVersion{VersionString: omVersion}.IsCloudManager()

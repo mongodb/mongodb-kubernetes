@@ -765,7 +765,9 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
 	}
 
-	if agentVersion, err := m.GetAgentVersion(conn, omVersion, isAppDB); err != nil {
+	customAgentVersion := env.ReadOrDefault(util.EnvVarAgentVersion, "") // nolint:forbidigo
+
+	if agentVersion, err := m.GetAgentVersion(conn, omVersion, isAppDB, customAgentVersion); err != nil {
 		log.Errorf("Failed to get the agent version from the Agent Version manager: %s", err)
 		return "", err
 	} else {
