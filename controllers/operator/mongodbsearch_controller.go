@@ -54,12 +54,6 @@ type prepareSearchFunc func(search *searchv1.MongoDBSearch, log *zap.SugaredLogg
 // misconfigured MC specs.
 func newPrepareSearch(operatorClusterName string) prepareSearchFunc {
 	validateSpec := func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
-		// A single operator (no operatorClusterName) cannot manage a multi-cluster (>1)
-		// search deployment; per-cluster operators narrow to their own entry below.
-		if operatorClusterName == "" && len(search.Spec.Clusters) > 1 && !env.ReadBoolOrDefault(util.SearchEnableMultiClusterEnv, false) { // nolint:forbidigo
-			r, e := writeStatus(workflow.Invalid("multi-cluster MongoDBSearch is not supported yet: spec.clusters must contain a single entry"))
-			return true, r, e
-		}
 		if vErr := search.ValidateSpec(); vErr != nil {
 			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
 			return true, r, e

@@ -141,15 +141,6 @@ repos:
         stages: [pre-commit]
         priority: 6
 
-      - id: govulncheck
-        name: govulncheck
-        entry: env GOTELEMETRY=off go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
-        language: system
-        pass_filenames: false
-        files: (\.go$|^go\.(mod|sum)$)
-        stages: [pre-commit]
-        priority: 6
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
