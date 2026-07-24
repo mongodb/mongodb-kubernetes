@@ -6,19 +6,39 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Cross-cluster enqueue labels for search-owned member-cluster resources.
-// Owner references do not cross cluster boundaries; both the search controller
-// and the Envoy controller stamp these labels on every member-cluster write so
-// mappers / predicates can enqueue the central MongoDBSearch request.
+// Search resource identity labels used for routing and cleanup.
 const (
 	MongoDBSearchOwnerNameLabel      = "mongodb.com/search-name"
 	MongoDBSearchOwnerNamespaceLabel = "mongodb.com/search-namespace"
-	// MongoDBSearchClusterNameLabel records the owning member cluster on
-	// per-cluster member resources (Envoy Deployment + ConfigMap).
+	MongoDBSearchComponentLabel      = "component"
+	// MongoDBSearchClusterNameLabel records the target member cluster.
 	MongoDBSearchClusterNameLabel = "mongodb.com/cluster-name"
 )
+
+// SearchManagedLabels returns the managed identity labels shared by Search
+// resource writers, cleanup selectors, and event routing. Writers merge user
+// labels first and apply these labels last so user metadata overrides can
+// never detach a resource from its owning MongoDBSearch.
+func SearchManagedLabels(search metav1.Object, app, component, clusterName string) map[string]string {
+	labels := map[string]string{
+		MongoDBSearchOwnerNameLabel:      search.GetName(),
+		MongoDBSearchOwnerNamespaceLabel: search.GetNamespace(),
+	}
+	if app != "" {
+		labels["app"] = app
+	}
+	if component != "" {
+		labels[MongoDBSearchComponentLabel] = component
+	}
+	if clusterName != "" {
+		labels[MongoDBSearchClusterNameLabel] = clusterName
+	}
+	return labels
+}
 
 // MapMemberClusterObjectToSearch reads the search-owner labels off a watched
 // member-cluster object and returns the reconcile request for the central
