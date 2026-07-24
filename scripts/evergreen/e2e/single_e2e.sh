@@ -260,34 +260,6 @@ run_tests() {
     [[ "${status}" == "Completed" ]]
 }
 
-collect_om_pod_logs() {
-    local context="${1}"
-    echo "Collecting OM pod migration logs from context ${context}, namespace ${NAMESPACE}"
-
-    local pods
-    pods=$(kubectl --context "${context}" -n "${NAMESPACE}" get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-    if [[ -z "${pods}" ]]; then
-        echo "No pods found in namespace ${NAMESPACE} on context ${context}"
-        return
-    fi
-
-    for pod in ${pods}; do
-        if [[ "${pod}" == "mongodb-enterprise-operator-tests" || "${pod}" == mongodb-enterprise-operator-* ]]; then
-            continue
-        fi
-
-        # ponytail: existing diagnostics already collects container logs; we only need migration logs from /mongodb-ops-manager/logs/mms-migration/
-        local mig_list
-        mig_list=$(kubectl --context "${context}" -n "${NAMESPACE}" exec "${pod}" -c mongodb-ops-manager -- ls /mongodb-ops-manager/logs/mms-migration/ 2>/dev/null || true)
-        if [[ -n "${mig_list}" ]]; then
-            echo "  Found migration logs in pod ${pod}"
-            for mig_file in ${mig_list}; do
-                kubectl --context "${context}" -n "${NAMESPACE}" exec "${pod}" -c mongodb-ops-manager -- cat "/mongodb-ops-manager/logs/mms-migration/${mig_file}" > "logs/om_${pod}_migration_${mig_file}" 2>/dev/null || true
-            done
-        fi
-    done
-}
-
 mkdir -p logs/
 
 TESTS_OK=0
@@ -295,15 +267,5 @@ TESTS_OK=0
 run_tests "${TEST_NAME}" || TESTS_OK=1
 
 echo "Tests have finished with the following exit code: ${TESTS_OK}"
-
-# Collect OM pod logs (including migration logs) for debugging flaky migration issues.
-# This runs regardless of test pass/fail so we capture logs on failure too.
-if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
-    for ctx in ${MEMBER_CLUSTERS}; do
-        collect_om_pod_logs "${ctx}" || true
-    done
-else
-    collect_om_pod_logs "$(kubectl config current-context)" || true
-fi
 
 [[ "${TESTS_OK}" -eq 0 ]]

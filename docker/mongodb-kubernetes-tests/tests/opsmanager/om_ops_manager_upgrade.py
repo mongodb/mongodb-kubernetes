@@ -7,7 +7,7 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.awss3client import AwsS3Client
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
@@ -25,6 +25,41 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 # for the existing MongoDBs.
 
 logger = test_logger.get_test_logger(__name__)
+
+
+def collect_om_migration_logs(ops_manager: MongoDBOpsManager) -> None:
+    """Collect migration logs from OM pods to /tmp/diagnostics/ for post-test analysis."""
+    import os
+
+    dest_dir = "/tmp/diagnostics/om-migration-logs"
+    os.makedirs(dest_dir, exist_ok=True)
+
+    for api_client, pod in ops_manager.read_om_pods():
+        pod_name = pod.metadata.name
+        try:
+            listing = KubernetesTester.run_command_in_pod_container(
+                pod_name,
+                ops_manager.namespace,
+                ["ls", "/mongodb-ops-manager/logs/mms-migration/"],
+                container="mongodb-ops-manager",
+                api_client=api_client,
+            )
+            if not listing.strip():
+                logger.info(f"No migration logs in pod {pod_name}")
+                continue
+            logger.info(f"Found migration logs in pod {pod_name}: {listing.strip()}")
+            for mig_file in listing.strip().split():
+                content = KubernetesTester.run_command_in_pod_container(
+                    pod_name,
+                    ops_manager.namespace,
+                    ["cat", f"/mongodb-ops-manager/logs/mms-migration/{mig_file}"],
+                    container="mongodb-ops-manager",
+                    api_client=api_client,
+                )
+                with open(os.path.join(dest_dir, f"{pod_name}_migration_{mig_file}"), "w") as f:
+                    f.write(content)
+        except Exception as e:
+            logger.warning(f"Failed to collect migration logs from pod {pod_name}: {e}")
 
 
 @fixture(scope="module")
@@ -287,7 +322,10 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_appdb_version(custom_appdb_version)
 
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        try:
+            ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        finally:
+            collect_om_migration_logs(ops_manager)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         pods = ops_manager.read_om_pods()
