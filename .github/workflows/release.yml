@@ -1,21 +1,32 @@
-name: Release MCK version
+# Release process: publishes the images already promoted for a given commit
+#
+# Pushes a "new-X.Y.Z" tag, which Evergreen's git_tag_aliases (.evergreen.yml)
+# routes to the publish-only pipeline (.evergreen-release-publish.yml).
+name: Release MCK version (publish-only)
+
+permissions:
+  contents: read
+  checks: read
 
 on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'SHA of the commit to release'
+        description: 'Commit hash of the promoted commit to release. Must have a corresponding promoted-{commit}-{version} tag in the staging registry.'
         type: string
         required: true
       version:
-        description: 'Version to release'
+        description: 'Expected release version implied by the given commit (version at release.json .mongodbOperator field). The release fails if they do not match.'
         required: true
         type: string
 
 jobs:
-  crate_draft_release_notes:
-    name: Create draft release with Release Notes
+  create_tag_and_draft_release:
+    name: Create Draft Release & Push Tag
     runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.verify_release_commit.outputs.commit }}
+      version: ${{ steps.verify_release_commit.outputs.version }}
     permissions:
       contents: write
     steps:
@@ -23,52 +34,95 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: '0'
+
       - name: Setup host
         uses: ./.github/actions/setup-ubuntu-host
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
+
+      - name: Log in to quay.io (staging)
+        run: scripts/release/quay_staging_login.sh
+        env:
+          QUAY_STAGING_USERNAME: ${{ secrets.QUAY_STAGING_USERNAME }}
+          QUAY_STAGING_PASSWORD: ${{ secrets.QUAY_STAGING_ROBOT_TOKEN }}
+
+      - name: Verify Release Commit
+        id: verify_release_commit
+        run: |
+          output=$(scripts/evergreen/release/verify_release_commit.sh \
+            --commit "${{ github.event.inputs.commit_sha }}" \
+            --version "${{ github.event.inputs.version }}")
+          echo "$output" | while IFS= read -r line; do
+            echo "$line" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Generate Release Notes
         id: generate_release_notes
         run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_final.md
         env:
           INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
           INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
+
       - name: Generate draft release
         run: |
           gh release create $VERSION --target $COMMIT_SHA --draft --latest --notes-file release_notes_final.md --title "Release of MCK $VERSION"
         env:
-          VERSION: ${{ github.event.inputs.version }}
-          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          VERSION: ${{ steps.verify_release_commit.outputs.version }}
+          COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  approve_release:
-    name: Create Git Tag + start Evergreen jobs
-    environment: production
-    runs-on: ubuntu-latest
-    needs: crate_draft_release_notes
-    permissions:
-      contents: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: '0'
       - name: Create git tag
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a $VERSION -m "Release of MCK $VERSION" $COMMIT_SHA
-          git push origin $VERSION
+          git tag -a "new-$VERSION" -m "Release of MCK $VERSION" $COMMIT_SHA
+          git push origin "new-$VERSION"
         env:
-          VERSION: ${{ github.event.inputs.version }}
-          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          VERSION: ${{ steps.verify_release_commit.outputs.version }}
+          COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  wait_for_evergreen_and_prep_pr:
+    name: Wait for Evergreen & Synthesize PR Link
+    runs-on: ubuntu-latest
+    needs: create_tag_and_draft_release
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Wait for Evergreen build to complete
+        uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
+        id: wait_for_evg
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          checkName: "evergreen" # Ensure this matches the status check context EVG posts
+          ref: ${{ needs.create_tag_and_draft_release.outputs.commit }}
+          timeoutSeconds: 1800
+          intervalSeconds: 30
+
+      - name: Fail if Evergreen failed
+        if: steps.wait_for_evg.outputs.conclusion != 'success'
+        run: |
+          echo "Evergreen publish pipeline failed or timed out!"
+          exit 1
+
+      - name: Generate RedHat PR Link in Job Summary
+        run: |
+          RH_FORK_ORG="your-redhat-fork-org"
+          VERSION="${{ needs.create_tag_and_draft_release.outputs.version }}"
+          RH_BRANCH="mck-release-${VERSION}" # Adjust to match your exact branch naming convention
+          PRE_PR_URL="https://github.com/redhat-openshift/community-operators/compare/main...${RH_FORK_ORG}:${RH_BRANCH}?quick_pull=1"
+
+          echo "## 🚀 Evergreen Finished: RedHat PR Ready" >> $GITHUB_STEP_SUMMARY
+          echo "Evergreen successfully created the release branches on the RedHat fork." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "👉 **[Click here to review and open the RedHat Pull Request](${PRE_PR_URL})**" >> $GITHUB_STEP_SUMMARY
 
   publish_release:
     name: Publish Release
-    environment: production
+    environment: production # Manual gate
     runs-on: ubuntu-latest
-    needs: approve_release
+    needs: wait_for_evergreen_and_prep_pr
     permissions:
       contents: write
     steps:
@@ -76,9 +130,10 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: '0'
+
       - name: Publish Release Notes
         run: |
           gh release edit $VERSION --draft=false --verify-tag --latest
         env:
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ needs.create_tag_and_draft_release.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

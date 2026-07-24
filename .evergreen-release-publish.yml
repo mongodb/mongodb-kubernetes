@@ -1,0 +1,179 @@
+# New release process, triggered by tags shaped "new-X.Y.Z" (see .evergreen.yml
+# git_tag_aliases). Unlike the legacy process (.evergreen-release.yml, deprecated),
+# this does not rebuild or retest images: it publishes the images already
+# promoted for the tagged commit (via the mainline mckci_release_promote task)
+# straight to production. Everything else the legacy process does that is NOT
+# an image rebuild/retest — preflight+submit, OpenShift bundle prep + RH
+# release branches, prerelease code snippet generation, chart release PR,
+# chart-to-OCI release, kubectl plugin release, and GitHub release info —
+# still runs here, gated on release_publish instead of on rebuilding images.
+include:
+  - filename: .evergreen-functions.yml
+
+tasks:
+  - name: mckci_release_publish_group
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - command: shell.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          script: |
+            scripts/mckci release publish group --commit "${revision}"
+
+  # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
+  # is not itself a trigger) and deletes "new-X.Y.Z".
+  - name: retag_new_release
+    commands:
+      - func: clone
+      - func: push_release_tag
+        vars:
+          prefix: "new-"
+
+buildvariants:
+  - name: release_publish
+    display_name: release_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: mckci_release_publish_group
+
+  # Preflight/RH certification against the images just published to
+  # quay.io/mongodb/*:{version} — reuses the task defined in
+  # .evergreen-release.yml (globally available once both files are included
+  # by .evergreen.yml). No rebuild: preflight only reads existing images.
+  - name: preflight_release_publish
+    display_name: preflight_release_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - rhel90-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+    expansions:
+      preflight_submit: true
+    tasks:
+      - name: preflight_release_operator_images_task_group
+
+  # Prepares the OpenShift bundle for this version if it doesn't already
+  # exist in S3 (see should_prepare_openshift_bundles.sh). No image rebuild:
+  # reads the version from release.json.
+  - name: prepare_openshift_bundles_publish
+    display_name: prepare_openshift_bundles_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+      - name: "*"
+        variant: preflight_release_publish
+    tasks:
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
+
+  # Opens the draft PR against the Red Hat forks with the bundle prepared
+  # above. Human-reviewed, so github_tag only (not run on patches).
+  - name: publish_openshift_bundles_to_rh_publish
+    display_name: publish_openshift_bundles_to_rh_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "github_tag" ]
+    depends_on:
+      - name: run_conditionally_prepare_and_upload_openshift_bundles
+        variant: prepare_openshift_bundles_publish
+    tasks:
+      - name: publish_openshift_bundles_to_rh
+
+  # Doc code-snippet generation against the images just published — this is
+  # generation, not testing: it deploys the operator using already-published
+  # images and captures snippet output for docs.
+  - name: prerelease_kind_code_snippets_publish
+    display_name: prerelease_kind_code_snippets_publish
+    tags: [ "release-publish", "prerelease_code_snippets" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+    tasks:
+      - name: kind_code_snippets_task_group
+
+  - name: prerelease_gke_code_snippets_publish
+    display_name: prerelease_gke_code_snippets_publish
+    tags: [ "release-publish", "prerelease_code_snippets" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+    tasks:
+      - name: gke_code_snippets_task_group
+
+  # File-copy + GitHub PR only; needs just the version string, no images.
+  - name: create_chart_release_pr_publish
+    display_name: create_chart_release_pr_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: create_chart_release_pr
+
+  # helm package + push to OCI; gated on release_publish so the chart never
+  # references an operator image that hasn't been published yet.
+  - name: release_chart_to_oci_registry_publish
+    display_name: release_chart_to_oci_registry_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+    tasks:
+      - name: release_chart_to_oci_registry
+
+  # Publishes/notarizes the kubectl-mongodb plugin binary; needs only the
+  # version + already-published assets, no image rebuild.
+  - name: release_kubectl_mongodb_plugin_publish
+    display_name: release_kubectl_mongodb_plugin_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: release_kubectl_mongodb_plugin
+
+  # Attaches release metadata to the GitHub release; version-only, no images.
+  - name: add_releaseinfo_to_github_assets_publish
+    display_name: add_releaseinfo_to_github_assets_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    tasks:
+      - name: add_releaseinfo_to_github_assets
+
+  # Not tagged "release-publish" itself (it depends on every "release-publish"-
+  # tagged variant succeeding, which would otherwise create a self-dependency).
+  - name: retag_new_release
+    display_name: retag_new_release
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: ".release-publish"
+        status: "success"
+    tasks:
+      - name: retag_new_release
+
