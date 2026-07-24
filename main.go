@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
@@ -29,6 +30,7 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	golog "log"
@@ -43,6 +45,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -51,7 +54,9 @@ import (
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/membercluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -81,33 +86,16 @@ var (
 	operatorEnvironments = []string{util.OperatorEnvironmentDev.String(), util.OperatorEnvironmentLocal.String(), util.OperatorEnvironmentProd.String()}
 
 	scheme = runtime.NewScheme()
-
-	// Default CRDs to watch (if not specified on the command line)
-	crds crdsToWatch
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiv1.AddToScheme(scheme))
+	utilruntime.Must(operatorv1.AddToScheme(scheme))
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(vaiv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
-
-	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
-}
-
-// crdsToWatch is a custom Value implementation which can be
-// used to receive command line arguments
-type crdsToWatch []string
-
-func (c *crdsToWatch) Set(value string) error {
-	*c = append(*c, strings.ToLower(value))
-	return nil
-}
-
-func (c *crdsToWatch) String() string {
-	return strings.Join(*c, ",")
 }
 
 func main() {
@@ -119,20 +107,10 @@ func main() {
 
 func run() error {
 	flag.Parse()
-	// If no CRDs are specified, we set default to non-multicluster CRDs
-	if len(crds) == 0 {
-		crds = crdsToWatch{
-			mongoDBCRDPlural,
-			mongoDBUserCRDPlural,
-			mongoDBOpsManagerCRDPlural,
-			mongoDBCommunityCRDPlural,
-			mongoDBSearchCRDPlural,
-			voyageAICRDPlural,
-			clusterMongoDBRoleCRDPlural,
-		}
-	}
 
 	ctx := signals.SetupSignalHandler()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	operator.OmUpdateChannel = make(chan event.GenericEvent)
 
 	klog.InitFlags(nil)
@@ -150,9 +128,6 @@ func run() error {
 
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
 	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
-	defaultArchitecture := architectures.DefaultArchitecture(env.ReadOrDefault(architectures.DefaultEnvArchitecture, string(architectures.NonStatic)))
-
-	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
 	// Get trace and span IDs from environment variables
 	traceIDHex := os.Getenv("OTEL_TRACE_ID")
@@ -161,6 +136,8 @@ func run() error {
 
 	// Get a config to talk to the apiserver
 	cfg := ctrl.GetConfigOrDie()
+
+	operatorConfigName := env.ReadOrDefault(util.OperatorConfigNameEnv, util.DefaultOperatorConfigName)
 
 	log.Debugf("Setting up tracing with ID: %s, Parent ID: %s, Endpoint: %s", traceIDHex, spanIDHex, endpoint)
 	ctx, tp, err := telemetry.SetupTracingFromParent(ctx, traceIDHex, spanIDHex, endpoint)
@@ -197,6 +174,27 @@ func run() error {
 		}
 	}
 
+	// Restrict the OperatorConfig informer to the single named instance in the operator's own
+	// namespace. Without this, a change to any OperatorConfig in any watched namespace would
+	// trigger a restart.
+	managerOptions.Cache.ByObject = map[client.Object]cache.ByObject{
+		&operatorv1.OperatorConfig{}: {
+			Namespaces: map[string]cache.Config{
+				currentNamespace: {
+					FieldSelector: fields.OneTermEqualSelector("metadata.name", operatorConfigName),
+				},
+			},
+		},
+		// Restrict the MemberCluster informer to the operator's own namespace, so only
+		// MemberCluster CRs there (the operator's source of truth for cluster membership) can
+		// trigger the membercluster.Watcher restart.
+		&operatorv1.MemberCluster{}: {
+			Namespaces: map[string]cache.Config{
+				currentNamespace: {},
+			},
+		},
+	}
+
 	if isInLocalMode() {
 		// managerOptions.MetricsBindAddress = "127.0.0.1:8180"
 		managerOptions.Metrics = metricsServer.Options{
@@ -212,7 +210,56 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	operatorCfg, err := operatorconfig.Load(ctx, mgr.GetAPIReader(), currentNamespace, operatorConfigName)
+	if err != nil {
+		return fmt.Errorf("loading OperatorConfig: %w", err)
+	}
+	defaultArchitecture := architectures.NonStatic
+	if operatorCfg.Spec.DefaultArchitecture == operatorv1.ArchitectureStatic {
+		defaultArchitecture = architectures.Static
+	}
+
+	// The member-cluster API client timeout is configured via
+	// OperatorConfig.spec.multiCluster.memberClusterClientTimeout (seconds).
+	// operatorconfig.Load guarantees MultiCluster is non-nil and defaulted.
+	memberClusterClientTimeout := operatorCfg.Spec.MultiCluster.MemberClusterClientTimeout
+
+	requiredHealthyStreak := operatorCfg.Spec.MultiCluster.MemberClusterRequiredHealthyStreak
+
+	// Automatic recovery of resources with a broken automation config is configured via
+	// OperatorConfig.spec.automaticRecovery. operatorconfig.Load guarantees AutomaticRecovery is
+	// non-nil and defaulted.
+	automaticRecoveryEnabled := operatorCfg.Spec.AutomaticRecovery.Mode == operatorv1.FeatureModeEnabled
+	automaticRecoveryBackoffSeconds := operatorCfg.Spec.AutomaticRecovery.Delay
+
+	propagateProxyEnv := operatorCfg.Spec.Proxy.EnvPropagationPolicy == operatorv1.ProxyEnvPropagationPolicyPropagate
+
+	// Telemetry is configured via OperatorConfig.spec.telemetry. operatorconfig.Load guarantees
+	// Telemetry and its nested blocks are non-nil and defaulted, so the pointers below are safe to
+	// dereference. Absence of any telemetry configuration implies telemetry is enabled (opt-out model).
+	telemetryEnabled := operatorCfg.Spec.Telemetry.Mode == operatorv1.FeatureModeEnabled
+	telemetryConfig := telemetry.Config{
+		CollectionFrequency: operatorCfg.Spec.Telemetry.Collection.Frequency.Duration,
+		KubeTimeout:         operatorCfg.Spec.Telemetry.Collection.KubeTimeout.Duration,
+		CollectClusters:     operatorCfg.Spec.Telemetry.Collection.Clusters.Mode == operatorv1.FeatureModeEnabled,
+		CollectDeployments:  operatorCfg.Spec.Telemetry.Collection.Deployments.Mode == operatorv1.FeatureModeEnabled,
+		CollectOperators:    operatorCfg.Spec.Telemetry.Collection.Operators.Mode == operatorv1.FeatureModeEnabled,
+		SendEnabled:         operatorCfg.Spec.Telemetry.Send.Mode == operatorv1.FeatureModeEnabled,
+		SendFrequency:       operatorCfg.Spec.Telemetry.Send.Frequency.Duration,
+	}
+
+	// The CRDs the operator reconciles are configured via OperatorConfig.spec.watchedResources
+	watchedResources := make([]string, len(operatorCfg.Spec.WatchedResources))
+	for i, r := range operatorCfg.Spec.WatchedResources {
+		watchedResources[i] = string(r)
+	}
+	enableClusterMongoDBRoles := slices.Contains(watchedResources, clusterMongoDBRoleCRDPlural)
+
 	log.Info("Registering Components.")
+
+	if err := mgr.Add(operatorconfig.NewWatcher(mgr.GetCache(), cancel)); err != nil {
+		return err
+	}
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {
@@ -222,21 +269,46 @@ func run() error {
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
-	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
+	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
+		// Discover member clusters from MemberCluster CRs + their per-cluster credential Secrets.
+		// A direct (uncached) client is used because the manager cache is not started yet.
+		directClient, err := client.New(cfg, client.Options{Scheme: scheme})
 		if err != nil {
 			return err
 		}
 
-		log.Infof("Watching Member clusters: %s", memberClustersNames)
-
-		if len(memberClustersNames) == 0 {
-			log.Warnf("The operator did not detect any member clusters")
-		}
-
-		memberClusterClients, err := multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath())
+		memberClusterClients, usingMemberClusterCRs, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
 		if err != nil {
 			return err
+		}
+
+		if usingMemberClusterCRs {
+			log.Infof("Discovered %d member cluster(s) from MemberCluster CRs", len(memberClusterClients))
+			// Watch MemberCluster CRs so the operator restarts and rebuilds this map when
+			// cluster membership changes. TODO(m1kola): slice-3: make this reactive (no restart).
+			if err := mgr.Add(membercluster.NewWatcher(mgr.GetCache(), cancel)); err != nil {
+				return err
+			}
+		} else {
+			// TODO(m1kola): slice-3: legacy fallback — discover member clusters from the
+			// <operator>-member-list ConfigMap + the monolithic mounted kubeconfig. Kept so
+			// existing multi-cluster installs keep working; removed in slice 6 once all installs
+			// use MemberCluster CRs.
+			memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
+			if err != nil {
+				return err
+			}
+
+			log.Infof("Watching Member clusters (legacy discovery): %s", memberClustersNames)
+
+			if len(memberClustersNames) == 0 {
+				log.Warnf("The operator did not detect any member clusters")
+			}
+
+			memberClusterClients, err = multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath(), memberClusterClientTimeout)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Add the cluster object to the manager corresponding to each member clusters.
@@ -273,46 +345,46 @@ func run() error {
 	}
 
 	// Setup all Controllers
-	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap, backupEnableDelay); err != nil {
+	if slices.Contains(watchedResources, mongoDBCRDPlural) {
+		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClusterObjectsMap, backupEnableDelay, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion, defaultArchitecture); err != nil {
+	if slices.Contains(watchedResources, mongoDBOpsManagerCRDPlural) {
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion, defaultArchitecture, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBUserCRDPlural) {
-		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap, backupEnableDelay); err != nil {
+	if slices.Contains(watchedResources, mongoDBUserCRDPlural) {
+		if err := setupMongoDBUserCRD(ctx, mgr, memberClusterObjectsMap, backupEnableDelay, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap); err != nil {
+	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, requiredHealthyStreak, memberClusterClientTimeout, memberClusterObjectsMap, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, mongoDBSearchCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBSearchCRDPlural) {
 		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
 		if operatorClusterName != "" {
 			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
 		}
-		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName); err != nil {
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName, operatorCfg.Spec.MaxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
 			return err
 		}
 	}
-	if slices.Contains(crds, voyageAICRDPlural) {
-		if err := setupVoyageAICRD(ctx, mgr); err != nil {
+	if slices.Contains(watchedResources, voyageAICRDPlural) {
+		if err := setupVoyageAICRD(ctx, mgr, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
 
-	for _, r := range crds {
+	for _, r := range watchedResources {
 		log.Infof("Registered CRD: %s", r)
 	}
 
-	if slices.Contains(crds, mongoDBCommunityCRDPlural) {
+	if slices.Contains(watchedResources, mongoDBCommunityCRDPlural) {
 		if err := setupCommunityController(
 			ctx,
 			mgr,
@@ -329,10 +401,10 @@ func run() error {
 		}
 	}
 
-	if telemetry.IsTelemetryActivated() {
+	if telemetryEnabled {
 		log.Info("Running telemetry component!")
 		installerMethod := env.ReadOrDefault(telemetry.InstallerEnvVar, "")
-		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[util.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], installerMethod, getOperatorEnv(), defaultArchitecture)
+		telemetryRunnable, err := telemetry.NewLeaderRunnable(mgr, memberClusterObjectsMap, currentNamespace, imageUrls[util.MongodbImageEnv], imageUrls[util.NonStaticDatabaseEnterpriseImage], installerMethod, getOperatorEnv(), defaultArchitecture, telemetryConfig)
 		if err != nil {
 			log.Errorf("Unable to enable telemetry; err: %s", err)
 		}
@@ -385,14 +457,14 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
-	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture); err != nil {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
+	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, maxConcurrentReconciles); err != nil {
 		return err
 	}
-	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture); err != nil {
+	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, maxConcurrentReconciles); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap, backupEnableDelay); err != nil {
+	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClusterObjectsMap, backupEnableDelay, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
@@ -400,8 +472,8 @@ func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.
 		Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture); err != nil {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
@@ -409,13 +481,12 @@ func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberC
 		Complete()
 }
 
-func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
-	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay)
+func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
+	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay, maxConcurrentReconciles)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
-	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, requiredHealthyStreak, memberClusterObjectsMap); err != nil {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, requiredHealthyStreak int, memberClusterClientTimeout int, memberClusterObjectsMap map[string]runtime_cluster.Cluster, maxConcurrentReconciles int) error {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, requiredHealthyStreak, memberClusterClientTimeout, memberClusterObjectsMap, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
@@ -423,9 +494,9 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		Complete()
 }
 
-func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
+func setupVoyageAICRD(ctx context.Context, mgr manager.Manager, maxConcurrentReconciles int) error {
 	imageRepository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, "quay.io/mongodb/voyageai")
-	return operator.AddVoyageAIController(ctx, mgr, imageRepository)
+	return operator.AddVoyageAIController(ctx, mgr, imageRepository, maxConcurrentReconciles)
 }
 
 func setupMongoDBSearchCRD(
@@ -433,25 +504,28 @@ func setupMongoDBSearchCRD(
 	mgr manager.Manager,
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	operatorClusterName string,
+	maxConcurrentReconciles int,
+	memberClusterClientTimeout int,
+	requiredHealthyStreak int,
 ) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}, memberClusterObjectsMap, operatorClusterName); err != nil {
+	}, memberClusterObjectsMap, operatorClusterName, maxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName, maxConcurrentReconciles); err != nil {
 		return err
 	}
 
 	// Metrics forwarder controller — image is again enforced in controller
 	metricsForwarderImage := env.ReadOrDefault(util.MetricsForwarderImageEnv, "")
-	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, memberClusterObjectsMap, operatorClusterName, maxConcurrentReconciles); err != nil {
 		return err
 	}
 
@@ -488,6 +562,12 @@ func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace s
 
 	m := corev1.ConfigMap{}
 	err = c.Get(ctx, types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: currentNamespace}, &m)
+	if apierrors.IsNotFound(err) {
+		// No multi-cluster configuration present: run as single-cluster with no member clusters.
+		// The member-list ConfigMap is absent on single-cluster installs (e.g. when
+		// mongodbmulticluster is watched by default). Callers handle an empty member list.
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

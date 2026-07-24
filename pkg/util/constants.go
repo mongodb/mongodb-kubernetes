@@ -161,6 +161,10 @@ const (
 	OIDC                              = "OIDC"
 	MinimumScramSha256MdbVersion      = "4.0.0"
 
+	// OperatorConfig variables
+	OperatorConfigNameEnv     = "MDB_OPERATOR_CONFIG_NAME"
+	DefaultOperatorConfigName = "operator-config"
+
 	// pprof variables
 	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
 	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
@@ -213,13 +217,6 @@ const (
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
-
-	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
-
-	// This default for the healthy streak is also configured in the values.yaml file.
-	// It should always be consistent with the default in the helm chart. Always change both.
-	DefaultRequiredHealthyStreak = 5
-	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
 
 	// Search environment variables
 	SearchRepoURLEnv         = "MDB_SEARCH_REPO_URL"

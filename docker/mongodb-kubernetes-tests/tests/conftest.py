@@ -197,7 +197,9 @@ def operator_clusterwide(
 def get_operator_clusterwide(namespace, operator_installation_config):
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchNamespace"] = "*"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -207,7 +209,9 @@ def operator_vault_secret_backend(
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -218,20 +222,21 @@ def operator_vault_secret_backend_tls(
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
     helm_args["operator.vaultSecretBackend.tlsSecretRef"] = "vault-tls"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
-def operator_installation_config_quick_recovery(operator_installation_config: dict[str, str]) -> dict[str, str]:
+def operator_config_extra_spec() -> dict:
+    """Extra OperatorConfig spec merged into the CR when the operator config is applied during operator
+    installation. Defaults to no extra configuration.
+
+    Tests override this fixture to set OperatorConfig fields explicitly on the CR. For example, the
+    automatic-recovery tests (CLOUDP-189433 / CLOUDP-229222) shorten the recovery back-off via
+    {"automaticRecovery": {"delay": <seconds>}} so recovery triggers within the test window.
     """
-    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in
-    reasonable time, we override the Recovery back off to 120 seconds. This gives enough time for the initial
-    automation config to be published and statefulsets to be created before forcing the recovery.
-    """
-    operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=120"
-    )
-    return operator_installation_config
+    return {}
 
 
 @fixture(scope="module")
@@ -513,6 +518,7 @@ def default_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
 ) -> Operator:
     if is_multi_cluster():
         return get_multi_cluster_operator(
@@ -522,12 +528,18 @@ def default_operator(
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
+            operator_config_extra_spec=operator_config_extra_spec,
         )
-    return get_default_operator(namespace, operator_installation_config)
+    return get_default_operator(
+        namespace, operator_installation_config, operator_config_extra_spec=operator_config_extra_spec
+    )
 
 
 def get_default_operator(
-    namespace: str, operator_installation_config: dict[str, str], apply_crds_first: bool = False
+    namespace: str,
+    operator_installation_config: dict[str, str],
+    apply_crds_first: bool = False,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
@@ -536,6 +548,8 @@ def get_default_operator(
         namespace=namespace,
         helm_args=operator_installation_config,
     ).upgrade(apply_crds_first=apply_crds_first)
+
+    operator.apply_operator_config_and_wait(extra_spec=operator_config_extra_spec)
 
     return operator
 
@@ -546,10 +560,12 @@ def operator_with_monitored_appdb(
     monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test that needs the AppDB monitoring enabled."""
-    return Operator(
+    operator = Operator(
         namespace=namespace,
         helm_args=monitored_appdb_operator_installation_config,
     ).upgrade()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 def get_central_cluster_name():
@@ -659,6 +675,7 @@ def multi_cluster_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
 ) -> Operator:
     return get_multi_cluster_operator(
         namespace,
@@ -667,6 +684,7 @@ def multi_cluster_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        operator_config_extra_spec=operator_config_extra_spec,
     )
 
 
@@ -678,7 +696,7 @@ def get_multi_cluster_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
-    watched_resources: Optional[List[str]] = None,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
@@ -690,8 +708,6 @@ def get_multi_cluster_operator(
         # override the serviceAccountName for the operator deployment
         "operator.createOperatorServiceAccount": "false",
     }
-    if watched_resources is not None:
-        helm_opts["operator.watchedResources"] = "{" + ",".join(watched_resources) + "}"
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -700,6 +716,7 @@ def get_multi_cluster_operator(
         helm_opts,
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        operator_config_extra_spec=operator_config_extra_spec,
     )
 
 
@@ -783,10 +800,22 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
             # override the serviceAccountName for the operator deployment
             "operator.createOperatorServiceAccount": "false",
+            # Skip creating the ClusterMongoDBRole RBAC.
             "operator.enableClusterMongoDBRoles": "false",
         },
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        operator_config_extra_spec={
+            "watchedResources": [
+                "mongodb",
+                "opsmanagers",
+                "mongodbusers",
+                "mongodbcommunity",
+                "mongodbsearch",
+                "mongodbmulticluster",
+                "voyageais",
+            ]
+        },
     )
 
 
@@ -866,6 +895,8 @@ def _install_multi_cluster_operator(
     helm_chart_path: Optional[str] = None,
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
+    create_operator_config: bool = True,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -893,6 +924,14 @@ def _install_multi_cluster_operator(
         helm_chart_path=helm_chart_path,
         operator_version=custom_operator_version,
     ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
+
+    # Legacy operators (e.g. MEKO, used as the starting point of upgrade tests) do not ship the
+    # OperatorConfig CRD, so creating the CR would fail. Such installs pass create_operator_config=False
+    # and the upgrade test creates the CR explicitly once the CRD has been applied.
+    if create_operator_config:
+        operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec=operator_config_extra_spec)
+    else:
+        operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
@@ -951,6 +990,8 @@ def official_meko_operator(
         helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
 
 
@@ -980,6 +1021,8 @@ def install_legacy_deployment_state_meko(
         helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
     operator.wait_for_operator_ready()
     # Dumping deployments in logs ensures we are using the correct operator version
@@ -998,6 +1041,7 @@ def install_official_operator(
     helm_chart_path: Optional[str] = MCK_HELM_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
     operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
+    create_operator_config: bool = True,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -1013,7 +1057,6 @@ def install_official_operator(
     helm_args = {
         "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         "managedSecurityContext": managed_security_context,
-        "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
     # For upgrade tests in patch builds, we need to use ECR registries for workload images
@@ -1101,6 +1144,7 @@ def install_official_operator(
             helm_chart_path=helm_chart_path,
             custom_operator_version=custom_operator_version,
             operator_name=operator_name,
+            create_operator_config=create_operator_config,
         )
     else:
         # When testing the UBI image type we need to assume a few things

@@ -9208,3 +9208,403 @@ spec:
     storage: true
     subresources:
       status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: memberclusters.operator.mongodb.com
+spec:
+  group: operator.mongodb.com
+  names:
+    kind: MemberCluster
+    listKind: MemberClusterList
+    plural: memberclusters
+    shortNames:
+    - mc
+    singular: membercluster
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clusterName
+      name: Cluster Name
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="RBACValid")].status
+      name: RBAC Valid
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MemberCluster represents a member cluster in a multi-cluster MCK deployment.
+          The operator discovers member clusters by watching MemberCluster CRs in its namespace.
+          Each CR references a per-cluster credential Secret containing a single-context kubeconfig.
+          Adding a cluster means creating a MemberCluster CR and its credential Secret; removing
+          a cluster means deleting the MemberCluster CR. No operator restart is required.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MemberClusterSpec defines the desired state of MemberCluster.
+            properties:
+              clusterName:
+                description: |-
+                  ClusterName is the logical cluster identity used to resolve clusterSpecList[].clusterName
+                  references in workload CRs (e.g. MongoDBMultiCluster). In most cases this matches
+                  metadata.name; they differ only when the logical name is not RFC 1123 compliant,
+                  for example during MCK 1.x to 2.x migration where existing workload CRs reference
+                  names that must not be modified.
+                minLength: 1
+                type: string
+              credentialSecretRef:
+                description: |-
+                  CredentialSecretRef references the Secret that contains a single-context kubeconfig
+                  the operator uses to authenticate against this member cluster.
+                  The Secret must be in the same namespace as the MemberCluster CR.
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: credentialSecretRef.name must not be empty
+                  rule: self.name != ''
+            required:
+            - clusterName
+            - credentialSecretRef
+            type: object
+          status:
+            description: MemberClusterStatus defines the observed state of MemberCluster.
+            properties:
+              conditions:
+                description: |-
+                  Conditions reflect the current status of the member cluster.
+                  The RBACValid condition reports whether the member-cluster RBAC version matches
+                  the running operator version. When RBACValid is False the operator stops reconciling
+                  workloads on the cluster until RBAC is regenerated and reapplied.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: operatorconfigs.operator.mongodb.com
+spec:
+  group: operator.mongodb.com
+  names:
+    kind: OperatorConfig
+    listKind: OperatorConfigList
+    plural: operatorconfigs
+    shortNames:
+    - opconfig
+    singular: operatorconfig
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          OperatorConfig configures the behaviour of the MCK operator instance deployed in the same namespace.
+          One instance per operator deployment is expected.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: OperatorConfigSpec defines the desired state of OperatorConfig.
+            properties:
+              automaticRecovery:
+                description: |-
+                  AutomaticRecovery controls automatic recovery of resources with broken
+                  automation configuration.
+                properties:
+                  delay:
+                    default: 1200
+                    description: Delay is the back-off in seconds before the operator
+                      attempts automatic recovery.
+                    minimum: 1
+                    type: integer
+                  mode:
+                    default: Enabled
+                    description: Mode controls whether automatic recovery of resources
+                      with broken automation config is active.
+                    enum:
+                    - Enabled
+                    - Disabled
+                    type: string
+                type: object
+              defaultArchitecture:
+                default: NonStatic
+                description: |-
+                  DefaultArchitecture sets the default container architecture for all managed workloads.
+                  Can be overridden per-resource.
+                enum:
+                - NonStatic
+                - Static
+                type: string
+              maxConcurrentReconciles:
+                default: 1
+                description: MaxConcurrentReconciles is the maximum number of concurrent
+                  reconciliations per controller.
+                minimum: 1
+                type: integer
+              multiCluster:
+                description: MultiCluster contains multi-cluster configuration.
+                properties:
+                  memberClusterClientTimeout:
+                    default: 10
+                    description: |-
+                      MemberClusterClientTimeout is the timeout in seconds for connecting to a member
+                      cluster's Kubernetes API server.
+                    minimum: 1
+                    type: integer
+                  memberClusterRequiredHealthyStreak:
+                    default: 5
+                    description: |-
+                      MemberClusterRequiredHealthyStreak is the number of consecutive successful health
+                      checks required before a previously failed member cluster is considered recovered
+                      and its failed-cluster annotation is removed. Only relevant when automatic failover
+                      is disabled.
+                    minimum: 1
+                    type: integer
+                type: object
+              proxy:
+                description: Proxy contains proxy environment variable propagation
+                  settings.
+                properties:
+                  envPropagationPolicy:
+                    default: NoPropagation
+                    description: |-
+                      EnvPropagationPolicy controls whether HTTP_PROXY, HTTPS_PROXY, and NO_PROXY
+                      are propagated from the operator container to managed workload containers.
+                    enum:
+                    - Propagate
+                    - NoPropagation
+                    type: string
+                type: object
+              telemetry:
+                description: |-
+                  Telemetry configures collection and sending of operator telemetry.
+                  Absence of this block implies telemetry is enabled.
+                properties:
+                  collection:
+                    description: Collection controls how telemetry data is collected.
+                    properties:
+                      clusters:
+                        description: Clusters controls collection of cluster-level
+                          telemetry.
+                        properties:
+                          mode:
+                            default: Enabled
+                            description: |-
+                              Mode controls collection of cluster-level telemetry.
+                              Note: The cluster UUID is unique but random and MongoDB has no way to map it to a customer.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                      deployments:
+                        description: Deployments controls collection of deployment-level
+                          telemetry.
+                        properties:
+                          mode:
+                            default: Enabled
+                            description: Mode controls collection of deployment-level
+                              telemetry.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                      frequency:
+                        default: 1h
+                        description: |-
+                          Frequency controls how often telemetry data is collected and written to the telemetry ConfigMap.
+                          Duration using h (hours) and m (minutes) units, e.g. "30m", "1h", "2h30m". Must be at least 1m; defaults to 1h when omitted.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: frequency must be at least 1m
+                          rule: duration(self) >= duration('1m')
+                      kubeTimeout:
+                        default: 5m
+                        description: |-
+                          KubeTimeout is the timeout for Kubernetes API calls made while collecting telemetry.
+                          Duration using h (hours), m (minutes) and s (seconds) units, e.g. "30s", "5m". Must be at least 1s; defaults to 5m when omitted.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: kubeTimeout must be at least 1s
+                          rule: duration(self) >= duration('1s')
+                      operators:
+                        description: Operators controls collection of operator-level
+                          telemetry.
+                        properties:
+                          mode:
+                            default: Enabled
+                            description: Mode controls collection of operator-level
+                              telemetry.
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                    type: object
+                  mode:
+                    default: Enabled
+                    description: |-
+                      Mode is the master switch for telemetry. Set to Disabled to disable all
+                      telemetry collection and sending.
+                    enum:
+                    - Enabled
+                    - Disabled
+                    type: string
+                  send:
+                    description: Send controls how collected telemetry is sent to
+                      MongoDB.
+                    properties:
+                      frequency:
+                        default: 168h
+                        description: |-
+                          Frequency controls how often collected telemetry is pushed to MongoDB.
+                          Duration using h (hours) units, e.g. "24h", "168h". Must be at least 1h; defaults to 168h when omitted.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: frequency must be at least 1h
+                          rule: duration(self) >= duration('1h')
+                      mode:
+                        default: Enabled
+                        description: Mode controls sending of collected telemetry
+                          to MongoDB for analysis.
+                        enum:
+                        - Enabled
+                        - Disabled
+                        type: string
+                    type: object
+                type: object
+              watchedResources:
+                description: |-
+                  WatchedResources controls which CRDs the operator actively reconciles.
+                  Defaults to all known MCK CRDs when omitted.
+                items:
+                  description: WatchedResource identifies a CRD that the operator
+                    will actively reconcile.
+                  enum:
+                  - mongodb
+                  - opsmanagers
+                  - mongodbusers
+                  - mongodbcommunity
+                  - mongodbsearch
+                  - mongodbmulticluster
+                  - clustermongodbroles
+                  - voyageais
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
+            type: object
+        type: object
+    served: true
+    storage: true

@@ -30,11 +30,6 @@ get_operator_helm_values() {
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
-    "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
-    # only send the telemetry to the backend on a specific variant, thus default to false
-    "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
-    # lets collect and save in the configmap as frequently as we can
-    "operator.telemetry.collection.frequency=${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}"
     "search.repo=${MDB_SEARCH_REPO_URL}"
     "search.name=${MDB_SEARCH_NAME}"
     "search.version=${MDB_SEARCH_VERSION}"
@@ -64,13 +59,6 @@ get_operator_helm_values() {
     fi
   fi
 
-  if [[ "${MDB_OPERATOR_TELEMETRY_ENABLED:-true}" == "false" ]]; then
-    config+=("operator.telemetry.enabled=false")
-    config+=("operator.telemetry.collection.clusters.enabled=false")
-    config+=("operator.telemetry.collection.deployments.enabled=false")
-    config+=("operator.telemetry.collection.operators.enabled=false")
-  fi
-
   # shellcheck disable=SC2154
   if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
     if [[ -n "${MEMBER_CLUSTERS:-}" ]]; then
@@ -83,10 +71,6 @@ get_operator_helm_values() {
 
   if [[ "${BUILD_WITH_RACE_DETECTION:-}" == "true" ]]; then
     config+=("operator.build=-race")
-  fi
-
-  if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then
-    config+=("operator.maxConcurrentReconciles=${MDB_MAX_CONCURRENT_RECONCILES}")
   fi
 
   # change this locally or as changed in variant e2e_operator_race_ubi_with_telemetry which also sends telemetry

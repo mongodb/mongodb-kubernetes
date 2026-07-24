@@ -24,16 +24,8 @@ spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.10.0"
+          image: "quay.io/mongodb/mongodb-kubernetes:2.0.0"
           imagePullPolicy: Always
-          args:
-            - -watch-resource=mongodb
-            - -watch-resource=opsmanagers
-            - -watch-resource=mongodbusers
-            - -watch-resource=mongodbcommunity
-            - -watch-resource=mongodbsearch
-            - -watch-resource=voyageais
-            - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           volumeMounts:
@@ -49,8 +41,6 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: prod
-            - name: MDB_DEFAULT_ARCHITECTURE
-              value: non-static
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
@@ -61,14 +51,6 @@ spec:
                   fieldPath: metadata.namespace
             - name: MANAGED_SECURITY_CONTEXT
               value: 'true'
-            - name: MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY
-              value: "1h"
-            - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
-              value: "168h"
-            - name: CLUSTER_CLIENT_TIMEOUT
-              value: "10"
-            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
-              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database
@@ -77,16 +59,16 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: "1.10.0"
+              value: "2.0.0"
             - name: DATABASE_VERSION
-              value: "1.10.0"
+              value: "2.0.0"
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: "1.10.0"
+              value: "2.0.0"
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -101,8 +83,6 @@ spec:
               value: 'true'
             - name: MDB_WEBHOOK_REGISTER_CONFIGURATION
               value: "false"
-            - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "1"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -127,12 +107,12 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_10_0
-              value: "quay.io/mongodb/mongodb-kubernetes-database:1.10.0"
-            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_10_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.10.0"
-            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_10_0
-              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.10.0"
+            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_2_0_0
+              value: "quay.io/mongodb/mongodb-kubernetes-database:2.0.0"
+            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_2_0_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-database:2.0.0"
+            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_2_0_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:2.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1
               value: "quay.io/mongodb/mongodb-agent:107.0.12.8669-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1

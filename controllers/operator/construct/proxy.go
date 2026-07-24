@@ -2,17 +2,9 @@ package construct
 
 import (
 	"os"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-)
-
-const (
-	// MDB_PROPAGATE_PROXY_ENV needs to be configurable in the operator environment to support configuring whether the proxy environment
-	// variables should be propagated to the database containers. A valid case for this is a multi-cluster environment where the operator
-	// might have to use a proxy to connect to OM/CM, but the mongodb agents in different clusters don't have to.
-	PropagateProxyEnv = "MDB_PROPAGATE_PROXY_ENV"
 )
 
 // below proxy handling has been inspired by the proxy handling in operator-lib
@@ -21,13 +13,11 @@ const (
 // ProxyEnvNames are standard environment variables for proxies
 var ProxyEnvNames = []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"}
 
-// ReadDatabaseProxyVarsFromEnv retrieves the standard proxy-related environment
-// variables from the running environment and returns a slice of corev1 EnvVar
-// containing upper and lower case versions of those variables.
-func ReadDatabaseProxyVarsFromEnv() []corev1.EnvVar {
-	propagateProxyVar, _ := os.LookupEnv(PropagateProxyEnv) // nolint:forbidigo
-	propagateProxy, _ := strconv.ParseBool(propagateProxyVar)
-	if !propagateProxy {
+// ReadDatabaseProxyVarsFromEnv retrieves the standard proxy-related environment variables from the
+// operator's running environment and returns a slice of corev1 EnvVar containing upper and lower
+// case versions of those variables.
+func ReadDatabaseProxyVarsFromEnv(propagateProxyEnv bool) []corev1.EnvVar {
+	if !propagateProxyEnv {
 		return nil
 	}
 	var envVars []corev1.EnvVar

@@ -60,6 +60,15 @@ rules:
   verbs:
   - '*'
 - apiGroups:
+  - operator.mongodb.com
+  resources:
+  - operatorconfigs
+  - memberclusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - secrets

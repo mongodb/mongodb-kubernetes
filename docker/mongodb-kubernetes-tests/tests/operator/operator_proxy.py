@@ -43,13 +43,17 @@ def squid_proxy(namespace: str) -> str:
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str], squid_proxy: str) -> Operator:
     os.environ["HTTP_PROXY"] = os.environ["HTTPS_PROXY"] = squid_proxy
     helm_args = operator_installation_config.copy()
+    # The proxy values themselves stay as env vars on the operator container; propagation onto
+    # managed database workloads is now controlled via OperatorConfig.spec.proxy.envPropagationPolicy
+    # (see apply_operator_config_and_wait below) rather than the removed MDB_PROPAGATE_PROXY_ENV env var.
     helm_args["customEnvVars"] += (
-        f"\&MDB_PROPAGATE_PROXY_ENV=true"
-        + f"\&HTTP_PROXY={squid_proxy}"
-        + f"\&HTTPS_PROXY={squid_proxy}"
-        + "\&NO_PROXY=cloud-qa.mongodb.com"
+        f"\&HTTP_PROXY={squid_proxy}" + f"\&HTTPS_PROXY={squid_proxy}" + "\&NO_PROXY=cloud-qa.mongodb.com"
     )
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    # Enable proxy env propagation via OperatorConfig; this creates the CR and waits for the operator
+    # to restart, reload its configuration and become ready again.
+    operator.apply_operator_config_and_wait(extra_spec={"proxy": {"envPropagationPolicy": "Propagate"}})
+    return operator
 
 
 @fixture(scope="module")
