@@ -40,6 +40,23 @@ func SearchManagedLabels(search metav1.Object, app, component, clusterName strin
 	return labels
 }
 
+// HasSearchOwnership reports whether obj belongs to this MongoDBSearch on the
+// given cluster: the search-name and search-namespace labels must match, and
+// the cluster-name label must match clusterName. Writers omit the cluster-name
+// label for the empty cluster name and never write it empty, so
+// clusterName == "" matches only when the label is absent.
+func HasSearchOwnership(obj metav1.Object, search metav1.Object, clusterName string) bool {
+	labels := obj.GetLabels()
+	if labels[MongoDBSearchOwnerNameLabel] != search.GetName() || labels[MongoDBSearchOwnerNamespaceLabel] != search.GetNamespace() {
+		return false
+	}
+	actualCluster, hasCluster := labels[MongoDBSearchClusterNameLabel]
+	if clusterName == "" {
+		return !hasCluster
+	}
+	return actualCluster == clusterName
+}
+
 // MapMemberClusterObjectToSearch reads the search-owner labels off a watched
 // member-cluster object and returns the reconcile request for the central
 // MongoDBSearch CR. Returns the zero Request when either label is missing.

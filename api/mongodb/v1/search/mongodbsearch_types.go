@@ -16,18 +16,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 const (
 	// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 	ShardNamePlaceholder = "{shardName}"
-
-	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
-	// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
-	LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028
@@ -1046,6 +1042,10 @@ func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 	return ok && val == "true"
 }
 
+func (s *MongoDBSearch) IsReconciliationDisabled() bool {
+	return s.Annotations[DisableReconciliationAnnotation] == "true"
+}
+
 func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 	if s.IsWireprotoEnabled() {
 		return s.GetMongotWireprotoPort()
@@ -1384,13 +1384,10 @@ func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(s.Namespace, s.Name)
 }
 
-// GetOwnerLabels implements v1.ResourceOwner. Returns labels used to identify
-// the state ConfigMap owned by this MongoDBSearch.
+// GetOwnerLabels implements v1.ResourceOwner. Returns the owner labels stamped
+// on every resource managed for this MongoDBSearch.
 func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
-	return map[string]string{
-		util.OperatorLabelName: util.OperatorLabelValue,
-		LabelResourceOwner:     s.Name,
-	}
+	return khandler.SearchManagedLabels(s, "", "", "")
 }
 
 // GetKind implements v1.ObjectOwner.
