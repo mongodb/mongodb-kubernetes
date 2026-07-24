@@ -274,11 +274,14 @@ class TestGetPreviousVersionFailures:
         mock_api = MagicMock()
         mock_api.recent_versions_by_project.return_value.json = {
             "versions": [
-                {"rolled_up": False, "versions": [
-                    {"version_id": "v1", "order": 95},
-                    {"version_id": "v2", "order": 99},  # closest below current
-                    {"version_id": "v3", "order": 101},  # above current, should be skipped
-                ]},
+                {
+                    "rolled_up": False,
+                    "versions": [
+                        {"version_id": "v1", "order": 95},
+                        {"version_id": "v2", "order": 99},  # closest below current
+                        {"version_id": "v3", "order": 101},  # above current, should be skipped
+                    ],
+                },
             ]
         }
 

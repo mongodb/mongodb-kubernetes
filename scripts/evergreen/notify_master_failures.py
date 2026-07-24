@@ -220,7 +220,8 @@ def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) 
     # Version() instead of individual dicts, so all fields are None.
     # Access the raw JSON directly.
     all_versions = [
-        v for wrapper in recent.json.get("versions", [])
+        v
+        for wrapper in recent.json.get("versions", [])
         for v in wrapper.get("versions", [])
         if v.get("order") is not None
     ]
