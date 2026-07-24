@@ -256,6 +256,12 @@ run_tests() {
     fi
     kubectl --context "${test_pod_context}" -n "${NAMESPACE}" -c keepalive cp "${TEST_APP_PODNAME}":/tmp/diagnostics logs
 
+    # upload_e2e_logs uses logs/* (non-recursive), so flatten any subdirectories
+    # created by kubectl cp into logs/ directly.
+    if [[ -d logs/diagnostics ]]; then
+        find logs/diagnostics -type f -exec cp {} logs/ \; 2>/dev/null || true
+    fi
+
     status="$(kubectl --context "${test_pod_context}" get pod "${TEST_APP_PODNAME}" -n "${NAMESPACE}" -o jsonpath="{ .status }" | jq -r '.containerStatuses[] | select(.name == "mongodb-enterprise-operator-tests")'.state.terminated.reason)"
     [[ "${status}" == "Completed" ]]
 }
