@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"golang.org/x/xerrors"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -73,7 +76,9 @@ func ReadSearchState(
 // search state ConfigMap: a stale base yields 409 Conflict and the reconcile
 // requeues, instead of silently losing a concurrent write (do NOT replace this
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
-// true when the state changed and must be persisted.
+// true when the state changed and must be persisted. Every update also repairs
+// legacy metadata written by released 1.9.x operators: the ConfigMap gains an
+// owner reference to the current CR and the owner labels.
 func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
 	cmName := SearchStateCMName(search)
 	cm := &corev1.ConfigMap{}
@@ -90,7 +95,7 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 		newCM := configmap.Builder().
 			SetName(cmName).
 			SetNamespace(search.Namespace).
-			SetLabels(search.GetOwnerLabels()).
+			SetLabels(searchOwnerLabels(search, "")).
 			SetOwnerReferences(kube.BaseOwnerReference(search)).
 			SetDataField(searchStateKey, string(data)).
 			Build()
@@ -103,9 +108,35 @@ func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *s
 	if err != nil {
 		return nil, err
 	}
-	if !mutate(state) {
+
+	stateChanged := mutate(state)
+	metadataChanged := false
+	// Adopt legacy metadata without replacing an existing controller owner reference.
+	if !slices.ContainsFunc(cm.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == search.UID
+	}) {
+		cm.OwnerReferences = append(cm.OwnerReferences, metav1.OwnerReference{
+			APIVersion: v1.SchemeGroupVersion.String(),
+			Kind:       "MongoDBSearch",
+			Name:       search.Name,
+			UID:        search.UID,
+		})
+		metadataChanged = true
+	}
+	if cm.Labels == nil {
+		cm.Labels = map[string]string{}
+	}
+	for key, value := range searchOwnerLabels(search, "") {
+		if cm.Labels[key] != value {
+			cm.Labels[key] = value
+			metadataChanged = true
+		}
+	}
+
+	if !stateChanged && !metadataChanged {
 		return state, nil
 	}
+
 	data, err := json.Marshal(state)
 	if err != nil {
 		return nil, err

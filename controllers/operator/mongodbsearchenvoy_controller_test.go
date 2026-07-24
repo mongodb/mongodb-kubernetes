@@ -922,6 +922,7 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	single := envoyLabelsForCluster(search, "", 0)
 	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, labelName, single[khandler.MongoDBSearchComponentLabel])
 	_, hasCluster := single[khandler.MongoDBSearchClusterNameLabel]
 	assert.False(t, hasCluster)
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), single["app"])
@@ -930,6 +931,7 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	mc := envoyLabelsForCluster(search, "us-east-k8s", 3)
 	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, labelName, mc[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, "us-east-k8s", mc[khandler.MongoDBSearchClusterNameLabel])
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(3), mc["app"])
 }
