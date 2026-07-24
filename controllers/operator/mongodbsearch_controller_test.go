@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -299,6 +301,37 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+
+	t.Run("state write conflict requeues instead of failing", func(t *testing.T) {
+		ctx := context.Background()
+		search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+		mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+		// A state CM without owner labels forces the pre-reconcile no-op state
+		// mutation to attempt a metadata-repair update, which conflicts here.
+		stateCM := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace},
+		}
+		c := mock.NewEmptyFakeClientBuilder().
+			WithObjects(search, mdbc, stateCM).
+			WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if obj.GetName() == stateCM.Name {
+						return apiErrors.NewConflict(schema.GroupResource{Resource: "configmaps"}, stateCM.Name, nil)
+					}
+					return cl.Update(ctx, obj, opts...)
+				},
+			}).
+			Build()
+		reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+
+		res, err := reconciler.Reconcile(ctx, requestFromObject(search))
+		require.NoError(t, err)
+		assert.True(t, res.Requeue, "conflict must requeue, not fail")
+
+		updated := &searchv1.MongoDBSearch{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
+		assert.Equal(t, status.PhasePending, updated.Status.Phase)
+	})
 }
 
 func checkSearchReconcileFailed(

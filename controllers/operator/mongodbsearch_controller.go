@@ -182,8 +182,17 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
+	// The no-op mutation reads the state and, as a side effect, repairs legacy
+	// metadata on the state ConfigMap (owner reference + owner labels).
+	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(*searchcontroller.SearchDeploymentState) bool {
+		return false
+	})
 	if err != nil {
+		// A concurrent writer bumped the ConfigMap between read and update; retry
+		// instead of marking the CR Failed over a transient race.
+		if apierrors.IsConflict(err) {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, retrying").Requeue(), log)
+		}
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)
 	}
 
