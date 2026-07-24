@@ -28,44 +28,24 @@ logger = test_logger.get_test_logger(__name__)
 
 
 def collect_om_migration_logs(ops_manager: MongoDBOpsManager) -> None:
-    """Collect migration logs from OM pods to /tmp/diagnostics/ for post-test analysis."""
+    """Capture OM container logs to /tmp/diagnostics/ for post-test analysis.
+
+    The container logs already include mms-migration.log content (the OM
+    entrypoint concatenates all log files to stdout), so no separate file
+    extraction is needed.
+    """
     import os
 
-    dest_dir = "/tmp/diagnostics/om-migration-logs"
-    os.makedirs(dest_dir, exist_ok=True)
-
+    os.makedirs("/tmp/diagnostics", exist_ok=True)
     for api_client, pod in ops_manager.read_om_pods():
-        pod_name = pod.metadata.name
         try:
-            # Directly cat the known migration log path. We don't use find
-            # because find may not be in the OM container's PATH.
-            mig_log_path = "/mongodb-ops-manager/logs/mms-migration.log"
-            file_content = KubernetesTester.run_command_in_pod_container(
-                pod_name,
-                ops_manager.namespace,
-                ["cat", mig_log_path],
-                container="mongodb-ops-manager",
-                api_client=api_client,
-            )
-            if file_content.strip():
-                logger.info(f"Collected migration log from pod {pod_name} ({len(file_content)} bytes)")
-                with open(os.path.join(dest_dir, f"{pod_name}_mms-migration.log"), "w") as f:
-                    f.write(file_content)
-            else:
-                logger.info(f"No migration log content in pod {pod_name}")
-
-            # Also capture full container logs — they contain the
-            # NoMigrationPathException stack trace on failure.
             log_content = KubernetesTester.read_pod_logs(
-                ops_manager.namespace,
-                pod_name,
-                "mongodb-ops-manager",
-                api_client=api_client,
+                ops_manager.namespace, pod.metadata.name, "mongodb-ops-manager", api_client=api_client,
             )
-            with open(os.path.join(dest_dir, f"{pod_name}_mongodb-ops-manager.log"), "w") as f:
+            with open(f"/tmp/diagnostics/{pod.metadata.name}_mongodb-ops-manager.log", "w") as f:
                 f.write(log_content)
         except Exception as e:
-            logger.warning(f"Failed to collect migration logs from pod {pod_name}: {e}")
+            logger.warning(f"Failed to collect logs from pod {pod.metadata.name}: {e}")
 
 
 @fixture(scope="module")
