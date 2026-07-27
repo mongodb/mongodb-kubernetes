@@ -229,11 +229,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Pending("This AppDB resource is ownerless: After successful reverse migration to Ops Manager CR delete this resource"))
 		}
 
-		if err := r.ensureAppDBRoleUser(ctx, rs, conn); err != nil {
-			return r.updateStatus(ctx, workflow.Failed(err))
-		}
-
-		if err := r.ensureAppDBRoleKeyfile(ctx, rs, conn); err != nil {
+		if err := r.claimAppDBRoleSecrets(ctx, rs); err != nil {
 			return r.updateStatus(ctx, workflow.Failed(err))
 		}
 	}
@@ -445,7 +441,15 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 		return false
 	}
 
+	if mdb.Spec.Role == mdbv1.RoleAppDB {
+		return true
+	}
+
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	// If we are migrating from the internal AppDB to an external AppDB, the database container might not exist
+	if databaseContainer == nil {
+		return false
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 
 	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {
@@ -798,6 +802,15 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
+	if rs.Spec.Role == mdbv1.RoleAppDB {
+		if err := r.ensureAppDBRoleUser(ctx, rs, conn); err != nil {
+			return workflow.Failed(err)
+		}
+		if err := r.ensureAppDBRoleKeyfile(ctx, rs, conn); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
@@ -902,11 +915,6 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 
 	password := existingData[util.OpsManagerPasswordKey]
 	if password != "" {
-		// forward migration: the secret pre-exists (created by internal AppDB, OM refs stripped
-		// by detach) - claim it so ownership follows the AppDB's manager
-		if err := r.claimSecretForCR(ctx, mdb, secretName); err != nil {
-			return err
-		}
 	} else {
 		password, err = generate.RandomFixedLengthStringOfSize(20)
 		if err != nil {
@@ -977,13 +985,6 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context,
 		return xerrors.Errorf("failed to check for existing keyfile secret: %w", err)
 	}
 	sharedKey := existingData[constants.AgentKeyfileKey]
-	if sharedKey != "" {
-		// forward migration: the secret pre-exists (created by internal AppDB, OM refs stripped
-		// by detach) - claim it so ownership follows the AppDB's manager
-		if err := r.claimSecretForCR(ctx, mdb, secretName); err != nil {
-			return err
-		}
-	}
 
 	var projectKey string
 	// ReadUpdateAutomationConfig only pushes when the config actually changed, so forcing an
@@ -1012,6 +1013,31 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context,
 			Build()
 		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
 			return xerrors.Errorf("failed to create keyfile secret: %w", err)
+		}
+	}
+	return nil
+}
+
+// claimAppDBRoleSecrets claims ownership of the shared user and keyfile secrets for an AppDB-role CR.
+// It tolerates secrets that don't exist yet (they will be created by ensureAppDBRoleUser/Keyfile later).
+func (r *ReplicaSetReconcilerHelper) claimAppDBRoleSecrets(ctx context.Context, mdb *mdbv1.MongoDB) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+
+	passwordSecretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
+	keyfileSecretName := fmt.Sprintf("%s-keyfile", mdb.Name)
+
+	for _, name := range []string{passwordSecretName, keyfileSecretName} {
+		s := corev1.Secret{}
+		if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s); err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			return xerrors.Errorf("failed to fetch secret %s: %w", name, err)
+		}
+		if err := r.claimSecretForCR(ctx, mdb, name); err != nil {
+			return xerrors.Errorf("failed to claim secret %s: %w", name, err)
 		}
 	}
 	return nil

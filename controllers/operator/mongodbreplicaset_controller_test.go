@@ -1611,6 +1611,16 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 			},
 			expectedPublishACFirst: true,
 		},
+		{
+			name:        "AppDB-role with existing STS",
+			existingSts: baseTestStatefulSet("test-appdb", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-appdb", 3)
+				m.Spec.Role = mdbv1.RoleAppDB
+				return m
+			}(),
+			expectedPublishACFirst: true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2117,6 +2127,7 @@ func TestEnsureAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
 		require.NoError(t, kubeClient.CreateSecret(ctx, s))
 	}
 
+	require.NoError(t, helper.claimAppDBRoleSecrets(ctx, mdb))
 	require.NoError(t, helper.ensureAppDBRoleUser(ctx, mdb, conn))
 	require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
 
