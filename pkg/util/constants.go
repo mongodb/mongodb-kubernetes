@@ -185,6 +185,7 @@ const (
 	// new variable to be printed at operator start.
 	MongodbRepoUrlEnv = "MONGODB_REPO_URL"
 	MongodbImageEnv   = "MONGODB_IMAGE"
+	MongoDBImageType  = "MONGODB_IMAGE_TYPE"
 
 	OpsManagerImageUrl               = "OPS_MANAGER_IMAGE_REPOSITORY"
 	InitOpsManagerImageUrl           = "INIT_OPS_MANAGER_IMAGE_REPOSITORY"

@@ -128,7 +128,7 @@ func TestReplicaSetClusterReconcileContainerImages(t *testing.T) {
 }
 
 func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", util.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9_slim", util.MongodbImageEnv)
 
 	imageUrlsMock := images.ImageUrls{
 		util.AgentImageUrlEnv:   "quay.io/mongodb/mongodb-agent",

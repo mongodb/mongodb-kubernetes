@@ -289,7 +289,7 @@ func TestShardedClusterReconcileContainerImages(t *testing.T) {
 }
 
 func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
-	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9", util.MongodbImageEnv)
+	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_0_ubi9_slim", util.MongodbImageEnv)
 
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().SetVersion("8.0.0").SetShardCountSpec(1).Build()

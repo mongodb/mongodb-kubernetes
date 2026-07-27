@@ -154,7 +154,7 @@ func TestGetAppDBImage(t *testing.T) {
 			annotations: map[string]string{
 				"mongodb.com/v1.architecture": string(architectures.Static),
 			},
-			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
+			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9-slim",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
@@ -166,10 +166,35 @@ func TestGetAppDBImage(t *testing.T) {
 			annotations: map[string]string{
 				"mongodb.com/v1.architecture": string(architectures.Static),
 			},
-			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
+			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9-slim",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting official image with ubi9-slim suffix on static architecture",
+			input: "8.0.23-ubi9-slim",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9-slim",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting official image with ent suffix on static architecture with MONGODB_IMAGE_TYPE override",
+			input: "8.0.23-ent",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+				t.Setenv(util.MongoDBImageType, "ubi9")
 			},
 		},
 	}

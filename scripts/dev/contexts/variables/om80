@@ -7,10 +7,10 @@ export CUSTOM_OM_PREV_VERSION
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_80_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-export CUSTOM_MDB_VERSION=8.0.6
+export CUSTOM_MDB_VERSION=8.0.23
 export CUSTOM_MDB_PREV_VERSION=7.0.18
 
-export CUSTOM_APPDB_VERSION=8.0.6-ent
+export CUSTOM_APPDB_VERSION=8.0.23-ent
 export TEST_MODE=opsmanager
 export OPS_MANAGER_REGISTRY="${REGISTRY}"
 

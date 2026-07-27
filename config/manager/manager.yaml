@@ -368,6 +368,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_23_ubi9_slim
+              value: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9-slim"
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_1_70_1
               value: "quay.io/mongodb/mongodb-search:1.70.1"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE

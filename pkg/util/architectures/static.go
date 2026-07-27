@@ -11,12 +11,17 @@ type DefaultArchitecture string
 type ImageType string
 
 const (
-	ImageTypeUBI8    ImageType = "ubi8"
-	ImageTypeUBI9    ImageType = "ubi9"
-	DefaultImageType ImageType = ImageTypeUBI8
+	ImageTypeUBI8     ImageType = "ubi8"
+	ImageTypeUBI9     ImageType = "ubi9"
+	ImageTypeUBI9Slim ImageType = "ubi9-slim"
+	DefaultImageType  ImageType = ImageTypeUBI8
 )
 
 func HasSupportedImageTypeSuffix(imageVersion string) (suffixFound bool, suffix string) {
+	// Check ubi9-slim before ubi9, otherwise "ubi9" would match inside "ubi9-slim".
+	if strings.HasSuffix(imageVersion, string(ImageTypeUBI9Slim)) {
+		return true, string(ImageTypeUBI9Slim)
+	}
 	if strings.HasSuffix(imageVersion, string(ImageTypeUBI8)) {
 		return true, string(ImageTypeUBI8)
 	}
