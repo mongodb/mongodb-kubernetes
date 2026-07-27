@@ -123,7 +123,6 @@ func newMetricsForwarderReconciler(defaultImage string, objects ...client.Object
 		omRequester:        newStubOMAgentRequester(testGroupID),
 		otelConfigTemplate: searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
 		prepareSearch:      newPrepareSearch(""),
-		clusterRouter:      searchcontroller.NewSearchClusterRouter(kc, nil, ""),
 	}
 	return r, fakeClient
 }
@@ -242,6 +241,9 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 			Labels:    metricsForwarderLabelsForCluster(search, 0),
 		}}
 		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM, legacyDeployment)
+		// Hub mode with every named cluster registered; the member clients alias
+		// the central fake so all assertions read one client.
+		r.memberClients = map[string]kubernetesClient.Client{"cluster-a": r.kubeClient, "cluster-b": r.kubeClient}
 		return r, fakeClient, search, legacyDeployment
 	}
 
@@ -938,7 +940,10 @@ func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
 		},
 	}))
 	r.kubeClient = interceptedClient
-	r.clusterRouter = searchcontroller.NewSearchClusterRouter(interceptedClient, nil, "")
+	// Hub mode: the in-spec cluster and the state-only removed cluster both
+	// route through the intercepted client so the sweep and its delete options
+	// stay observable.
+	r.memberClients = map[string]kubernetesClient.Client{"cluster-a": interceptedClient, "cluster-b": interceptedClient}
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	dep := &appsv1.Deployment{}
@@ -1159,7 +1164,6 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 				},
 			}))
 			r.kubeClient = interceptedClient
-			r.clusterRouter = searchcontroller.NewSearchClusterRouter(interceptedClient, nil, "")
 
 			// Trigger deletion: with the finalizer present the fake client sets a
 			// DeletionTimestamp instead of removing the object outright.
@@ -1217,7 +1221,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 		agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
 		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
-		r.clusterRouter = searchcontroller.NewSearchClusterRouter(r.kubeClient, members, "")
+		r.memberClients = members
 		return r, fakeClient, search
 	}
 
@@ -1377,7 +1381,6 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 					},
 				}))
 				r.kubeClient = wrapped
-				r.clusterRouter = searchcontroller.NewSearchClusterRouter(wrapped, nil, "")
 			}
 			if tc.deleteSearch {
 				require.NoError(t, fakeClient.Delete(t.Context(), search))
@@ -2380,7 +2383,6 @@ func TestReconcileCore_StateWriteFailurePreventsDeploymentCreation(t *testing.T)
 		},
 	}))
 	r.kubeClient = interceptedClient
-	r.clusterRouter = searchcontroller.NewSearchClusterRouter(interceptedClient, nil, "")
 	currentSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 
 	st := r.reconcileCore(context.Background(), currentSearch, zap.NewNop().Sugar())

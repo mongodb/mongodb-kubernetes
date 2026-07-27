@@ -90,7 +90,6 @@ type MongoDBSearchEnvoyReconciler struct {
 	memberClients       map[string]kubernetesClient.Client
 
 	prepareSearch prepareSearchFuncs
-	clusterRouter searchcontroller.SearchClusterRouter
 }
 
 func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
@@ -107,7 +106,6 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		operatorClusterName: operatorClusterName,
 		memberClients:       clientsMap,
 		prepareSearch:       newPrepareSearch(operatorClusterName),
-		clusterRouter:       searchcontroller.NewSearchClusterRouter(central, clientsMap, operatorClusterName),
 	}
 }
 
@@ -146,11 +144,11 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// drive deletions) but on the PRE-localization spec (a narrowed spec would
 	// mark sibling clusters as removed). Best-effort: failures are logged, never
 	// fail the reconcile, and are retried on the next reconcile of the live CR.
-	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClients, envoySearchResourceCleanups(), log); err != nil {
+	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClients, sweepEnvoySearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
 	}
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
-		if _, err := searchcontroller.SweepSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, envoySearchResourceCleanups(), log); err != nil {
+		if err := sweepEnvoySearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
 			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", r.operatorClusterName, err)
 		}
 		return reconcile.Result{}, nil
@@ -250,28 +248,33 @@ type clusterWorkItem struct {
 // defensive backstop only.
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
 	if len(search.Spec.Clusters) == 0 {
-		return []clusterWorkItem{newClusterWorkItem(r.clusterRouter, search, "", 0)}
+		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		work = append(work, newClusterWorkItem(r.clusterRouter, search, c.Name, c.ResolveIndex()))
+		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
 	}
 	return work
 }
 
-// newClusterWorkItem builds one per-cluster work unit. A missing member client
-// leaves Client nil; callers report the cluster as not registered. Only local
-// clusters get owner references — they do nothing across cluster boundaries.
-func newClusterWorkItem(router searchcontroller.SearchClusterRouter, search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) clusterWorkItem {
-	c, _ := router.ClientForCluster(clusterName)
+// newClusterWorkItem builds one per-cluster work unit. Local clusters — the
+// legacy unnamed entry, and the operator's own cluster in per-cluster operator
+// mode — use the operator's own client and carry owner references (owner refs
+// do nothing across cluster boundaries); named clusters route to their
+// registered member client. A missing member client leaves Client nil: callers
+// report the cluster as not registered and never fall back to the central
+// client.
+func newClusterWorkItem(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, central kubernetesClient.Client, members map[string]kubernetesClient.Client, operatorClusterName string) clusterWorkItem {
 	work := clusterWorkItem{
 		ClusterName:  clusterName,
 		ClusterIndex: clusterIndex,
-		Client:       c,
 	}
-	if router.IsLocalCluster(clusterName) {
+	if clusterName == "" || clusterName == operatorClusterName {
+		work.Client = central
 		work.OwnerReferences = search.GetOwnerReferences()
+		return work
 	}
+	work.Client = members[clusterName]
 	return work
 }
 

@@ -42,7 +42,7 @@ func TestRoutingSwitch_StateCMWrites(t *testing.T) {
 
 	newHelper := func(c client.Client) *MongoDBSearchReconcileHelper {
 		central := kubernetesClient.NewClient(c)
-		return NewMongoDBSearchReconcileHelper(central, search, nil, OperatorSearchConfig{}, SearchClusterRouter{central: central}, nil)
+		return NewMongoDBSearchReconcileHelper(central, search, nil, OperatorSearchConfig{}, nil, "", nil)
 	}
 	switchedOn := func(h *MongoDBSearchReconcileHelper, shard string) bool {
 		return slices.Contains(h.state.RoutingReadyMongotGroups, shard)

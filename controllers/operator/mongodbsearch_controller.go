@@ -23,6 +23,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
@@ -125,7 +126,6 @@ type MongoDBSearchReconciler struct {
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
 	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
-	clusterRouter           searchcontroller.SearchClusterRouter
 	operatorClusterName     string
 
 	prepareSearch prepareSearchFuncs
@@ -148,7 +148,6 @@ func newMongoDBSearchReconciler(
 		watch:                   watch.NewResourceWatcher(),
 		operatorSearchConfig:    operatorSearchConfig,
 		memberClusterClientsMap: clientsMap,
-		clusterRouter:           searchcontroller.NewSearchClusterRouter(central, clientsMap, operatorClusterName),
 		operatorClusterName:     operatorClusterName,
 		prepareSearch:           newPrepareSearch(operatorClusterName),
 	}
@@ -190,13 +189,13 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// drive deletions) but on the PRE-localization spec (a narrowed spec would
 	// mark sibling clusters as removed). Best-effort: failures are logged, never
 	// fail the reconcile, and are retried on the next reconcile of the live CR.
-	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClusterClientsMap, memberSearchResourceCleanups(mdbSearch), log); err != nil {
+	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClusterClientsMap, sweepMemberSearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Search resources on removed member clusters: %v", err)
 	}
 
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
 		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
-		if _, err := searchcontroller.SweepSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, localSearchResourceCleanups(mdbSearch), log); err != nil {
+		if err := sweepLocalSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
 			log.Warnf("Failed to clean up Search resources on removed cluster %q: %v", r.operatorClusterName, err)
 		}
 		return reconcile.Result{}, nil
@@ -254,7 +253,8 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		mdbSearch,
 		searchSource,
 		r.operatorSearchConfig,
-		r.clusterRouter,
+		r.memberClusterClientsMap,
+		r.operatorClusterName,
 		state,
 	)
 
@@ -334,46 +334,53 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 	return nil
 }
 
-// memberSearchResourceCleanups lists the per-cluster Search resources swept on
-// member clusters removed from spec.clusters. The state ConfigMap is deliberately
-// absent: it lives on the central cluster only, and a hub whose own cluster is
-// member-registered would otherwise delete the live central state.
-func memberSearchResourceCleanups(search *searchv1.MongoDBSearch) []searchcontroller.SearchResourceCleanup {
-	return []searchcontroller.SearchResourceCleanup{
-		{Kind: "StatefulSet", Component: searchMongotComponent, NewList: func() client.ObjectList { return &appsv1.StatefulSetList{} }},
-		{Kind: "headless Service", Component: searchMongotComponent, NewList: func() client.ObjectList { return &corev1.ServiceList{} }},
-		{Kind: "proxy Service", Component: searchProxyComponent, NewList: func() client.ObjectList { return &corev1.ServiceList{} }},
-		{Kind: "ConfigMap", Component: searchMongotComponent, NewList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
-		{Kind: "x509 client auth Secret", Name: search.X509OperatorManagedSecret().Name, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
-		{Kind: "SCRAM client auth Secret", Name: search.ScramClientCertOperatorManagedSecret().Name, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
-		{Kind: "Secret", Component: searchMongotComponent, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
+// sweepMemberSearchResources reaps one removed cluster's label-owned Search
+// resources. The state ConfigMap is deliberately absent: it lives on the
+// central cluster only, and a hub whose own cluster is member-registered would
+// otherwise delete the live central state — see sweepLocalSearchResources.
+func sweepMemberSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+	errs := errors.Join(
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "StatefulSet", searchMongotComponent, &appsv1.StatefulSetList{}, log),
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "headless Service", searchMongotComponent, &corev1.ServiceList{}, log),
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "proxy Service", searchProxyComponent, &corev1.ServiceList{}, log),
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchMongotComponent, &corev1.ConfigMapList{}, log),
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "Secret", searchMongotComponent, &corev1.SecretList{}, log),
+	)
+	for _, s := range []struct{ kind, name string }{
+		{"x509 client auth Secret", search.X509OperatorManagedSecret().Name},
+		{"SCRAM client auth Secret", search.ScramClientCertOperatorManagedSecret().Name},
+	} {
+		_, err := searchcontroller.DeleteOwnedResource(ctx, c, search, clusterName, s.kind, "",
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: s.name, Namespace: search.Namespace}}, log)
+		errs = errors.Join(errs, err)
 	}
+	return errs
 }
 
-// localSearchResourceCleanups adds the central state ConfigMap: swept only when
+// sweepLocalSearchResources adds the central state ConfigMap: swept only when
 // THIS operator's own cluster was removed from spec.clusters.
-func localSearchResourceCleanups(search *searchv1.MongoDBSearch) []searchcontroller.SearchResourceCleanup {
-	return append(memberSearchResourceCleanups(search), searchcontroller.SearchResourceCleanup{
-		Kind: "state ConfigMap", Name: searchcontroller.SearchStateCMName(search), NewList: func() client.ObjectList { return &corev1.ConfigMapList{} },
-	})
+func sweepLocalSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+	stateCM := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace}}
+	_, stateErr := searchcontroller.DeleteOwnedResource(ctx, c, search, clusterName, "state ConfigMap", "", stateCM, log)
+	return errors.Join(sweepMemberSearchResources(ctx, c, search, clusterName, log), stateErr)
 }
 
-func envoySearchResourceCleanups() []searchcontroller.SearchResourceCleanup {
-	return []searchcontroller.SearchResourceCleanup{
-		{Kind: "Deployment", Component: searchProxyComponent, NewList: func() client.ObjectList { return &appsv1.DeploymentList{} }},
-		{Kind: "ConfigMap", Component: searchProxyComponent, NewList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
-	}
+func sweepEnvoySearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+	return errors.Join(
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "Deployment", searchProxyComponent, &appsv1.DeploymentList{}, log),
+		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchProxyComponent, &corev1.ConfigMapList{}, log),
+	)
 }
 
-// cleanupRemovedMemberSearchResources reaps the label-owned Search resources on
-// member clusters that are no longer listed in spec.clusters. Best-effort: one
-// cluster's failure never blocks the others, and anything missed is retried on
-// the next reconcile of the still-live CR.
+// cleanupRemovedMemberSearchResources runs sweep against every member cluster
+// that is no longer listed in spec.clusters, reaping its label-owned Search
+// resources. Best-effort: one cluster's failure never blocks the others, and
+// anything missed is retried on the next reconcile of the still-live CR.
 func cleanupRemovedMemberSearchResources(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
 	memberClients map[string]kubernetesClient.Client,
-	cleanups []searchcontroller.SearchResourceCleanup,
+	sweep func(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error,
 	log *zap.SugaredLogger,
 ) error {
 	desired := make(map[string]struct{}, len(search.Spec.Clusters))
@@ -385,7 +392,7 @@ func cleanupRemovedMemberSearchResources(
 		if _, ok := desired[clusterName]; ok {
 			continue
 		}
-		if _, err := searchcontroller.SweepSearchResources(ctx, memberClient, search, clusterName, cleanups, log); err != nil {
+		if err := sweep(ctx, memberClient, search, clusterName, log); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
