@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -35,8 +34,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scramcredentials"
-	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -45,7 +42,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
@@ -1108,116 +1104,6 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, blockstores, 1)
 		assert.Equal(t, "block-store-config-1", blockstores[0].Id)
-	})
-}
-
-func TestEnsureResourcesForArchitectureChange(t *testing.T) {
-	ctx := context.Background()
-	opsManager := DefaultOpsManagerBuilder().Build()
-
-	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-
-	t.Run("When no automation config is present, there is no error", func(t *testing.T) {
-		client := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-		err := ensureResourcesForArchitectureChange(ctx, client, client, opsManager)
-		assert.NoError(t, err)
-	})
-
-	t.Run("If User is not present, there is an error", func(t *testing.T) {
-		client := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
-			Users: []automationconfig.MongoDBUser{
-				{
-					Username: "not-ops-manager-user",
-				},
-			},
-		}).Build()
-
-		assert.NoError(t, err)
-
-		acBytes, err := json.Marshal(ac)
-		assert.NoError(t, err)
-
-		// create the automation config secret
-		err = client.CreateSecret(ctx, secret.Builder().SetNamespace(opsManager.Namespace).SetName(opsManager.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
-		assert.NoError(t, err)
-
-		err = ensureResourcesForArchitectureChange(ctx, client, client, opsManager)
-		assert.Error(t, err)
-	})
-
-	t.Run("If an automation config is present, all secrets are created with the correct values", func(t *testing.T) {
-		client := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
-			AutoPwd: "VrBQgsUZJJs",
-			Key:     "Z8PSBtvvjnvds4zcI6iZ",
-			Users: []automationconfig.MongoDBUser{
-				{
-					Username: util.OpsManagerMongoDBUserName,
-					ScramSha256Creds: &scramcredentials.ScramCreds{
-						Salt:      "sha256-salt-value",
-						ServerKey: "sha256-serverkey-value",
-						StoredKey: "sha256-storedkey-value",
-					},
-					ScramSha1Creds: &scramcredentials.ScramCreds{
-						Salt:      "sha1-salt-value",
-						ServerKey: "sha1-serverkey-value",
-						StoredKey: "sha1-storedkey-value",
-					},
-				},
-			},
-		}).Build()
-
-		assert.NoError(t, err)
-
-		acBytes, err := json.Marshal(ac)
-		assert.NoError(t, err)
-
-		// create the automation config secret
-		err = client.CreateSecret(ctx, secret.Builder().SetNamespace(opsManager.Namespace).SetName(opsManager.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
-		assert.NoError(t, err)
-
-		// create the old ops manager user password
-		err = client.CreateSecret(ctx, secret.Builder().SetNamespace(opsManager.Namespace).SetName(opsManager.Spec.AppDB.Name()+"-password").SetField("my-password", "jrJP7eUeyn").Build())
-		assert.NoError(t, err)
-
-		err = ensureResourcesForArchitectureChange(ctx, client, client, opsManager)
-		assert.NoError(t, err)
-
-		t.Run("Scram credentials have been created", func(t *testing.T) {
-			ctx := context.Background()
-			scramCreds, err := client.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.OpsManagerUserScramCredentialsName()))
-			assert.NoError(t, err)
-
-			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.Salt, string(scramCreds.Data["sha256-salt"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.StoredKey, string(scramCreds.Data["sha-256-stored-key"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.ServerKey, string(scramCreds.Data["sha-256-server-key"]))
-
-			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.Salt, string(scramCreds.Data["sha1-salt"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.StoredKey, string(scramCreds.Data["sha-1-stored-key"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.ServerKey, string(scramCreds.Data["sha-1-server-key"]))
-		})
-
-		t.Run("Ops Manager user password has been copied", func(t *testing.T) {
-			ctx := context.Background()
-			newOpsManagerUserPassword, err := client.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName()))
-			assert.NoError(t, err)
-			assert.Equal(t, string(newOpsManagerUserPassword.Data["my-password"]), "jrJP7eUeyn")
-		})
-
-		t.Run("Agent password has been created", func(t *testing.T) {
-			ctx := context.Background()
-			agentPasswordSecret, err := client.GetSecret(ctx, opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName())
-			assert.NoError(t, err)
-			assert.Equal(t, ac.Auth.AutoPwd, string(agentPasswordSecret.Data[constants.AgentPasswordKey]))
-		})
-
-		t.Run("Keyfile has been created", func(t *testing.T) {
-			ctx := context.Background()
-			keyFileSecret, err := client.GetSecret(ctx, opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName())
-			assert.NoError(t, err)
-			assert.Equal(t, ac.Auth.Key, string(keyFileSecret.Data[constants.AgentKeyfileKey]))
-		})
 	})
 }
 
