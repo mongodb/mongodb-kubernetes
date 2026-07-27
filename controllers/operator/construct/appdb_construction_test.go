@@ -290,3 +290,53 @@ func TestResourceRequirements(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomAgentURL(t *testing.T) {
+	const customURL = "https://example.com/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz"
+
+	t.Run("Database StatefulSet has MDB_CUSTOM_AGENT_URL env var", func(t *testing.T) {
+		rs := mdbv1.NewReplicaSetBuilder().Build()
+		optsFunc := ReplicaSetOptions(GetPodEnvOptions())
+		sts := DatabaseStatefulSet(*rs, func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+			opts := optsFunc(mdb)
+			opts.CustomAgentURL = customURL
+			return opts
+		}, zap.S())
+
+		envMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
+		assert.Equal(t, customURL, envMap[util.EnvVarCustomAgentURL])
+	})
+
+	t.Run("AppDB StatefulSet has MDB_CUSTOM_AGENT_URL env var", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+			AppDBStatefulSetOptions{CustomAgentURL: customURL},
+			scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+			appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		assert.NoError(t, err)
+
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			envMap := env.ToMap(c.Env...)
+			if _, ok := envMap[util.EnvVarCustomAgentURL]; ok {
+				assert.Equal(t, customURL, envMap[util.EnvVarCustomAgentURL])
+				return
+			}
+		}
+		t.Fatal("MDB_CUSTOM_AGENT_URL not found in any AppDB container")
+	})
+
+	t.Run("AppDB StatefulSet without CustomAgentURL has no env var", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+			AppDBStatefulSetOptions{},
+			scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+			appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		assert.NoError(t, err)
+
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			envMap := env.ToMap(c.Env...)
+			_, ok := envMap[util.EnvVarCustomAgentURL]
+			assert.False(t, ok, "MDB_CUSTOM_AGENT_URL should not be set when CustomAgentURL is empty")
+		}
+	})
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/blang/semver"
@@ -64,6 +65,8 @@ type ReconcileCommonController struct {
 	secrets.SecretClient
 
 	resourceWatcher *watch.ResourceWatcher
+
+	customAgentURL string
 }
 
 func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
@@ -90,6 +93,8 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 			panic(xerrors.Errorf("unable to log in with vault client: %w", err))
 		}
 	}
+	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "") // nolint:forbidigo
+
 	return &ReconcileCommonController{
 		client: newClient,
 		SecretClient: secrets.SecretClient{
@@ -97,6 +102,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 			KubeClient:  newClient,
 		},
 		resourceWatcher: watch.NewResourceWatcher(),
+		customAgentURL:  customAgentURL,
 	}
 }
 
@@ -760,6 +766,12 @@ func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn 
 // getAgentVersion handles the common logic for error handling and instance initialisation
 // when retrieving the agent version from a controller
 func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
+	// When a custom agent URL is set, derive the version from the URL filename.
+	// This overrides all other version resolution (Ops Manager API, mapping, Cloud Manager).
+	if r.customAgentURL != "" {
+		return agentVersionFromURL(r.customAgentURL), nil
+	}
+
 	m, err := agentVersionManagement.GetAgentVersionManager()
 	if err != nil || m == nil {
 		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
@@ -772,6 +784,18 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 		log.Debugf("Using agent version %s", agentVersion)
 		return agentVersion, nil
 	}
+}
+
+// agentVersionFromURL extracts the agent version from a custom agent tarball URL.
+// e.g. .../mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz → 108.0.26.9047-1
+func agentVersionFromURL(url string) string {
+	filename := url[strings.LastIndex(url, "/")+1:]
+	filename = strings.TrimSuffix(filename, ".tar.gz")
+	rest := strings.TrimPrefix(filename, "mongodb-mms-automation-agent-")
+	if idx := strings.LastIndex(rest, "."); idx > 0 {
+		return rest[:idx]
+	}
+	return rest
 }
 
 // deleteClusterResources removes all resources that are associated with the given resource owner in a given cluster.
