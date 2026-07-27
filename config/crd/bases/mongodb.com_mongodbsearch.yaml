@@ -1040,6 +1040,12 @@ spec:
                 - message: clusters[].index is required on every entry when more than
                     one cluster is specified
                   rule: size(self) <= 1 || self.all(c, has(c.index))
+                - message: clusters[].name is immutable for an existing cluster index;
+                    remove and re-add the entry to change it
+                  rule: 'self.all(c, oldSelf.all(o, (has(o.index) ? o.index : 0) !=
+                    (has(c.index) ? c.index : 0) || (has(o.name) ? o.name : '''')
+                    == '''' || (has(o.name) ? o.name : '''') == (has(c.name) ? c.name
+                    : '''')))'
               featureFlags:
                 description: |-
                   FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,

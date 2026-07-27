@@ -202,6 +202,7 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2, has(c2.name) && c2.name == c1.name))",message="clusters[].name must be set and unique when more than one cluster is specified"
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.index) || self.exists_one(c2, has(c2.index) && c2.index == c1.index))",message="clusters[].index must be unique when set"
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.index))",message="clusters[].index is required on every entry when more than one cluster is specified"
+	// +kubebuilder:validation:XValidation:rule="self.all(c, oldSelf.all(o, (has(o.index) ? o.index : 0) != (has(c.index) ? c.index : 0) || (has(o.name) ? o.name : '') == '' || (has(o.name) ? o.name : '') == (has(c.name) ? c.name : '')))",message="clusters[].name is immutable for an existing cluster index; remove and re-add the entry to change it"
 	Clusters []ClusterSpec `json:"clusters"`
 }
 
