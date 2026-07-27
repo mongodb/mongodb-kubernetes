@@ -27,6 +27,20 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 logger = test_logger.get_test_logger(__name__)
 
 
+def dump_appdb_migrations(ops_manager: MongoDBOpsManager, label: str) -> None:
+    """Dump cloudconf.app.migrations from AppDB to /tmp/diagnostics/."""
+    import json, os
+    os.makedirs("/tmp/diagnostics", exist_ok=True)
+    try:
+        client = ops_manager.get_appdb_tester().client
+        docs = list(client["cloudconf"]["app.migrations"].find())
+        with open(f"/tmp/diagnostics/appdb_migrations_{label}.json", "w") as f:
+            json.dump(docs, f, default=str, indent=2)
+        logger.info(f"Dumped {len(docs)} migration docs from AppDB ({label})")
+    except Exception as e:
+        logger.warning(f"Failed to dump appdb migrations ({label}): {e}")
+
+
 def collect_om_migration_logs(ops_manager: MongoDBOpsManager) -> None:
     """Capture OM container logs to /tmp/diagnostics/ for post-test analysis.
 
@@ -307,10 +321,12 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_version(custom_version)
         ops_manager.set_appdb_version(custom_appdb_version)
 
+        dump_appdb_migrations(ops_manager, "before")
         ops_manager.update()
         try:
             ops_manager.om_status().assert_reaches_phase(Phase.Running)
         finally:
+            dump_appdb_migrations(ops_manager, "after")
             collect_om_migration_logs(ops_manager)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
