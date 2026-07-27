@@ -343,7 +343,7 @@ def build_agent_pipeline(
     )
 
     agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local"
     )
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
