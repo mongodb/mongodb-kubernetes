@@ -105,9 +105,9 @@ type MongoDBSearchMetricsForwarderReconciler struct {
 	omRequester         omAgentRequester
 	otelConfigTemplate  searchcontroller.MetricsForwarderOTelConfigTemplate
 	operatorClusterName string
+	memberClients       map[string]kubernetesClient.Client
 
 	prepareSearch prepareSearchFuncs
-	clusterRouter searchcontroller.SearchClusterRouter
 }
 
 func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, memberClusterMap map[string]client.Client, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
@@ -125,8 +125,8 @@ func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage st
 		omRequester:         omHTTPAgentRequester{},
 		otelConfigTemplate:  searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
 		operatorClusterName: operatorClusterName,
+		memberClients:       clientsMap,
 		prepareSearch:       newPrepareSearch(operatorClusterName),
-		clusterRouter:       searchcontroller.NewSearchClusterRouter(central, clientsMap, operatorClusterName),
 	}
 }
 
@@ -376,21 +376,21 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 func (r *MongoDBSearchMetricsForwarderReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
 	if r.operatorClusterName != "" {
 		if len(search.Spec.Clusters) == 0 {
-			return []clusterWorkItem{newClusterWorkItem(r.clusterRouter, search, "", 0)}
+			return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
 		}
 		for _, c := range search.Spec.Clusters {
 			if c.Name == r.operatorClusterName {
-				return []clusterWorkItem{newClusterWorkItem(r.clusterRouter, search, c.Name, c.ResolveIndex())}
+				return []clusterWorkItem{newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName)}
 			}
 		}
 		return nil
 	}
 	if len(search.Spec.Clusters) == 0 {
-		return []clusterWorkItem{newClusterWorkItem(r.clusterRouter, search, "", 0)}
+		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		work = append(work, newClusterWorkItem(r.clusterRouter, search, c.Name, c.ResolveIndex()))
+		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
 	}
 	return work
 }
@@ -508,7 +508,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) workForRemovedClusters(search 
 		if r.operatorClusterName != "" && clusterName != "" && clusterName != r.operatorClusterName {
 			continue
 		}
-		work = append(work, newClusterWorkItem(r.clusterRouter, search, clusterName, *clusterState.ClusterIndex))
+		work = append(work, newClusterWorkItem(search, clusterName, *clusterState.ClusterIndex, r.kubeClient, r.memberClients, r.operatorClusterName))
 	}
 	sort.Slice(work, func(i, j int) bool { return work[i].ClusterName < work[j].ClusterName })
 	return work
@@ -552,7 +552,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedClusters(
 		}
 		// Deployment first: a still-running collector would push metrics for the
 		// deregistered hosts and Ops Manager would implicitly re-add them.
-		found, err := searchcontroller.SweepSearchResources(ctx, w.Client, search, w.ClusterName, []searchcontroller.SearchResourceCleanup{metricsForwarderDeploymentCleanup(search, w.ClusterIndex)}, log)
+		found, err := deleteForwarderDeployment(ctx, search, w, log)
 		if err != nil {
 			log.Warnf("cluster=%q: failed to delete removed cluster's metrics forwarder Deployment: %v", w.ClusterName, err)
 			continue
@@ -1442,7 +1442,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 		if w.Client == nil {
 			continue
 		}
-		found, err := searchcontroller.SweepSearchResources(ctx, w.Client, search, w.ClusterName, []searchcontroller.SearchResourceCleanup{metricsForwarderDeploymentCleanup(search, w.ClusterIndex)}, log)
+		found, err := deleteForwarderDeployment(ctx, search, w, log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -1482,45 +1482,42 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 	return workflow.OK()
 }
 
-// deleteMetricsForwarderResources removes per-cluster metrics forwarder resources.
-// Clusters not registered with the operator (Client==nil) are skipped. Only
-// objects still carrying this Search identity's forwarder labels are deleted;
-// customer objects and other identities are never touched.
+// deleteMetricsForwarderResources removes each cluster's four name-keyed
+// metrics forwarder resources. Clusters not registered with the operator
+// (Client==nil) are skipped. Only objects still carrying this Search identity's
+// forwarder labels are deleted; customer objects and other identities are never
+// touched.
 func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) error {
 	var deleteErr error
 	for _, w := range workList {
 		if w.Client == nil {
 			continue
 		}
-		if _, err := searchcontroller.SweepSearchResources(ctx, w.Client, search, w.ClusterName, metricsForwarderResourceCleanups(search, w.ClusterIndex), log); err != nil {
+		_, depErr := deleteForwarderDeployment(ctx, search, w, log)
+		deleteErr = errors.Join(deleteErr, depErr)
+		for _, singleton := range []struct {
+			kind string
+			obj  client.Object
+		}{
+			{"ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+			{"agent-key Secret", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderAgentKeySecretNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+			{"CA ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderCACertConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+		} {
+			_, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, singleton.kind, metricsForwarderLabelName, singleton.obj, log)
 			deleteErr = errors.Join(deleteErr, err)
 		}
 	}
 	return deleteErr
 }
 
-// metricsForwarderResourceCleanups describes one cluster's four name-keyed
-// metrics forwarder resources for the shared sweep.
-func metricsForwarderResourceCleanups(search *searchv1.MongoDBSearch, clusterIndex int) []searchcontroller.SearchResourceCleanup {
-	return []searchcontroller.SearchResourceCleanup{
-		metricsForwarderDeploymentCleanup(search, clusterIndex),
-		{Kind: "ConfigMap", Name: search.MetricsForwarderConfigMapNameForCluster(clusterIndex), Component: metricsForwarderLabelName, NewList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
-		{Kind: "agent-key Secret", Name: search.MetricsForwarderAgentKeySecretNameForCluster(clusterIndex), Component: metricsForwarderLabelName, NewList: func() client.ObjectList { return &corev1.SecretList{} }},
-		{Kind: "CA ConfigMap", Name: search.MetricsForwarderCACertConfigMapNameForCluster(clusterIndex), Component: metricsForwarderLabelName, NewList: func() client.ObjectList { return &corev1.ConfigMapList{} }},
-	}
-}
-
-// metricsForwarderDeploymentCleanup deletes with foreground propagation so the
-// sweep keeps reporting the Deployment as found until its pods are fully gone —
-// Ops Manager host deregistration must not run while a collector still pushes.
-func metricsForwarderDeploymentCleanup(search *searchv1.MongoDBSearch, clusterIndex int) searchcontroller.SearchResourceCleanup {
-	return searchcontroller.SearchResourceCleanup{
-		Kind:       "Deployment",
-		Name:       search.MetricsForwarderDeploymentNameForCluster(clusterIndex),
-		Component:  metricsForwarderLabelName,
-		DeleteOpts: []client.DeleteOption{client.PropagationPolicy(metav1.DeletePropagationForeground)},
-		NewList:    func() client.ObjectList { return &appsv1.DeploymentList{} },
-	}
+// deleteForwarderDeployment deletes one cluster's forwarder Deployment with
+// Foreground propagation so found keeps reporting true until its pods are fully
+// gone — Ops Manager host deregistration must not run while a collector still
+// pushes.
+func deleteForwarderDeployment(ctx context.Context, search *searchv1.MongoDBSearch, w clusterWorkItem, log *zap.SugaredLogger) (bool, error) {
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderDeploymentNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}
+	return searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "Deployment", metricsForwarderLabelName, dep, log,
+		client.PropagationPolicy(metav1.DeletePropagationForeground))
 }
 
 func centralMongoDBSearchMetricsForwarderResourceWatches(r *MongoDBSearchMetricsForwarderReconciler) []mongoDBSearchResourceWatch {

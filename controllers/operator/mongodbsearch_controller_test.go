@@ -751,7 +751,6 @@ func TestNewMongoDBSearchReconciler_SingleCluster(t *testing.T) {
 
 	assert.NotNil(t, r.kubeClient, "central kubeClient must be set")
 	assert.Empty(t, r.memberClusterClientsMap, "members map must be empty in single-cluster mode")
-	assert.True(t, r.clusterRouter.NamedClustersAreLocal)
 }
 
 func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
@@ -766,7 +765,6 @@ func TestNewMongoDBSearchReconciler_MultiCluster(t *testing.T) {
 	r := newMongoDBSearchReconciler(central, searchcontroller.OperatorSearchConfig{}, members, "")
 
 	assert.Len(t, r.memberClusterClientsMap, 2)
-	assert.False(t, r.clusterRouter.NamedClustersAreLocal)
 }
 
 func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {

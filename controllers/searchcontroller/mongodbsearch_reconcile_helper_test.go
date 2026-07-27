@@ -157,7 +157,7 @@ func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Cli
 		mdbSearch,
 		NewCommunityResourceSearchSource(mdbc),
 		operatorConfig,
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -232,7 +232,7 @@ func TestMongoDBSearchReconcileHelper_ValidateSingleMongoDBSearchForSearchSource
 			}
 
 			fakeClient := kubernetesClient.NewClient(clientBuilder.Build())
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{}, SearchClusterRouter{central: fakeClient}, nil)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, mdbSearch, NewCommunityResourceSearchSource(mdbc), OperatorSearchConfig{}, nil, "", nil)
 			err := helper.ValidateSingleMongoDBSearchForSearchSource(t.Context())
 			if c.expectedError == "" {
 				assert.NoError(t, err)
@@ -452,15 +452,14 @@ func newTestShardUnit(search *searchv1.MongoDBSearch, shardName string) reconcil
 	}
 }
 
-func newTestShardCleanupUnit(search *searchv1.MongoDBSearch, clusterIndex int, physicalClusterName, shardName string) reconcileUnit {
+func newTestShardCleanupUnit(search *searchv1.MongoDBSearch, clusterIndex int, shardName string) reconcileUnit {
 	return reconcileUnit{
-		stsName:             search.MongotStatefulSetForClusterShard(clusterIndex, shardName),
-		headlessSvc:         search.MongotServiceForClusterShard(clusterIndex, shardName),
-		proxySvc:            search.ProxyServiceNameForClusterShard(clusterIndex, shardName),
-		configMapName:       search.MongotConfigMapForClusterShard(clusterIndex, shardName),
-		tlsResource:         &perShardTLSResource{MongoDBSearch: search, clusterIndex: clusterIndex, shardName: shardName},
-		physicalClusterName: physicalClusterName,
-		clusterIndex:        clusterIndex,
+		stsName:       search.MongotStatefulSetForClusterShard(clusterIndex, shardName),
+		headlessSvc:   search.MongotServiceForClusterShard(clusterIndex, shardName),
+		proxySvc:      search.ProxyServiceNameForClusterShard(clusterIndex, shardName),
+		configMapName: search.MongotConfigMapForClusterShard(clusterIndex, shardName),
+		tlsResource:   &perShardTLSResource{MongoDBSearch: search, clusterIndex: clusterIndex, shardName: shardName},
+		clusterIndex:  clusterIndex,
 	}
 }
 
@@ -782,7 +781,7 @@ func TestEnsureEmbeddingConfig_APIKeySecretAndProviderEndpont(t *testing.T) {
 		OperatorSearchConfig{
 			SearchVersion: "0.60.0",
 		},
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
@@ -817,7 +816,7 @@ func TestEnsureEmbeddingConfig_InternalVoyageAI_NoSecretRequired(t *testing.T) {
 	})
 	// The Service backing the endpoint is an operator-managed VoyageAI service.
 	fakeClient := newTestFakeClient(search, voyageAIService("voyage-embedding-svc", "mongodb"))
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"}, SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"}, nil, "", nil)
 
 	mongotModif, stsModif, err := helper.ensureEmbeddingConfig(ctx, nil)
 	require.NoError(t, err)
@@ -876,7 +875,7 @@ func TestEnsureEmbeddingConfig_SecretRequiredForNonInternal(t *testing.T) {
 				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{ProviderEndpoint: tc.endpoint}
 			})
 			fakeClient := newTestFakeClient(append([]client.Object{search}, tc.objects...)...)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"}, SearchClusterRouter{central: fakeClient}, nil)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{SearchVersion: "0.60.0"}, nil, "", nil)
 
 			_, _, err := helper.ensureEmbeddingConfig(context.TODO(), nil)
 			require.Error(t, err)
@@ -909,7 +908,7 @@ syncSource:
 		OperatorSearchConfig{
 			SearchVersion: "0.58.0",
 		},
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 	ctx := context.TODO()
@@ -965,7 +964,7 @@ func TestEnsureEmbeddingConfig_JustAPIKeys(t *testing.T) {
 		OperatorSearchConfig{
 			SearchVersion: "0.60.0",
 		},
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 	ctx := context.TODO()
@@ -1082,7 +1081,7 @@ func TestValidateSearchResource(t *testing.T) {
 			OperatorSearchConfig{
 				SearchVersion: tc.searchVersion,
 			},
-			SearchClusterRouter{central: fakeClient},
+			nil, "",
 			nil,
 		)
 		_, _, err := helper.ensureEmbeddingConfig(ctx, nil)
@@ -1096,7 +1095,7 @@ func TestValidateSearchResource(t *testing.T) {
 func TestValidateSearchImageVersion(t *testing.T) {
 	search := newTestMongoDBSearch("mdb-search", "mongodb")
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{}, SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, OperatorSearchConfig{}, nil, "", nil)
 
 	for _, tc := range []struct {
 		name         string
@@ -1183,7 +1182,7 @@ func TestEnsureMongotConfig_PerPodModes(t *testing.T) {
 				search.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{}
 			}
 			fakeClient := newTestFakeClient(search)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
 			cmName := search.MongotConfigConfigMapNamespacedName()
 			stsName := search.StatefulSetNamespacedName().Name
 
@@ -1218,7 +1217,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	search.Spec.Clusters = []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1))}}
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
 	cmName := search.MongotConfigConfigMapNamespacedName()
 	stsName := search.StatefulSetNamespacedName().Name
 
@@ -1254,7 +1253,7 @@ func TestEnsureMongotConfig_TransitionBetweenModes(t *testing.T) {
 
 func renderMongotConfig(t *testing.T, search *searchv1.MongoDBSearch, mods ...mongot.Modification) map[string]string {
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
 	cmName := search.MongotConfigConfigMapNamespacedName()
 	stsName := search.StatefulSetNamespacedName().Name
 
@@ -1298,7 +1297,7 @@ func TestEnsureMongotConfig_AdvancedMongotConfigsPerCluster(t *testing.T) {
 	withClusterAdvancedMongotConfigs(t, search, 1, `{"querying":{"lucene":{"maxClauseLimit":2048}}}`)
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
 	stsName := search.StatefulSetNamespacedName().Name
 
 	renderCluster := func(clusterName string, clusterIdx int) map[string]interface{} {
@@ -1343,7 +1342,7 @@ func TestReconcileReplicaSet_AdvancedMongotConfigs(t *testing.T) {
 		search,
 		NewCommunityResourceSearchSource(mdbc),
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -1743,7 +1742,7 @@ func TestValidateManagedLBShardedTLS(t *testing.T) {
 				tc.search,
 				tc.source,
 				OperatorSearchConfig{},
-				SearchClusterRouter{central: fakeClient},
+				nil, "",
 				nil,
 			)
 
@@ -1825,7 +1824,7 @@ func TestValidateMultipleReplicasUnmanagedLBTopology(t *testing.T) {
 				tc.search,
 				tc.source,
 				OperatorSearchConfig{},
-				SearchClusterRouter{central: fakeClient},
+				nil, "",
 				nil,
 			)
 
@@ -2516,7 +2515,7 @@ func TestReconcileSharded_CertificateKeySecretRefRejected(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -2638,7 +2637,7 @@ func TestValidatePerShardTLSSecrets(t *testing.T) {
 				search,
 				shardedSource,
 				newTestOperatorSearchConfig(),
-				SearchClusterRouter{central: fakeClient},
+				nil, "",
 				nil,
 			)
 
@@ -2694,7 +2693,7 @@ func TestValidatePerShardTLSSecretsAllExist(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -2730,7 +2729,7 @@ func TestValidatePerShardTLSSecretsAggregatesAllClusterFailures(t *testing.T) {
 		search,
 		&mockShardedSource{shardNames: []string{"shard-0"}},
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient, members: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}},
+		map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}, "",
 		nil,
 	)
 
@@ -2789,7 +2788,7 @@ func TestReconcileSharded_FailureDoesNotCleanStaleResources(t *testing.T) {
 				Labels:    mongotOwnerLabels(search),
 			}}
 			kubeClient := newTestFakeClient(search, stale)
-			helper := NewMongoDBSearchReconcileHelper(kubeClient, search, source, newTestOperatorSearchConfig(), SearchClusterRouter{central: kubeClient}, nil)
+			helper := NewMongoDBSearchReconcileHelper(kubeClient, search, source, newTestOperatorSearchConfig(), nil, "", nil)
 
 			result := helper.reconcile(t.Context(), zap.S())
 
@@ -2826,14 +2825,15 @@ func TestEnsureIngressTLSSecretIdentityAndOwnershipByLocality(t *testing.T) {
 				Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
 			}
 			fakeClient := newTestFakeClient(sourceSecret)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient, members: tc.memberClients}, nil)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), tc.memberClients, "", nil)
 
+			work := clusterWork{ClusterName: tc.clusterName, Local: tc.clusterName == ""}
 			_, _, err := helper.ensureIngressTlsConfig(
 				t.Context(),
 				fakeClient,
 				search,
 				searchOwnerLabels(search),
-				helper.ownerReferencesForCluster(tc.clusterName),
+				work.ownerReferences(search),
 			)
 			require.NoError(t, err)
 
@@ -2855,7 +2855,7 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
 	require.NoError(t, err)
@@ -2896,7 +2896,7 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	dbSource := &mockShardedSource{tlsConfig: nil} // No TLS on source
 
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 
 	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
 	require.Error(t, err)
@@ -2922,7 +2922,7 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	}
 
 	fakeClient := newTestFakeClient(search, x509Secret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
 	require.NoError(t, err)
@@ -3017,7 +3017,7 @@ func TestEnsureEgressTlsConfig_LabelsGeneratedScramClientSecret(t *testing.T) {
 		},
 	}
 	fakeClient := newTestFakeClient(search, clientCert)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 	_, _, err := helper.ensureEgressTlsConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
 	require.NoError(t, err)
 	operatorSecret, err := fakeClient.GetSecret(t.Context(), search.ScramClientCertOperatorManagedSecret())
@@ -3052,7 +3052,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	}
 
 	fakeClient := newTestFakeClient(search, x509Secret, keyPasswordSecret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 
 	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
 	require.NoError(t, err)
@@ -3110,7 +3110,7 @@ func TestKeyFilePasswordContentHash(t *testing.T) {
 		objs := append([]client.Object{search}, secrets...)
 		fakeClient := newTestFakeClient(objs...)
 		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
-		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil), fakeClient
+		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
 	}
 
 	passwordSecret := func(name, password string) *corev1.Secret {
@@ -3218,7 +3218,7 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		search,
 		shardedSource,
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -3315,9 +3315,9 @@ func TestCleanupStaleShardResources(t *testing.T) {
 				Name: "customer-provided-cert", Namespace: search.Namespace, Labels: labels(),
 			}}
 			fakeClient := newTestFakeClient(search, activeSTS, staleSTS, staleTLSSecret, x509Secret, scramSecret, customerSecret)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
 
-			require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), []reconcileUnit{newTestShardCleanupUnit(search, 0, "", "shard-0")}))
+			require.NoError(t, helper.cleanupStaleShardResources(t.Context(), zap.S(), helper.buildClusterWorkList(), []reconcileUnit{newTestShardCleanupUnit(search, 0, "shard-0")}))
 
 			assertObjectPresence(t, fakeClient, client.ObjectKeyFromObject(activeSTS), &appsv1.StatefulSet{}, true, "active StatefulSet")
 			assertObjectPresence(t, fakeClient, client.ObjectKeyFromObject(staleSTS), &appsv1.StatefulSet{}, false, "stale StatefulSet")
@@ -3405,7 +3405,7 @@ func TestReconcile_RemovingLegacyClientCertificateSecretsUpdatesStatefulSet(t *t
 				search,
 				NewCommunityResourceSearchSource(mdbc),
 				newTestOperatorSearchConfig(),
-				SearchClusterRouter{central: fakeClient},
+				nil, "",
 				nil,
 			)
 
@@ -3476,7 +3476,7 @@ func TestReconcileSharded_TLSDisabledRemovesMountsPreservesLiveSecret(t *testing
 			hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
 		},
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -3532,7 +3532,7 @@ func TestReconcileReplicaSet_TLSDisabledRemovesMountsPreservesSecrets(t *testing
 		search,
 		NewCommunityResourceSearchSource(mdbc),
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -3602,7 +3602,7 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 		search,
 		NewCommunityResourceSearchSource(mdbc),
 		newTestOperatorSearchConfig(),
-		SearchClusterRouter{central: fakeClient},
+		nil, "",
 		nil,
 	)
 
@@ -3870,7 +3870,7 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	r := &MongoDBSearchReconcileHelper{
 		mdbSearch:            mdb,
 		client:               centralClient,
-		router:               SearchClusterRouter{central: centralClient, members: memberClients},
+		memberClients:        memberClients,
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 		db:                   source,
@@ -4062,10 +4062,10 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		mdbSearch: search,
 		db:        shardedSource,
 		client:    centralClient,
-		router: SearchClusterRouter{central: centralClient, members: map[string]kubernetesClient.Client{
+		memberClients: map[string]kubernetesClient.Client{
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
-		}},
+		},
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -4079,9 +4079,8 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	}
 	// Mirror reconcile()'s cluster-level proxy Service pass.
 	for _, res := range plan.clusterLevelResources {
-		clusterClient, err := r.clientForCluster(res.clusterName)
-		require.NoError(t, err)
-		require.NoError(t, r.ensureSearchService(t.Context(), zap.S(), clusterClient, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)))
+		require.NotNil(t, res.client, "cluster-level resource for %q must carry its cluster client", res.clusterName)
+		require.NoError(t, r.ensureSearchService(t.Context(), zap.S(), res.client, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)))
 	}
 
 	// Per-(cluster, shard) STS + ConfigMap + per-shard proxy Service on the right client.
@@ -4222,10 +4221,10 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		mdbSearch: search,
 		db:        shardedSource,
 		client:    centralClient,
-		router: SearchClusterRouter{central: centralClient, members: map[string]kubernetesClient.Client{
+		memberClients: map[string]kubernetesClient.Client{
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
-		}},
+		},
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -4357,7 +4356,7 @@ func (f *mcShardedFixture) newHelper() *MongoDBSearchReconcileHelper {
 		mdbSearch:            f.search,
 		db:                   f.source,
 		client:               f.central,
-		router:               SearchClusterRouter{central: f.central, members: f.members},
+		memberClients:        f.members,
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -4787,17 +4786,17 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 
 	r := &MongoDBSearchReconcileHelper{
-		mdbSearch: search,
-		client:    central,
-		router:    SearchClusterRouter{central: central, members: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}},
-		state:     NewSearchDeploymentState(),
+		mdbSearch:     search,
+		client:        central,
+		memberClients: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB},
+		state:         NewSearchDeploymentState(),
 	}
 
 	activeUnits := []reconcileUnit{
-		newTestShardCleanupUnit(search, 0, "cluster-a", "sh-0"),
-		newTestShardCleanupUnit(search, 1, "cluster-b", "sh-0"),
+		newTestShardCleanupUnit(search, 0, "sh-0"),
+		newTestShardCleanupUnit(search, 1, "sh-0"),
 	}
-	require.NoError(t, r.cleanupStaleShardResources(t.Context(), zap.S(), activeUnits))
+	require.NoError(t, r.cleanupStaleShardResources(t.Context(), zap.S(), r.buildClusterWorkList(), activeUnits))
 
 	svcName := func(name string) types.NamespacedName { return types.NamespacedName{Name: name, Namespace: "ns"} }
 	assertObjectPresence(t, clusterA, svcName("mdb-search-search-0-sh-0-proxy-svc"), &corev1.Service{}, true, "cluster-a active per-shard proxy Service")
@@ -5009,7 +5008,7 @@ func TestReconcileSharded_RoutingSwitchOneWay(t *testing.T) {
 	// Pre-existing switch entry for a shard that no longer exists — must be pruned.
 	state := NewSearchDeploymentState()
 	state.RoutingReadyMongotGroups = []string{"sh-removed"}
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, state)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, "", state)
 	switchedOn := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
 
 	// Pass 1: STSs created, none routing-ready.
@@ -5111,7 +5110,7 @@ func TestReconcileSharded_SwitchErrorsAggregatedAcrossUnits(t *testing.T) {
 			return cl.Update(ctx, obj, opts...)
 		},
 	}))
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, source, newTestOperatorSearchConfig(), nil, "", nil)
 	switchedOn := func(shard string) bool { return slices.Contains(helper.state.RoutingReadyMongotGroups, shard) }
 
 	// Both shards meet the threshold; sh-0's switch write fails.
@@ -5153,7 +5152,7 @@ func TestReconcileSharded_StatefulSetTemplateStableAcrossReconciles(t *testing.T
 		},
 	}
 	fakeClient := newTestFakeClient(search)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, shardedSource, newTestOperatorSearchConfig(), SearchClusterRouter{central: fakeClient}, nil)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, shardedSource, newTestOperatorSearchConfig(), nil, "", nil)
 
 	helper.reconcile(t.Context(), zap.S())
 	stsNsName := search.MongotStatefulSetForClusterShard(0, "my-cluster-0")
@@ -5258,7 +5257,7 @@ func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central k
 		mdbSearch:            mdb,
 		db:                   source,
 		client:               central,
-		router:               SearchClusterRouter{central: central, members: members},
+		memberClients:        members,
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
