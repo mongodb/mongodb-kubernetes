@@ -32,8 +32,10 @@ def dump_appdb_migrations(ops_manager: MongoDBOpsManager, label: str) -> None:
     import json, os
     os.makedirs("/tmp/diagnostics", exist_ok=True)
     try:
-        client = ops_manager.get_appdb_tester().client
-        docs = list(client["cloudconf"]["app.migrations"].find())
+        tester = ops_manager.get_appdb_tester()
+        password = ops_manager.read_appdb_generated_password()
+        tester.assert_scram_sha_authentication(OM_USER_NAME, password, auth_mechanism="SCRAM-SHA-1")
+        docs = list(tester.client["cloudconf"]["app.migrations"].find())
         with open(f"/tmp/diagnostics/appdb_migrations_{label}.json", "w") as f:
             json.dump(docs, f, default=str, indent=2)
         logger.info(f"Dumped {len(docs)} migration docs from AppDB ({label})")
