@@ -280,6 +280,7 @@ def list_operator_crds() -> List[V1CustomResourceDefinition]:
 
 def add_to_custom_env_vars_value(helm_args: dict, key: str, value: str) -> None:
     existing = helm_args.get("customEnvVars")
-    env_vars = existing.split("&") if existing else []
+    # the value is passed to helm through a shell, so "&" must stay escaped
+    env_vars = existing.split("\\&") if existing else []
     env_vars.append(f"{key}={value}")
-    helm_args["customEnvVars"] = "&".join(env_vars)
+    helm_args["customEnvVars"] = "\\&".join(env_vars)
