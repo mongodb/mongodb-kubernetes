@@ -924,6 +924,7 @@ functions:
           - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
+          - ${workdir}/google-cloud-sdk/bin
         script: |
           ./scripts/code_snippets/tests/${task_name}
 
