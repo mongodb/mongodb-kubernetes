@@ -339,7 +339,7 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    custom_agent_url = os.getenv("MDB_CUSTOM_AGENT_URL", "")
+    custom_agent_url = build_configuration_copy.custom_agent_url or ""
     if custom_agent_url:
         # Custom agent URLs are single-arch (x86_64); multi-arch not supported.
         agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)

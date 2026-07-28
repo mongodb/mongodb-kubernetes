@@ -763,8 +763,10 @@ func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn 
 	return err
 }
 
-// getAgentVersion handles the common logic for error handling and instance initialisation
-// when retrieving the agent version from a controller
+// getAgentVersion returns the agent version for static architecture builds.
+// All callers guard with IsRunningStaticArchitecture; in non-static mode the
+// agent is downloaded at runtime via MDB_CUSTOM_AGENT_URL and this function
+// is never called.
 func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
 	// When a custom agent URL is set, derive the version from the URL filename.
 	// This overrides all other version resolution (Ops Manager API, mapping, Cloud Manager).

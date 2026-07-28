@@ -325,6 +325,34 @@ func TestCustomAgentURL(t *testing.T) {
 		t.Fatal("MDB_CUSTOM_AGENT_URL not found in any AppDB container")
 	})
 
+	t.Run("AppDB StatefulSet static has env var but no download snippet", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+			AppDBStatefulSetOptions{CustomAgentURL: customURL},
+			scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+			appsv1.OnDeleteStatefulSetStrategyType, architectures.Static, zap.S())
+		assert.NoError(t, err)
+
+		// Env var is still set in static mode.
+		found := false
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			envMap := env.ToMap(c.Env...)
+			if v, ok := envMap[util.EnvVarCustomAgentURL]; ok {
+				assert.Equal(t, customURL, v)
+				found = true
+			}
+		}
+		assert.True(t, found, "MDB_CUSTOM_AGENT_URL should be set in static mode too")
+
+		// Download snippet must not be in the command.
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			if len(c.Command) > 2 {
+				assert.NotContains(t, c.Command[2], "agent_binary=/tmp/mongodb-agent",
+					"static mode should not include download snippet")
+			}
+		}
+	})
+
 	t.Run("AppDB StatefulSet without CustomAgentURL has no env var", func(t *testing.T) {
 		om := omv1.NewOpsManagerBuilderDefault().Build()
 		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
@@ -338,5 +366,29 @@ func TestCustomAgentURL(t *testing.T) {
 			_, ok := envMap[util.EnvVarCustomAgentURL]
 			assert.False(t, ok, "MDB_CUSTOM_AGENT_URL should not be set when CustomAgentURL is empty")
 		}
+	})
+}
+
+func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
+	logLevel := v1.LogLevel("INFO")
+	logFile := "/var/log/mongodb-mms-automation/automation-agent.log"
+	maxLogFileDurationHours := 24
+
+	t.Run("non-static includes download snippet", func(t *testing.T) {
+		cmd := AutomationAgentCommand(false, false, logLevel, logFile, maxLogFileDurationHours)
+		assert.Equal(t, "/bin/bash", cmd[0])
+		assert.Equal(t, "-c", cmd[1])
+		assert.Contains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
+		assert.Contains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
+		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+	})
+
+	t.Run("static excludes download snippet", func(t *testing.T) {
+		cmd := AutomationAgentCommand(true, false, logLevel, logFile, maxLogFileDurationHours)
+		assert.Equal(t, "/bin/bash", cmd[0])
+		assert.Equal(t, "-c", cmd[1])
+		assert.NotContains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
+		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
+		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
 	})
 }
