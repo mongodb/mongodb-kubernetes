@@ -1145,9 +1145,12 @@ def install_official_operator(
         assert operator_name is not None
         assert central_cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-        # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
+        # Every baseline we install today is pre-2.x, so the legacy flow is hardcoded. A baseline on a
+        # released 2.x chart would instead need generate-member-resources/-registration from a released
+        # 2.x plugin, so dispatch on the baseline's major once that exists.
+        # Skipped for a local operator: installing a released in-cluster baseline is a CI-only flow.
         if not local_operator():
-            run_kube_config_creation_tool(
+            run_legacy_kube_config_creation_tool(
                 member_cluster_names,
                 namespace,
                 namespace,
@@ -1430,7 +1433,15 @@ def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[s
     return api_servers
 
 
-def run_kube_config_creation_tool(
+def _mck1x_multi_cluster_plugin_path() -> str:
+    """Path to a released MCK 1.x kubectl-mongodb plugin, installed into the test image."""
+    return os.getenv(
+        "MCK1X_MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
+        "multi-cluster-kube-config-creator-mck1x",
+    )
+
+
+def run_legacy_kube_config_creation_tool(
     member_clusters: List[str],
     central_namespace: str,
     member_namespace: str,
@@ -1439,13 +1450,15 @@ def run_kube_config_creation_tool(
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
 ):
+    """Provision the pre-`MemberCluster` install flow: kubeconfig Secret + member-list ConfigMap.
+
+    "Legacy" is the flow, not a product — it is the only discovery mechanism MEKO and MCK 1.x
+    understand. Resource names come from the flags, so one released MCK 1.x plugin serves both.
+    """
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
     args: list[str] = [
-        os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
-        ),
+        _mck1x_multi_cluster_plugin_path(),
         "multicluster",
         "setup",
         "--member-clusters",
@@ -1476,9 +1489,9 @@ def run_kube_config_creation_tool(
         args.append("--cluster-scoped")
 
     try:
-        print(f"Running multi-cluster cli setup tool: {' '.join(args)}")
+        print(f"Running legacy multi-cluster cli setup tool: {' '.join(args)}")
         subprocess.check_output(args, stderr=subprocess.STDOUT)
-        print("Finished running multi-cluster cli setup tool")
+        print("Finished running legacy multi-cluster cli setup tool")
     except subprocess.CalledProcessError as exc:
         print(f"Status: FAIL Reason: {exc.output}")
         raise exc

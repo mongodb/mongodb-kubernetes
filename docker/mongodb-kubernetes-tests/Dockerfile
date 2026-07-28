@@ -91,3 +91,11 @@ COPY public /mongodb-kubernetes/public
 RUN if [ -f "/tests/multi-cluster-kube-config-creator_${TARGETARCH}" ]; then \
     install -m 755 "/tests/multi-cluster-kube-config-creator_${TARGETARCH}" /usr/local/bin/multi-cluster-kube-config-creator; \
     fi
+
+# A released MCK 1.x plugin, used to provision the pre-MemberCluster multi-cluster install flow
+# (kubeconfig Secret + member-list ConfigMap) for the released baselines the upgrade tests start from —
+# both MEKO and MCK 1.x. MCK 2.x no longer ships `multicluster setup`, so the branch-built plugin above
+# cannot do it.
+RUN if [ -f "/tests/multi-cluster-kube-config-creator-mck1x_${TARGETARCH}" ]; then \
+    install -m 755 "/tests/multi-cluster-kube-config-creator-mck1x_${TARGETARCH}" /usr/local/bin/multi-cluster-kube-config-creator-mck1x; \
+    fi

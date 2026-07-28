@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 import kubernetes.client
 from kubetester import read_configmap
-from kubetester.helm import apply_operator_config_crd
+from kubetester.helm import apply_member_cluster_crd, apply_operator_config_crd
 from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
@@ -13,6 +13,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
+    configure_multi_cluster_members,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_legacy_deployment_state_meko,
@@ -252,6 +253,19 @@ class TestOperatorUpgrade:
         spec = build_operator_config_spec_from_test_env()
         if spec:
             create_operator_config(namespace, spec, api_client=central_cluster_client)
+
+    def test_register_member_clusters(
+        self,
+        namespace: str,
+        central_cluster_name: str,
+        member_cluster_names: List[str],
+        central_cluster_client: kubernetes.client.ApiClient,
+    ):
+        # MCK discovers members from MemberCluster CRs, which MEKO does not create, so register them
+        # before the upgrade. The MEKO kubeconfig Secret + member-list ConfigMap stay in place for the
+        # downgrade leg below.
+        apply_member_cluster_crd(api_client=central_cluster_client)
+        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")
