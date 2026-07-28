@@ -5,7 +5,8 @@ StatefulSet, Service, ConfigMap, and proxy Service; each cluster also gets a clu
 proxy Service (for mongos) and an Envoy Deployment.
 """
 
-from typing import List
+from copy import deepcopy
+from typing import Callable, Dict, List
 
 import kubernetes
 import pymongo.errors
@@ -23,9 +24,20 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
+from tests.common.multicluster.multicluster_utils import (
+    assert_deployment_ready_in_cluster,
+    assert_workload_ready_in_cluster,
+)
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
+from tests.common.search.connectivity import (
+    CLUSTER_LOCATION_TAG_KEY,
+    mongot_data_pvc_names,
+    protected_search_input_uids,
+    wait_for_mongot_pvcs_deleted,
+    wait_for_resource_deleted,
+    wait_for_search_deleted,
+    wait_for_search_owned_resources_deleted,
+)
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import (
@@ -650,3 +662,203 @@ def test_per_cluster_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $search via mongos",
         )
+
+
+# =============================================================================
+# Lifecycle: cluster-entry removal and CR deletion
+# =============================================================================
+
+
+def _shard_sts_names(cluster_index: int) -> List[str]:
+    return [
+        search_resource_names.shard_statefulset_name(
+            MDBS_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-{shard_idx}", cluster_index
+        )
+        for shard_idx in range(SHARD_COUNT)
+    ]
+
+
+def _local_artifact_readers(mcc: MultiClusterClient, namespace: str) -> Dict[str, Callable[[], object]]:
+    """Direct readers for the concrete (kind, name) identities of one cluster's Search
+    artifact set: per-(cluster, shard) mongot resources plus the cluster-level proxy
+    Service and Envoy Deployment/ConfigMap."""
+    ci = _idx(mcc)
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+    readers: Dict[str, Callable[[], object]] = {}
+    for shard_idx in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+        sts = search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name, ci)
+        svc = search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name, ci)
+        proxy = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name, ci)
+        cm = search_resource_names.shard_configmap_name(MDBS_RESOURCE_NAME, shard_name, ci)
+        secret = search_resource_names.shard_operator_managed_tls_secret_name(MDBS_RESOURCE_NAME, shard_name, ci)
+        readers[f"StatefulSet/{sts}"] = lambda n=sts: mcc.read_namespaced_stateful_set(n, namespace)
+        readers[f"Service/{svc}"] = lambda n=svc: mcc.read_namespaced_service(n, namespace)
+        readers[f"Service/{proxy}"] = lambda n=proxy: mcc.read_namespaced_service(n, namespace)
+        readers[f"ConfigMap/{cm}"] = lambda n=cm: mcc.read_namespaced_config_map(n, namespace)
+        readers[f"Secret/{secret}"] = lambda n=secret: core.read_namespaced_secret(n, namespace)
+    cluster_proxy = search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, ci)
+    envoy_dep = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, ci)
+    envoy_cm = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, ci)
+    readers[f"Service/{cluster_proxy}"] = lambda: mcc.read_namespaced_service(cluster_proxy, namespace)
+    readers[f"Deployment/{envoy_dep}"] = lambda: apps.read_namespaced_deployment(envoy_dep, namespace)
+    readers[f"ConfigMap/{envoy_cm}"] = lambda: mcc.read_namespaced_config_map(envoy_cm, namespace)
+    return readers
+
+
+def _customer_input_uids(mcc: MultiClusterClient, namespace: str, cluster_index: int) -> Dict[str, str]:
+    """UIDs of the customer-replicated Search inputs on one cluster (must survive cleanup)."""
+
+    def shard_cert(shard_idx: int) -> str:
+        return search_resource_names.shard_tls_cert_name(
+            MDBS_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-{shard_idx}", MDBS_TLS_CERT_PREFIX, cluster_index
+        )
+
+    return protected_search_input_uids(
+        mcc.core_v1_api(),
+        namespace,
+        shard_cert(0),
+        f"{MDBS_RESOURCE_NAME}-{MONGOT_USER_NAME}-password",
+        CA_CONFIGMAP_NAME,
+        additional_secret_names=(
+            search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, cluster_index),
+            search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, cluster_index),
+            *(shard_cert(shard_idx) for shard_idx in range(1, SHARD_COUNT)),
+        ),
+    )
+
+
+def _wait_for_cluster_artifacts_swept(
+    mcc: MultiClusterClient, namespace: str, readers: Dict[str, Callable[[], object]]
+) -> None:
+    """Identity 404-polls for every captured artifact, then PVC reap, then the
+    label-scoped emptiness backstop for labeled orphans outside the inventory."""
+    for what, read in readers.items():
+        wait_for_resource_deleted(read, f"{what} in {mcc.cluster_name}")
+    for sts_name in _shard_sts_names(_idx(mcc)):
+        wait_for_mongot_pvcs_deleted(namespace, sts_name, api_client=mcc.api_client)
+    wait_for_search_owned_resources_deleted(
+        mcc.apps_v1_api(),
+        mcc.core_v1_api(),
+        namespace,
+        MDBS_RESOURCE_NAME,
+        where=mcc.cluster_name,
+    )
+
+
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_remove_and_readd_search_cluster_entry(
+    namespace: str,
+    mdbs: MongoDBSearch,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Dropping one cluster entry sweeps every per-(cluster, shard) artifact on that
+    cluster (main + Envoy sweeps), leaves the survivor byte-identical (UID-pinned) and
+    serving $search, and re-adding the entry reconverges the two-cluster topology.
+
+    The survivor must be cluster 0: the source's mongos and shardOverrides mongotHost
+    endpoints all point at cluster-0's proxy Services.
+    """
+    assert (
+        len(member_cluster_clients) == 2
+    ), f"cluster-entry lifecycle requires exactly two member clusters, got {len(member_cluster_clients)}"
+    survivor, removed = member_cluster_clients[0], member_cluster_clients[1]
+    assert _idx(survivor) == 0, f"survivor must be cluster index 0 (source endpoints pin it), got {_idx(survivor)}"
+
+    mdbs.load()
+    original_entries = deepcopy(mdbs["spec"]["clusters"])
+    surviving_entries = [deepcopy(entry) for entry in original_entries if entry["name"] == survivor.cluster_name]
+    assert len(surviving_entries) == 1, f"expected exactly one entry for {survivor.cluster_name}: {original_entries}"
+
+    # Presence guard + UID snapshot on BOTH clusters (a 404 or missing-PVC failure here
+    # fails the capture, so the deletion polls below can never pass vacuously).
+    survivor_uids = {what: read().metadata.uid for what, read in _local_artifact_readers(survivor, namespace).items()}
+    removed_readers = _local_artifact_readers(removed, namespace)
+    for read in removed_readers.values():
+        read()
+    for sts_name in _shard_sts_names(_idx(removed)):
+        assert mongot_data_pvc_names(
+            namespace, sts_name, api_client=removed.api_client
+        ), f"[{removed.cluster_name}] expected mongot data PVCs for {sts_name}"
+    removed_protected_uids = _customer_input_uids(removed, namespace, _idx(removed))
+
+    mdbs["spec"]["clusters"] = surviving_entries
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+    mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True)
+
+    _wait_for_cluster_artifacts_swept(removed, namespace, removed_readers)
+    assert _customer_input_uids(removed, namespace, _idx(removed)) == removed_protected_uids
+    assert {
+        what: read().metadata.uid for what, read in _local_artifact_readers(survivor, namespace).items()
+    } == survivor_uids, (
+        f"[{survivor.cluster_name}] managed artifact UIDs changed when {removed.cluster_name} was removed"
+    )
+    assert_workload_ready_in_cluster(
+        survivor,
+        namespace,
+        {sts_name: MONGOT_REPLICAS_PER_CLUSTER for sts_name in _shard_sts_names(_idx(survivor))},
+        search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, _idx(survivor)),
+        timeout=300,
+    )
+
+    tester = _per_cluster_mongos_search_tester(namespace, 0, USER_NAME, USER_PASSWORD)
+    movies = SampleMoviesSearchHelper(search_tester=tester)
+
+    def execute_search() -> tuple:
+        try:
+            results = movies.text_search_movies("Star Wars")
+            return bool(results), f"$search returned {len(results)} results"
+        except pymongo.errors.PyMongoError as exc:
+            return False, f"$search error: {exc}"
+
+    run_periodically(
+        execute_search,
+        timeout=SEARCH_INDEX_READY_TIMEOUT,
+        sleep_time=5,
+        msg=f"[{survivor.cluster_name}] $search after cluster-entry removal",
+    )
+
+    # Restore the two-cluster topology for the tests that follow. Re-adding the
+    # entry is ordinary reconciliation, so no lifecycle assertions are made here.
+    mdbs.load()
+    mdbs["spec"]["clusters"] = original_entries
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+    mdbs.assert_cluster_statuses(expected_count=2, expect_managed_lb=True)
+    assert_workload_ready_in_cluster(
+        removed,
+        namespace,
+        {sts_name: MONGOT_REPLICAS_PER_CLUSTER for sts_name in _shard_sts_names(_idx(removed))},
+        search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, _idx(removed)),
+        timeout=600,
+    )
+
+
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_delete_search_resource_cleans_all_member_cluster_artifacts(
+    namespace: str,
+    mdbs: MongoDBSearch,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """CR delete: the OnDelete label sweep must remove every per-(cluster, shard)
+    artifact on every member cluster while the customer-replicated inputs survive
+    untouched. Destroys the workload — keep it last."""
+    per_cluster = []
+    for mcc in member_cluster_clients:
+        readers = _local_artifact_readers(mcc, namespace)
+        for read in readers.values():
+            read()
+        for sts_name in _shard_sts_names(_idx(mcc)):
+            assert mongot_data_pvc_names(
+                namespace, sts_name, api_client=mcc.api_client
+            ), f"[{mcc.cluster_name}] expected mongot data PVCs for {sts_name}"
+        per_cluster.append((mcc, readers, _customer_input_uids(mcc, namespace, _idx(mcc))))
+
+    mdbs.delete()
+    wait_for_search_deleted(mdbs, timeout=600)
+
+    for mcc, readers, protected_uids in per_cluster:
+        _wait_for_cluster_artifacts_swept(mcc, namespace, readers)
+        assert _customer_input_uids(mcc, namespace, _idx(mcc)) == protected_uids
