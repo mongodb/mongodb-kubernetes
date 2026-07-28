@@ -1321,6 +1321,45 @@ def test_remove_and_readd_search_cluster_entry(
         timeout=600,
     )
 
+    # Multi-cluster MongoDBSearch requires a managed load balancer on every cluster
+    # entry: flipping managed->none must be rejected by validation without touching
+    # the deployed per-cluster artifacts. Managed->none teardown is single-cluster
+    # behavior, covered by the single-cluster managed-LB tests.
+    def artifact_uids(mcc: MultiClusterClient) -> dict[str, str]:
+        return search_artifact_uids(
+            mcc, namespace, search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, _idx(mcc))
+        )
+
+    mdbs.load()
+    managed_lb_entries = deepcopy(mdbs["spec"]["clusters"])
+    pre_flip_uids = {mcc.cluster_name: artifact_uids(mcc) for mcc in member_cluster_clients}
+    for entry in mdbs["spec"]["clusters"]:
+        entry.pop("loadBalancer", None)
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Failed, msg_regexp=".*requires a managed load balancer.*", timeout=300)
+    for mcc in member_cluster_clients:
+        assert (
+            artifact_uids(mcc) == pre_flip_uids[mcc.cluster_name]
+        ), f"[{mcc.cluster_name}] managed artifact UIDs changed after rejected managed->none flip"
+
+    # Revert to managed: the CR must recover from the rejected spec, so the
+    # fault-injection and delete tests below see the exact pre-flip world.
+    mdbs.load()
+    mdbs["spec"]["clusters"] = managed_lb_entries
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+    mdbs.assert_lb_status()
+    mdbs.assert_cluster_statuses(expected_count=2, expect_managed_lb=True)
+    for mcc in member_cluster_clients:
+        names = search_resource_names.mc_search_artifact_names(MDBS_RESOURCE_NAME, _idx(mcc))
+        assert_workload_ready_in_cluster(
+            mcc,
+            namespace,
+            {names["sts"]: MONGOT_REPLICAS_PER_CLUSTER},
+            names["envoy_deployment"],
+            timeout=600,
+        )
+
 
 # Larger than any node in the e2e kind clusters — guarantees Unschedulable.
 UNSCHEDULABLE_MEMORY = "10000Gi"
