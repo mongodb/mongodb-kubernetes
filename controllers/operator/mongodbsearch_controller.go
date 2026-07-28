@@ -189,7 +189,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		// A concurrent writer bumped the ConfigMap between read and update; retry
 		// instead of marking the CR Failed over a transient race.
 		if apierrors.IsConflict(err) {
-			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, retrying").Requeue(), log)
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, re-queuing ").Requeue(), log)
 		}
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read or repair search state: %w", err)), log)
 	}
