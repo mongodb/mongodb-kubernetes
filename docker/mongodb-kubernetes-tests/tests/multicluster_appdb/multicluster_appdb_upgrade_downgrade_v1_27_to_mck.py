@@ -135,6 +135,16 @@ scale_on_downgrade = TestCase(
 
 
 @fixture(scope="module")
+def multi_cluster_operator_installation_config(
+    multi_cluster_operator_installation_config: Dict[str, str],
+) -> Dict[str, str]:
+    # TODO(m1kola): slice-7: the fixed-name workload SAs are already applied by the member RBAC
+    # registered below, and Helm refuses to adopt objects it does not own.
+    multi_cluster_operator_installation_config["operator.createResourcesServiceAccountsAndRoles"] = "false"
+    return multi_cluster_operator_installation_config
+
+
+@fixture(scope="module")
 def ops_manager(
     namespace: str,
     custom_version: str,

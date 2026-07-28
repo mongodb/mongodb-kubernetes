@@ -144,6 +144,9 @@ def test_upgrade_operator(
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
+            # TODO(m1kola): slice-7: the workload SAs above are already applied by
+            # configure_multi_cluster_members; Helm can't adopt them without this.
+            extra_helm_args={"operator.createResourcesServiceAccountsAndRoles": "false"},
         )
     else:
         operator = Operator(

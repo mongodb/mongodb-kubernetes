@@ -697,12 +697,16 @@ def get_multi_cluster_operator(
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
     operator_config_extra_spec: Optional[dict] = None,
+    # TODO(m1kola): slice-7: remove extra_helm_args. It will not longer be needed once we de-duplicate RBAC.
+    extra_helm_args: Optional[dict[str, str]] = None,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
     helm_opts = {
         "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
     }
+    if extra_helm_args is not None:
+        helm_opts.update(extra_helm_args)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
