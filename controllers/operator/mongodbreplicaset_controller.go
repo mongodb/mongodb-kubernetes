@@ -221,12 +221,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	if rs.Spec.Role == mdbv1.RoleAppDB {
-		mongoDBOwned, err := r.ensureAppDBStatefulSetOwnership(ctx, rs)
+		mongoDBOwned, notMongoDBOwnedMessage, err := r.ensureAppDBStatefulSetOwnership(ctx, rs)
 		if err != nil {
 			return r.updateStatus(ctx, workflow.Failed(err))
 		}
 		if !mongoDBOwned {
-			return r.updateStatus(ctx, workflow.Pending("This AppDB resource is ownerless: After successful reverse migration to Ops Manager CR delete this resource"))
+			return r.updateStatus(ctx, workflow.Pending("%s", notMongoDBOwnedMessage))
 		}
 
 		if err := r.claimAppDBRoleSecrets(ctx, rs); err != nil {
@@ -842,53 +842,70 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
 //   - absent: nothing to detach - Fresh Start, the MongoDB reconciler creates its own StatefulSet
 //   - if util.AppDBMigrationReadyAnnotation is present - Forward Migration, reclaim the AppDB Statefulset
-//   - if util.AppDBReverseMigrationReadyAnnotation is present and owned by this MongoDB - Reverse Migration,
+//   - if util.AppDBReverseMigrationReadyAnnotation is present - Reverse Migration,
 //     release the AppDB Statefulset, so the Ops Manager can reclaim it
-//   - foreign-owned (a MongoDB CR): no-op - other MongoDB CR owns the StatefulSet
-func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context.Context, mdb *mdbv1.MongoDB) (bool, error) {
+//   - foreign-owned: block reconciliation until the ownership is resolved
+func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context.Context, mdb *mdbv1.MongoDB) (bool, string, error) {
 	sts := appsv1.StatefulSet{}
 	if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts); err != nil {
 		if errors.IsNotFound(err) {
-			return true, nil //No existing StatefulSet, nothing to detach - Fresh Start
+			return true, "", nil //No existing StatefulSet, nothing to detach - Fresh Start
 		}
-		return false, xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err)
-	}
-
-	// Forward Migration, reclaim the AppDB Statefulset
-	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString && len(sts.OwnerReferences) == 0 {
-		return r.reclaimAppDBStatefulsetOwnership(ctx, mdb, sts)
+		return false, "", xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err)
 	}
 
 	ownedByThisMongoDB := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
 		return ref.UID == mdb.UID
 	})
 
-	// Reverse Migration, release the AppDB Statefulset
-	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString && ownedByThisMongoDB {
-		return r.releaseAppDBStatefulsetOwnership(ctx, sts)
+	// Forward Migration, reclaim the AppDB Statefulset
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		if len(sts.OwnerReferences) == 0 || ownedByThisMongoDB {
+			if err := r.reclaimAppDBStatefulsetOwnership(ctx, mdb, sts); err != nil {
+				return false, "", err
+			}
+
+			return true, "", nil
+		}
+
+		return false, "Cannot take ownership of the AppDB Statefulset: it has other owner", nil
 	}
 
-	return ownedByThisMongoDB, nil
+	// Reverse Migration, release the AppDB Statefulset
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+		if ownedByThisMongoDB {
+			if err := r.releaseAppDBStatefulsetOwnership(ctx, sts); err != nil {
+				return false, "", err
+			}
+		}
+		return false, "This AppDB resource is under Reverse Migration to Ops Manager CR", nil
+	}
+
+	if !ownedByThisMongoDB {
+		return false, "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource", nil
+	}
+
+	return true, "", nil
 }
 
-func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) (bool, error) {
+func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = kube.BaseOwnerReference(mdb)
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
 	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
-		return false, xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
+		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
 	}
 
-	return true, nil
+	return nil
 }
 
-func (r *ReplicaSetReconcilerHelper) releaseAppDBStatefulsetOwnership(ctx context.Context, sts appsv1.StatefulSet) (bool, error) {
+func (r *ReplicaSetReconcilerHelper) releaseAppDBStatefulsetOwnership(ctx context.Context, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = nil
 	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
-		return false, xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
+		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
 	}
 
-	return false, nil
+	return nil
 }
 
 // ensureAppDBRoleUser mirrors the internal AppDB reconciler's ensureAppDbPassword

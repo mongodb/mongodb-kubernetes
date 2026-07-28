@@ -186,7 +186,7 @@ class TestReverseMigrationAfterFreshStart:
         # the adoption gate reports the "unmanaged" message - both prove the release happened
         external_appdb.assert_reaches_phase(
             Phase.Pending,
-            msg_regexp=".*(unmanaged|AppDB StatefulSet to Ops Manager).*",
+            msg_regexp="under Reverse Migration",
             timeout=300,
         )
 

@@ -1863,9 +1863,10 @@ func TestAdoptionGate_BlocksWithoutAnnotation(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+	owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
 	assert.False(t, owned, "foreign STS without migration annotation must block adoption")
+	assert.Contains(t, msg, "Cannot take ownership of the AppDB Statefulset")
 }
 
 func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) {
@@ -1878,9 +1879,10 @@ func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) 
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+	owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
 	assert.False(t, owned, "must stay blocked while the foreign OwnerReference is still present, even with the annotation")
+	assert.Contains(t, msg, "it has other owner")
 }
 
 func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
@@ -1893,9 +1895,10 @@ func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+	owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
 	assert.True(t, owned, "adoption should proceed when migration-ready annotation is present and no foreign owners")
+	assert.Empty(t, msg)
 }
 
 func TestAdoptionGate_BlocksWithForeignOwners(t *testing.T) {
@@ -1925,9 +1928,10 @@ func TestAdoptionGate_BlocksWithForeignOwners(t *testing.T) {
 			require.NoError(t, kubeClient.Create(ctx, &sts))
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-			owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+			owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 			require.NoError(t, err)
 			assert.False(t, owned)
+			assert.Contains(t, msg, "Cannot take ownership of the AppDB Statefulset")
 		})
 	}
 }
@@ -1938,9 +1942,10 @@ func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
 	reconciler, _, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+	owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
 	assert.True(t, owned, "Fresh Start: no StatefulSet exists yet, adoption succeeds")
+	assert.Empty(t, msg)
 }
 
 func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
@@ -1991,7 +1996,7 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 			}
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-			owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+			owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 			require.NoError(t, err)
 
 			if tt.name == "removes migration-ready annotation after adoption" {
@@ -2000,12 +2005,15 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 				assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation,
 					"the migration-ready annotation must be consumed on adoption, or the OM controller would re-adopt prematurely on reverse migration")
 				assert.True(t, owned, "should own the STS after consuming migration signal")
+				assert.Empty(t, msg)
 			} else if tt.name == "no-op when annotation absent" {
 				result := appsv1.StatefulSet{}
 				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
 				assert.False(t, owned, "STS with no ownerRefs and no migration signals cannot be adopted")
+				assert.Contains(t, msg, "Cannot take ownership of the AppDB Statefulset")
 			} else if tt.name == "no-op when StatefulSet does not exist" {
 				assert.True(t, owned, "Fresh Start case: ownership succeeds without STS")
+				assert.Empty(t, msg)
 			}
 		})
 	}
@@ -2080,9 +2088,14 @@ func TestReleaseStatefulSetIfRequested(t *testing.T) {
 			sts := DefaultStatefulSetBuilder().SetName(mdb.Name).SetOwnerReferences(refs).SetAnnotations(tt.annotations).Build()
 			require.NoError(t, kubeClient.Create(ctx, &sts))
 
-			owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+			owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedOwned, owned)
+			if !tt.expectedOwned {
+				assert.Contains(t, msg, "under Reverse Migration")
+			} else {
+				assert.Empty(t, msg)
+			}
 
 			result := appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
@@ -2104,9 +2117,10 @@ func TestAdoptionGate_ForwardMigrationTakesPrecedence(t *testing.T) {
 	require.NoError(t, kubeClient.Create(ctx, &sts))
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
-	owned, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+	owned, msg, err := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.NoError(t, err)
 	assert.True(t, owned, "forward migration takes precedence: reclaim ownership even if reverse is also requested")
+	assert.Empty(t, msg)
 }
 
 func TestEnsureAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
@@ -2171,7 +2185,7 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(rs), rs))
 	assert.Equal(t, status.PhasePending, rs.Status.Phase)
-	assert.Contains(t, rs.Status.Message, "This AppDB resource is ownerless: After successful reverse migration to Ops Manager CR delete this resource")
+	assert.Contains(t, rs.Status.Message, "under Reverse Migration")
 
 	for _, name := range []string{passwordName, keyfileName} {
 		s := corev1.Secret{}
