@@ -42,7 +42,7 @@ See om_external_appdb_forward.py for Procedure 2 (Forward Migration) and the Pro
 with significant difference: For reverse migration we first remove the MongoDB CR (External AppDB) and test
 if the Primary OM can adopt the internal AppDB.
 """
-OM_NAME = "primary-om-with-external-appdb"
+OM_NAME = "primary-om"
 DB_NAME = f"{OM_NAME}-db"  # must match the operator's required "<om-name>-db" naming convention
 
 

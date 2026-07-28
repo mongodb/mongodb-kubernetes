@@ -1,7 +1,7 @@
 apiVersion: mongodb.com/v1
 kind: MongoDBOpsManager
 metadata:
-  name: om-external-appdb
+  name: primary-om
 spec:
   replicas: 1
   version: 5.0.1

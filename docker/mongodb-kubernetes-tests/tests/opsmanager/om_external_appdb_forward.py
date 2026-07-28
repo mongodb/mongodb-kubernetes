@@ -41,8 +41,7 @@ See om_external_appdb_fresh.py for Procedure 1 (Fresh Start) and Procedure 3 (gr
 reverse migration — the MongoDB CR is kept and the OM adopts the STS).
 """
 
-#TODO rename to primary-om
-OM_NAME = "om-external-appdb-fwd"
+OM_NAME = "primary-om"
 DB_NAME = f"{OM_NAME}-db"  # must match the operator's required "<om-name>-db" naming convention
 
 
@@ -54,7 +53,7 @@ def meta_om(namespace: str, custom_version: Optional[str], custom_appdb_version:
 @fixture(scope="module")
 def primary_om(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
-        yaml_fixture("om_external_appdb_primary_om.yaml"), name=OM_NAME, namespace=namespace
+        yaml_fixture("om_external_appdb_primary_om.yaml"), namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
