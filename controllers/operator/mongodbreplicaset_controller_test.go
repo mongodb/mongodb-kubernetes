@@ -1619,7 +1619,7 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 				m.Spec.Role = mdbv1.RoleAppDB
 				return m
 			}(),
-			expectedPublishACFirst: true,
+			expectedPublishACFirst: false,
 		},
 	}
 

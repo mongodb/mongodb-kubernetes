@@ -442,7 +442,7 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 	}
 
 	if mdb.Spec.Role == mdbv1.RoleAppDB {
-		return true
+		return false
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
