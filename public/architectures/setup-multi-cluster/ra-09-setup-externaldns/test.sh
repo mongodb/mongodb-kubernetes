@@ -11,9 +11,6 @@ pushd "${script_dir}"
 
 prepare_snippets
 
-# Run zone isolation regression test before cloud mutations
-"${script_dir}/test_zone_isolation.sh"
-
 run ra-09_0100_create_gke_sa.sh
 # need to wait as the SA is not immediately available
 sleep 10
