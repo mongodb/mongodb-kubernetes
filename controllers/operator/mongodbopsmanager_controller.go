@@ -47,7 +47,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -60,7 +59,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/identifiable"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -414,19 +412,8 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Unsupported("Ops Manager Version %s is not supported by this version of the operator. Please upgrade to a version >=%s", opsManager.Spec.Version, oldestSupportedOpsManagerVersion), log, opsManagerExtraStatusParams)
 	}
 
-	// AppDB Reconciler will be created with a nil OmAdmin, which is set below after initialization
-	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
-	if err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
-	}
-
 	if part, err := opsManager.ProcessValidationsOnReconcile(); err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Invalid("%s", err.Error()), log, mdbstatus.NewOMPartOption(part))
-	}
-
-	acClient := appDbReconciler.getMemberCluster(appDbReconciler.getNameOfFirstMemberCluster()).Client
-	if err := ensureResourcesForArchitectureChange(ctx, acClient, r.SecretClient, opsManager); err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring resources for upgrade from 1 to 3 container AppDB: %w", err)), log, opsManagerExtraStatusParams)
 	}
 
 	if err := ensureSharedGlobalResources(ctx, r.client, opsManager); err != nil {
@@ -450,14 +437,19 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 
+	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
+	}
+
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
 	if err != nil || (result != emptyResult && result != retryResult) {
 		return result, err
 	}
 
-	appDBPassword, err := appDbReconciler.ensureAppDbPassword(ctx, opsManager, log)
+	appDBConnectionString, err := appDbReconciler.BuildAppDBConnectionURL(ctx, opsManager, log)
 	if err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error getting AppDB password: %w", err)), log, opsManagerExtraStatusParams)
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
 
 	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
@@ -465,7 +457,6 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
 
-	appDBConnectionString := buildMongoConnectionUrl(opsManager, appDBPassword, appDbReconciler.getCurrentStatefulsetHostnames(opsManager))
 	for _, memberCluster := range opsManagerReconcilerHelper.getHealthyMemberClusters() {
 		if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, opsManager, appDBConnectionString, memberCluster, log); err != nil {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)), log, opsManagerExtraStatusParams)
@@ -549,88 +540,6 @@ func ensureSharedGlobalResources(ctx context.Context, secretGetUpdaterCreator se
 	}
 
 	return nil
-}
-
-// ensureResourcesForArchitectureChange ensures that the new resources expected to be present.
-func ensureResourcesForArchitectureChange(ctx context.Context, acSecretClient, secretGetUpdaterCreator secret.GetUpdateCreator, opsManager *omv1.MongoDBOpsManager) error {
-	acSecret, err := acSecretClient.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName()))
-	// if the automation config does not exist, we are not upgrading from an existing deployment. We can create everything from scratch.
-	if err != nil {
-		if !secret.SecretNotExist(err) {
-			return xerrors.Errorf("error getting existing automation config secret: %w", err)
-		}
-		return nil
-	}
-
-	ac, err := automationconfig.FromBytes(acSecret.Data[automationconfig.ConfigKey])
-	if err != nil {
-		return xerrors.Errorf("error unmarshalling existing automation: %w", err)
-	}
-
-	// the Ops Manager user should always exist within the automation config.
-	var omUser automationconfig.MongoDBUser
-	for _, authUser := range ac.Auth.Users {
-		if authUser.Username == util.OpsManagerMongoDBUserName {
-			omUser = authUser
-			break
-		}
-	}
-
-	if omUser.Username == "" {
-		return xerrors.Errorf("ops manager user not present in the automation config")
-	}
-
-	err = createOrUpdateSecretIfNotFound(ctx, secretGetUpdaterCreator, secret.Builder().
-		SetName(opsManager.Spec.AppDB.OpsManagerUserScramCredentialsName()).
-		SetNamespace(opsManager.Namespace).
-		SetField("sha1-salt", omUser.ScramSha1Creds.Salt).
-		SetField("sha-1-server-key", omUser.ScramSha1Creds.ServerKey).
-		SetField("sha-1-stored-key", omUser.ScramSha1Creds.StoredKey).
-		SetField("sha256-salt", omUser.ScramSha256Creds.Salt).
-		SetField("sha-256-server-key", omUser.ScramSha256Creds.ServerKey).
-		SetField("sha-256-stored-key", omUser.ScramSha256Creds.StoredKey).
-		Build())
-	if err != nil {
-		return xerrors.Errorf("failed to create/update scram credentials secret for Ops Manager user: %w", err)
-	}
-
-	// ensure that the agent password stays consistent with what it was previously
-	err = createOrUpdateSecretIfNotFound(ctx, secretGetUpdaterCreator, secret.Builder().
-		SetName(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Name).
-		SetNamespace(opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName().Namespace).
-		SetField(constants.AgentPasswordKey, ac.Auth.AutoPwd).
-		Build())
-	if err != nil {
-		return xerrors.Errorf("failed to create/update password secret for agent user: %w", err)
-	}
-
-	// ensure that the keyfile stays consistent with what it was previously
-	err = createOrUpdateSecretIfNotFound(ctx, secretGetUpdaterCreator, secret.Builder().
-		SetName(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name).
-		SetNamespace(opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Namespace).
-		SetField(constants.AgentKeyfileKey, ac.Auth.Key).
-		Build())
-	if err != nil {
-		return xerrors.Errorf("failed to create/update keyfile secret for agent user: %w", err)
-	}
-
-	// there was a rename for a specific secret, `om-resource-db-password -> om-resource-db-om-password`
-	// this was done as now there are multiple secrets associated with the AppDB, and the contents of this old one correspond to the Ops Manager user.
-	oldOpsManagerUserPasswordSecret, err := secretGetUpdaterCreator.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()+"-password"))
-	if err != nil {
-		// if it's not there, we don't want to create it. We only want to create the new secret if it is present.
-		if secret.SecretNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	return secret.CreateOrUpdate(ctx, secretGetUpdaterCreator, secret.Builder().
-		SetNamespace(opsManager.Namespace).
-		SetName(opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
-		SetByteData(oldOpsManagerUserPasswordSecret.Data).
-		Build(),
-	)
 }
 
 // createOrUpdateSecretIfNotFound creates the given secret if it does not exist.
@@ -1159,21 +1068,6 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(ctx conte
 
 	r.watchMongoDBResourcesReferencedByKmip(ctx, opsManager, log)
 	r.watchCaReferencedByKmip(opsManager)
-}
-
-// buildMongoConnectionUrl returns a connection URL to the appdb.
-//
-// Note, that it overrides the default authMechanism (which internally depends
-// on the mongodb version).
-func buildMongoConnectionUrl(opsManager *omv1.MongoDBOpsManager, password string, multiClusterHostnames []string) string {
-	connectionString := opsManager.Spec.AppDB.BuildConnectionURL(
-		util.OpsManagerMongoDBUserName,
-		password,
-		connectionstring.SchemeMongoDB,
-		map[string]string{"authMechanism": "SCRAM-SHA-256"},
-		multiClusterHostnames)
-
-	return connectionString
 }
 
 func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
@@ -2143,12 +2037,6 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		return
 	}
 
-	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
-	if err != nil {
-		log.Errorf("Error initializing AppDB reconciler: %s", err)
-		return
-	}
-
 	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
 	// In single-cluster deployments, OwnerReferences handle cleanup automatically via Kubernetes garbage collection.
 	if opsManager.Spec.IsMultiCluster() {
@@ -2160,7 +2048,12 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	}
 
 	if opsManager.Spec.AppDB.IsMultiCluster() {
-		for _, memberCluster := range appDbReconciler.GetHealthyMemberClusters() {
+		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
+		if err != nil {
+			log.Errorf("Error initializing AppDB reconciler helper: %s", err)
+			return
+		}
+		for _, memberCluster := range appDbHelper.GetHealthyMemberClusters() {
 			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
 				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
 			}
@@ -2173,7 +2066,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager.Spec.AppDB, r.ReconcileCommonController, r.omConnectionFactory, opsManager.Annotations, r.memberClustersMap, r.defaultArchitecture, log, kube.BaseOwnerReference(opsManager))
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

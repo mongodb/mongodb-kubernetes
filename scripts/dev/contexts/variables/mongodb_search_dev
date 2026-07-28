@@ -5,7 +5,3 @@ set -Eeou pipefail
 export MDB_SEARCH_VERSION="1.70.1"
 export MDB_SEARCH_NAME="mongodb/mongodb-search"
 export MDB_SEARCH_REPO_URL="quay.io"
-
-# Keep multi-cluster search reconciliation enabled for the existing search e2e suite;
-# the block-on variant overrides this back to the default.
-export MDB_SEARCH_ENABLE_MULTI_CLUSTER="true"
