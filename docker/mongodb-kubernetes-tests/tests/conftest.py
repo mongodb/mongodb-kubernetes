@@ -899,14 +899,17 @@ def _install_multi_cluster_operator(
         helm_chart_path or "", custom_operator_version or ""
     )
 
-    prepare_multi_cluster_namespaces(
-        namespace,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-        skip_central_cluster=True,
-        helm_chart_path=helm_chart_path,
-    )
+    # Only the released baseline needs this: it renders the chart's database-roles onto the member
+    # clusters, which generate-member-resources already does for the new path.
+    if configure_member_clusters is None:
+        prepare_multi_cluster_namespaces(
+            namespace,
+            multi_cluster_operator_installation_config,
+            member_cluster_clients,
+            central_cluster_name,
+            skip_central_cluster=True,
+            helm_chart_path=helm_chart_path,
+        )
 
     operator = Operator(
         name=operator_name,
