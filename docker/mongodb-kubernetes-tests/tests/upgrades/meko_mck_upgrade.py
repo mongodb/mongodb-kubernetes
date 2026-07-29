@@ -19,12 +19,10 @@ from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
     LOCAL_HELM_CHART_DIR,
-    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     MULTI_CLUSTER_OPERATOR_NAME,
     OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import assert_cm_expected_data
 from tests.upgrades import downscale_operator_deployment
 
 logger = test_logger.get_test_logger(__name__)
@@ -130,6 +128,10 @@ def test_upgrade_operator(
     if spec:
         create_operator_config(namespace, spec, api_client=central_cluster_client)
     if is_multi_cluster():
+        # TODO(m1kola): slice-6: register the member clusters before upgrading from MEKO. Once the
+        # legacy member-list fallback is gone, an operator that boots without any MemberCluster CRs
+        # defaults to single-cluster and fails to reconcile the existing multi-cluster MongoDB
+        # resources.
         operator = get_multi_cluster_operator(
             namespace,
             central_cluster_name,
@@ -174,12 +176,16 @@ def test_operator_still_running(namespace: str, central_cluster_client: client.A
     log_deployments_info(namespace)
 
     if is_multi_cluster():
-        # Check if member-list configmap is present and content is correct
-        logger.info(f"Checking correctness of member list configmap")
-        expected_data = {name: "" for name in member_cluster_names}
-        assert_cm_expected_data(
-            name=MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
+        # After the upgrade the operator discovers member clusters from MemberCluster CRs
+        # registered during the day-2 configuration flow, so assert one exists per member cluster.
+        logger.info("Checking MemberCluster CRs are registered")
+        registered = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
+            group="operator.mongodb.com",
+            version="v1",
             namespace=namespace,
-            expected_data=expected_data,
-            central_cluster_client=central_cluster_client,
+            plural="memberclusters",
         )
+        registered_names = {item["metadata"]["name"] for item in registered["items"]}
+        assert registered_names == set(
+            member_cluster_names
+        ), f"MemberCluster CRs mismatch, actual: {registered_names} != expected: {set(member_cluster_names)}"

@@ -69,8 +69,7 @@ cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
   go build -o "${PROJECT_DIR}/bin/prepare_multi_cluster" "${PROJECT_DIR}/scripts/dev/prepare-multi-cluster/"
-  "${PROJECT_DIR}/bin/prepare_multi_cluster" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
-  run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
+"${PROJECT_DIR}/bin/prepare_multi_cluster" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
 fi
 
 # Wait for background operations before deploy step (which needs CRDs from make install)
