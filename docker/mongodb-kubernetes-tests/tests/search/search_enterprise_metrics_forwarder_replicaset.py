@@ -260,7 +260,7 @@ def test_disable_metrics_forwarder(om: MongoDBOpsManager, mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_metrics_forwarder_replicaset
-def test_deleteing_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
+def test_deleting_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: MongoDBSearch):
     ensure_nested_objects(mdbs, ["spec", "observability", "metricsForwarder"])
     mdbs["spec"]["observability"]["metricsForwarder"]["mode"] = "enabled"
     mdbs.update()
@@ -277,6 +277,7 @@ def test_deleteing_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: Mo
     apps.read_namespaced_deployment(deployment_name, mdbs.namespace)
     core.read_namespaced_config_map(configmap_name, mdbs.namespace)
     core.read_namespaced_secret(agent_key_secret, mdbs.namespace)
+    core.read_namespaced_config_map(ca_configmap, mdbs.namespace)
 
     mdbs.delete()
 
