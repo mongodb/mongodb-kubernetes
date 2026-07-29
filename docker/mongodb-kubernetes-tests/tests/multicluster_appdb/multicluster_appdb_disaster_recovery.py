@@ -2,15 +2,15 @@ from typing import Optional
 
 import kubernetes
 import kubernetes.client
-from kubetester import delete_statefulset, get_statefulset, read_configmap, try_load, update_configmap
+from kubetester import delete_statefulset, get_statefulset, try_load
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import run_periodically, skip_if_local
+from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import get_member_cluster_api_client
-from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
 
 FAILED_MEMBER_CLUSTER_NAME = "kind-e2e-cluster-3"
@@ -110,26 +110,30 @@ def test_create_om_majority_down(ops_manager: MongoDBOpsManager, appdb_certs_sec
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
 @mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
+def test_remove_member_cluster_to_simulate_it_is_unhealthy(
     namespace, central_cluster_client: kubernetes.client.ApiClient
 ):
-    member_list_cm = read_configmap(
-        namespace,
-        MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
-        api_client=central_cluster_client,
+    # Simulate the failed cluster becoming unavailable by deleting its MemberCluster CR and
+    # credential Secret.
+    kubernetes.client.CustomObjectsApi(central_cluster_client).delete_namespaced_custom_object(
+        group="operator.mongodb.com",
+        version="v1",
+        namespace=namespace,
+        plural="memberclusters",
+        name=FAILED_MEMBER_CLUSTER_NAME,
     )
-    # this if is only for allowing re-running the test locally
-    # without it the test function could be executed only once until the map is populated again by running prepare-local-e2e run again
-    if FAILED_MEMBER_CLUSTER_NAME in member_list_cm:
-        member_list_cm.pop(FAILED_MEMBER_CLUSTER_NAME)
+    kubernetes.client.CoreV1Api(api_client=central_cluster_client).delete_namespaced_secret(
+        name=f"mck-credential-{FAILED_MEMBER_CLUSTER_NAME}",
+        namespace=namespace,
+    )
 
-    # this will trigger operators restart as it panics on changing the configmap
-    update_configmap(
-        namespace,
-        MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
-        member_list_cm,
-        api_client=central_cluster_client,
-    )
+
+@mark.e2e_multi_cluster_appdb_disaster_recovery
+@mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
+@skip_if_local
+def test_operator_processes_member_removal(multi_cluster_operator: Operator):
+    # Wait for the operator to be ready after the member cluster was removed.
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery
