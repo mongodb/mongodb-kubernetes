@@ -381,6 +381,13 @@ func deleteRemovedMemberClusterResources(
 	deleteResources func(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error,
 	log *zap.SugaredLogger,
 ) error {
+	// An unnamed entry deploys on the central cluster, which may itself be
+	// member-registered under a name the spec never lists; sweeping members
+	// would delete the live local deployment. Unnamed entries are only legal
+	// at len==1, so this check is exact.
+	if len(search.Spec.Clusters) == 1 && search.Spec.Clusters[0].Name == "" {
+		return nil
+	}
 	desired := make(map[string]struct{}, len(search.Spec.Clusters))
 	for _, cluster := range search.Spec.Clusters {
 		desired[cluster.Name] = struct{}{}
