@@ -270,29 +270,17 @@ def metrics_forwarder_deployment_name(search_name: str, cluster_index: int = 0) 
 
 
 def metrics_forwarder_configmap_name(search_name: str, cluster_index: int = 0) -> str:
-    """ConfigMap name for the metrics forwarder config. Mirrors MetricsForwarderConfigMapNameForCluster().
-
-    cluster_index defaults to 0 for single-cluster callers; pass the cluster
-    position explicitly for multi-cluster tests.
-    """
+    """ConfigMap name for the metrics forwarder config. Mirrors MetricsForwarderConfigMapNameForCluster()."""
     return f"{search_name}-search-metrics-forwarder-{cluster_index}-config"
 
 
 def metrics_forwarder_agent_key_secret_name(search_name: str, cluster_index: int = 0) -> str:
-    """Secret name for the forwarder-owned agent-key replica. Mirrors MetricsForwarderAgentKeySecretNameForCluster().
-
-    cluster_index defaults to 0 for single-cluster callers; pass the cluster
-    position explicitly for multi-cluster tests.
-    """
+    """Secret name for the forwarder-owned agent-key replica. Mirrors MetricsForwarderAgentKeySecretNameForCluster()."""
     return f"{search_name}-search-metrics-forwarder-{cluster_index}-agent-key"
 
 
 def metrics_forwarder_ca_configmap_name(search_name: str, cluster_index: int = 0) -> str:
-    """ConfigMap name for the forwarder-owned OM CA replica. Mirrors MetricsForwarderCACertConfigMapNameForCluster().
-
-    cluster_index defaults to 0 for single-cluster callers; pass the cluster
-    position explicitly for multi-cluster tests.
-    """
+    """ConfigMap name for the forwarder-owned OM CA replica. Mirrors MetricsForwarderCACertConfigMapNameForCluster()."""
     return f"{search_name}-search-metrics-forwarder-{cluster_index}-ca-cert"
 
 

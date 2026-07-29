@@ -1029,6 +1029,15 @@ def protected_search_input_uids(
     *,
     additional_secret_names: tuple[str, ...] = (),
 ) -> dict[str, str]:
+    """Snapshot the UIDs of customer-provided ("protected") Search inputs.
+
+    These are resources the customer creates (source TLS Secret, sync-user password
+    Secret, CA ConfigMap, ...) that the operator consumes but must never delete or
+    recreate — cleanup sweeps only remove operator-owned artifacts. Tests capture
+    these UIDs before a lifecycle transition and assert afterwards that they are
+    unchanged, proving the inputs survived untouched.
+    """
+
     def uid(resource: Any, what: str) -> str:
         value = resource.metadata.uid
         assert value, f"{what} has no UID"
