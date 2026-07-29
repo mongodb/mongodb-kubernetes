@@ -1159,6 +1159,39 @@ func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t 
 			}
 		})
 	}
+
+	t.Run("unnamed single-cluster entry: registered members are not swept", func(t *testing.T) {
+		ctx := context.Background()
+		// One unnamed entry (legal only at len==1) deploys locally on the central
+		// cluster, which is itself member-registered under a name the spec never
+		// lists — the member sweep must not delete the live local deployment.
+		search := newMongoDBSearch("mdb-search", mock.TestNamespace, "missing-source")
+		require.Len(t, search.Spec.Clusters, 1)
+		require.Empty(t, search.Spec.Clusters[0].Name)
+
+		centralClient := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+		labels := khandler.SearchOwnershipLabels(search, "", searchMongotComponent)
+		live := []client.Object{
+			&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(0).Name, Namespace: search.Namespace, UID: "live-sts", Labels: maps.Clone(labels)}},
+			&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: search.SearchServiceNamespacedNameForCluster(0).Name, Namespace: search.Namespace, UID: "live-svc", Labels: maps.Clone(labels)}},
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MongotConfigConfigMapNameForCluster(0).Name, Namespace: search.Namespace, UID: "live-cm", Labels: maps.Clone(labels)}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.Name + "-live-tls", Namespace: search.Namespace, UID: "live-secret", Labels: maps.Clone(labels)}},
+		}
+		for _, obj := range live {
+			require.NoError(t, centralClient.Create(ctx, obj))
+		}
+		reconciler := newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{
+			"cluster-hub": centralClient,
+		}, "")
+
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
+		require.NoError(t, err)
+
+		for _, obj := range live {
+			assert.NoError(t, centralClient.Get(ctx, client.ObjectKeyFromObject(obj), obj),
+				"%T %s must survive the member sweep: the unnamed entry deploys locally on the member-registered hub", obj, obj.GetName())
+		}
+	})
 }
 
 // Customer pin is authoritative: re-pinning renders at the new index. The
