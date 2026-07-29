@@ -127,7 +127,7 @@ func NewMongoDBSearchReconcileHelper(
 // don't cross cluster boundaries; labels are the only path back from a member
 // resource to its central CR (for watch routing and label-based GC).
 func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[string]string {
-	return khandler.SearchManagedLabels(search, "", "", clusterName)
+	return khandler.SearchOwnershipLabels(search, "", "", clusterName)
 }
 
 // withSearchOwnerLabels adds the managed identity labels to the StatefulSet
@@ -136,7 +136,7 @@ func searchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) map[s
 // on an existing STS); the pod-routing labels stay in the unit's podLabels.
 func withSearchOwnerLabels(search *searchv1.MongoDBSearch, clusterName string) statefulset.Modification {
 	return func(set *appsv1.StatefulSet) {
-		set.Labels = merge.StringToStringMap(set.Labels, khandler.SearchManagedLabels(search, "", mongotComponent, clusterName))
+		set.Labels = merge.StringToStringMap(set.Labels, khandler.SearchOwnershipLabels(search, "", mongotComponent, clusterName))
 	}
 }
 
@@ -659,7 +659,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	}
 
 	tlsSecretLabels := searchOwnerLabels(r.mdbSearch, unit.clusterName)
-	ingressTLSSecretLabels := khandler.SearchManagedLabels(r.mdbSearch, "", mongotComponent, unit.clusterName)
+	ingressTLSSecretLabels := khandler.SearchOwnershipLabels(r.mdbSearch, "", mongotComponent, unit.clusterName)
 
 	// Per-unit ingress TLS: each shard may have its own secret, so this cannot
 	// be hoisted out of the loop.

@@ -783,7 +783,7 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // clusterIndex is used for the "app" label (resource name); clusterName is used
 // for the cluster-name label so label selectors remain name-keyed.
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
-	return khandler.SearchManagedLabels(search, search.LoadBalancerDeploymentNameForCluster(clusterIndex), labelName, clusterName)
+	return khandler.SearchOwnershipLabels(search, search.LoadBalancerDeploymentNameForCluster(clusterIndex), labelName, clusterName)
 }
 
 // envoyReplicas returns the cluster's desired Envoy replica count.

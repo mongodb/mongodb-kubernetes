@@ -33,7 +33,6 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
-	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -107,10 +106,10 @@ func newTestFakeClient(objects ...client.Object) kubernetesClient.Client {
 	return kubernetesClient.NewClient(clientBuilder.Build())
 }
 
-// assertSearchManagedLabels asserts the managed identity on every local
+// assertSearchOwnershipLabels asserts the managed identity on every local
 // mongot resource: owner labels, component, cluster-name label presence,
 // and the owner reference back to the MongoDBSearch CR.
-func assertSearchManagedLabels(t *testing.T, obj client.Object, search *searchv1.MongoDBSearch, clusterName string) {
+func assertSearchOwnershipLabels(t *testing.T, obj client.Object, search *searchv1.MongoDBSearch, clusterName string) {
 	t.Helper()
 	labels := obj.GetLabels()
 	assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel])
@@ -633,49 +632,6 @@ func TestMongoDBSearchReconcileHelper_ServiceCreation(t *testing.T) {
 
 			assertServiceBasicProperties(t, svc, mdbSearch)
 			assertServicePorts(t, svc, tc.expectedPorts)
-		})
-	}
-}
-
-func TestSearchManagedLabelsWinOverOverrides(t *testing.T) {
-	tests := []struct {
-		name        string
-		clusterName string
-	}{
-		{name: "member cluster", clusterName: "member-a"},
-		{name: "legacy single cluster"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			overrideLabels := map[string]string{
-				"custom-label":                            "custom-value",
-				khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
-				khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
-				khandler.MongoDBSearchComponentLabel:      "wrong-component",
-			}
-			if tc.clusterName != "" {
-				overrideLabels[khandler.MongoDBSearchClusterNameLabel] = "wrong-cluster"
-			}
-			search := newTestMongoDBSearch("test-search", "test-ns", func(search *searchv1.MongoDBSearch) {
-				search.UID = "search-uid"
-				search.Spec.Clusters = []searchv1.ClusterSpec{{
-					Name: tc.clusterName,
-					StatefulSetConfiguration: &v1.StatefulSetConfiguration{
-						MetadataWrapper: v1.StatefulSetMetadataWrapper{
-							Labels: overrideLabels,
-						},
-					},
-				}}
-			})
-			sizing := search.EffectiveClusters()[0]
-			sts := statefulset.New(
-				CreateSearchStatefulSetFunc(search, sizing, "test-search-search-0", search.Namespace, "test-search-search-0-svc", "test-search-search-0-config", map[string]string{"app": "test-search-search-0"}, "mongot:latest", false),
-				StatefulSetOverrideModification(sizing.StatefulSetConfiguration),
-				withSearchOwnerLabels(search, tc.clusterName),
-			)
-
-			assert.Equal(t, "custom-value", sts.Labels["custom-label"])
-			assertSearchManagedLabels(t, &sts, search, tc.clusterName)
 		})
 	}
 }
@@ -3140,6 +3096,20 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	search.UID = "search-uid"
 	search.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "my-prefix"}}
+	// User label overrides must survive on the StatefulSet, but never displace
+	// the ownership labels applied after them. The override replaces the object
+	// labels wholesale, so it re-supplies the app label asserted below.
+	search.Spec.Clusters[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{
+		MetadataWrapper: v1.StatefulSetMetadataWrapper{
+			Labels: map[string]string{
+				"app":                                     "test-search-search-0-svc",
+				"custom-label":                            "custom-value",
+				khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+				khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+				khandler.MongoDBSearchComponentLabel:      "wrong-component",
+			},
+		},
+	}
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
 	sourceTLSSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: search.TLSSecretNamespacedName().Name, Namespace: search.Namespace},
@@ -3176,7 +3146,7 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-0-svc", svc.Spec.Selector["app"])
 	assert.Equal(t, "test-search-search-0-svc", svc.Labels["app"])
 	assert.Empty(t, svc.Labels["shard"])
-	assertSearchManagedLabels(t, &svc, search, "")
+	assertSearchOwnershipLabels(t, &svc, search, "")
 
 	portMap := make(map[string]int32)
 	for _, p := range svc.Spec.Ports {
@@ -3194,8 +3164,11 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-ns", sts.Namespace)
 	assert.Equal(t, "test-search-search-0-svc", sts.Labels["app"])
 	assert.Empty(t, sts.Labels["shard"])
+	assert.Equal(t, "custom-value", sts.Labels["custom-label"])
 	// Owner-ref back to the MongoDBSearch CR drives PVC reclaim via GC on CR delete.
-	assertSearchManagedLabels(t, &sts, search, "")
+	// assertSearchOwnershipLabels also pins that the "wrong-*" user overrides above
+	// did not displace the ownership labels.
+	assertSearchOwnershipLabels(t, &sts, search, "")
 
 	// Verify ConfigMap
 	cmNsName := search.MongotConfigConfigMapNameForCluster(0)
@@ -3204,12 +3177,12 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 
 	assert.Equal(t, "test-search-search-0-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
-	assertSearchManagedLabels(t, &cm, search, "")
+	assertSearchOwnershipLabels(t, &cm, search, "")
 
 	// Verify operator-managed ingress TLS Secret identity
 	ingressSecret, err := fakeClient.GetSecret(t.Context(), search.TLSOperatorSecretNamespacedName())
 	require.NoError(t, err)
-	assertSearchManagedLabels(t, &ingressSecret, search, "")
+	assertSearchOwnershipLabels(t, &ingressSecret, search, "")
 }
 
 type fakeExternalSource struct {
