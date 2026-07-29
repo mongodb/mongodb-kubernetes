@@ -694,9 +694,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
 		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
 		// any API call to ops-manager will fail (including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
-		// The one exception is a 401 from markAsBackingDatabase, which is tolerated inside tryConfigureMonitoringInOpsManager
-		// (temporary shim — see TODO at the markAppDBAsBackingProject call site): reaching that call
-		// proves the credentials authenticated successfully earlier in the same pass, so a 401 there can only be a transient digest-auth nonce race.
+		// The one exception is a 401 from markAsBackingDatabase, which is tolerated
+		// inside tryConfigureMonitoringInOpsManager as defense-in-depth: the OM client
+		// retries a 401 once with a fresh challenge, and reaching that call proves the
+		// credentials authenticated successfully earlier in the same pass.
 		// A 401 from any earlier call (starting with ReadOrCreateProject) means genuinely broken credentials and lands here.
 		if is401(err) {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
@@ -1878,19 +1879,13 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	if err := markAppDBAsBackingProject(conn, log); err != nil {
-		// TODO: this 401 tolerance is a temporary shim. The mongodb-forks/digest library
-		// does not implement RFC 7616 stale=true retry; when it does, remove this tolerance
-		// and let 401 always produce Failed (genuine credential failures are already caught
-		// by the ReadOrCreateProject tripwire).
 		// A 401 here can only be a transient digest-auth nonce race (OM answers 401 +
-		// stale=true per RFC 7616, which the digest library does not retry): reaching this
+		// stale=true per RFC 7616). The OM client (controllers/om/api/http.go) retries
+		// a 401 once with a fresh challenge, which handles the common case. This tolerance
+		// is defense-in-depth for the residual where the retry also fails: reaching this
 		// call proves the same credentials authenticated successfully several times earlier
 		// in this pass (ReadOrCreateProject etc.), so persistent credential breakage 401s
-		// at an earlier call and surfaces as Failed in ReconcileAppDB. Observed during AppDB
-		// rolling restarts when the AppDB primary is unavailable and the nonce ages past
-		// OM's 60s MAX_AGE during retryablehttp's retry chain.
-		// Tolerate and retry on a subsequent reconcile (driven by resource churn during
-		// restarts; otherwise the normal OK requeue interval applies).
+		// at an earlier call and surfaces as Failed in ReconcileAppDB.
 		if is401(err) {
 			log.Warnf("ignoring transient 401 (Unauthorized) from markAsBackingDatabase; marking will be retried on a subsequent reconciliation")
 		} else {

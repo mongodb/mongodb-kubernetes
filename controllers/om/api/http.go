@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -176,14 +177,31 @@ func OptionCAValidate(ca string) func(client *Client) error {
 
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
+// On a 401, it retries once with a fresh digest challenge (RFC 7616 stale nonce).
 func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
+	body, header, err := client.tryRequest(method, url, path, v)
+	if err == nil {
+		return body, header, nil
+	}
+
+	// On a 401, retry once with a fresh challenge. A genuine credential
+	// failure will simply 401 again; a stale nonce (RFC 7616) succeeds.
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) && apiErr.Status != nil && *apiErr.Status == http.StatusUnauthorized {
+		return client.tryRequest(method, url, path, v)
+	}
+
+	return nil, nil, err
+}
+
+// tryRequest creates and sends a single HTTP request.
+func (client *Client) tryRequest(method, url, path string, v interface{}) ([]byte, http.Header, error) {
 	req, err := createHTTPRequest(method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
-
 	return client.sendRequest(method, url, path, req)
 }
 
