@@ -156,14 +156,11 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, st, log)
 	}
 
-	if skip, result, err := r.prepareSearch.validate(mdbSearch, log,
-		func(st workflow.Status) (reconcile.Result, error) {
-			if !mdbSearch.IsMetricsForwarderEnabled() {
-				return st.ReconcileResult()
-			}
-			return r.updateMetricsForwarderStatus(ctx, mdbSearch, st, log)
-		}); skip {
-		return result, err
+	if st := r.prepareSearch.validate(mdbSearch); !st.IsOK() {
+		if !mdbSearch.IsMetricsForwarderEnabled() {
+			return st.ReconcileResult()
+		}
+		return r.updateMetricsForwarderStatus(ctx, mdbSearch, st, log)
 	}
 
 	// The removed-operator cleanup runs after validation (an invalid spec must
@@ -428,15 +425,10 @@ func specNamesByIndex(search *searchv1.MongoDBSearch) map[int]string {
 	return names
 }
 
-// normalizeTopologyState resolves legacy entries written before indexes were
-// persisted (the unnamed entry is index 0; a named entry still in spec.clusters
-// adopts that entry's index; anything else stays unresolved and is skipped with
-// a warning downstream) and re-keys renamed entries: an entry whose index a
-// spec entry now holds under a different name is a pure rename, so it keeps its
-// bookkeeping under the name that routes to it. Re-keying rebuilds the map in
-// one pass so index swaps between names move atomically; a rename whose target
-// key is held by an entry that kept it (a removed index awaiting cleanup) is
-// retried once that entry goes away. The next state write persists the result.
+// normalizeTopologyState backfills missing indexes on legacy entries and
+// re-keys renamed ones: index is identity, so a rename moves bookkeeping to
+// the new name without touching Ops Manager hosts. In-memory only; the next
+// state write persists the result.
 func normalizeTopologyState(search *searchv1.MongoDBSearch, topologyState *searchTopologyState, log *zap.SugaredLogger) {
 	liveNameByIndex := specNamesByIndex(search)
 	specIndexByName := make(map[string]int, len(liveNameByIndex))
@@ -1387,10 +1379,6 @@ func metricsForwarderPodLabelsForCluster(search *searchv1.MongoDBSearch, cluster
 
 func metricsForwarderLabels(search *searchv1.MongoDBSearch) map[string]string {
 	return metricsForwarderLabelsForCluster(search, 0)
-}
-
-func metricsForwarderPodLabels(search *searchv1.MongoDBSearch) map[string]string {
-	return metricsForwarderPodLabelsForCluster(search, 0)
 }
 
 // updateMetricsForwarderStatus patches the metricsForwarder sub-status.

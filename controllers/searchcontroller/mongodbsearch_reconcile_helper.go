@@ -90,9 +90,10 @@ type MongoDBSearchReconcileHelper struct {
 	db                   SearchSourceDBResource
 	operatorSearchConfig OperatorSearchConfig
 
-	// memberClients routes named hub member clusters. Local clusters — the
-	// legacy unnamed entry, and the operator's own cluster in per-cluster
-	// operator mode — use client.
+	// memberClients holds a client per named member cluster in spec.clusters.
+	// Local clusters — the legacy unnamed entry, and the operator's own cluster
+	// in per-cluster operator mode — use client instead; a named cluster missing
+	// from this map gets no client and is skipped or surfaced as Pending.
 	memberClients       map[string]kubernetesClient.Client
 	operatorClusterName string
 
@@ -725,11 +726,10 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 
 	tlsSecretLabels := searchOwnerLabels(r.mdbSearch)
 	tlsSecretLabels[componentLabelKey] = mongotComponent
-	ingressTLSSecretLabels := maps.Clone(tlsSecretLabels)
 
 	// Per-unit ingress TLS: each shard may have its own secret, so this cannot
 	// be hoisted out of the loop.
-	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unitClient, unit.tlsResource, ingressTLSSecretLabels, unit.ownerReferences)
+	ingressTlsMongotModification, ingressTlsStsModification, err := r.ensureIngressTlsConfig(ctx, unitClient, unit.tlsResource, tlsSecretLabels, unit.ownerReferences)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1087,9 +1087,6 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 	}
 	for _, unit := range units {
 		expected := expectedByCluster[unit.clusterIndex]
-		if expected.sts == nil {
-			expected = newExpectations()
-		}
 		if manageProxyServices {
 			expected.proxy[unit.proxySvc.Name] = true
 			expected.proxy[r.mdbSearch.ProxyServiceNamespacedNameForCluster(unit.clusterIndex).Name] = true
@@ -1141,11 +1138,10 @@ func isOperatorGeneratedServerTLSSecretName(search *searchv1.MongoDBSearch, name
 		return true
 	}
 	prefix := search.Name + "-search-"
-	const suffix = "-certificate-key"
-	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, certificateKeySuffix) {
 		return false
 	}
-	clusterIndex, shardName, found := strings.Cut(strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffix), "-")
+	clusterIndex, shardName, found := strings.Cut(strings.TrimSuffix(strings.TrimPrefix(name, prefix), certificateKeySuffix), "-")
 	index, err := strconv.Atoi(clusterIndex)
 	return found && err == nil && index >= 0 && shardName != "" &&
 		name == search.TLSOperatorSecretForClusterShard(index, shardName).Name
@@ -1493,6 +1489,10 @@ const (
 	// Service and ConfigMap (the StatefulSet is swept by owner label instead).
 	mongotComponent = "mongot"
 
+	// certificateKeySuffix is the trailing segment of operator-generated
+	// per-shard ingress TLS Secret names.
+	certificateKeySuffix = "-certificate-key"
+
 	nameLabelKey       = "app.kubernetes.io/name"
 	managedByLabelKey  = "app.kubernetes.io/managed-by"
 	voyageAILabelValue = "voyageai"
@@ -1802,12 +1802,7 @@ func setupMongotContainerArgsForAPIKeys() container.Modification {
 // For sharded deployments, pass a perShardTLSResource adapter.
 func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, tlsResource tls.TLSConfigurableResource, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	if r.mdbSearch.Spec.Security.TLS == nil {
-		return mongot.NOOP(), statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
-			podtemplatespec.RemoveVolume("tls"),
-			podtemplatespec.RemoveVolume("grpc-key-password"),
-			podtemplatespec.RemoveVolumeMount(MongotContainerName, "tls"),
-			podtemplatespec.RemoveVolumeMount(MongotContainerName, "grpc-key-password"),
-		)), nil
+		return mongot.NOOP(), removeMongotVolumesAndMounts("tls", "grpc-key-password"), nil
 	}
 
 	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, tlsResource, labels, ownerReferences)

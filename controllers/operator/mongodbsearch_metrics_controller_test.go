@@ -651,7 +651,7 @@ func TestMetricsForwarderLabels(t *testing.T) {
 	memberLabels := metricsForwarderLabelsForCluster(search, 3)
 	assert.Equal(t, search.MetricsForwarderDeploymentNameForCluster(3), memberLabels["app"])
 
-	podLabels := metricsForwarderPodLabels(search)
+	podLabels := metricsForwarderPodLabelsForCluster(search, 0)
 	assert.Equal(t, "my-search-search-metrics-forwarder-0", podLabels["app"])
 	assert.NotContains(t, podLabels, khandler.MongoDBSearchComponentLabel)
 }

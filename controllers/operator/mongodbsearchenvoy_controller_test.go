@@ -939,14 +939,14 @@ func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	single := envoyLabelsForCluster(search, 0)
 	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, labelName, single[khandler.MongoDBSearchComponentLabel])
+	assert.Equal(t, searchProxyComponent, single[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), single["app"])
 
 	// Multi-cluster: same identity labels; app label uses the provided index.
 	mc := envoyLabelsForCluster(search, 3)
 	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, labelName, mc[khandler.MongoDBSearchComponentLabel])
+	assert.Equal(t, searchProxyComponent, mc[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(3), mc["app"])
 }
 
@@ -1566,12 +1566,12 @@ func TestDeleteEnvoyResources(t *testing.T) {
 			wantWarn: "no Kubernetes client registered for Envoy cleanup",
 		},
 		{
-			name: "non-canonical ownership is preserved and surfaces an error",
+			name: "foreign-owned object is preserved and surfaces an error",
 			objs: []envoyObj{
 				{cluster: "", index: 0, foreignName: true, wantKept: true},
 			},
 			work:    []workItem{{cluster: "", index: 0, registered: true}},
-			wantErr: "non-canonical ownership",
+			wantErr: "not managed by this MongoDBSearch",
 		},
 	}
 	for _, tc := range tests {
@@ -1711,7 +1711,7 @@ func TestEnvoyReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing
 	}
 }
 
-func TestHasCanonicalEnvoyOwnership(t *testing.T) {
+func TestEnvoyResourceOwnedBySearch(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"}}
 	tests := []struct {
 		name         string
@@ -1736,7 +1736,7 @@ func TestHasCanonicalEnvoyOwnership(t *testing.T) {
 				tc.mutateLabels(actual)
 			}
 			obj := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Labels: actual}}
-			assert.Equal(t, tc.want, hasCanonicalEnvoyOwnership(obj, search))
+			assert.Equal(t, tc.want, envoyResourceOwnedBySearch(obj, search))
 		})
 	}
 }

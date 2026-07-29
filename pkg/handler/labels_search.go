@@ -17,10 +17,10 @@ const (
 	MongoDBSearchComponentLabel      = "component"
 )
 
-// SearchOwnershipLabels returns the managed identity labels shared by Search
-// resource writers, cleanup selectors, and event routing. Writers merge user
-// labels first and apply these labels last so user metadata overrides can
-// never detach a resource from its owning MongoDBSearch.
+// SearchOwnershipLabels returns the labels tying a resource to its owning
+// MongoDBSearch: the search-name/search-namespace identity pair, plus the app
+// and component labels when non-empty. Writers apply them last so user label
+// overrides can never detach a resource from its owning MongoDBSearch.
 func SearchOwnershipLabels(search metav1.Object, app, component string) map[string]string {
 	labels := map[string]string{
 		MongoDBSearchOwnerNameLabel:      search.GetName(),
