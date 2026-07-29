@@ -16,6 +16,8 @@ Added support to show **cluster-level status** of Search, Managed LoadBalancer, 
 
 Added support to **configure the node affinity** of the MongoDB Search (`mongot`) pods using the `MongoDBSearch` CR fields `spec.clusters[].nodeAffinity` or `spec.clusters[].shardOverrides[].nodeAffinity`.
 
-Multi-cluster reconciliation no longer requires any opt-in. The internal `MDB_SEARCH_ENABLE_MULTI_CLUSTER` pre-GA feature gate has been removed; multi-cluster reconciliation is now always enabled.
-
 The **default JVM heap size** (half of the memory request) is now capped at 30GB, following the [mongot sizing guidance](https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing). Heap sizes above ~30GB prevent the JVM from using compressed object pointers and degrade performance. User-provided heap flags are not affected; if more than 30GB heap is required, we recommend using `jvmFlags`.
+
+## Notable Limitation
+
+For operator-managed multi-cluster MongoDB deployments, customers can use MongoDB Search, but in this release they must add the required Search parameters manually. Automatic configuration for MCK-managed multi-cluster MongoDB sources is not yet available.
