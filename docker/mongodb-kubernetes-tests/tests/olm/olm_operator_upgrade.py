@@ -1,7 +1,8 @@
 import pytest
 from kubernetes.client.rest import ApiException
 from kubetester import read_service, wait_for_webhook
-from kubetester.kubetester import apply_operator_config_from_test_env
+from kubetester.helm import apply_operator_config_crd
+from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
@@ -60,19 +61,24 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{latest_released_operator_version}")
 
+    # Configure the operator before the upgrade, mirroring the real upgrade flow: the OperatorConfig
+    # exists before the branch build starts, so it takes effect from startup.
+    #
+    # The released operator predates OperatorConfig
+    # and ignores the CR, so apply the CRD temporarily to create it.
+    # TODO: once latest_released_operator_version is >= 2.0.0 it ships the OperatorConfig CRD itself,
+    # so drop this apply_operator_config_crd call. We will also need to move OperatorConfig CR creation before
+    # we install latest_released_operator_version.
+    apply_operator_config_crd()
+    spec = build_operator_config_spec_from_test_env()
+    if spec:
+        create_operator_config(namespace, spec)
+
     subscription.load()
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
     subscription.update()
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
-
-    apply_operator_config_from_test_env(
-        namespace,
-        name=OPERATOR_NAME,
-        wait_for_ready=lambda: wait_for_operator_ready(
-            namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}"
-        ),
-    )
 
 
 @pytest.mark.e2e_olm_operator_upgrade
