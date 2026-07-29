@@ -437,11 +437,13 @@ class TestOperatorUpgrade:
     ):
         operator = Operator(namespace=namespace, helm_args=operator_installation_config)
         expected = operator_installation_config["search.version"]
-        assert expected != upgrade_state.pre_mongot_version, f"upgrade left MDB_SEARCH_VERSION unchanged at {expected}"
         operator_version = get_operator_search_version(operator)
         assert operator_version == expected, f"operator MDB_SEARCH_VERSION {operator_version} != {expected}"
-        wait_for_mongot_rollout(namespace, expected, upgrade_state.mongot_pod_uid)
-        assert get_mongot_image_tag(namespace) != upgrade_state.pre_mongot_version
+        # The target's default Search version can legitimately equal GA's; mongot only
+        # rolls when the version actually changes, so gate the rollout wait on that.
+        if expected != upgrade_state.pre_mongot_version:
+            wait_for_mongot_rollout(namespace, expected, upgrade_state.mongot_pod_uid)
+        assert get_mongot_image_tag(namespace) == expected
 
     def test_search_running_after_upgrade(self, mdbs: MongoDBSearch):
         mdbs.assert_reaches_phase(phase=Phase.Running, timeout=300)
@@ -453,6 +455,7 @@ class TestOperatorUpgrade:
         self,
         namespace: str,
         mdbs: MongoDBSearch,
+        operator_installation_config: dict[str, str],
         upgrade_state: UpgradeState,
     ):
         mdbs.load()
@@ -479,7 +482,10 @@ class TestOperatorUpgrade:
             f"missing={missing}, uid_changed(pre, post)={replaced}, post-upgrade={post_upgrade_uids}"
         )
         assert pvc.metadata.uid == upgrade_state.mongot_pvc_uid
-        assert pod.metadata.uid != upgrade_state.mongot_pod_uid, "mongot pod did not roll to the upgraded image"
+        # The pod only rolls when the Search version changes across the upgrade;
+        # with identical GA/target versions the adopted pod legitimately stays put.
+        if operator_installation_config["search.version"] != upgrade_state.pre_mongot_version:
+            assert pod.metadata.uid != upgrade_state.mongot_pod_uid, "mongot pod did not roll to the upgraded image"
 
     def test_search_query_after_upgrade(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.assert_search_query(retry_timeout=60)

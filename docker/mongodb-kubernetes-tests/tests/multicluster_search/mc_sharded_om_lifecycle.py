@@ -222,10 +222,11 @@ def _assert_routing_observed(
 def _assert_lb_cert_proxy_sans(
     namespace: str, central_cluster_client: kubernetes.client.ApiClient, cluster_indexes: List[int]
 ) -> None:
-    """Every cluster's Envoy server cert must SAN every cluster's per-shard proxy and
-    router proxy FQDNs: with per-cluster routing each cluster's mongods/mongos dial their
-    own cluster's proxies over requireTLS, and the cluster-removal rewire additionally
-    sends the removed cluster's processes to a survivor's proxies."""
+    """Every cluster's Envoy server cert must carry SAN entries for every cluster's
+    per-shard proxy and router proxy FQDNs: with per-cluster routing each cluster's
+    mongods/mongos dial their own cluster's proxies over requireTLS, and the
+    cluster-removal rewire additionally sends the removed cluster's processes to a
+    survivor's proxies."""
     expected_sans = {
         search_resource_names.mc_proxy_svc_fqdn(MDBS_RESOURCE_NAME, namespace, ci) for ci in cluster_indexes
     } | {
