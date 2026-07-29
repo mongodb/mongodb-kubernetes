@@ -643,6 +643,18 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
 
+  # Fetches a released MCK kubectl plugin from the public GitHub releases.
+  # It provisions the released operator baselines the upgrade tests start from (MEKO and MCK 1.x).
+  download_released_multi_cluster_binary:
+    - command: subprocess.exec
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/release/kubectl_mongodb/download_released_kubectl_plugin.sh
+        env:
+          PLATFORM: ${platform}
+          PLUGIN_MAJOR: ${plugin_major|1}
+          GH_TOKEN: ${GH_TOKEN}
+
   pipeline:
     - *assume_devprod_platforms_ecr_role
     - *write_devprod_platforms_ecr_aws_profile
