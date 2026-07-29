@@ -106,6 +106,25 @@ func newTestFakeClient(objects ...client.Object) kubernetesClient.Client {
 	return kubernetesClient.NewClient(clientBuilder.Build())
 }
 
+// assertSearchOwnershipLabels asserts the managed identity on every local
+// mongot resource: owner labels, component, cluster-name label presence,
+// and the owner reference back to the MongoDBSearch CR.
+func assertSearchOwnershipLabels(t *testing.T, obj client.Object, search *searchv1.MongoDBSearch, clusterName string) {
+	t.Helper()
+	labels := obj.GetLabels()
+	assert.Equal(t, search.Name, labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, mongotComponent, labels[khandler.MongoDBSearchComponentLabel])
+	if clusterName == "" {
+		assert.NotContains(t, labels, khandler.MongoDBSearchClusterNameLabel)
+	} else {
+		assert.Equal(t, clusterName, labels[khandler.MongoDBSearchClusterNameLabel])
+	}
+	assert.True(t, slices.ContainsFunc(obj.GetOwnerReferences(), func(ref metav1.OwnerReference) bool {
+		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name && ref.UID == search.UID
+	}), "expected owner reference back to the MongoDBSearch CR")
+}
+
 func reconcileMongoDBSearch(ctx context.Context, fakeClient kubernetesClient.Client, mdbSearch *searchv1.MongoDBSearch, mdbc *mdbcv1.MongoDBCommunity, operatorConfig OperatorSearchConfig) workflow.Status {
 	helper := NewMongoDBSearchReconcileHelper(
 		fakeClient,
@@ -2600,7 +2619,7 @@ func TestEnsureX509ClientCertConfig_NoopWhenNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.NoError(t, err)
 
 	// Apply modifications and verify no changes
@@ -2641,13 +2660,14 @@ func TestEnsureX509ClientCertConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
 	fakeClient := newTestFakeClient(search)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	_, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tls must be enabled")
 }
 
 func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
 		s.Spec.Source.X509 = &searchv1.X509Auth{
 			ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
 		}
@@ -2666,8 +2686,11 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.NoError(t, err)
+	operatorSecret, err := fakeClient.GetSecret(t.Context(), search.X509OperatorManagedSecret())
+	require.NoError(t, err)
+	assert.Subset(t, operatorSecret.Labels, searchOwnerLabels(search, ""))
 
 	// Apply mongot modification to a config with both ReplicaSet and Router (sharded scenario)
 	config := &mongot.Config{
@@ -2765,7 +2788,7 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	fakeClient := newTestFakeClient(search, x509Secret, keyPasswordSecret)
 	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, nil)
 
-	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient)
+	mongotMod, stsMod, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, searchOwnerLabels(search, ""))
 	require.NoError(t, err)
 
 	// Verify mongot config has key password path
@@ -3071,8 +3094,28 @@ func TestCleanupStaleShardResources(t *testing.T) {
 
 func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
+	search.UID = "search-uid"
+	search.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "my-prefix"}}
+	// User label overrides must survive on the StatefulSet, but never displace
+	// the ownership labels applied after them. The override replaces the object
+	// labels wholesale, so it re-supplies the app label asserted below.
+	search.Spec.Clusters[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{
+		MetadataWrapper: v1.StatefulSetMetadataWrapper{
+			Labels: map[string]string{
+				"app":                                "test-search-search-0-svc",
+				"custom-label":                       "custom-value",
+				khandler.MongoDBSearchOwnerNameLabel: "wrong-name",
+				khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+				khandler.MongoDBSearchComponentLabel:      "wrong-component",
+			},
+		},
+	}
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
-	fakeClient := newTestFakeClient(search, mdbc)
+	sourceTLSSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: search.TLSSecretNamespacedName().Name, Namespace: search.Namespace},
+		Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
+	}
+	fakeClient := newTestFakeClient(search, mdbc, sourceTLSSecret)
 
 	helper := NewMongoDBSearchReconcileHelper(
 		fakeClient,
@@ -3103,6 +3146,7 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-0-svc", svc.Spec.Selector["app"])
 	assert.Equal(t, "test-search-search-0-svc", svc.Labels["app"])
 	assert.Empty(t, svc.Labels["shard"])
+	assertSearchOwnershipLabels(t, &svc, search, "")
 
 	portMap := make(map[string]int32)
 	for _, p := range svc.Spec.Ports {
@@ -3120,11 +3164,11 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-ns", sts.Namespace)
 	assert.Equal(t, "test-search-search-0-svc", sts.Labels["app"])
 	assert.Empty(t, sts.Labels["shard"])
-
+	assert.Equal(t, "custom-value", sts.Labels["custom-label"])
 	// Owner-ref back to the MongoDBSearch CR drives PVC reclaim via GC on CR delete.
-	assert.True(t, slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
-		return ref.Kind == "MongoDBSearch" && ref.Name == search.Name
-	}))
+	// assertSearchOwnershipLabels also pins that the "wrong-*" user overrides above
+	// did not displace the ownership labels.
+	assertSearchOwnershipLabels(t, &sts, search, "")
 
 	// Verify ConfigMap
 	cmNsName := search.MongotConfigConfigMapNameForCluster(0)
@@ -3133,6 +3177,12 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 
 	assert.Equal(t, "test-search-search-0-config", cm.Name)
 	assert.Contains(t, cm.Data, MongotConfigFilename)
+	assertSearchOwnershipLabels(t, &cm, search, "")
+
+	// Verify operator-managed ingress TLS Secret identity
+	ingressSecret, err := fakeClient.GetSecret(t.Context(), search.TLSOperatorSecretNamespacedName())
+	require.NoError(t, err)
+	assertSearchOwnershipLabels(t, &ingressSecret, search, "")
 }
 
 type fakeExternalSource struct {

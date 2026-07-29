@@ -21,8 +21,37 @@ const (
 )
 
 // BaseAgentCommand returns the core agent binary invocation flags.
+// Uses ${agent_binary:-agent/mongodb-agent} so a custom agent downloaded by
+// downloadCustomAgentIfSet() (non-static mode) takes precedence over the
+// pre-baked binary.
 func BaseAgentCommand() string {
-	return "agent/mongodb-agent -healthCheckFilePath=" + appdbAgentHealthStatusFilePathValue + " -serveStatusPort=5000"
+	return "${agent_binary:-agent/mongodb-agent} -healthCheckFilePath=" + appdbAgentHealthStatusFilePathValue + " -serveStatusPort=5000"
+}
+
+// downloadCustomAgentIfSet returns a bash snippet that downloads and installs
+// a custom agent from MDB_CUSTOM_AGENT_URL when set, setting the local
+// agent_binary variable so BaseAgentCommand() picks it up. Only used in
+// non-static mode — in static mode the agent image is already built with
+// the correct binary.
+func downloadCustomAgentIfSet() string {
+	return `if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
+  echo "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
+  pushd /tmp >/dev/null || true
+  if ! curl --location --silent --retry 3 --fail -v --output automation-agent.tar.gz "${MDB_CUSTOM_AGENT_URL}" 2>&1; then
+    echo "Error: failed to download custom agent from ${MDB_CUSTOM_AGENT_URL}"
+    exit 1
+  fi
+  if ! tar -xzf automation-agent.tar.gz; then
+    echo "Error: failed to extract custom agent tarball"
+    exit 1
+  fi
+  cp mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /tmp/mongodb-agent
+  rm -rf /tmp/automation-agent.tar.gz /tmp/mongodb-mms-automation-agent-*
+  chmod +x /tmp/mongodb-agent
+  agent_binary=/tmp/mongodb-agent
+  popd >/dev/null || true
+fi
+`
 }
 
 // AutomationAgentCommand returns the full command array for the automation agent container.
@@ -41,7 +70,14 @@ func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLeve
 		agentLogOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
 
-	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic, withAgentAPIKeyExport) + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+	// In non-static mode, download the custom agent if MDB_CUSTOM_AGENT_URL is set.
+	// In static mode, the agent image is already built with the correct binary.
+	downloadSnippet := ""
+	if !withStatic {
+		downloadSnippet = downloadCustomAgentIfSet()
+	}
+
+	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic, withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
 }
 
 // GetMongodbUserCommand returns the bash preamble for the automation agent. When
