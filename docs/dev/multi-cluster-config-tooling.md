@@ -27,17 +27,82 @@ to consume `MemberCluster` CRs (keeping a legacy fallback), then the legacy path
 
 | # | Slice | Jira | Status | Notes |
 |---|-------|------|--------|-------|
-| 1 | `generate-member-resources` command | CLOUDP-423293 | in progress | Embeds the Helm chart (Helm SDK); gated member-cluster RBAC templates; renders to stdout. Front-loads the Helm-SDK dependency risk. |
-| 2 | `generate-member-registration` command | CLOUDP-423293 | in progress | Reads an SA token from a member cluster; emits a credential Secret + `MemberCluster` CR. No Helm SDK. |
-| 3 | Operator `MemberCluster` wiring + watch | CLOUDP-400899 | in progress | Build the per-cluster client map from `MemberCluster` CRs + credential Secrets. **Restart-based watch** chosen for this slice (mirrors the `OperatorConfig` watcher): the watcher restarts the operator on `MemberCluster` add/spec-change/delete. No-restart reactivity deferred to slice 9 (spike found it touches every controller's fan-out; `multicluster-runtime`'s `Provider`+`Engage(ctx)` is a candidate but its reconcile model is inverse to MCK's and it's pre-1.0). Discovery is CRs-if-present-else-legacy; legacy fallback tagged `TODO(m1kola): slice-3`. The member-cluster health checker (`memberwatch`) was made discovery-agnostic — it now sources per-cluster credentials from the in-memory `cluster.GetConfig()` rest.Config instead of the mounted kubeconfig file, so failover/health status works on both paths. |
+| 1 | `generate-member-resources` command | CLOUDP-423293 | done | Embeds the Helm chart (Helm SDK); gated member-cluster RBAC templates; renders to stdout. Front-loads the Helm-SDK dependency risk. |
+| 2 | `generate-member-registration` command | CLOUDP-423293 | done | Reads an SA token from a member cluster; emits a credential Secret + `MemberCluster` CR. No Helm SDK. |
+| 3 | Operator `MemberCluster` wiring + watch | CLOUDP-400899 | done | Build the per-cluster client map from `MemberCluster` CRs + credential Secrets. **Restart-based watch** chosen for this slice (mirrors the `OperatorConfig` watcher): the watcher restarts the operator on `MemberCluster` add/spec-change/delete. No-restart reactivity deferred to slice 9 (spike found it touches every controller's fan-out; `multicluster-runtime`'s `Provider`+`Engage(ctx)` is a candidate but its reconcile model is inverse to MCK's and it's pre-1.0). Discovery is CRs-if-present-else-legacy; legacy fallback tagged `TODO(m1kola): slice-3`. The member-cluster health checker (`memberwatch`) was made discovery-agnostic — it now sources per-cluster credentials from the in-memory `cluster.GetConfig()` rest.Config instead of the mounted kubeconfig file, so failover/health status works on both paths. |
 | 4 | RBAC validation | CLOUDP-400899 | todo (after 5) | `RBACValid` condition validated against the `mongodb.com/rbac-version` annotation emitted by slice 1; startup gate + periodic re-check. **Deferred until after slice 5** — not a blocker for the E2E migration: the slice-3 operator has no runtime RBAC-version awareness, so member clusters set up by the new tooling work without it. |
 | 5 | Migrate MC E2E to new tooling | CLOUDP-400899 | in progress | **Brought forward before slice 4.** Multi-cluster becomes day-2 config: install the operator single-cluster, then apply member RBAC (`generate-member-resources`) + registration (`generate-member-registration` → `MemberCluster` CRs) via new `conftest.py` helpers (`configure_multi_cluster_members`), replacing `run_kube_config_creation_tool` in the fixtures + direct callers. Recovery tests reworked to add/remove `MemberCluster` CRs (no `recover` CLI; `multi_cluster_cli_recover.py` renamed to `multi_cluster_member_add_remove.py`). The AppDB and sharded DR tests, which simulated an unhealthy cluster by editing the legacy member-list ConfigMap, now delete the failed cluster's `MemberCluster` CR + credential Secret instead (the sharded/AppDB controllers have no reachability health-check — a cluster is unhealthy purely by being absent from the operator's member map, which the CR deletion produces under both the current restart-based watch and a future hot reload). Apply the generated RBAC to **every** member cluster including central (do not `skip_central_cluster`) — validates the additive apply. Member configuration is unified in `conftest.py` for both the in-cluster and local operator (the old `prepare_local_e2e_run.sh` / `run_multi_cluster_kube_config_creator` pre-pytest registration is removed) — in both, pytest shares the operator's network vantage so the ambient kubeconfig carries operator-reachable addresses. **Follow-up: slice 9** — a local host-run operator currently exits on a `MemberCluster` CR change (the watcher cancels the manager context) and nothing restarts it, so the operator must be (re)started after the fixtures configure members. Mode "operator in-cluster + tests on host" relies on `kubefwd` and is out of scope. |
-| 6 | Clean break | CLOUDP-400899 | todo | Remove `setup`/`recovery`, the legacy discovery + fallback, and dead `common.go` RBAC/kubeconfig code. Also remove `multiCluster.clusters` and `multiCluster.kubeConfigSecretName` (still set in the `operator-installation-config` ConfigMap for `install_official_operator`'s legacy baseline, and popped for the new path in `_install_multi_cluster_operator`) — plus the `kube-config-volume` mount they gate in `helm_chart/templates/operator.yaml:59-61,263-267`. (Slice 5 already stopped `scripts/funcs/operator_deployment` forcing `operator.createOperatorServiceAccount=false` for multi, so the operator installs its base RBAC via Helm.) |
+| 6 | Clean break | CLOUDP-400899 | in progress | Split into three stacked PRs so no PR is red on its own: **(1)** make the released E2E baseline self-sufficient — see "Released baseline for upgrade tests" below; **(2)** migrate the public doc snippets (`docs/search/1{2,3}-*`, `public/architectures/setup-multi-cluster`) off `multicluster setup` + `--set multiCluster.clusters`, since they run on every PR patch via `private_kind_multi_cluster_code_snippets`; **(3)** the removals. Remove `setup`/`recovery`, the legacy discovery + fallback, and dead `common.go` RBAC/kubeconfig code. Also remove `multiCluster.clusters` and `multiCluster.kubeConfigSecretName` (still set in the `operator-installation-config` ConfigMap for `install_official_operator`'s legacy baseline, and popped for the new path in `_install_multi_cluster_operator`) — plus the `kube-config-volume` mount they gate in `helm_chart/templates/operator.yaml:59-61,263-267`. (Slice 5 already stopped `scripts/funcs/operator_deployment` forcing `operator.createOperatorServiceAccount=false` for multi, so the operator installs its base RBAC via Helm.) |
 | 7 | Member-scoped workload ServiceAccounts | CLOUDP-400899 | todo | End-state so `generate-member-resources` output touches **nothing** from helm/OLM. Un-hardcode the workload pod SA names in the operator (`construct/appdb_construction.go:500`, `construct/opsmanager_construction.go:480`; database SA already per-CR overridable) so pods on member clusters run under member-scoped SAs; emit member-scoped workload RBAC instead of the interim fixed-name `database-roles.yaml`. Single-cluster keeps using the helm-install SAs. |
 | 8 | RBAC de-duplication | CLOUDP-400899 | todo | Single source of truth for the operator's shared workload rules (services/secrets/configmaps/statefulsets/deployments/pods) so extending a permission is one edit, not two. Aim for: base role = shared + central-only (CRDs/operatorconfigs); member role = shared + member extras (serviceaccounts get, nodes, kube-system, /version). Mechanism left open (shared partial, restructured/parameterised template, generating member from the same source, …). Deferred deliberately — see below. |
 | 9 | No-restart `MemberCluster` reactivity (hot reload) | CLOUDP-400899 | todo | Make membership changes reactive **without** restarting the operator — the "later slice" referenced from slice 3, which currently restarts the operator on `MemberCluster` add/spec-change/delete. Candidate mechanism per slice 3: `multicluster-runtime`'s `Provider`+`Engage(ctx)` (reconcile model is inverse to MCK's and it's pre-1.0). This also resolves the **slice-5 local-dev caveat**: a host-run (`make run`) operator currently exits when the watcher cancels the manager context and nothing restarts it, so it must be (re)started after the E2E fixtures configure members day-2. Interim option if hot reload is not ready: wrap the local operator in a restart-loop/supervisor so it behaves like an in-cluster pod. Tagged `TODO(m1kola): slice-9` in `docker/mongodb-kubernetes-tests/tests/conftest.py`. |
 
 **Dependencies:** 3 → {1, 2}; 4 → {1, 3}; 5 → {1, 2}; 6 → 5; 7 → 3 (needs multi-cluster reconcile working; can land any time after); 8 → {5, 7} (runs on the settled, E2E-covered shape); 9 → 3 (makes the slice-3 restart-based watch reactive; resolves the slice-5 local-operator caveat).
+
+## Released baseline for upgrade tests (slice 6, PR 1)
+
+The MC upgrade tests start from a **released** operator chart, which only understands the
+pre-`MemberCluster` discovery pair (monolithic kubeconfig Secret + `<operator-name>-member-list`
+ConfigMap). Slice 6 deletes `multicluster setup` from the branch-built plugin, so the harness can no
+longer produce that baseline with its own tooling. Two changes make the baseline self-sufficient ahead
+of the removal:
+
+**Terminology, because the versions collide.** Two product lines are in play. **MEKO**
+(`mongodb/enterprise-operator`, images `mongodb-enterprise-operator-ubi`) is the pre-MCK enterprise
+operator, reaching 1.33; it is what the repo's `LEGACY_*` constants refer to
+(`LEGACY_OPERATOR_CHART`, `LEGACY_DEPLOYMENT_STATE_VERSION = 1.27.0`). **MCK**
+(`mongodb/mongodb-kubernetes`) merged MEKO and MCO and started its own 1.0–1.9 line. So a bare "1.x" is
+ambiguous, and `legacy` must not be used to mean "MCK 1.x". Naming here is explicit: `mck1x`.
+
+- **A second, released plugin in the test image.** `scripts/release/kubectl_mongodb/download_released_kubectl_plugin.py`
+  resolves the newest published release of a major line (`--major`, default 1 → **MCK 1.x**) from the
+  public GitHub releases (no credentials — unlike the S3-based `download_kubectl_plugin.py`, whose AWS
+  credentials the test pod does not have), verifies it against `checksums.txt`, and drops it next to the
+  branch-built binary. The Dockerfile installs it as `multi-cluster-kube-config-creator-mck1x`;
+  `conftest.run_legacy_kube_config_creation_tool` (the only caller, via `install_official_operator`)
+  invokes it. The version is resolved at image-build time rather than pinned, so the baseline tracks the
+  latest MCK 1.x; `RELEASED_KUBECTL_PLUGIN_VERSION` forces a specific one, and the resolved version is
+  written into the image and logged on use.
+  Evergreen: `download_released_multi_cluster_binary`, called from `build_test_image{,_arm}`.
+
+  **One MCK 1.x plugin serves both MEKO and MCK 1.x baselines.** MCK 1.x inherited `multicluster setup`
+  from MEKO, and the resources it creates are named purely from the flags passed (`--operator-name`,
+  `--service-account`), so it provisions a MEKO baseline just as correctly — no MEKO-repo plugin needed.
+  This is also strictly closer to MEKO's own tooling than the branch build the harness used previously.
+- **Register `MemberCluster` CRs before the upgrade.** An MCK operator that boots with no
+  `MemberCluster` CR falls back to single-cluster and cannot reconcile the pre-existing multi-cluster
+  resources, so registration must precede the helm upgrade rather than follow it (which is what
+  `_install_multi_cluster_operator` does for a fresh install). Each test applies the `MemberCluster` CRD
+  (the legacy chart does not ship it) then calls `configure_multi_cluster_members`; this is idempotent
+  with `_install_multi_cluster_operator`'s own registration step. Done in all three MC
+  upgrade tests, each of which runs on **every PR patch**: `tests/upgrades/meko_mck_upgrade.py`,
+  `tests/upgrades/appdb_tls_operator_upgrade_v1_32_to_mck.py`, and
+  `tests/multicluster_appdb/multicluster_appdb_upgrade_downgrade_v1_27_to_mck.py`.
+
+**Released baseline → released plugin.** The general rule this establishes: whenever the harness
+installs a *released* operator, it provisions that operator's members with a *released* plugin of the
+matching major. The branch-built plugin is only ever used for the branch operator.
+
+So this path is **permanent**, not 2.x-cutover scaffolding, for two independent reasons: MEKO → MCK
+upgrades are supported indefinitely, and the planned **MCK 1.x → 2.x** tests (latest released MCK 1.x →
+branch build, mirroring today's MCK → MCK test) start from a 1.x baseline that also speaks only the
+pre-`MemberCluster` flow. Both keep needing a released MCK 1.x `setup`. Note the 1.x → 2.x test needs no
+new plugin plumbing — it is exactly the baseline this PR already provisions.
+
+The rule has one **latent gap**, which bites only once a **2.x** baseline exists:
+`install_official_operator` hardcodes the pre-`MemberCluster` flow for every multi-cluster baseline.
+That is correct while every baseline is pre-2.x — today they all are, whether pinned to MEKO
+(`LEGACY_OPERATOR_CHART`) or unpinned on `MCK_HELM_CHART` while the latest published MCK release is
+still 1.x. The first MC test to start from a released **2.x** operator (e.g. a 2.x → 2.x upgrade after
+2.x ships) instead needs `generate-member-resources`/`generate-member-registration` from a released 2.x
+plugin, so the flow must be chosen from the baseline chart's major rather than hardcoded. The downloader
+already takes `--major`, so the fetch side is ready; the dispatch is left as a comment at the call site
+rather than built speculatively, since it cannot be exercised until a 2.x release exists.
+
+The released MCK 1.x plugin is deliberately **not** wired into the local dev flow
+(`prepare_local_e2e_run.sh` → `scripts/dev/prepare-multi-cluster/`): `install_official_operator` skips
+legacy provisioning when `local_operator()` is set, so installing a released in-cluster operator as an
+upgrade baseline is a CI-only flow and a local fetch would be dead weight.
 
 ## Interim vs end-state: workload RBAC
 
