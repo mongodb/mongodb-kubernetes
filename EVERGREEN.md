@@ -66,6 +66,46 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -
   --param mdb_custom_agent_url=https://example.com/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz
 ```
 
+### Producing the URL from an mms-automation branch
+
+Build the agent on your `mms-automation` branch — the
+`build-rhel80-targz-for-downstream-tasks` variant uploads the tarball to S3
+with public-read access and writes a `downstream_expansions.yaml` artifact
+containing `upstream_agent_url`:
+
+```shell
+evergreen patch -p mms-automation \
+  --variants build-rhel80-targz-for-downstream-tasks \
+  --tasks Automation-Agent-Local-Build-With-Downstream-Expansion \
+  -d "agent build for MCK custom patch" -f -y -u
+```
+
+When the task is green, read `upstream_agent_url` from the task's
+`downstream_expansions.yaml` artifact (Evergreen UI → task → Files) and
+sanity-check it: `curl -sI <url>` should return HTTP 200 with no auth.
+
+### Selecting specific variants
+
+Instead of a whole alias, pass `--variants`/`--tasks` to run only what you
+need (the param works the same way):
+
+```shell
+evergreen patch -p mongodb-kubernetes \
+  --variants e2e_om80_kind_ubi e2e_static_om80_kind_ubi \
+  --tasks e2e_test \
+  -d "custom agent smoke" -f -y -u --path .evergreen.yml \
+  --param mdb_custom_agent_url=<url>
+```
+
+All e2e variants (`pr_patch_e2e`, `staging`, `cloudqa*`, `static`, `om7`,
+`race` tags) and release/pipeline variants honor the param; pure lint/unit
+variants ignore it. Tasks with `patchable: false` cannot run in patches.
+
+**Always verify the custom agent was actually used**: check an e2e task log
+for `agent.customAgentUrl=<url>` in the Helm install and the custom agent
+version in the pod logs. A green patch with an empty/mistyped param silently
+falls back to the production agent.
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:
