@@ -27,8 +27,10 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -2121,4 +2123,76 @@ func monitoringAutomationConfigSecretName(appdb omv1.AppDBSpec) string {
 
 func monitoringAutomationConfigConfigMapName(appdb omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-automation-config-version"
+}
+
+// newAppDB401MockFactory returns an OM ConnectionFactory whose MarkProjectAsBackingDatabase
+// always fails with a 401 (Unauthorized) apierror, mimicking a digest nonce re-handshake
+// or genuinely corrupted admin-key during AppDB rolling restarts.
+func newAppDB401MockFactory() om.ConnectionFactory {
+	return func(omCtx *om.OMContext) om.Connection {
+		conn := om.NewEmptyMockedOmConnection(omCtx)
+		conn.(*om.MockedOmConnection).MarkProjectAsBackingDatabaseFunc = func(_ om.BackingDatabaseType) error {
+			return &apierror.Error{Status: ptr.To(401), Reason: "Unauthorized"}
+		}
+		return conn
+	}
+}
+
+// TestReconcileAppDB_401WithExistingProjectID verifies that a 401 from
+// MarkProjectAsBackingDatabase is treated as transient when the AppDB project
+// was already configured (ProjectID configmap exists). The reconciliation must
+// NOT fail with "admin-key secret might be corrupted".
+func TestReconcileAppDB_401WithExistingProjectID(t *testing.T) {
+	ctx := context.Background()
+	opsManager := DefaultOpsManagerBuilder().Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactory(newAppDB401MockFactory())
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, opsManager)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "password"))
+
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
+	require.NoError(t, err)
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
+		Build()
+	require.NoError(t, reconciler.client.CreateSecret(ctx, apiKeySecret))
+
+	require.NoError(t, reconciler.ensureProjectIDConfigMapForCluster(ctx, opsManager, om.TestGroupID, reconciler.client))
+
+	_, _ = reconciler.ReconcileAppDB(ctx, opsManager)
+	assert.NotContains(t, opsManager.Status.OpsManagerStatus.Message, "admin-key secret might be corrupted")
+	assert.NotEqual(t, status.PhaseFailed, opsManager.Status.OpsManagerStatus.Phase)
+}
+
+// TestReconcileAppDB_401WithEmptyProjectID verifies that a 401 from
+// MarkProjectAsBackingDatabase during initial setup (no ProjectID configmap)
+// is treated as a persistent "corrupted admin-key" error.
+func TestReconcileAppDB_401WithEmptyProjectID(t *testing.T) {
+	ctx := context.Background()
+	opsManager := DefaultOpsManagerBuilder().Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactory(newAppDB401MockFactory())
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, opsManager)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "password"))
+
+	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
+	require.NoError(t, err)
+	apiKeySecret := secret.Builder().
+		SetNamespace(operatorNamespace()).
+		SetName(APIKeySecretName).
+		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
+		Build()
+	require.NoError(t, reconciler.client.CreateSecret(ctx, apiKeySecret))
+
+	_, _ = reconciler.ReconcileAppDB(ctx, opsManager)
+	assert.Equal(t, status.PhaseFailed, opsManager.Status.OpsManagerStatus.Phase)
+	assert.Contains(t, opsManager.Status.OpsManagerStatus.Message, "admin-key secret might be corrupted")
 }

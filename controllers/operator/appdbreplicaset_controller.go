@@ -691,10 +691,11 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			}
 		}
 
-		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
-		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
-		// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
-		if strings.Contains(err.Error(), "401 (Unauthorized)") {
+		// A 401 is only treated as a persistent "corrupted admin-key" error during initial setup (no existing ProjectID),
+		// where the credentials genuinely don't work. When OM was previously configured (ProjectID is set), a 401 is
+		// transient — e.g. a digest nonce re-handshake during AppDB rolling restarts — and reconciliation continues
+		// like any other error from this call site; the 10s requeue will retry.
+		if strings.Contains(err.Error(), "401 (Unauthorized)") && podVars.ProjectID == "" {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
 		}
 	}

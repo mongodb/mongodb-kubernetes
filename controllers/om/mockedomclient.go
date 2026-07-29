@@ -71,18 +71,19 @@ type MockedOmConnection struct {
 	ReadAutomationStatusFunc func() (*AutomationStatus, error)
 	ReadAutomationAgentsFunc func(int) (Paginated, error)
 
-	numRequestsSent         int
-	AgentAPIKey             string
-	OrganizationsWithGroups map[*Organization][]*Project
-	CreateGroupFunc         func(group *Project) (*Project, error)
-	UpdateGroupFunc         func(group *Project) (*Project, error)
-	BackupConfigs           map[string]*backup.Config
-	BackupHostClusters      map[string]*backup.HostCluster
-	UpdateBackupStatusFunc  func(clusterId string, status backup.Status) error
-	AgentAuthMechanism      string
-	SnapshotSchedules       map[string]*backup.SnapshotSchedule
-	Hostnames               []string
-	PreferredHostnames      []PreferredHostname
+	numRequestsSent                  int
+	AgentAPIKey                      string
+	OrganizationsWithGroups          map[*Organization][]*Project
+	CreateGroupFunc                  func(group *Project) (*Project, error)
+	UpdateGroupFunc                  func(group *Project) (*Project, error)
+	MarkProjectAsBackingDatabaseFunc func(backingType BackingDatabaseType) error
+	BackupConfigs                    map[string]*backup.Config
+	BackupHostClusters               map[string]*backup.HostCluster
+	UpdateBackupStatusFunc           func(clusterId string, status backup.Status) error
+	AgentAuthMechanism               string
+	SnapshotSchedules                map[string]*backup.SnapshotSchedule
+	Hostnames                        []string
+	PreferredHostnames               []PreferredHostname
 
 	agentVersion        string
 	agentMinimumVersion string
@@ -400,7 +401,10 @@ func (oc *MockedOmConnection) UpdateHost(host host.Host) error {
 	return nil
 }
 
-func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(_ BackingDatabaseType) error {
+func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(backingType BackingDatabaseType) error {
+	if oc.MarkProjectAsBackingDatabaseFunc != nil {
+		return oc.MarkProjectAsBackingDatabaseFunc(backingType)
+	}
 	return nil
 }
 
