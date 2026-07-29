@@ -50,17 +50,17 @@ const (
 )
 
 // prepareSearchFuncs are the constructor-switched pre-reconcile gates shared by
-// the search reconcilers; writeStatus routes validation failures to the
-// caller's own status surface. validate checks the UN-NARROWED spec; skip=true when
-// the caller must stop reconciling (validation failed). localize narrows
-// spec.clusters[] to this operator's entry; skip=true when another operator
-// owns the CR. Removed-cluster cleanup must run between the two: after
-// validation so an invalid spec never drives deletions (cleanup pauses while
-// the spec sits invalid and resumes once it is fixed), and before localization
-// so the desired-cluster set comes from the full spec — a narrowed spec would
-// mark sibling clusters as removed.
+// the search reconcilers. validate runs against the original spec, before
+// localize narrows spec.clusters down to this operator's cluster; a non-OK
+// status means the spec is invalid and the caller must stop reconciling.
+// localize returns skip=true when another operator owns the CR.
+// Removed-cluster cleanup must run between the two: after validation so an
+// invalid spec never drives deletions (cleanup pauses while the spec sits
+// invalid and resumes once it is fixed), and before localization so the
+// desired-cluster set comes from the full spec — a narrowed spec would mark
+// sibling clusters as removed.
 type prepareSearchFuncs struct {
-	validate func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (skip bool, res reconcile.Result, err error)
+	validate func(search *searchv1.MongoDBSearch) workflow.Status
 	localize func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (skip bool)
 }
 
@@ -81,17 +81,16 @@ func operatorClusterNotInSearchSpec(search *searchv1.MongoDBSearch, operatorClus
 }
 
 // newPrepareSearch picks the gates once at construction so Reconcile never
-// branches on the operator mode. Validation runs on the UN-NARROWED spec:
-// per-cluster operator mode narrows spec.clusters[] via LocalizeToCluster,
-// after which the MC validators short-circuit on len(clusters) <= 1 and would
-// silently accept misconfigured MC specs.
+// branches on the operator mode. Validation runs on the original spec, before
+// LocalizeToCluster narrows spec.clusters[]: after narrowing, the MC validators
+// short-circuit on len(clusters) <= 1 and would silently accept misconfigured
+// MC specs.
 func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
-	validateSpec := func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
+	validateSpec := func(search *searchv1.MongoDBSearch) workflow.Status {
 		if vErr := search.ValidateSpec(); vErr != nil {
-			r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
-			return true, r, e
+			return workflow.Invalid("%s", vErr.Error())
 		}
-		return false, reconcile.Result{}, nil
+		return workflow.OK()
 	}
 	if operatorClusterName == "" {
 		return prepareSearchFuncs{
@@ -100,15 +99,14 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
 		}
 	}
 	return prepareSearchFuncs{
-		validate: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger, writeStatus func(workflow.Status) (reconcile.Result, error)) (bool, reconcile.Result, error) {
-			if skip, r, e := validateSpec(search, log, writeStatus); skip {
-				return skip, r, e
+		validate: func(search *searchv1.MongoDBSearch) workflow.Status {
+			if st := validateSpec(search); !st.IsOK() {
+				return st
 			}
 			if vErr := search.ValidateOperatorPerClusterIndices(); vErr != nil {
-				r, e := writeStatus(workflow.Invalid("%s", vErr.Error()))
-				return true, r, e
+				return workflow.Invalid("%s", vErr.Error())
 			}
-			return false, reconcile.Result{}, nil
+			return workflow.OK()
 		},
 		localize: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) bool {
 			if !search.LocalizeToCluster(operatorClusterName) {
@@ -178,18 +176,15 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return reconcile.Result{}, nil
 	}
 
-	if skip, result, err := r.prepareSearch.validate(mdbSearch, log,
-		func(st workflow.Status) (reconcile.Result, error) {
-			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, st, log)
-		}); skip {
-		return result, err
+	if st := r.prepareSearch.validate(mdbSearch); !st.IsOK() {
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, st, log)
 	}
 
 	// Removed-cluster cleanup runs after validation (an invalid spec must never
 	// drive deletions) but on the PRE-localization spec (a narrowed spec would
 	// mark sibling clusters as removed). Best-effort: failures are logged, never
 	// fail the reconcile, and are retried on the next reconcile of the live CR.
-	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClusterClientsMap, sweepMemberSearchResources, log); err != nil {
+	if err := cleanupRemovedMemberClusters(ctx, mdbSearch, r.memberClusterClientsMap, sweepMemberSearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Search resources on removed member clusters: %v", err)
 	}
 
@@ -243,7 +238,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		// A concurrent writer bumped the ConfigMap between read and update; retry
 		// instead of marking the CR Failed over a transient race.
 		if apierrors.IsConflict(err) {
-			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, re-queuing ").Requeue(), log)
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, re-queuing").Requeue(), log)
 		}
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read or repair search state: %w", err)), log)
 	}
@@ -263,14 +258,11 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return result, err
 	}
 
-	// Diagnostic pass for secrets reconcile doesn't gate on with Pending. Skip
-	// when reconcile already requeued — its own gates cover that case.
+	// Diagnostic only: missing customer-replicated secrets are logged and
+	// re-checked after a delay, never failing the reconcile. Skip when reconcile
+	// already requeued — its own gates cover that case.
 	if result.RequeueAfter == 0 {
-		memberClients := make(map[string]client.Client, len(r.memberClusterClientsMap))
-		for name, kc := range r.memberClusterClientsMap {
-			memberClients[name] = kc
-		}
-		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients); len(gaps) > 0 {
+		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, r.memberClusterClientsMap); len(gaps) > 0 {
 			r.surfaceMissingSecrets(gaps, log)
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}
@@ -360,7 +352,12 @@ func sweepMemberSearchResources(ctx context.Context, c kubernetesClient.Client, 
 // sweepLocalSearchResources adds the central state ConfigMap: swept only when
 // THIS operator's own cluster was removed from spec.clusters.
 func sweepLocalSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
-	stateCM := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace}}
+	stateCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      searchcontroller.SearchStateCMName(search),
+			Namespace: search.Namespace,
+		},
+	}
 	_, stateErr := searchcontroller.DeleteOwnedResource(ctx, c, search, clusterName, "state ConfigMap", "", stateCM, log)
 	return errors.Join(sweepMemberSearchResources(ctx, c, search, clusterName, log), stateErr)
 }
@@ -372,11 +369,11 @@ func sweepEnvoySearchResources(ctx context.Context, c kubernetesClient.Client, s
 	)
 }
 
-// cleanupRemovedMemberSearchResources runs sweep against every member cluster
-// that is no longer listed in spec.clusters, reaping its label-owned Search
-// resources. Best-effort: one cluster's failure never blocks the others, and
-// anything missed is retried on the next reconcile of the still-live CR.
-func cleanupRemovedMemberSearchResources(
+// cleanupRemovedMemberClusters runs sweep against every member cluster that is
+// no longer listed in spec.clusters, reaping its label-owned Search resources.
+// Best-effort: one cluster's failure never blocks the others, and anything
+// missed is retried on the next reconcile of the still-live CR.
+func cleanupRemovedMemberClusters(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
 	memberClients map[string]kubernetesClient.Client,
@@ -411,14 +408,41 @@ func centralMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSe
 	return []mongoDBSearchResourceWatch{
 		// The delete override runs the one-shot best-effort cleanup pass with the
 		// deleted CR object; create/update events enqueue normally.
-		{obj: &searchv1.MongoDBSearch{}, handler: &ResourceEventHandler{deleter: r}},
-		{obj: &mdbv1.MongoDB{}, handler: &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch}},
-		{obj: &mdbcv1.MongoDBCommunity{}, handler: &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch}},
-		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &appsv1.StatefulSet{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &corev1.Service{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &corev1.Secret{}, handler: &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch}},
-		{obj: &corev1.ConfigMap{}, handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch}},
+		{
+			obj:     &searchv1.MongoDBSearch{},
+			handler: &ResourceEventHandler{deleter: r},
+		},
+		{
+			obj:     &mdbv1.MongoDB{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: r.watch},
+		},
+		{
+			obj:     &mdbcv1.MongoDBCommunity{},
+			handler: &watch.ResourcesHandler{ResourceType: "MongoDBCommunity", ResourceWatcher: r.watch},
+		},
+		{
+			obj:        &appsv1.Deployment{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:        &appsv1.StatefulSet{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:        &corev1.Service{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:     &corev1.Secret{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch},
+		},
+		{
+			obj:     &corev1.ConfigMap{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch},
+		},
 	}
 }
 
@@ -426,11 +450,31 @@ func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSea
 	searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
 	searchOwnerPredicates := []predicate.Predicate{watch.PredicatesForMultiClusterSearchResource()}
 	return []mongoDBSearchResourceWatch{
-		{obj: &appsv1.Deployment{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &appsv1.StatefulSet{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &corev1.Service{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &corev1.ConfigMap{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
-		{obj: &corev1.Secret{}, handler: searchOwnerHandler, predicates: searchOwnerPredicates},
+		{
+			obj:        &appsv1.Deployment{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:        &appsv1.StatefulSet{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:        &corev1.Service{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:        &corev1.ConfigMap{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
+		{
+			obj:        &corev1.Secret{},
+			handler:    searchOwnerHandler,
+			predicates: searchOwnerPredicates,
+		},
 	}
 }
 

@@ -61,8 +61,6 @@ const (
 	envoyCAKey = "ca-pem"
 
 	envoyConfigHashAnnotation = "mongodb.com/envoy-config-hash"
-
-	labelName = "search-proxy"
 )
 
 // envoyRoute defines routing information for one Envoy entrypoint.
@@ -127,24 +125,21 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	// Envoy validation failures surface on /status/loadBalancer so the Envoy sub-status
 	// stays authoritative for LB shape errors.
-	if skip, result, err := r.prepareSearch.validate(mdbSearch, log,
-		func(st workflow.Status) (reconcile.Result, error) {
-			if !mdbSearch.IsLBModeManaged() && mdbSearch.Status.LoadBalancer == nil {
-				// No LB configured and no sub-status to correct: don't invent a
-				// /status/loadBalancer for a validation failure the main controller
-				// already surfaces on the phase.
-				return st.ReconcileResult()
-			}
-			return r.updateLBStatus(ctx, mdbSearch, st, log)
-		}); skip {
-		return result, err
+	if st := r.prepareSearch.validate(mdbSearch); !st.IsOK() {
+		if !mdbSearch.IsLBModeManaged() && mdbSearch.Status.LoadBalancer == nil {
+			// No LB configured and no sub-status to correct: don't invent a
+			// /status/loadBalancer for a validation failure the main controller
+			// already surfaces on the phase.
+			return st.ReconcileResult()
+		}
+		return r.updateLBStatus(ctx, mdbSearch, st, log)
 	}
 
 	// Removed-cluster cleanup runs after validation (an invalid spec must never
 	// drive deletions) but on the PRE-localization spec (a narrowed spec would
 	// mark sibling clusters as removed). Best-effort: failures are logged, never
 	// fail the reconcile, and are retried on the next reconcile of the live CR.
-	if err := cleanupRemovedMemberSearchResources(ctx, mdbSearch, r.memberClients, sweepEnvoySearchResources, log); err != nil {
+	if err := cleanupRemovedMemberClusters(ctx, mdbSearch, r.memberClients, sweepEnvoySearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
 	}
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
@@ -387,8 +382,8 @@ func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context,
 				}
 				continue
 			}
-			if !hasCanonicalEnvoyOwnership(resource.obj, search) {
-				errs = errors.Join(errs, fmt.Errorf("refusing to delete Envoy %s %s with non-canonical ownership in cluster %q", resource.kind, client.ObjectKeyFromObject(resource.obj), w.ClusterName))
+			if !envoyResourceOwnedBySearch(resource.obj, search) {
+				errs = errors.Join(errs, fmt.Errorf("refusing to delete Envoy %s %s in cluster %q: not managed by this MongoDBSearch", resource.kind, client.ObjectKeyFromObject(resource.obj), w.ClusterName))
 				continue
 			}
 			if err := w.Client.Delete(ctx, resource.obj); err != nil && !apierrors.IsNotFound(err) {
@@ -401,12 +396,12 @@ func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context,
 	return errs
 }
 
-// hasCanonicalEnvoyOwnership guards LB-teardown deletes: only objects carrying
+// envoyResourceOwnedBySearch guards LB-teardown deletes: only objects carrying
 // this Search's ownership and the Envoy proxy component are deleted; anything
 // else was created or relabeled out-of-band.
-func hasCanonicalEnvoyOwnership(obj metav1.Object, search *searchv1.MongoDBSearch) bool {
+func envoyResourceOwnedBySearch(obj metav1.Object, search *searchv1.MongoDBSearch) bool {
 	return khandler.HasSearchOwnership(obj, search) &&
-		obj.GetLabels()[khandler.MongoDBSearchComponentLabel] == labelName
+		obj.GetLabels()[khandler.MongoDBSearchComponentLabel] == searchProxyComponent
 }
 
 // caKeyNameFromTLSConfig returns the CA key filename for Envoy config file paths.
@@ -847,7 +842,7 @@ func defaultEnvoyResourceRequirements() corev1.ResourceRequirements {
 // back to the owning MongoDBSearch even when objects live in a member cluster
 // (where owner refs don't GC). clusterIndex feeds the "app" label (resource name).
 func envoyLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {
-	return khandler.SearchOwnershipLabels(search, search.LoadBalancerDeploymentNameForCluster(clusterIndex), labelName)
+	return khandler.SearchOwnershipLabels(search, search.LoadBalancerDeploymentNameForCluster(clusterIndex), searchProxyComponent)
 }
 
 // envoyReplicas returns the cluster's desired Envoy replica count.
