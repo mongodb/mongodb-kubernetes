@@ -4,7 +4,7 @@ import kubernetes
 from kubernetes import client
 from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs
-from kubetester.helm import apply_operator_config_crd, helm_uninstall
+from kubetester.helm import apply_member_cluster_crd, apply_operator_config_crd, helm_uninstall
 from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -14,7 +14,12 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_multi_cluster_operator, is_multi_cluster, log_deployments_info
+from tests.conftest import (
+    configure_multi_cluster_members,
+    get_multi_cluster_operator,
+    is_multi_cluster,
+    log_deployments_info,
+)
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
@@ -128,10 +133,10 @@ def test_upgrade_operator(
     if spec:
         create_operator_config(namespace, spec, api_client=central_cluster_client)
     if is_multi_cluster():
-        # TODO(m1kola): slice-6: register the member clusters before upgrading from MEKO. Once the
-        # legacy member-list fallback is gone, an operator that boots without any MemberCluster CRs
-        # defaults to single-cluster and fails to reconcile the existing multi-cluster MongoDB
-        # resources.
+        # MEKO discovers members from the member-list ConfigMap; MCK needs MemberCluster CRs, and one
+        # booting without any falls back to single-cluster. So register them before the upgrade.
+        apply_member_cluster_crd(api_client=central_cluster_client)
+        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
         operator = get_multi_cluster_operator(
             namespace,
             central_cluster_name,
@@ -139,6 +144,9 @@ def test_upgrade_operator(
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
+            # TODO(m1kola): slice-7: the workload SAs above are already applied by
+            # configure_multi_cluster_members; Helm can't adopt them without this.
+            extra_helm_args={"operator.createResourcesServiceAccountsAndRoles": "false"},
         )
     else:
         operator = Operator(
