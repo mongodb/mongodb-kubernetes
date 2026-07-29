@@ -69,9 +69,9 @@ const (
 	metricsForwarderConfigHashAnnotation = "mongodb.com/metrics-forwarder-config-hash"
 	metricsForwarderLabelName            = "search-metrics-forwarder"
 
-	// metricsForwarderMinOpsManagerVersion is the minimum self-hosted Ops Manager version that
-	// supports the metrics forwarding ingest endpoint. Versions below this do not expose the
-	// endpoint, so the forwarder cannot function correctly against them.
+	// metricsForwarderMinOpsManagerVersion is the minimum supported self-hosted Ops Manager version.
+	// 8.0.24 exposes the ingest endpoint too, but registering mongot hosts on it triggers a bug
+	// that prevents Ops Manager from restarting; 8.0.25 fixes it.
 	metricsForwarderMinOpsManagerVersion = "8.0.25"
 
 	// how long to wait before re-checking whether removed mongot
@@ -536,8 +536,9 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedClusters(
 	for _, w := range removedWork {
 		// Kubernetes-side cleanup is best-effort: warn and keep the cluster's entry
 		// in the metrics-forwarder state ConfigMap so the next reconcile retries.
-		// Ops Manager host deregistration and state writes stay hard errors —
-		// leaked hosts alert operators forever.
+		// Ops Manager host deregistration and state writes stay hard errors — leaked
+		// hosts are never reaped and pollute the project's host/availability view and
+		// usage reporting forever.
 		if w.Client == nil {
 			log.Warnf("cluster=%q: no Kubernetes client registered; skipping metrics forwarder cleanup", w.ClusterName)
 			continue
