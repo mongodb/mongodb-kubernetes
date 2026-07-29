@@ -170,7 +170,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		return r.reconcileCore(ctx, mdbSearch, log).ReconcileResult()
 	}
 
-	if r.prepareSearch.localize(mdbSearch, log) {
+	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
 		return reconcile.Result{}, nil
 	}
 
@@ -429,6 +429,10 @@ func specNamesByIndex(search *searchv1.MongoDBSearch) map[int]string {
 // re-keys renamed ones: index is identity, so a rename moves bookkeeping to
 // the new name without touching Ops Manager hosts. In-memory only; the next
 // state write persists the result.
+// The CRD blocks renaming a named index within one update, but renames still
+// reach us three ways: naming a previously unnamed cluster ("" to a name is
+// allowed), removing and re-adding an index across two updates before a
+// reconcile runs, and name-keyed legacy state from released 1.9.x operators.
 func normalizeTopologyState(search *searchv1.MongoDBSearch, topologyState *searchTopologyState, log *zap.SugaredLogger) {
 	liveNameByIndex := specNamesByIndex(search)
 	specIndexByName := make(map[string]int, len(liveNameByIndex))

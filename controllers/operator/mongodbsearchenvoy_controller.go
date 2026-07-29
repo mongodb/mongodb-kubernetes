@@ -138,17 +138,17 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// drive deletions) but on the PRE-localization spec (a narrowed spec would
 	// mark sibling clusters as removed). Best-effort: failures are logged, never
 	// fail the reconcile, and are retried on the next reconcile of the live CR.
-	if err := cleanupRemovedMemberClusters(ctx, mdbSearch, r.memberClients, sweepEnvoySearchResources, log); err != nil {
+	if err := deleteRemovedMemberClusterResources(ctx, mdbSearch, r.memberClients, deleteEnvoySearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
 	}
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
-		if err := sweepEnvoySearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
+		if err := deleteEnvoySearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
 			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", r.operatorClusterName, err)
 		}
 		return reconcile.Result{}, nil
 	}
 
-	if r.prepareSearch.localize(mdbSearch, log) {
+	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
 		return reconcile.Result{}, nil
 	}
 
@@ -359,16 +359,12 @@ func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context,
 			log.Warnf("cluster %q: no Kubernetes client registered for Envoy cleanup; skipping", w.ClusterName)
 			continue
 		}
-		for _, resource := range []struct {
-			kind string
-			obj  client.Object
-		}{
-			{"Envoy Deployment", &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
-			{"Envoy ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
-		} {
-			_, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, resource.kind, searchProxyComponent, resource.obj, log)
-			errs = errors.Join(errs, err)
-		}
+		deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}
+		_, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "Envoy Deployment", searchProxyComponent, deployment, log)
+		errs = errors.Join(errs, err)
+		configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}
+		_, err = searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "Envoy ConfigMap", searchProxyComponent, configMap, log)
+		errs = errors.Join(errs, err)
 	}
 	return errs
 }
