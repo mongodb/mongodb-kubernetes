@@ -3102,9 +3102,9 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	search.Spec.Clusters[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{
 		MetadataWrapper: v1.StatefulSetMetadataWrapper{
 			Labels: map[string]string{
-				"app":                                     "test-search-search-0-svc",
-				"custom-label":                            "custom-value",
-				khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+				"app":                                "test-search-search-0-svc",
+				"custom-label":                       "custom-value",
+				khandler.MongoDBSearchOwnerNameLabel: "wrong-name",
 				khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
 				khandler.MongoDBSearchComponentLabel:      "wrong-component",
 			},
