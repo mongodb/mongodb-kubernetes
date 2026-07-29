@@ -18,6 +18,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/imdario/mergo v0.3.15
 	github.com/joho/godotenv v1.5.1
+	github.com/mongodb-forks/digest v1.1.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.0
 	github.com/r3labs/diff/v3 v3.0.2
