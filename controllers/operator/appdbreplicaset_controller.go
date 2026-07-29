@@ -2,12 +2,12 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/stretchr/objx"
@@ -691,11 +691,13 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			}
 		}
 
-		// A 401 is only treated as a persistent "corrupted admin-key" error during initial setup (no existing ProjectID),
-		// where the credentials genuinely don't work. When OM was previously configured (ProjectID is set), a 401 is
-		// transient — e.g. a digest nonce re-handshake during AppDB rolling restarts — and reconciliation continues
-		// like any other error from this call site; the 10s requeue will retry.
-		if strings.Contains(err.Error(), "401 (Unauthorized)") && podVars.ProjectID == "" {
+		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
+		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
+		// any API call to ops-manager will fail (including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
+		// The one exception is a 401 from markAsBackingDatabase, which is tolerated inside tryConfigureMonitoringInOpsManager: reaching that call
+		// proves the credentials authenticated successfully earlier in the same pass, so a 401 there can only be a transient digest-auth nonce race.
+		// A 401 from any earlier call (starting with ReadOrCreateProject) means genuinely broken credentials and lands here.
+		if is401(err) {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
 		}
 	}
@@ -1875,7 +1877,18 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	if err := markAppDBAsBackingProject(conn, log); err != nil {
-		return existingPodVars, xerrors.Errorf("error marking project has backing db: %w", err)
+		// A 401 here can only be a transient digest-auth nonce race (OM answers 401 + stale=true per RFC 7616,
+		// which our Go client does not retry): reaching this call proves the same credentials authenticated
+		// successfully several times earlier in this pass (ReadOrCreateProject etc.), so persistent credential
+		// breakage 401s at an earlier call and surfaces as Failed in ReconcileAppDB. Observed during AppDB
+		// rolling restarts when OM's nonce lookup times out while the AppDB primary is unavailable.
+		// Tolerate and retry on a subsequent reconcile (driven by resource churn during restarts; otherwise
+		// the normal OK requeue interval applies).
+		if is401(err) {
+			log.Warnf("ignoring transient 401 (Unauthorized) from markAsBackingDatabase; marking will be retried on a subsequent reconciliation")
+		} else {
+			return existingPodVars, xerrors.Errorf("error marking project has backing db: %w", err)
+		}
 	}
 
 	if err := r.ensureProjectIDConfigMap(ctx, opsManager, conn.GroupID()); err != nil {
@@ -2308,6 +2321,15 @@ func (r *AppDBReconcilerHelper) migrateToNewDeploymentState(ctx context.Context,
 	}
 
 	return nil
+}
+
+// is401 returns true if err is (or wraps) an apierror.Error with HTTP status 401.
+func is401(err error) bool {
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Status != nil && *apiErr.Status == 401
+	}
+	return false
 }
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored

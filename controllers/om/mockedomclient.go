@@ -77,6 +77,7 @@ type MockedOmConnection struct {
 	CreateGroupFunc                  func(group *Project) (*Project, error)
 	UpdateGroupFunc                  func(group *Project) (*Project, error)
 	MarkProjectAsBackingDatabaseFunc func(backingType BackingDatabaseType) error
+	ReadOrganizationsByNameFunc      func(name string) ([]*Organization, error)
 	BackupConfigs                    map[string]*backup.Config
 	BackupHostClusters               map[string]*backup.HostCluster
 	UpdateBackupStatusFunc           func(clusterId string, status backup.Status) error
@@ -402,6 +403,7 @@ func (oc *MockedOmConnection) UpdateHost(host host.Host) error {
 }
 
 func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(backingType BackingDatabaseType) error {
+	oc.addToHistory(reflect.ValueOf(oc.MarkProjectAsBackingDatabase))
 	if oc.MarkProjectAsBackingDatabaseFunc != nil {
 		return oc.MarkProjectAsBackingDatabaseFunc(backingType)
 	}
@@ -516,6 +518,9 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 
 func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizationsByName))
+	if oc.ReadOrganizationsByNameFunc != nil {
+		return oc.ReadOrganizationsByNameFunc(name)
+	}
 	allOrgs := make([]*Organization, 0)
 	for k := range oc.OrganizationsWithGroups {
 		if k.Name == name {
