@@ -24,7 +24,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtimeCluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
@@ -349,59 +348,29 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 	}
 }
 
-// deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged LB transition.
+// deleteEnvoyResources removes per-cluster Envoy resources on managed→unmanaged
+// LB transition. Deletes go through the shared owned-resource check: a same-name
+// object not owned by this MongoDBSearch is skipped rather than an error, so LB
+// teardown cannot requeue forever on a collision it can never resolve.
 func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) error {
-	ns := search.Namespace
 	var errs error
 	for _, w := range workList {
 		if w.Client == nil {
 			log.Warnf("cluster %q: no Kubernetes client registered for Envoy cleanup; skipping", w.ClusterName)
 			continue
 		}
-		resources := []struct {
+		for _, resource := range []struct {
 			kind string
 			obj  client.Object
 		}{
-			{
-				kind: "Deployment",
-				obj: &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-					Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: ns,
-				}},
-			},
-			{
-				kind: "ConfigMap",
-				obj: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-					Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: ns,
-				}},
-			},
-		}
-		for _, resource := range resources {
-			if err := w.Client.Get(ctx, client.ObjectKeyFromObject(resource.obj), resource.obj); err != nil {
-				if !apierrors.IsNotFound(err) {
-					errs = errors.Join(errs, fmt.Errorf("cluster %q: failed to get Envoy %s %s: %w", w.ClusterName, resource.kind, resource.obj.GetName(), err))
-				}
-				continue
-			}
-			if !envoyResourceOwnedBySearch(resource.obj, search) {
-				errs = errors.Join(errs, fmt.Errorf("refusing to delete Envoy %s %s in cluster %q: not managed by this MongoDBSearch", resource.kind, client.ObjectKeyFromObject(resource.obj), w.ClusterName))
-				continue
-			}
-			if err := w.Client.Delete(ctx, resource.obj); err != nil && !apierrors.IsNotFound(err) {
-				errs = errors.Join(errs, fmt.Errorf("cluster %q: failed to delete Envoy %s %s: %w", w.ClusterName, resource.kind, resource.obj.GetName(), err))
-				continue
-			}
-			log.Infof("Deleted Envoy %s %s (cluster=%q)", resource.kind, resource.obj.GetName(), w.ClusterName)
+			{"Envoy Deployment", &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+			{"Envoy ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+		} {
+			_, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, resource.kind, searchProxyComponent, resource.obj, log)
+			errs = errors.Join(errs, err)
 		}
 	}
 	return errs
-}
-
-// envoyResourceOwnedBySearch guards LB-teardown deletes: only objects carrying
-// this Search's ownership and the Envoy proxy component are deleted; anything
-// else was created or relabeled out-of-band.
-func envoyResourceOwnedBySearch(obj metav1.Object, search *searchv1.MongoDBSearch) bool {
-	return khandler.HasSearchOwnership(obj, search) &&
-		obj.GetLabels()[khandler.MongoDBSearchComponentLabel] == searchProxyComponent
 }
 
 // caKeyNameFromTLSConfig returns the CA key filename for Envoy config file paths.

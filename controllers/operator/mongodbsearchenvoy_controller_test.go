@@ -1520,10 +1520,11 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 
 func TestDeleteEnvoyResources(t *testing.T) {
 	type envoyObj struct {
-		cluster     string // client holding the object; "" = central
-		index       int
-		foreignName bool // labels carry another Search's name
-		wantKept    bool
+		cluster          string // client holding the object; "" = central
+		index            int
+		foreignName      bool // labels carry another Search's name
+		foreignComponent bool // labels carry another component value
+		wantKept         bool
 	}
 	type workItem struct {
 		cluster    string
@@ -1535,11 +1536,10 @@ func TestDeleteEnvoyResources(t *testing.T) {
 		members  []string
 		objs     []envoyObj
 		work     []workItem
-		wantErr  string
 		wantWarn string
 	}{
 		{
-			name:    "canonical member deletes fan out across clusters",
+			name:    "owned member deletes fan out across clusters",
 			members: []string{"a", "b"},
 			objs: []envoyObj{
 				{cluster: "a", index: 0},
@@ -1566,12 +1566,25 @@ func TestDeleteEnvoyResources(t *testing.T) {
 			wantWarn: "no Kubernetes client registered for Envoy cleanup",
 		},
 		{
-			name: "foreign-owned object is preserved and surfaces an error",
+			// Skipping, not erroring, on a same-name foreign object: erroring
+			// would requeue the LB teardown forever on a collision it can
+			// never resolve.
+			name: "foreign-owned object is skipped while owned objects are deleted",
 			objs: []envoyObj{
 				{cluster: "", index: 0, foreignName: true, wantKept: true},
+				{cluster: "", index: 1},
 			},
-			work:    []workItem{{cluster: "", index: 0, registered: true}},
-			wantErr: "not managed by this MongoDBSearch",
+			work: []workItem{
+				{cluster: "", index: 0, registered: true},
+				{cluster: "", index: 1, registered: true},
+			},
+		},
+		{
+			name: "object with another component label is skipped",
+			objs: []envoyObj{
+				{cluster: "", index: 0, foreignComponent: true, wantKept: true},
+			},
+			work: []workItem{{cluster: "", index: 0, registered: true}},
 		},
 	}
 	for _, tc := range tests {
@@ -1589,6 +1602,9 @@ func TestDeleteEnvoyResources(t *testing.T) {
 				labels := maps.Clone(envoyLabelsForCluster(search, o.index))
 				if o.foreignName {
 					labels[khandler.MongoDBSearchOwnerNameLabel] = "replacement-search"
+				}
+				if o.foreignComponent {
+					labels[khandler.MongoDBSearchComponentLabel] = "other-component"
 				}
 				require.NoError(t, clients[o.cluster].Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
 					Name: search.LoadBalancerDeploymentNameForCluster(o.index), Namespace: "ns", Labels: labels,
@@ -1611,13 +1627,8 @@ func TestDeleteEnvoyResources(t *testing.T) {
 			}
 			logs := observeControllerLogs(t)
 
-			err := r.deleteEnvoyResources(ctx, search, workList, zap.S())
+			require.NoError(t, r.deleteEnvoyResources(ctx, search, workList, zap.S()))
 
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-			} else {
-				require.ErrorContains(t, err, tc.wantErr)
-			}
 			if tc.wantWarn != "" {
 				assert.Positive(t, logs.FilterMessageSnippet(tc.wantWarn).Len(), "expected a warning containing %q", tc.wantWarn)
 			}
@@ -1707,36 +1718,6 @@ func TestEnvoyReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing
 				assert.True(t, apierrors.IsNotFound(depErr))
 				assert.Zero(t, logs.FilterMessageSnippet(injectedErr.Error()).Len())
 			}
-		})
-	}
-}
-
-func TestEnvoyResourceOwnedBySearch(t *testing.T) {
-	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"}}
-	tests := []struct {
-		name         string
-		mutateLabels func(map[string]string)
-		want         bool
-	}{
-		{name: "canonical", want: true},
-		{name: "wrong component", mutateLabels: func(labels map[string]string) {
-			labels[khandler.MongoDBSearchComponentLabel] = "other-component"
-		}},
-		{name: "wrong Search name", mutateLabels: func(labels map[string]string) {
-			labels[khandler.MongoDBSearchOwnerNameLabel] = "replacement-search"
-		}},
-		{name: "wrong Search namespace", mutateLabels: func(labels map[string]string) {
-			labels[khandler.MongoDBSearchOwnerNamespaceLabel] = "replacement-namespace"
-		}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := maps.Clone(envoyLabelsForCluster(search, 0))
-			if tc.mutateLabels != nil {
-				tc.mutateLabels(actual)
-			}
-			obj := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Labels: actual}}
-			assert.Equal(t, tc.want, envoyResourceOwnedBySearch(obj, search))
 		})
 	}
 }
