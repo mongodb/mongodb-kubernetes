@@ -244,7 +244,7 @@ def _assert_lb_cert_proxy_sans(
         )
         missing = expected_sans - sans
         assert not missing, f"LB server cert {secret_name} missing proxy SANs: {sorted(missing)}"
-        logger.info(f"LB server cert {secret_name} covers all {len(expected_sans)} proxy SANs")
+        logger.info(f"LB server cert for cluster {ci} covers all {len(expected_sans)} proxy SANs")
 
 
 def _source_router_hosts(namespace: str) -> List[str]:
