@@ -1,4 +1,5 @@
 from kubetester import get_statefulset
+from kubetester.helm import apply_member_cluster_crd
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.operator import Operator
@@ -6,7 +7,13 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import get_default_operator, get_multi_cluster_operator, install_official_operator, is_multi_cluster
+from tests.conftest import (
+    configure_multi_cluster_members,
+    get_default_operator,
+    get_multi_cluster_operator,
+    install_official_operator,
+    is_multi_cluster,
+)
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_CHART,
@@ -139,6 +146,10 @@ def test_upgrade_operator(
     member_cluster_names,
 ):
     if is_multi_cluster():
+        # MCK discovers members from MemberCluster CRs, which the MEKO 1.32 baseline does not create,
+        # so register them before the upgrade or the operator boots as single-cluster.
+        apply_member_cluster_crd(api_client=central_cluster_client)
+        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
         operator = get_multi_cluster_operator(
             namespace,
             central_cluster_name,
@@ -147,6 +158,9 @@ def test_upgrade_operator(
             member_cluster_clients,
             member_cluster_names,
             apply_crds_first=True,
+            # TODO(m1kola): slice-7: the workload SAs above are already applied by
+            # configure_multi_cluster_members; Helm can't adopt them without this.
+            extra_helm_args={"operator.createResourcesServiceAccountsAndRoles": "false"},
         )
     else:
         operator = get_default_operator(

@@ -453,6 +453,9 @@ tasks:
       - func: download_multi_cluster_binary
         vars:
           platform: linux/amd64
+      - func: download_released_multi_cluster_binary
+        vars:
+          platform: linux/amd64
       - func: quay_staging_login
       - func: pipeline
         vars:
@@ -463,6 +466,9 @@ tasks:
       - func: clone
       - func: setup_building_host
       - func: download_multi_cluster_binary
+        vars:
+          platform: linux/arm64
+      - func: download_released_multi_cluster_binary
         vars:
           platform: linux/arm64
       - func: quay_staging_login
