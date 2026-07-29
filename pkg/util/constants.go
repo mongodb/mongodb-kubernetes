@@ -73,6 +73,7 @@ const (
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
 	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
+	EnvVarCustomAgentURL   = "MDB_CUSTOM_AGENT_URL"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla

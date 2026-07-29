@@ -40,6 +40,11 @@ if [[ "${IMAGE_NAME}" == "agent" && "${AGENT_TOOLS_VERSION:-}" != "" ]]; then
     args+=(--agent-tools-version "${AGENT_TOOLS_VERSION}")
 fi
 
+# Pass custom agent URL if set (for testing custom agent builds)
+if [[ "${MDB_CUSTOM_AGENT_URL:-}" != "" ]]; then
+    args+=(--custom-agent-url "${MDB_CUSTOM_AGENT_URL}")
+fi
+
 if [[ "${FLAGS:-}" != "" ]]; then
     IFS=" " read -ra flags <<< "${FLAGS}"
     args+=("${flags[@]}")

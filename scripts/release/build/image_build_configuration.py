@@ -25,6 +25,7 @@ class ImageBuildConfiguration:
     parallel_factor: int = 0
     architecture_suffix: bool = False
     agent_tools_version: Optional[str] = None  # Explicit tools version for agent builds
+    custom_agent_url: Optional[str] = None  # Custom agent URL for testing (overrides prod download)
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE
