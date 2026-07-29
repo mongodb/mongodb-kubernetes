@@ -11,9 +11,9 @@ pushd "${script_dir}"
 
 prepare_snippets
 
-# Pre-clean any global GCP LB resources leaked by a previous run. These are
-# project-global, fixed-name resources (health-check, backend-service, url-map,
-# proxy, forwarding-rule, firewall) that ra-10_0150 creates.
+# Pre-clean any global GCP LB resources left by a retried execution of this same
+# run. The resource names are run-scoped (KUBE-268), so this only affects
+# resources from the current run suffix, not concurrent runs.
 bash code_snippets/ra-10_9000_cleanup_gke_lb.sh || true
 
 run ra-10_0100_generate_certs.sh

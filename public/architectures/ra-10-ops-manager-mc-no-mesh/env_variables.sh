@@ -24,3 +24,17 @@ export OPS_MANAGER_EXTERNAL_DOMAIN="opsmanager.${CUSTOM_DOMAIN}"
 export APPDB_CLUSTER_0_EXTERNAL_DOMAIN="${K8S_CLUSTER_0}.${CUSTOM_DOMAIN}"
 export APPDB_CLUSTER_1_EXTERNAL_DOMAIN="${K8S_CLUSTER_1}.${CUSTOM_DOMAIN}"
 export APPDB_CLUSTER_2_EXTERNAL_DOMAIN="${K8S_CLUSTER_2}.${CUSTOM_DOMAIN}"
+
+# Run-scoped names for project-global GCP load balancer resources (KUBE-268).
+# Multiple CI runs share the same GCP project; with fixed global names, one run's
+# pre-clean/teardown deletes a concurrent run's load balancer mid-flight.
+# Derive the run-specific suffix from ${DNS_ZONE} (set in the ExternalDNS setup
+# guide). For docs users there is no run suffix and the names stay unchanged.
+lb_suffix="${DNS_ZONE#"mongodb"}"
+export OM_FIREWALL_RULE_NAME="fw-ops-manager-hc${lb_suffix}"
+export OM_HEALTHCHECK_NAME="om-healthcheck${lb_suffix}"
+export OM_BACKEND_SERVICE_NAME="om-backend-service${lb_suffix}"
+export OM_URL_MAP_NAME="om-url-map${lb_suffix}"
+export OM_LB_PROXY_NAME="om-lb-proxy${lb_suffix}"
+export OM_CERTIFICATE_NAME="om-certificate${lb_suffix}"
+export OM_FORWARDING_RULE_NAME="om-forwarding-rule${lb_suffix}"
