@@ -49,19 +49,17 @@ const (
 	searchProxyComponent     = "search-proxy"
 )
 
-// prepareSearchFuncs are the constructor-switched pre-reconcile gates shared by
-// the search reconcilers. validate runs against the original spec, before
-// localize narrows spec.clusters down to this operator's cluster; a non-OK
-// status means the spec is invalid and the caller must stop reconciling.
-// localize returns skip=true when another operator owns the CR.
-// Removed-cluster cleanup must run between the two: after validation so an
-// invalid spec never drives deletions (cleanup pauses while the spec sits
-// invalid and resumes once it is fixed), and before localization so the
-// desired-cluster set comes from the full spec — a narrowed spec would mark
-// sibling clusters as removed.
+// prepareSearchFuncs are the two pre-reconcile gates shared by the search
+// reconcilers. validate checks the full spec; a non-OK status stops the
+// reconcile. shouldSkipCluster reports whether another operator owns this CR;
+// when it returns false it also narrows spec.clusters down to this operator's
+// entry. Removed-cluster cleanup must run between the two gates: after
+// validation so a bad spec never drives deletions (cleanup pauses until the
+// spec is fixed), and before the narrowing so the full spec decides which
+// clusters were removed.
 type prepareSearchFuncs struct {
-	validate func(search *searchv1.MongoDBSearch) workflow.Status
-	localize func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (skip bool)
+	validate          func(search *searchv1.MongoDBSearch) workflow.Status
+	shouldSkipCluster func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) bool
 }
 
 // operatorClusterNotInSearchSpec reports whether this operator serves a named
@@ -81,10 +79,9 @@ func operatorClusterNotInSearchSpec(search *searchv1.MongoDBSearch, operatorClus
 }
 
 // newPrepareSearch picks the gates once at construction so Reconcile never
-// branches on the operator mode. Validation runs on the original spec, before
-// LocalizeToCluster narrows spec.clusters[]: after narrowing, the MC validators
-// short-circuit on len(clusters) <= 1 and would silently accept misconfigured
-// MC specs.
+// branches on the operator mode. validate must see the full spec: once
+// spec.clusters is narrowed to one entry, the multi-cluster validators skip
+// themselves and would let a bad multi-cluster spec through.
 func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
 	validateSpec := func(search *searchv1.MongoDBSearch) workflow.Status {
 		if vErr := search.ValidateSpec(); vErr != nil {
@@ -94,8 +91,8 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
 	}
 	if operatorClusterName == "" {
 		return prepareSearchFuncs{
-			validate: validateSpec,
-			localize: func(*searchv1.MongoDBSearch, *zap.SugaredLogger) bool { return false },
+			validate:          validateSpec,
+			shouldSkipCluster: func(*searchv1.MongoDBSearch, *zap.SugaredLogger) bool { return false },
 		}
 	}
 	return prepareSearchFuncs{
@@ -108,7 +105,7 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
 			}
 			return workflow.OK()
 		},
-		localize: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) bool {
+		shouldSkipCluster: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) bool {
 			if !search.LocalizeToCluster(operatorClusterName) {
 				log.Infof("spec.clusters does not list this operator's cluster %q; skipping (another operator owns this CR)", operatorClusterName)
 				return true
@@ -184,19 +181,23 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// drive deletions) but on the PRE-localization spec (a narrowed spec would
 	// mark sibling clusters as removed). Best-effort: failures are logged, never
 	// fail the reconcile, and are retried on the next reconcile of the live CR.
-	if err := cleanupRemovedMemberClusters(ctx, mdbSearch, r.memberClusterClientsMap, sweepMemberSearchResources, log); err != nil {
+	// The two checks split the cleanup by mode: the member map is only populated
+	// in hub-and-spoke, so this call covers that mode; in operator-per-cluster
+	// the map is empty and the operatorClusterNotInSearchSpec check below lets
+	// each operator clean up its own cluster.
+	if err := deleteRemovedMemberClusterResources(ctx, mdbSearch, r.memberClusterClientsMap, deleteMemberSearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Search resources on removed member clusters: %v", err)
 	}
 
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
 		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
-		if err := sweepLocalSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
+		if err := deleteLocalSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
 			log.Warnf("Failed to clean up Search resources on removed cluster %q: %v", r.operatorClusterName, err)
 		}
 		return reconcile.Result{}, nil
 	}
 
-	if r.prepareSearch.localize(mdbSearch, log) {
+	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
 		return reconcile.Result{}, nil
 	}
 
@@ -326,17 +327,17 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 	return nil
 }
 
-// sweepMemberSearchResources reaps one removed cluster's label-owned Search
+// deleteMemberSearchResources reaps one removed cluster's label-owned Search
 // resources. The state ConfigMap is deliberately absent: it lives on the
 // central cluster only, and a hub whose own cluster is member-registered would
-// otherwise delete the live central state — see sweepLocalSearchResources.
-func sweepMemberSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+// otherwise delete the live central state — see deleteLocalSearchResources.
+func deleteMemberSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
 	errs := errors.Join(
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "StatefulSet", searchMongotComponent, &appsv1.StatefulSetList{}, log),
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "headless Service", searchMongotComponent, &corev1.ServiceList{}, log),
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "proxy Service", searchProxyComponent, &corev1.ServiceList{}, log),
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchMongotComponent, &corev1.ConfigMapList{}, log),
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "Secret", searchMongotComponent, &corev1.SecretList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "StatefulSet", searchMongotComponent, &appsv1.StatefulSetList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "headless Service", searchMongotComponent, &corev1.ServiceList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "proxy Service", searchProxyComponent, &corev1.ServiceList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchMongotComponent, &corev1.ConfigMapList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "Secret", searchMongotComponent, &corev1.SecretList{}, log),
 	)
 	for _, s := range []struct{ kind, name string }{
 		{"x509 client auth Secret", search.X509OperatorManagedSecret().Name},
@@ -349,9 +350,9 @@ func sweepMemberSearchResources(ctx context.Context, c kubernetesClient.Client, 
 	return errs
 }
 
-// sweepLocalSearchResources adds the central state ConfigMap: swept only when
-// THIS operator's own cluster was removed from spec.clusters.
-func sweepLocalSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+// deleteLocalSearchResources additionally deletes the central state ConfigMap:
+// it runs only when THIS operator's own cluster was removed from spec.clusters.
+func deleteLocalSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
 	stateCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      searchcontroller.SearchStateCMName(search),
@@ -359,25 +360,25 @@ func sweepLocalSearchResources(ctx context.Context, c kubernetesClient.Client, s
 		},
 	}
 	_, stateErr := searchcontroller.DeleteOwnedResource(ctx, c, search, clusterName, "state ConfigMap", "", stateCM, log)
-	return errors.Join(sweepMemberSearchResources(ctx, c, search, clusterName, log), stateErr)
+	return errors.Join(deleteMemberSearchResources(ctx, c, search, clusterName, log), stateErr)
 }
 
-func sweepEnvoySearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+func deleteEnvoySearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
 	return errors.Join(
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "Deployment", searchProxyComponent, &appsv1.DeploymentList{}, log),
-		searchcontroller.SweepOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchProxyComponent, &corev1.ConfigMapList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "Deployment", searchProxyComponent, &appsv1.DeploymentList{}, log),
+		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchProxyComponent, &corev1.ConfigMapList{}, log),
 	)
 }
 
-// cleanupRemovedMemberClusters runs sweep against every member cluster that is
-// no longer listed in spec.clusters, reaping its label-owned Search resources.
+// deleteRemovedMemberClusterResources deletes the label-owned Search resources
+// on every member cluster that is no longer listed in spec.clusters.
 // Best-effort: one cluster's failure never blocks the others, and anything
 // missed is retried on the next reconcile of the still-live CR.
-func cleanupRemovedMemberClusters(
+func deleteRemovedMemberClusterResources(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
 	memberClients map[string]kubernetesClient.Client,
-	sweep func(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error,
+	deleteResources func(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error,
 	log *zap.SugaredLogger,
 ) error {
 	desired := make(map[string]struct{}, len(search.Spec.Clusters))
@@ -389,7 +390,7 @@ func cleanupRemovedMemberClusters(
 		if _, ok := desired[clusterName]; ok {
 			continue
 		}
-		if err := sweep(ctx, memberClient, search, clusterName, log); err != nil {
+		if err := deleteResources(ctx, memberClient, search, clusterName, log); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}

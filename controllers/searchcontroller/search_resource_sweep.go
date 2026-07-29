@@ -16,12 +16,12 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-// sweepOwned lists this Search's label-owned objects of one kind (component=""
+// deleteOwned lists this Search's label-owned objects of one kind (component=""
 // selects on owner labels only) and deletes every one accepted by eligible
 // (nil = all). Per-object failures are joined and never abort the sweep;
 // NotFound deletes are tolerated. clusterName is log context only.
-func sweepOwned(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName, kind, component string, list client.ObjectList, eligible func(client.Object) bool, log *zap.SugaredLogger) error {
-	selector := client.MatchingLabels(khandler.SearchManagedLabels(search, "", component))
+func deleteOwned(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName, kind, component string, list client.ObjectList, eligible func(client.Object) bool, log *zap.SugaredLogger) error {
+	selector := client.MatchingLabels(khandler.SearchOwnershipLabels(search, "", component))
 	if err := c.List(ctx, list, client.InNamespace(search.Namespace), selector); err != nil {
 		return xerrors.Errorf("failed listing MongoDBSearch %ss on cluster %q: %w", kind, clusterName, err)
 	}
@@ -44,10 +44,10 @@ func sweepOwned(ctx context.Context, c kubernetesClient.Client, search *searchv1
 	return errs
 }
 
-// SweepOwnedResources deletes every owned object of one kind/component — the
+// DeleteAllOwnedResources deletes every owned object of one kind/component — the
 // broad removed-cluster sweeps.
-func SweepOwnedResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName, kind, component string, list client.ObjectList, log *zap.SugaredLogger) error {
-	return sweepOwned(ctx, c, search, clusterName, kind, component, list, nil, log)
+func DeleteAllOwnedResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName, kind, component string, list client.ObjectList, log *zap.SugaredLogger) error {
+	return deleteOwned(ctx, c, search, clusterName, kind, component, list, nil, log)
 }
 
 // DeleteOwnedResource deletes one exact-name operator singleton after verifying

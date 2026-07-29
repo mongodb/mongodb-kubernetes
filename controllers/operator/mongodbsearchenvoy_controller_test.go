@@ -1662,7 +1662,7 @@ func TestEnvoyReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing
 			search := newMCEnvoySearch("mdb-search", "ns", "search-uid", pinnedCluster("cluster-a", 0))
 			memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
 			var memberB client.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
-			labels := khandler.SearchManagedLabels(search, "", searchProxyComponent)
+			labels := khandler.SearchOwnershipLabels(search, "", searchProxyComponent)
 			deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: search.Namespace, UID: "removed-deployment", Labels: labels}}
 			configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: search.Namespace, UID: "removed-config", Labels: maps.Clone(labels)}}
 			require.NoError(t, memberB.Create(ctx, deployment))

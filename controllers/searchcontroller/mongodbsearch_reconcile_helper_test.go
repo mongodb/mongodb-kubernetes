@@ -36,6 +36,7 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -126,7 +127,7 @@ func assertSearchOwnershipLabels(t *testing.T, obj client.Object, search *search
 // mongotOwnerLabels builds the owner + mongot-component labels carried by
 // operator-managed mongot resources, for fixture construction.
 func mongotOwnerLabels(search *searchv1.MongoDBSearch) map[string]string {
-	return khandler.SearchManagedLabels(search, "", mongotComponent)
+	return khandler.SearchOwnershipLabels(search, "", mongotComponent)
 }
 
 func stsVolumeAndMountNames(sts appsv1.StatefulSet) (map[string]bool, map[string]bool) {
@@ -4758,7 +4759,7 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 			Spec:       corev1.ServiceSpec{ClusterIP: "10.0.0.1", Ports: []corev1.ServicePort{{Port: 27028}}},
 		}
 	}
-	proxyLabels := khandler.SearchManagedLabels(search, "", proxyServiceComponent)
+	proxyLabels := khandler.SearchOwnershipLabels(search, "", proxyServiceComponent)
 
 	// cluster-a (idx 0): keep shard-0 + cluster-level; sh-stale must be swept,
 	// including its generated ingress TLS Secret; the unowned Service stays.
@@ -4877,7 +4878,7 @@ func TestReconcileSharded_StaleCleanupErrorDoesNotFailReconcile(t *testing.T) {
 	staleSvc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{
 		Name:      "mdb-search-search-9-stale-svc",
 		Namespace: "ns",
-		Labels:    khandler.SearchManagedLabels(search, "", mongotComponent),
+		Labels:    khandler.SearchOwnershipLabels(search, "", mongotComponent),
 	}}
 	injectedErr := fmt.Errorf("injected stale cleanup list failure")
 	base := mock.NewEmptyFakeClientBuilder().WithObjects(search, staleSvc).Build()

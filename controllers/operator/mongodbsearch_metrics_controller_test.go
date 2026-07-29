@@ -247,101 +247,110 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		return r, fakeClient, search, legacyDeployment
 	}
 
-	t.Run("legacy index left unused: entry swept", func(t *testing.T) {
-		r, fakeClient, search, legacyDeployment := newFixture(t, []searchv1.ClusterSpec{
-			{Name: "cluster-a", Index: ptr.To(int32(1))},
-			{Name: "cluster-b", Index: ptr.To(int32(2))},
-		}, clusterTopologyState{ClusterIndex: ptr.To(0)})
-		currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
+	cases := []struct {
+		name         string
+		clusters     []searchv1.ClusterSpec
+		initialState clusterTopologyState
+		// fullState, when set, replaces the whole persisted state before reconciling.
+		fullState *searchTopologyState
+		verify    func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string)
+	}{
+		{
+			name: "legacy index left unused: entry deleted",
+			clusters: []searchv1.ClusterSpec{
+				{Name: "cluster-a", Index: ptr.To(int32(1))},
+				{Name: "cluster-b", Index: ptr.To(int32(2))},
+			},
+			initialState: clusterTopologyState{ClusterIndex: ptr.To(0)},
+			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
+				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
+					"legacy central Deployment must be deleted after the move to named clusters")
+				topologyState := getFullTopologyState(t, fakeClient, search)
+				assert.NotContains(t, topologyState.Clusters, "")
+				// Each named cluster persists its own pinned index, written once.
+				for clusterName, wantIndex := range map[string]int{"cluster-a": 1, "cluster-b": 2} {
+					require.Contains(t, topologyState.Clusters, clusterName)
+					require.NotNil(t, topologyState.Clusters[clusterName].ClusterIndex)
+					assert.Equal(t, wantIndex, *topologyState.Clusters[clusterName].ClusterIndex)
+					require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
+						Name: search.MetricsForwarderDeploymentNameForCluster(wantIndex), Namespace: search.Namespace,
+					}, &appsv1.Deployment{}))
+				}
+			},
+		},
+		{
+			name: "legacy index 0 renamed to a named cluster: state re-keys, no cleanup",
+			clusters: []searchv1.ClusterSpec{
+				{Name: "cluster-a", Index: ptr.To(int32(0))},
+				{Name: "cluster-b", Index: ptr.To(int32(2))},
+			},
+			initialState: clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 2},
+			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
+				assert.Empty(t, deletedHostIDs, "index 0 is live under cluster-a: its hosts must not be deregistered")
+				topologyState := getFullTopologyState(t, fakeClient, search)
+				assert.NotContains(t, topologyState.Clusters, "")
+				require.Contains(t, topologyState.Clusters, "cluster-a")
+				// The shared-index Deployment survives the rename in place.
+				require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{}))
+				// The re-keyed entry keeps its bookkeeping: the extra ordinal is reaped as
+				// an ordinary scale-down — its host deletion is deferred, never a
+				// live-host deregistration.
+				removedPod := fmt.Sprintf("%s-1", search.StatefulSetNamespacedNameForCluster(0).Name)
+				assert.Contains(t, topologyState.Clusters["cluster-a"].HostDeletionReadyAfter, removedPod)
+			},
+		},
+		{
+			name: "same name at a new index: old index cleaned, new index added",
+			clusters: []searchv1.ClusterSpec{
+				{Name: "cluster-a", Index: ptr.To(int32(7))},
+				{Name: "cluster-b", Index: ptr.To(int32(1))},
+			},
+			fullState: &searchTopologyState{Clusters: map[string]clusterTopologyState{
+				"cluster-a": {ClusterIndex: ptr.To(0), Replicas: 2},
+				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+			}},
+			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, oldDeployment *appsv1.Deployment, deletedHostIDs []string) {
+				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{})),
+					"old-index Deployment must be deleted after the index change")
+				require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
+					Name: search.MetricsForwarderDeploymentNameForCluster(7), Namespace: search.Namespace,
+				}, &appsv1.Deployment{}), "new-index Deployment must be created")
+				oldStsName := search.StatefulSetNamespacedNameForCluster(0).Name
+				assert.ElementsMatch(t, []string{
+					mongotHostID(testGroupID, testNamespace, oldStsName+"-0"),
+					mongotHostID(testGroupID, testNamespace, oldStsName+"-1"),
+				}, deletedHostIDs, "the removed index's hosts must be deregistered")
+				topologyState := getFullTopologyState(t, fakeClient, search)
+				require.Contains(t, topologyState.Clusters, "cluster-a")
+				require.NotNil(t, topologyState.Clusters["cluster-a"].ClusterIndex)
+				assert.Equal(t, 7, *topologyState.Clusters["cluster-a"].ClusterIndex)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, fakeClient, search, legacyDeployment := newFixture(t, tc.clusters, tc.initialState)
+			if tc.fullState != nil {
+				stateJSON, err := json.Marshal(tc.fullState)
+				require.NoError(t, err)
+				stateCM := &corev1.ConfigMap{}
+				require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{Name: testSearchName + "-metrics-forwarder-state", Namespace: testNamespace}, stateCM))
+				stateCM.Data[stateKey] = string(stateJSON)
+				require.NoError(t, fakeClient.Update(t.Context(), stateCM))
+			}
+			var deletedHostIDs []string
+			r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
+			currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
 
-		// Two passes: the first sweeps the legacy central resources, the second
-		// drops the now-empty legacy state entry.
-		r.reconcileCore(t.Context(), currentSearch, zap.S())
-		st := r.reconcileCore(t.Context(), currentSearch, zap.S())
+			// Two passes: the first deletes the stale Deployment, the second settles
+			// the persisted state (and any deferred OM host deregistration).
+			r.reconcileCore(t.Context(), currentSearch, zap.S())
+			st := r.reconcileCore(t.Context(), currentSearch, zap.S())
 
-		require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
-		assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
-			"legacy central Deployment must be swept after the move to named clusters")
-		topologyState := getFullTopologyState(t, fakeClient, search)
-		assert.NotContains(t, topologyState.Clusters, "")
-		// Each named cluster persists its own pinned index, written once.
-		for clusterName, wantIndex := range map[string]int{"cluster-a": 1, "cluster-b": 2} {
-			require.Contains(t, topologyState.Clusters, clusterName)
-			require.NotNil(t, topologyState.Clusters[clusterName].ClusterIndex)
-			assert.Equal(t, wantIndex, *topologyState.Clusters[clusterName].ClusterIndex)
-			require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
-				Name: search.MetricsForwarderDeploymentNameForCluster(wantIndex), Namespace: search.Namespace,
-			}, &appsv1.Deployment{}))
-		}
-	})
-
-	t.Run("legacy index 0 renamed to a named cluster: state re-keys, no cleanup", func(t *testing.T) {
-		r, fakeClient, search, legacyDeployment := newFixture(t, []searchv1.ClusterSpec{
-			{Name: "cluster-a", Index: ptr.To(int32(0))},
-			{Name: "cluster-b", Index: ptr.To(int32(2))},
-		}, clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 2})
-		var deletedHostIDs []string
-		r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
-		currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
-
-		r.reconcileCore(t.Context(), currentSearch, zap.S())
-		st := r.reconcileCore(t.Context(), currentSearch, zap.S())
-
-		require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
-		assert.Empty(t, deletedHostIDs, "index 0 is live under cluster-a: its hosts must not be deregistered")
-		topologyState := getFullTopologyState(t, fakeClient, search)
-		assert.NotContains(t, topologyState.Clusters, "")
-		require.Contains(t, topologyState.Clusters, "cluster-a")
-		// The shared-index Deployment survives the rename in place.
-		dep := &appsv1.Deployment{}
-		require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), dep))
-		// The re-keyed entry keeps its bookkeeping: the extra ordinal is reaped as
-		// an ordinary scale-down — its host deletion is deferred, never a
-		// live-host deregistration.
-		removedPod := fmt.Sprintf("%s-1", search.StatefulSetNamespacedNameForCluster(0).Name)
-		assert.Contains(t, topologyState.Clusters["cluster-a"].HostDeletionReadyAfter, removedPod)
-	})
-
-	t.Run("same name at a new index: old index cleaned, new index added", func(t *testing.T) {
-		r, fakeClient, search, oldDeployment := newFixture(t, []searchv1.ClusterSpec{
-			{Name: "cluster-a", Index: ptr.To(int32(7))},
-			{Name: "cluster-b", Index: ptr.To(int32(1))},
-		}, clusterTopologyState{})
-		stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-			"cluster-a": {ClusterIndex: ptr.To(0), Replicas: 2},
-			"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
-		}})
-		require.NoError(t, err)
-		stateCM := &corev1.ConfigMap{}
-		require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{Name: testSearchName + "-metrics-forwarder-state", Namespace: testNamespace}, stateCM))
-		stateCM.Data[stateKey] = string(stateJSON)
-		require.NoError(t, fakeClient.Update(t.Context(), stateCM))
-		var deletedHostIDs []string
-		r.omRequester = recordingDeleteHostsRequester(&deletedHostIDs)
-		currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
-
-		// Two passes: the first sweeps the old-index Deployment (the state write
-		// for the new index defers while the old entry awaits cleanup), the second
-		// deregisters the old index's hosts and records the new index.
-		r.reconcileCore(t.Context(), currentSearch, zap.S())
-		st := r.reconcileCore(t.Context(), currentSearch, zap.S())
-
-		require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
-		assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{})),
-			"old-index Deployment must be swept after the index change")
-		require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
-			Name: search.MetricsForwarderDeploymentNameForCluster(7), Namespace: search.Namespace,
-		}, &appsv1.Deployment{}), "new-index Deployment must be created")
-		oldStsName := search.StatefulSetNamespacedNameForCluster(0).Name
-		assert.ElementsMatch(t, []string{
-			mongotHostID(testGroupID, testNamespace, oldStsName+"-0"),
-			mongotHostID(testGroupID, testNamespace, oldStsName+"-1"),
-		}, deletedHostIDs, "the removed index's hosts must be deregistered")
-		topologyState := getFullTopologyState(t, fakeClient, search)
-		require.Contains(t, topologyState.Clusters, "cluster-a")
-		require.NotNil(t, topologyState.Clusters["cluster-a"].ClusterIndex)
-		assert.Equal(t, 7, *topologyState.Clusters["cluster-a"].ClusterIndex)
-	})
+			require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
+			tc.verify(t, fakeClient, search, legacyDeployment, deletedHostIDs)
+		})
+	}
 }
 
 func TestReconcileCoreRegistersMetricsCredentialAndCAWatches(t *testing.T) {

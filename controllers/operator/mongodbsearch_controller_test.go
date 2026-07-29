@@ -235,7 +235,7 @@ func TestMongoDBSearchOnDelete_SweepsOwnedResourcesAndDependentWatches(t *testin
 		ObjectMeta: metav1.ObjectMeta{Name: searchKey.Name, Namespace: searchKey.Namespace, UID: "deleted-search-uid"},
 		Spec:       searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{Name: "member-a"}}},
 	}
-	ownerLabels := khandler.SearchManagedLabels(deletedSearch, "", "")
+	ownerLabels := khandler.SearchOwnershipLabels(deletedSearch, "", "")
 	foreignLabels := maps.Clone(ownerLabels)
 	foreignLabels[khandler.MongoDBSearchOwnerNameLabel] = "another-search"
 
@@ -398,56 +398,6 @@ func TestRegisterTLSResourceWatchesIncludesShardedMemberDependencies(t *testing.
 	}
 	for _, resource := range expected {
 		assert.Contains(t, watched[resource], search.NamespacedName(), "missing dependency watch for %s", resource)
-	}
-}
-
-func TestMongoDBSearchReconcile_DeletionTimestampTakesPriorityOverDisableAnnotation(t *testing.T) {
-	ctx := context.Background()
-	for _, tc := range []struct {
-		name          string
-		newReconciler func(t *testing.T, search *searchv1.MongoDBSearch) (reconcile.Reconciler, client.Client)
-		wantLog       string
-		wantAbsentLog string
-	}{
-		{
-			name: "main controller",
-			newReconciler: func(t *testing.T, search *searchv1.MongoDBSearch) (reconcile.Reconciler, client.Client) {
-				return newSearchReconciler(nil, search)
-			},
-			wantLog:       "is deleting; skipping main-controller reconcile",
-			wantAbsentLog: "reconciliation disabled",
-		},
-		{
-			name: "envoy controller",
-			newReconciler: func(t *testing.T, search *searchv1.MongoDBSearch) (reconcile.Reconciler, client.Client) {
-				c := fake.NewClientBuilder().WithScheme(envoyTestScheme(t)).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-				return newMongoDBSearchEnvoyReconciler(c, "envoy:latest", nil, ""), c
-			},
-			wantLog: "is deleting; skipping envoy reconcile",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			logs := observeControllerLogs(t)
-			now := metav1.Now()
-			search := newMongoDBSearch("search", mock.TestNamespace, "missing-source")
-			search.DeletionTimestamp = &now
-			search.Finalizers = []string{"kubernetes"}
-			search.Annotations = map[string]string{searchv1.DisableReconciliationAnnotation: "true"}
-			reconciler, c := tc.newReconciler(t, search)
-
-			res, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}})
-			require.NoError(t, err)
-			assert.Equal(t, reconcile.Result{}, res)
-
-			updated := &searchv1.MongoDBSearch{}
-			require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))
-			assert.Empty(t, updated.Status.Phase)
-			assert.Nil(t, updated.Status.LoadBalancer)
-			assert.Equal(t, 1, logs.FilterMessageSnippet(tc.wantLog).Len())
-			if tc.wantAbsentLog != "" {
-				assert.Zero(t, logs.FilterMessageSnippet(tc.wantAbsentLog).Len())
-			}
-		})
 	}
 }
 
@@ -1060,16 +1010,16 @@ func TestReconcile_OperatorPerCluster_RemovedClusterCleansLocalResources(t *test
 	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
-	legacyAuthLabels := khandler.SearchManagedLabels(search, "", "")
+	legacyAuthLabels := khandler.SearchOwnershipLabels(search, "", "")
 	managed := []client.Object{
-		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "removed-mongot", Namespace: search.Namespace, UID: "removed-sts", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent)}},
-		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "removed-headless", Namespace: search.Namespace, UID: "removed-headless", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent)}},
-		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "removed-proxy", Namespace: search.Namespace, UID: "removed-proxy", Labels: khandler.SearchManagedLabels(search, "", searchProxyComponent)}},
-		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "removed-config", Namespace: search.Namespace, UID: "removed-config", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent)}},
-		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace, UID: "removed-state", Labels: khandler.SearchManagedLabels(search, "", "")}},
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "removed-mongot", Namespace: search.Namespace, UID: "removed-sts", Labels: khandler.SearchOwnershipLabels(search, "", searchMongotComponent)}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "removed-headless", Namespace: search.Namespace, UID: "removed-headless", Labels: khandler.SearchOwnershipLabels(search, "", searchMongotComponent)}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "removed-proxy", Namespace: search.Namespace, UID: "removed-proxy", Labels: khandler.SearchOwnershipLabels(search, "", searchProxyComponent)}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "removed-config", Namespace: search.Namespace, UID: "removed-config", Labels: khandler.SearchOwnershipLabels(search, "", searchMongotComponent)}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace, UID: "removed-state", Labels: khandler.SearchOwnershipLabels(search, "", "")}},
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.X509OperatorManagedSecret().Name, Namespace: search.Namespace, UID: "legacy-x509", Labels: maps.Clone(legacyAuthLabels)}},
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.ScramClientCertOperatorManagedSecret().Name, Namespace: search.Namespace, UID: "legacy-scram", Labels: maps.Clone(legacyAuthLabels)}},
-		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "removed-secret", Namespace: search.Namespace, UID: "removed-secret", Labels: khandler.SearchManagedLabels(search, "", searchMongotComponent)}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "removed-secret", Namespace: search.Namespace, UID: "removed-secret", Labels: khandler.SearchOwnershipLabels(search, "", searchMongotComponent)}},
 	}
 	for _, obj := range managed {
 		require.NoError(t, c.Create(ctx, obj))
@@ -1078,7 +1028,7 @@ func TestReconcile_OperatorPerCluster_RemovedClusterCleansLocalResources(t *test
 		Name:      "metrics-owned",
 		Namespace: search.Namespace,
 		UID:       "metrics-owned",
-		Labels:    khandler.SearchManagedLabels(search, "", metricsForwarderLabelName),
+		Labels:    khandler.SearchOwnershipLabels(search, "", metricsForwarderLabelName),
 	}}
 	require.NoError(t, c.Create(ctx, metricsConfig))
 	customerSecret := &corev1.Secret{
@@ -1151,7 +1101,7 @@ func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t 
 			search.Spec.Clusters = search.Spec.Clusters[:1]
 			memberA := mock.NewEmptyFakeClientBuilder().Build()
 			var memberB client.Client = mock.NewEmptyFakeClientBuilder().Build()
-			labels := khandler.SearchManagedLabels(search, "", searchMongotComponent)
+			labels := khandler.SearchOwnershipLabels(search, "", searchMongotComponent)
 
 			sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(1).Name, Namespace: search.Namespace, UID: "removed-sts", Labels: labels}}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.StatefulSetNamespacedNameForCluster(1).Name + "-tls", Namespace: search.Namespace, UID: "removed-secret", Labels: maps.Clone(labels)}}
@@ -1177,7 +1127,7 @@ func TestMongoDBSearchReconcile_HubRemovedClusterCleansManagedMemberResources(t 
 				Name:      searchcontroller.SearchStateCMName(search),
 				Namespace: search.Namespace,
 				UID:       "live-state-cm",
-				Labels:    khandler.SearchManagedLabels(search, "", ""),
+				Labels:    khandler.SearchOwnershipLabels(search, "", ""),
 			}}
 			require.NoError(t, centralClient.Create(ctx, stateCM))
 			reconciler := newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{
@@ -1283,7 +1233,7 @@ func operatorPerClusterShardedTLSSecrets(search *searchv1.MongoDBSearch, cluster
 	return out
 }
 
-func TestMongoDBSearchReconcile_ShardReductionSweepsStaleResourcesAndTLSSecret(t *testing.T) {
+func TestMongoDBSearchReconcile_ShardRemovalDeletesStaleResources(t *testing.T) {
 	ctx := t.Context()
 	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
 	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)

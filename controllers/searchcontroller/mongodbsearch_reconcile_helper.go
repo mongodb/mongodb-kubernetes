@@ -1114,20 +1114,20 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 		}
 		c, clusterName := work.Client, work.ClusterName
 		errs = multierror.Append(errs,
-			sweepOwned(ctx, c, r.mdbSearch, clusterName, "StatefulSet", "", &appsv1.StatefulSetList{}, notExpected(expected.sts), log),
-			sweepOwned(ctx, c, r.mdbSearch, clusterName, "headless Service", mongotComponent, &corev1.ServiceList{}, notExpected(expected.headless), log),
-			sweepOwned(ctx, c, r.mdbSearch, clusterName, "ConfigMap", mongotComponent, &corev1.ConfigMapList{}, notExpected(expected.config), log),
+			deleteOwned(ctx, c, r.mdbSearch, clusterName, "StatefulSet", "", &appsv1.StatefulSetList{}, notExpected(expected.sts), log),
+			deleteOwned(ctx, c, r.mdbSearch, clusterName, "headless Service", mongotComponent, &corev1.ServiceList{}, notExpected(expected.headless), log),
+			deleteOwned(ctx, c, r.mdbSearch, clusterName, "ConfigMap", mongotComponent, &corev1.ConfigMapList{}, notExpected(expected.config), log),
 			// Secrets: sweep only operator-generated name shapes (per-shard ingress
 			// TLS and operator-managed auth Secrets). Customer-provided Secrets —
 			// even ones carrying copied owner labels — never match.
-			sweepOwned(ctx, c, r.mdbSearch, clusterName, "Secret", mongotComponent, &corev1.SecretList{}, func(obj client.Object) bool {
+			deleteOwned(ctx, c, r.mdbSearch, clusterName, "Secret", mongotComponent, &corev1.SecretList{}, func(obj client.Object) bool {
 				return !expected.secrets[obj.GetName()] &&
 					(isOperatorGeneratedServerTLSSecretName(r.mdbSearch, obj.GetName()) || isOperatorGeneratedClientAuthSecretName(r.mdbSearch, obj.GetName()))
 			}, log),
 		)
 		if manageProxyServices {
 			errs = multierror.Append(errs,
-				sweepOwned(ctx, c, r.mdbSearch, clusterName, "proxy Service", proxyServiceComponent, &corev1.ServiceList{}, notExpected(expected.proxy), log))
+				deleteOwned(ctx, c, r.mdbSearch, clusterName, "proxy Service", proxyServiceComponent, &corev1.ServiceList{}, notExpected(expected.proxy), log))
 		}
 	}
 	return errs.ErrorOrNil()

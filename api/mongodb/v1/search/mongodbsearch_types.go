@@ -1388,7 +1388,7 @@ func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
 // GetOwnerLabels implements v1.ResourceOwner. Returns the owner labels stamped
 // on every resource managed for this MongoDBSearch.
 func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
-	return khandler.SearchManagedLabels(s, "", "")
+	return khandler.SearchOwnershipLabels(s, "", "")
 }
 
 // GetKind implements v1.ObjectOwner.
