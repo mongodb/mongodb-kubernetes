@@ -290,6 +290,7 @@ buildvariants:
   - name: periodic_gcp_cleanup
     display_name: periodic_gcp_cleanup
     tags: [ "periodic_teardown" ]
+    allowed_requesters: [ "cron", "patch" ]
     cron: "0 6 * * *"
     run_on:
       - ubuntu2404-small
