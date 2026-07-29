@@ -1126,7 +1126,7 @@ func metricsForwarderResourceRequirements(search *searchv1.MongoDBSearch) corev1
 // metricsForwarderLabelsForCluster returns resource labels including cross-cluster enqueue labels.
 // clusterName=="" (single-cluster/central): cluster-name label is omitted.
 func metricsForwarderLabelsForCluster(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int) map[string]string {
-	return khandler.SearchManagedLabels(search, search.MetricsForwarderDeploymentNameForCluster(clusterIndex), metricsForwarderLabelName, clusterName)
+	return khandler.SearchOwnershipLabels(search, search.MetricsForwarderDeploymentNameForCluster(clusterIndex), metricsForwarderLabelName, clusterName)
 }
 
 func metricsForwarderPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) map[string]string {

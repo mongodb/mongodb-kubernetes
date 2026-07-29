@@ -19,11 +19,11 @@ const (
 	MongoDBSearchClusterNameLabel = "mongodb.com/cluster-name"
 )
 
-// SearchManagedLabels returns the managed identity labels shared by Search
+// SearchOwnershipLabels returns the managed identity labels shared by Search
 // resource writers, cleanup selectors, and event routing. Writers merge user
 // labels first and apply these labels last so user metadata overrides can
 // never detach a resource from its owning MongoDBSearch.
-func SearchManagedLabels(search metav1.Object, app, component, clusterName string) map[string]string {
+func SearchOwnershipLabels(search metav1.Object, app, component, clusterName string) map[string]string {
 	labels := map[string]string{
 		MongoDBSearchOwnerNameLabel:      search.GetName(),
 		MongoDBSearchOwnerNamespaceLabel: search.GetNamespace(),
