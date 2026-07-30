@@ -35,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -1479,6 +1480,53 @@ func TestMongosExpectedConfigFromSingleClusterYaml(t *testing.T) {
 	testDesiredConfigurationFromYAML[*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-single-cluster-configsrv-mongos.yaml", "testdata/mdb-sharded-single-cluster-configsrv-mongos-expected-config.yaml", "mongos")
 }
 
+// multiClusterShardedRaceNames are the resource names used by TestMultiClusterShardedSetRace.
+// They must not be numeric extensions of each other (e.g. "mc-sharded" and "mc-sharded-1"),
+// because a per-pod service name derived from one resource (dns.GetMultiServiceName) can equal
+// a headless service name derived from another (dns.GetMultiHeadlessServiceName); the
+// member-cluster clients shared between concurrent reconciles then fail with flaky
+// "object was modified" conflicts.
+// Guarded by TestMultiClusterShardedSetRaceServiceNamesDoNotCollide.
+var multiClusterShardedRaceNames = []string{"mc-sharded-a", "mc-sharded-b", "mc-sharded-c"}
+
+// TestMultiClusterShardedSetRaceServiceNamesDoNotCollide mirrors the replica topology of
+// TestMultiClusterShardedSetRace and pins the uniqueness invariant of multiClusterShardedRaceNames.
+func TestMultiClusterShardedSetRaceServiceNamesDoNotCollide(t *testing.T) {
+	shardCount := 2
+	shardReplicasPerCluster := []int{2, 3}
+	mongosAndConfigReplicasPerCluster := []int{2, 1}
+
+	for clusterIdx := range shardReplicasPerCluster {
+		seen := make(map[string]string)
+		assertUnique := func(owner string, svcName string) {
+			t.Helper()
+			require.NotContains(t, seen, svcName, "service name %q of %q collides with %q in member cluster %d", svcName, owner, seen[svcName], clusterIdx)
+			seen[svcName] = owner
+		}
+		for _, name := range multiClusterShardedRaceNames {
+			stsNames := make([]string, 0, shardCount+2)
+			for shardIdx := range shardCount {
+				stsNames = append(stsNames, fmt.Sprintf("%s-%d", name, shardIdx))
+			}
+			stsNames = append(stsNames, name+"-config", name+"-mongos")
+			for _, stsName := range stsNames {
+				assertUnique(name, dns.GetMultiHeadlessServiceName(stsName, clusterIdx))
+			}
+			for shardIdx := range shardCount {
+				stsName := fmt.Sprintf("%s-%d", name, shardIdx)
+				for podNum := range shardReplicasPerCluster[clusterIdx] {
+					assertUnique(name, dns.GetMultiServiceName(stsName, clusterIdx, podNum))
+				}
+			}
+			for _, stsName := range []string{name + "-config", name + "-mongos"} {
+				for podNum := range mongosAndConfigReplicasPerCluster[clusterIdx] {
+					assertUnique(name, dns.GetMultiServiceName(stsName, clusterIdx, podNum))
+				}
+			}
+		}
+	}
+}
+
 func TestMultiClusterShardedSetRace(t *testing.T) {
 	cluster1 := "cluster-member-1"
 	cluster2 := "cluster-member-2"
@@ -1504,19 +1552,30 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	configSrvDistribution := map[string]int{cluster1: 2, cluster2: 1}
 	configSrvDistributionClusterSpecList := test.CreateClusterSpecList(memberClusterNames, configSrvDistribution)
 
-	sc, cfgMap, projectName := buildShardedClusterWithCustomProjectName("mc-sharded", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
-	sc1, cfgMap1, projectName1 := buildShardedClusterWithCustomProjectName("mc-sharded-1", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
-	sc2, cfgMap2, projectName2 := buildShardedClusterWithCustomProjectName("mc-sharded-2", shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
+	scs := make([]*mdbv1.MongoDB, 0, len(multiClusterShardedRaceNames))
+	cfgMaps := make([]*corev1.ConfigMap, 0, len(multiClusterShardedRaceNames))
+	resourceToProjectMapping := make(map[string]string, len(multiClusterShardedRaceNames))
+	projectNames := make([]string, 0, len(multiClusterShardedRaceNames))
+	for _, name := range multiClusterShardedRaceNames {
+		sc, cfgMap, projectName := buildShardedClusterWithCustomProjectName(name, shardCount, shardClusterSpecList, mongosAndConfigSrvClusterSpecList, configSrvDistributionClusterSpecList)
+		scs = append(scs, sc)
+		cfgMaps = append(cfgMaps, cfgMap)
+		resourceToProjectMapping[name] = projectName
+		projectNames = append(projectNames, projectName)
+	}
 
-	resourceToProjectMapping := map[string]string{
-		"mc-sharded":   projectName,
-		"mc-sharded-1": projectName1,
-		"mc-sharded-2": projectName2,
+	scObjects := make([]client.Object, 0, len(scs))
+	objects := make([]client.Object, 0, len(scs)+len(cfgMaps))
+	for _, sc := range scs {
+		scObjects = append(scObjects, sc)
+		objects = append(objects, sc)
+	}
+	for _, cfgMap := range cfgMaps {
+		objects = append(objects, cfgMap)
 	}
 
 	fakeClient := mock.NewEmptyFakeClientBuilder().
-		WithObjects(sc, sc1, sc2).
-		WithObjects(cfgMap, cfgMap1, cfgMap2).
+		WithObjects(objects...).
 		WithObjects(mock.GetCredentialsSecret(om.TestUser, om.TestApiKey)).
 		Build()
 
@@ -1527,14 +1586,9 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	ctx := context.Background()
 	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
-	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
-	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
-	allHostnames2 := generateHostsForCluster(ctx, reconciler, false, sc2, mongosDistribution, configSrvDistribution, shardDistribution)
-
-	projectHostMapping := map[string][]string{
-		projectName:  allHostnames,
-		projectName1: allHostnames1,
-		projectName2: allHostnames2,
+	projectHostMapping := make(map[string][]string, len(multiClusterShardedRaceNames))
+	for i, sc := range scs {
+		projectHostMapping[projectNames[i]] = generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	}
 
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -1542,7 +1596,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 		connection.(*om.MockedOmConnection).AddHosts(hostnames)
 	})
 
-	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc, sc1, sc2)
+	testConcurrentReconciles(ctx, t, fakeClient, reconciler, scObjects...)
 }
 
 // TODO extract this, please don't review
