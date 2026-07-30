@@ -1,8 +1,5 @@
 # AGENTS.md — MongoDB Controllers for Kubernetes (MCK)
 
-Only things where the obvious default is wrong here. Background: [CONTRIBUTING.md](CONTRIBUTING.md),
-[E2E tests](docker/mongodb-kubernetes-tests/README.md), [K8s versions](docs/dev/kubernetes-version-support.md).
-
 ## `make precommit` rewrites tracked files
 
 Not read-only. Rewrites `release.json`, `helm_chart/values.yaml`, CRDs, `public/*.yaml`.
