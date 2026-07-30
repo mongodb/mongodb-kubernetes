@@ -9,6 +9,8 @@ source scripts/code_snippets/sample_test_runner.sh
 
 pushd "${script_dir}"
 
+source env_variables.sh
+
 prepare_snippets
 
 run ra-08_9000_delete_resources.sh

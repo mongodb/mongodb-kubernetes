@@ -9,6 +9,8 @@ source scripts/code_snippets/sample_test_runner.sh
 
 pushd "${script_dir}"
 
+source env_variables.sh
+
 prepare_snippets
 
 run ra-06_9100_delete_backup_namespaces.sh &

@@ -9,6 +9,8 @@ source scripts/code_snippets/sample_test_runner.sh
 
 pushd "${script_dir}"
 
+source env_variables.sh
+
 prepare_snippets
 
 run ra-01_9010_delete_gke_clusters.sh
