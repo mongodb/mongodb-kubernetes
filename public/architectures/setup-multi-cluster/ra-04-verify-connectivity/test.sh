@@ -9,11 +9,6 @@ source scripts/code_snippets/sample_test_runner.sh
 
 pushd "${script_dir}"
 
-# Source env_variables.sh so gcloud_retry() is available in this process.
-# The parent test runner also sources this, but functions aren't inherited
-# by subprocesses — only exported variables are.
-source env_variables.sh
-
 prepare_snippets
 
 run ra-04_0045_create_connectivity_test_namespaces.sh
