@@ -11,7 +11,7 @@ wait "${pid0}" || delete_failed=1
 wait "${pid1}" || delete_failed=1
 wait "${pid2}" || delete_failed=1
 
-if [[ "${delete_failed}" != "0" ]]; then
+if (( delete_failed )); then
   echo "WARNING: failed to delete one or more GKE clusters (see errors above). Clusters still present:"
   gcloud container clusters list || true
 fi

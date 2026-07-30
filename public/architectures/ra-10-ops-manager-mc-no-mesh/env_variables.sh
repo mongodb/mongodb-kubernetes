@@ -38,3 +38,17 @@ export OM_URL_MAP_NAME="om-url-map${lb_suffix}"
 export OM_LB_PROXY_NAME="om-lb-proxy${lb_suffix}"
 export OM_CERTIFICATE_NAME="om-certificate${lb_suffix}"
 export OM_FORWARDING_RULE_NAME="om-forwarding-rule${lb_suffix}"
+
+# Retry wrapper for gcloud commands to handle transient GCP API errors
+# (ConnectionError, RemoteDisconnected, etc.). Functions are inherited by
+# subshells, so this is available inside snippet functions run by sample_test_runner.
+gcloud_retry() {
+  for attempt in 1 2 3; do
+    if gcloud "$@"; then return 0; fi
+    if (( attempt < 3 )); then
+      echo "gcloud failed (attempt ${attempt}/3), retrying in $((attempt * 5))s..." >&2
+      sleep $((attempt * 5))
+    fi
+  done
+  return 1
+}

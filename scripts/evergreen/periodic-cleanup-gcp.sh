@@ -32,27 +32,12 @@ fi
 threshold_seconds=$(( $(date -u +%s) - AGE_THRESHOLD_HOURS * 3600 ))
 overall_failed=0
 
-# Convert an RFC3339 timestamp to epoch seconds. Returns 0 on parse failure
-# (is_stale treats 0 as "not stale" so unparseable resources are skipped).
-ts_to_epoch() {
-    local ts="$1"
-    local epoch
-    epoch=$(date -u -d "${ts}" +%s 2>/dev/null || true)
-    if [[ -z "${epoch}" || ! "${epoch}" =~ ^[0-9]+$ ]]; then
-        echo 0
-    else
-        echo "${epoch}"
-    fi
-}
-
 # Return 0 if the creation timestamp is older than the age threshold.
+# Unparseable timestamps are treated as "not stale" (skipped, not deleted).
 is_stale() {
-    local create_epoch
-    create_epoch=$(ts_to_epoch "$1")
-    if (( create_epoch > 0 && create_epoch < threshold_seconds )); then
-        return 0
-    fi
-    return 1
+    local epoch
+    epoch=$(date -u -d "$1" +%s 2>/dev/null || true)
+    [[ "${epoch}" =~ ^[0-9]+$ ]] && (( epoch > 0 && epoch < threshold_seconds ))
 }
 
 # Attempt to delete a resource. Returns 0 on success or if the resource is
@@ -98,7 +83,6 @@ process_resource_list() {
     done
 
     echo "  summary: ${deleted} deleted, ${skipped} skipped"
-    return 0
 }
 
 # Delete a single GKE cluster with not-found tolerance and per-cluster logging.
