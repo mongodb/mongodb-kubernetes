@@ -10,15 +10,14 @@ import (
 // maxStaleRetries is the maximum number of times RoundTrip will retry after
 // receiving a 401 with stale=true (RFC 7616 §3.2). A bound prevents infinite
 // loops against a misconfigured server that always returns stale=true.
-const maxStaleRetries = 3
+const maxStaleRetries = 5
 
 // staleRetryTransport wraps an http.RoundTripper and retries requests when
 // the server returns 401 with stale=true in the WWW-Authenticate header
 // (RFC 7616 §3.2). A stale nonce means the credentials are valid but the
 // nonce has expired; the client should retry with a fresh challenge.
 type staleRetryTransport struct {
-	transport  http.RoundTripper
-	maxRetries int
+	transport http.RoundTripper
 }
 
 func (t *staleRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -49,7 +48,7 @@ func (t *staleRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		if !isStaleNonce(resp.Header.Get("WWW-Authenticate")) {
 			return resp, nil
 		}
-		if attempt >= t.maxRetries {
+		if attempt >= maxStaleRetries {
 			return resp, nil
 		}
 		_ = resp.Body.Close()

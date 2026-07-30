@@ -22,8 +22,7 @@ func TestStaleRetryRetriesOnStaleTrue(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{Transport: &staleRetryTransport{
-		transport:  http.DefaultTransport,
-		maxRetries: maxStaleRetries,
+		transport: http.DefaultTransport,
 	}}
 	resp, err := client.Get(server.URL)
 	if err != nil {
@@ -49,8 +48,7 @@ func TestStaleRetryNoRetryOnNonStale401(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{Transport: &staleRetryTransport{
-		transport:  http.DefaultTransport,
-		maxRetries: maxStaleRetries,
+		transport: http.DefaultTransport,
 	}}
 	resp, err := client.Get(server.URL)
 	if err != nil {
@@ -83,8 +81,7 @@ func TestStaleRetryBodyReplayed(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{Transport: &staleRetryTransport{
-		transport:  http.DefaultTransport,
-		maxRetries: maxStaleRetries,
+		transport: http.DefaultTransport,
 	}}
 	resp, err := client.Post(server.URL, "text/plain", strings.NewReader("test body"))
 	if err != nil {
@@ -113,8 +110,7 @@ func TestStaleRetryMaxBound(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{Transport: &staleRetryTransport{
-		transport:  http.DefaultTransport,
-		maxRetries: maxStaleRetries,
+		transport: http.DefaultTransport,
 	}}
 	resp, err := client.Get(server.URL)
 	if err != nil {
@@ -125,7 +121,7 @@ func TestStaleRetryMaxBound(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", resp.StatusCode)
 	}
-	// 1 original + maxRetries retries = maxRetries+1 total
+	// 1 original + maxStaleRetries retries = maxStaleRetries+1 total
 	if totalRequests != maxStaleRetries+1 {
 		t.Errorf("expected %d requests, got %d", maxStaleRetries+1, totalRequests)
 	}

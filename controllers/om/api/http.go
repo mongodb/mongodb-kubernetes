@@ -91,7 +91,6 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 				Password:  client.password,
 				Transport: client.HTTPClient.Transport,
 			},
-			maxRetries: maxStaleRetries,
 		}
 	}
 
