@@ -96,7 +96,8 @@ declare -r base_url
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   # Download the Automation Agent from Ops Manager
   # Note, that it will be skipped if the agent is supposed to be run in headless mode
-  if [[ -n "${base_url}" ]]; then
+  # unless a custom agent URL is provided, in which case we download it regardless.
+  if [[ -n "${base_url}" ]] || [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
       download_agent
   fi
 fi

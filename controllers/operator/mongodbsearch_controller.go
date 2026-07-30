@@ -10,7 +10,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -30,7 +29,6 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
@@ -182,9 +180,18 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
+	// The no-op mutation reads the state and, as a side effect, repairs legacy
+	// owner labels on the state ConfigMap.
+	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(*searchcontroller.SearchDeploymentState) bool {
+		return false
+	})
 	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read search state: %w", err)), log)
+		// A concurrent writer bumped the ConfigMap between read and update; retry
+		// instead of marking the CR Failed over a transient race.
+		if apierrors.IsConflict(err) {
+			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, re-queuing ").Requeue(), log)
+		}
+		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read or repair search state: %w", err)), log)
 	}
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(r.kubeClient, mdbSearch, searchSource, r.operatorSearchConfig, r.memberClusterClientsMap, state)
@@ -338,22 +345,9 @@ func AddMongoDBSearchController(
 		}
 	}
 
-	// Health-check goroutine fans out per-cluster reachability changes onto a
-	// GenericEvent channel that the controller watches. Empty memberClusterObjectsMap
-	// (single-cluster install) skips the goroutine entirely — there is nothing to watch.
+	// Per-member-cluster watches. Empty memberClusterObjectsMap (single-cluster
+	// install) skips them entirely — there is nothing to watch.
 	if len(memberClusterObjectsMap) > 0 {
-		eventChannel := make(chan event.GenericEvent)
-		healthChecker := memberwatch.MemberClusterHealthChecker{
-			Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
-			HealthyStreak:         make(map[string]int),
-			RequiredHealthyStreak: env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak), // nolint:forbidigo
-		}
-		go healthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, r.kubeClient, memberClusterObjectsMap)
-
-		if err := c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{})); err != nil {
-			return err
-		}
-
 		// Per-member-cluster watches map events back to the parent MongoDBSearch
 		// via the search-owner labels (cross-cluster owner refs do not GC).
 		searchOwnerHandler := handler.EnqueueRequestsFromMapFunc(khandler.EnqueueMemberClusterObjectToSearch)
