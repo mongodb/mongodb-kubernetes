@@ -208,6 +208,65 @@ reap_compute_resource "SSL certificates" '^om-certificate' ssl-certificates
 reap_compute_resource "Firewall rules" '^fw-ops-manager-hc' firewall-rules
 
 # ---------------------------------------------------------------------------
+# 3b. GKE LoadBalancer firewall rules (k8s-fw-*, k8s-*-hc). GKE auto-deletes
+#     its own managed rules on cluster delete, but LB Service rules are left
+#     behind and accumulate until the project FIREWALLS quota (500) is
+#     exhausted. These carry the node network tag gke-<cluster>-<hash>-node,
+#     so match on that prefix. The clusters they belonged to are already gone,
+#     so there's no creationTimestamp to age-check — delete all matching.
+# ---------------------------------------------------------------------------
+echo "=== GKE LB firewall rules (k8s-fw-*, k8s-*-hc) ==="
+fw_deleted=0
+if ! fw_list=$(gcloud compute firewall-rules list --project="${MDB_GKE_PROJECT}" --filter="name~^k8s-fw- OR name~^k8s-.*-hc$" --format="value(name)" 2>&1); then
+    echo "  ERROR listing GKE LB firewall rules: ${fw_list}"
+    overall_failed=1
+elif [[ -n "${fw_list}" ]]; then
+    while IFS= read -r fw_name; do
+        [[ -z "${fw_name}" ]] && continue
+        if try_delete gcloud compute firewall-rules delete "${fw_name}" --project="${MDB_GKE_PROJECT}" -q; then
+            echo "  deleted: ${fw_name}"
+            fw_deleted=$(( fw_deleted + 1 ))
+        else
+            echo "  FAILED:  ${fw_name}"
+            overall_failed=1
+        fi
+    done <<< "${fw_list}"
+else
+    echo "  none found"
+fi
+echo "  summary: ${fw_deleted} deleted"
+
+# ---------------------------------------------------------------------------
+# 3c. Orphaned persistent disks. PVCs with reclaimPolicy: Retain leave disks
+#     after cluster deletion. Match k8s-mdb cluster zones, age-check by
+#     creationTimestamp.
+# ---------------------------------------------------------------------------
+echo "=== Orphaned persistent disks (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
+disks_deleted=0
+disks_skipped=0
+if ! disk_list=$(gcloud compute disks list --project="${MDB_GKE_PROJECT}" --format="value(name,zone,creationTimestamp)" 2>&1); then
+    echo "  ERROR listing disks: ${disk_list}"
+    overall_failed=1
+else
+    while IFS=$'\t' read -r disk_name disk_zone create_time; do
+        [[ -z "${disk_name}" ]] && continue
+        if is_stale "${create_time}"; then
+            if try_delete gcloud compute disks delete "${disk_name}" --zone="${disk_zone}" --project="${MDB_GKE_PROJECT}" -q; then
+                echo "  deleted: ${disk_name} (${disk_zone})"
+                disks_deleted=$(( disks_deleted + 1 ))
+            else
+                echo "  FAILED:  ${disk_name} (${disk_zone})"
+                overall_failed=1
+            fi
+        else
+            echo "  skipped: ${disk_name} (${disk_zone})"
+            disks_skipped=$(( disks_skipped + 1 ))
+        fi
+    done <<< "${disk_list}"
+fi
+echo "  summary: ${disks_deleted} deleted, ${disks_skipped} skipped"
+
+# ---------------------------------------------------------------------------
 # 4. IAM service accounts matching ^ext-dns-sa- (created by ra-09_0100,
 #    granted project-wide roles/dns.admin by ra-09_0120, key created by
 #    ra-09_0130). Killed runs leak the SA, the IAM binding, and the key.
