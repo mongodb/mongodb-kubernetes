@@ -548,7 +548,7 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 
 		res, err := reconciler.Reconcile(ctx, requestFromObject(search))
 		require.NoError(t, err)
-		assert.True(t, res.Requeue, "conflict must requeue, not fail")
+		assert.True(t, res.Requeue, "conflict must requeue, not fail") //nolint:staticcheck
 
 		updated := &searchv1.MongoDBSearch{}
 		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: search.Name, Namespace: search.Namespace}, updated))

@@ -43,7 +43,7 @@ func determineReconciliationResult(options []Option) (reconcile.Result, error) {
 	// otherwise we might need to re-queue
 	for _, opt := range options {
 		res, _ := opt.GetResult()
-		if res.Requeue || res.RequeueAfter > 0 {
+		if res.Requeue || res.RequeueAfter > 0 { //nolint:staticcheck // Requeue=true with RequeueAfter=0 means immediate requeue, no non-deprecated equivalent
 			return res, nil
 		}
 	}

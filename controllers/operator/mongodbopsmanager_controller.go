@@ -474,7 +474,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// the AppDB still needs to configure monitoring, now that Ops Manager has been created
 	// we can finish this configuration.
-	if result.Requeue {
+	if result == retryResult {
 		log.Infof("Requeuing reconciliation to configure AppDB monitoring in Ops Manager.")
 		return result, nil
 	}

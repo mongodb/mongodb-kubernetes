@@ -42,7 +42,6 @@ import (
 	flowcontrolv1beta2 "k8s.io/client-go/kubernetes/typed/flowcontrol/v1beta2"
 	flowcontrolv1beta3 "k8s.io/client-go/kubernetes/typed/flowcontrol/v1beta3"
 	networkingv1 "k8s.io/client-go/kubernetes/typed/networking/v1"
-	networkingv1alpha1 "k8s.io/client-go/kubernetes/typed/networking/v1alpha1"
 	networkingv1beta1 "k8s.io/client-go/kubernetes/typed/networking/v1beta1"
 	nodev1 "k8s.io/client-go/kubernetes/typed/node/v1"
 	nodev1alpha1 "k8s.io/client-go/kubernetes/typed/node/v1alpha1"
@@ -52,6 +51,7 @@ import (
 	rbacv1 "k8s.io/client-go/kubernetes/typed/rbac/v1"
 	rbacv1alpha1 "k8s.io/client-go/kubernetes/typed/rbac/v1alpha1"
 	rbacv1beta1 "k8s.io/client-go/kubernetes/typed/rbac/v1beta1"
+	resourcev1 "k8s.io/client-go/kubernetes/typed/resource/v1"
 	resourcev1alpha3 "k8s.io/client-go/kubernetes/typed/resource/v1alpha3"
 	resourcev1beta1 "k8s.io/client-go/kubernetes/typed/resource/v1beta1"
 	resourcev1beta2 "k8s.io/client-go/kubernetes/typed/resource/v1beta2"
@@ -89,6 +89,10 @@ func (k *KubeClientContainer) CertificatesV1alpha1() certificatesv1alpha1.Certif
 	panic("implement me")
 }
 
+func (k *KubeClientContainer) ResourceV1() resourcev1.ResourceV1Interface {
+	return k.staticClient.ResourceV1()
+}
+
 func (k *KubeClientContainer) ResourceV1alpha3() resourcev1alpha3.ResourceV1alpha3Interface {
 	panic("implement me")
 }
@@ -115,10 +119,6 @@ func (k *KubeClientContainer) AuthenticationV1alpha1() authenticationv1alpha1.Au
 
 func (k *KubeClientContainer) FlowcontrolV1beta3() flowcontrolv1beta3.FlowcontrolV1beta3Interface {
 	return k.staticClient.FlowcontrolV1beta3()
-}
-
-func (k *KubeClientContainer) NetworkingV1alpha1() networkingv1alpha1.NetworkingV1alpha1Interface {
-	return k.staticClient.NetworkingV1alpha1()
 }
 
 func (k *KubeClientContainer) Discovery() discovery.DiscoveryInterface {

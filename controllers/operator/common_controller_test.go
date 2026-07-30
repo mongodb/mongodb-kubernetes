@@ -951,7 +951,7 @@ func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler 
 func checkOMReconciliationPending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	assert.NoError(t, err)
-	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
+	assert.True(t, res.RequeueAfter > 0)
 }
 
 func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client client.Client) {

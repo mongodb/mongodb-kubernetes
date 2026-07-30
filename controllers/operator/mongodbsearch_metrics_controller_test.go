@@ -1183,7 +1183,7 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 			if tc.existingDep {
 				// Phase 1: the Deployment is deleted (Foreground) and nothing is
 				// deregistered while the collector may still be running.
-				assert.True(t, result.RequeueAfter > 0 || result.Requeue, "expected requeue on first deletion reconcile")
+				assert.True(t, result.RequeueAfter > 0, "expected requeue on first deletion reconcile")
 				assert.Empty(t, deletedHostIDs, "expected no host deregistration while Deployment still exists")
 				require.NotNil(t, propagationPolicy)
 				assert.Equal(t, metav1.DeletePropagationForeground, *propagationPolicy)
@@ -1207,7 +1207,7 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 
 			err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: testSearchName}, &searchv1.MongoDBSearch{})
 			if tc.wantRetained {
-				assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+				assert.True(t, result.RequeueAfter > 0)
 				require.NoError(t, err)
 				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer,
 					"finalizer must stay until host cleanup succeeds")
@@ -1426,12 +1426,12 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
 				return
 			}
-			assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+			assert.True(t, result.RequeueAfter > 0)
 			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 			assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{})))
 			if tc.failFinalizerRemoval {
-				assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+				assert.True(t, result.RequeueAfter > 0)
 				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer,
 					"finalizer must survive a failed removal update and be retried")
 				reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
@@ -1442,7 +1442,7 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 			if tc.omError {
 				// A live CR with a real Ops Manager failure must fail and retry:
 				// finalizer and persisted state entry survive for the next attempt.
-				assert.True(t, result.RequeueAfter > 0 || result.Requeue)
+				assert.True(t, result.RequeueAfter > 0)
 				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
 				assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
 				return
@@ -1458,7 +1458,7 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 			assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
 
 			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
-			assert.False(t, result.Requeue)
+			assert.False(t, result.Requeue) //nolint:staticcheck
 			assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
 		})
 	}

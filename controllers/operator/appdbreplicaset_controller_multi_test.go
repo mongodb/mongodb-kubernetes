@@ -92,7 +92,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	// requeue is true to add monitoring
-	assert.True(t, reconcileResult.Requeue)
+	assert.True(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	centralClusterChecks := newClusterChecks(t, centralClusterName, -1, opsManager.Namespace, kubeClient)
 	// secrets and config maps created by the operator shouldn't be created in central cluster
@@ -125,7 +125,7 @@ func TestAppDB_MultiCluster(t *testing.T) {
 	// reconcile to add monitoring
 	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
-	require.False(t, reconcileResult.Requeue)
+	require.False(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	// monitoring here is configured, everything should be replicated
 
@@ -184,7 +184,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	// requeue is true to add monitoring
-	assert.True(t, reconcileResult.Requeue)
+	assert.True(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	// OM API Key secret is required for enabling monitoring to OM
 	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
@@ -194,7 +194,7 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 	require.NoError(t, err)
 	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
-	require.False(t, reconcileResult.Requeue)
+	require.False(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	t.Run("check expected hostnames", func(t *testing.T) {
 		clusterSpecItems := mdbv1.ClusterSpecList{
@@ -1248,7 +1248,7 @@ func TestAppDBMultiClusterTryConfigureMonitoring(t *testing.T) {
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
 	// requeue is true to add monitoring
-	assert.True(t, reconcileResult.Requeue)
+	assert.True(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	// OM API Key secret is required for enabling monitoring to OM
 	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
@@ -1949,7 +1949,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 			reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 			require.NoError(t, err)
 			// requeue is true to add monitoring
-			assert.True(t, reconcileResult.Requeue)
+			assert.True(t, reconcileResult.Requeue) //nolint:staticcheck
 
 			clusterSpecList := opsManager.Spec.AppDB.GetClusterSpecList()
 			for clusterIdx, item := range clusterSpecList {
@@ -2023,7 +2023,7 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 
 	reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
-	assert.True(t, reconcileResult.Requeue)
+	assert.True(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
 
@@ -2031,7 +2031,7 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 	require.NoError(t, err)
 	reconcileResult, err = reconciler.ReconcileAppDB(ctx, opsManager)
 	require.NoError(t, err)
-	require.False(t, reconcileResult.Requeue)
+	require.False(t, reconcileResult.Requeue) //nolint:staticcheck
 
 	initialHostnames := []string{
 		"om-db-0-0-svc.ns.svc.cluster.local",

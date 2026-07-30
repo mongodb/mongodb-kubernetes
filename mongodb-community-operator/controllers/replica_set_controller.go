@@ -263,7 +263,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		r.log.Errorf("Could not save current spec as an annotation: %s", err)
 	}
 
-	if res.RequeueAfter > 0 || res.Requeue {
+	if res.RequeueAfter > 0 || res.Requeue { //nolint:staticcheck // Requeue=true with RequeueAfter=0 means immediate requeue
 		r.log.Info("Requeuing reconciliation")
 		return res, nil
 	}

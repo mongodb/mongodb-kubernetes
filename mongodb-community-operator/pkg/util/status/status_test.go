@@ -45,7 +45,7 @@ func TestDetermineReconciliationResult(t *testing.T) {
 
 		res, err := determineReconciliationResult(opts)
 		assert.NotNil(t, err)
-		assert.Equal(t, false, res.Requeue)
+		assert.Equal(t, false, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	})
 
@@ -57,7 +57,7 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		}
 		res, err := determineReconciliationResult(opts)
 		assert.NotNil(t, err)
-		assert.Equal(t, false, res.Requeue)
+		assert.Equal(t, false, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	})
 
@@ -69,7 +69,7 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		}
 		res, err := determineReconciliationResult(opts)
 		assert.Nil(t, err)
-		assert.Equal(t, false, res.Requeue)
+		assert.Equal(t, false, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	})
 
@@ -81,6 +81,6 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		}
 		res, err := determineReconciliationResult(opts)
 		assert.Nil(t, err)
-		assert.Equal(t, true, res.Requeue)
+		assert.Equal(t, true, res.Requeue) //nolint:staticcheck
 	})
 }
