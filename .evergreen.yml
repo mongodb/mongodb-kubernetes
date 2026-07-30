@@ -683,6 +683,9 @@ task_groups:
   - name: check_ocp_version_drift_task_group
     setup_group:
       - func: clone
+      - command: github.generate_token
+        params:
+          expansion_name: GH_TOKEN
       - func: setup_openshift_client
       - func: setup_gh
     tasks:
