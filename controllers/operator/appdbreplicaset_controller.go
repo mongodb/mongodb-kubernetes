@@ -2,12 +2,12 @@ package operator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path"
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/stretchr/objx"
@@ -691,11 +691,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			}
 		}
 
-		// A 401 from any API call means the admin-key secret is genuinely corrupted.
-		// The OM client already retries a 401 once with a fresh digest challenge
-		// (RFC 7616 stale nonce), so reaching here means that retry also failed.
-		var apiErr *apierror.Error
-		if errors.As(err, &apiErr) && apiErr.Status != nil && *apiErr.Status == 401 {
+		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
+		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
+		// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
+		if strings.Contains(err.Error(), "401 (Unauthorized)") {
 			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
 		}
 	}
