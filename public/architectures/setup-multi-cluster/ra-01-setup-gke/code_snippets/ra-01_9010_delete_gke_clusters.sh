@@ -1,10 +1,10 @@
 delete_failed=0
 
-yes | gcloud container clusters delete "${K8S_CLUSTER_0}" --zone="${K8S_CLUSTER_0_ZONE}" &
+gcloud container clusters delete "${K8S_CLUSTER_0}" --zone="${K8S_CLUSTER_0_ZONE}" -q &
 pid0=$!
-yes | gcloud container clusters delete "${K8S_CLUSTER_1}" --zone="${K8S_CLUSTER_1_ZONE}" &
+gcloud container clusters delete "${K8S_CLUSTER_1}" --zone="${K8S_CLUSTER_1_ZONE}" -q &
 pid1=$!
-yes | gcloud container clusters delete "${K8S_CLUSTER_2}" --zone="${K8S_CLUSTER_2_ZONE}" &
+gcloud container clusters delete "${K8S_CLUSTER_2}" --zone="${K8S_CLUSTER_2_ZONE}" -q &
 pid2=$!
 
 wait "${pid0}" || delete_failed=1
