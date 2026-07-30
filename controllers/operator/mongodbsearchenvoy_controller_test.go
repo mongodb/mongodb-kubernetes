@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,6 +30,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -45,6 +48,9 @@ import (
 // behaviour seed this CM before constructing the reconciler.
 func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searchName, ns string, routingReady []string) {
 	t.Helper()
+	search := &searchv1.MongoDBSearch{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: searchName, Namespace: ns}, search))
+
 	state := searchcontroller.SearchDeploymentState{
 		RoutingReadyMongotGroups: routingReady,
 	}
@@ -54,10 +60,15 @@ func seedSearchStateCM(t *testing.T, ctx context.Context, c client.Client, searc
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      searchName + "-search-state",
 			Namespace: ns,
+			Labels: map[string]string{
+				khandler.MongoDBSearchOwnerNameLabel:      search.Name,
+				khandler.MongoDBSearchOwnerNamespaceLabel: search.Namespace,
+			},
 		},
 		Data: map[string]string{stateKey: string(raw)},
 	}
-	require.NoError(t, c.Create(ctx, cm))
+	err = c.Create(ctx, cm)
+	require.NoError(t, err)
 }
 
 func TestBuildReplicaSetRoute(t *testing.T) {
@@ -856,16 +867,22 @@ func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", members, "")
 	require.NotNil(t, r)
-	assert.NotNil(t, r.clientForCluster("us-east-k8s"))
-	assert.NotNil(t, r.clientForCluster("eu-west-k8s"))
-	assert.Nil(t, r.clientForCluster("unknown"), "unregistered cluster must resolve to nil, not the central client")
+	assert.NotNil(t, r.memberClients["us-east-k8s"])
+	assert.NotNil(t, r.memberClients["eu-west-k8s"])
+	assert.Nil(t, r.memberClients["unknown"], "unregistered cluster must resolve to nil, not the central client")
 }
 
 func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
 	require.NotNil(t, r)
-	assert.Equal(t, r.kubeClient, r.clientForCluster("any-cluster"), "nil members map must fall back to the central client")
+	wl := r.buildClusterWorkList(&searchv1.MongoDBSearch{
+		Spec: searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{Name: "any-cluster"}}},
+	})
+	require.Len(t, wl, 1)
+	assert.Nil(t, wl[0].Client,
+		"a named cluster with no registered member client must keep the nil-Client sentinel, never the central client")
+	assert.Empty(t, wl[0].OwnerReferences, "an unresolved cluster is not local and gets no owner refs")
 }
 
 // --- clusterWorkItem.Client population ----------------------------------------
@@ -893,7 +910,7 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	}
 	wl = r.buildClusterWorkList(mcSearch)
 	require.Len(t, wl, 2)
-	assert.Equal(t, r.clientForCluster("a"), wl[0].Client, "known member must use member client")
+	assert.Equal(t, r.memberClients["a"], wl[0].Client, "known member must use member client")
 	assert.Nil(t, wl[1].Client, "unregistered member must carry the nil-Client sentinel, not the central client")
 }
 
@@ -918,23 +935,22 @@ func TestLoadBalancerNamesForCluster_IndexBased(t *testing.T) {
 func TestEnvoyLabels_StampsCrossClusterEnqueueLabels(t *testing.T) {
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 
-	// Single-cluster: cluster-name label must be absent; app label uses index 0.
-	single := envoyLabelsForCluster(search, "", 0)
+	// Single-cluster path: app label uses index 0.
+	single := envoyLabelsForCluster(search, 0)
 	assert.Equal(t, "mdb-search", single[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", single[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, labelName, single[khandler.MongoDBSearchComponentLabel])
-	_, hasCluster := single[khandler.MongoDBSearchClusterNameLabel]
-	assert.False(t, hasCluster)
+	assert.Equal(t, searchProxyComponent, single[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(0), single["app"])
 
-	// Multi-cluster: all three labels present; app label uses the provided index.
-	mc := envoyLabelsForCluster(search, "us-east-k8s", 3)
+	// Multi-cluster: same identity labels; app label uses the provided index.
+	mc := envoyLabelsForCluster(search, 3)
 	assert.Equal(t, "mdb-search", mc[khandler.MongoDBSearchOwnerNameLabel])
 	assert.Equal(t, "ns", mc[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, labelName, mc[khandler.MongoDBSearchComponentLabel])
-	assert.Equal(t, "us-east-k8s", mc[khandler.MongoDBSearchClusterNameLabel])
+	assert.Equal(t, searchProxyComponent, mc[khandler.MongoDBSearchComponentLabel])
 	assert.Equal(t, search.LoadBalancerDeploymentNameForCluster(3), mc["app"])
 }
+
+// --- envoy replicas defaulting ------------------------------------------
 
 // --- envoy replicas defaulting ------------------------------------------
 
@@ -970,7 +986,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 	// cluster "a" is at index 0 in the mapping.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "a", 0, r.clientForCluster("a"), zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName), zap.S()))
 
 	// Member A has the ConfigMap named with index 0.
 	cmA := &corev1.ConfigMap{}
@@ -979,8 +995,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 	assert.Equal(t, `{"bootstrap":1}`, cmA.Data["bootstrap.json"])
 	assert.Equal(t, `{"cds":1}`, cmA.Data["cds.json"])
 	assert.Equal(t, `{"lds":1}`, cmA.Data["lds.json"])
-	// Cluster name label stamped (name-keyed for cross-cluster enqueue).
-	assert.Equal(t, "a", cmA.Labels[khandler.MongoDBSearchClusterNameLabel])
+	// Owner labels stamped for cross-cluster enqueue.
 	assert.Equal(t, "mdb-search", cmA.Labels[khandler.MongoDBSearchOwnerNameLabel])
 
 	// Central and member B do not.
@@ -991,27 +1006,6 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 	err = memberB.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm)
 	assert.True(t, apierrors.IsNotFound(err))
-}
-
-func TestEnsureConfigMap_SingleCluster_WritesToCentralWithOwnerRef(t *testing.T) {
-	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
-
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
-	}
-	// Single-cluster uses index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "", 0, r.kubeClient, zap.S()))
-
-	cm := &corev1.ConfigMap{}
-	require.NoError(t, central.Get(context.Background(),
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm))
-
-	// Owner ref present in single-cluster path (central cluster).
-	require.Len(t, cm.OwnerReferences, 1)
-	assert.Equal(t, "mdb-search", cm.OwnerReferences[0].Name)
 }
 
 func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
@@ -1025,7 +1019,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
 	// cluster "a" is at index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, "a", 0, r.clientForCluster("a"), zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName), zap.S()))
 
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, memberA.Get(context.Background(),
@@ -1100,7 +1094,7 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}}},
 			Clusters: []searchv1.ClusterSpec{{
@@ -1125,6 +1119,40 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	assert.Contains(t, patched.Status.LoadBalancer.Message, "missing-cluster")
 }
 
+func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
+	ctx := context.Background()
+	scheme := envoyTestScheme(t)
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{
+				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+					HostAndPorts: []string{"mongo-0:27017"},
+				},
+			},
+			Clusters: []searchv1.ClusterSpec{{
+				LoadBalancer: &searchv1.LoadBalancerConfig{
+					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "lb.example.com"},
+				},
+			}},
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+	require.NoError(t, err)
+
+	stateCMKey := watch.Object{
+		ResourceType: watch.ConfigMap,
+		Resource: types.NamespacedName{
+			Name:      searchcontroller.SearchStateCMName(search),
+			Namespace: search.Namespace,
+		},
+	}
+	assert.Contains(t, r.watch.GetWatchedResources()[stateCMKey], search.NamespacedName())
+}
+
 func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -1144,7 +1172,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	}
 
 	// cluster "a" is at index 0 in the mapping.
-	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, clusterWorkItem{ClusterName: "a", ClusterIndex: 0, Client: r.clientForCluster("a")}, nil, zap.S())
+	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName), nil, zap.S())
 	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), searchcontroller.MessageFromStatus(st))
 
 	// Member cluster has Deployment + ConfigMap; central does not.
@@ -1195,13 +1223,14 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	} {
 		search.Spec.Clusters[0].LoadBalancer.Managed.Replicas = tc.lbReplicas
 		// cluster "a" is at index 0.
-		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, "a", 0, search.GetManagedLBForCluster("a"), r.clientForCluster("a"), nil, zap.S()))
+		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName), search.GetManagedLBForCluster("a"), nil, zap.S()))
 
 		dep := &appsv1.Deployment{}
 		require.NoError(t, memberA.Get(context.Background(),
 			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
 		require.NotNil(t, dep.Spec.Replicas)
 		assert.Equal(t, tc.expectedDeplReplicas, *dep.Spec.Replicas, "envoy replicas must be set to the same value configured in search resource")
+		assert.Empty(t, dep.OwnerReferences)
 
 		memberA.Delete(context.Background(), &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
 			Name:      dep.Name,
@@ -1213,46 +1242,19 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 // --- end-to-end Reconcile + status aggregation -------------------------------
 
 // TestReconcile_WorstOfPhase_Aggregated exercises the full Reconcile path:
-// two clusters in spec.clusters[]; one is a member registered with the operator
-// (succeeds), the other isn't (Pending). The top-level Phase must be the
-// worst-of across both clusters (Pending here).
+// two clusters in spec.clusters[]; one succeeds (Running), the other fails
+// (Failed). The top-level Phase must be the worst-of across both clusters
+// (Failed here) while the healthy cluster still reconciles.
 func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+	memberB := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), message: "injected cluster-b failure"}
 
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mdb-search",
-			Namespace: "ns",
-			UID:       "abc",
-		},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-					HostAndPorts: []string{"mongo-0:27017"},
-				},
-			},
-			Clusters: []searchv1.ClusterSpec{
-				{
-					Name: "a", Index: ptr.To(int32(0)),
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-a.example.com"},
-					},
-				},
-				{
-					Name: "missing", Index: ptr.To(int32(1)),
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-missing.example.com"},
-					},
-				},
-			},
-		},
-	}
-
+	search := newMCEnvoySearch("mdb-search", "ns", "", pinnedCluster("a", 0), pinnedCluster("b", 1))
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
 
 	res, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
@@ -1265,7 +1267,8 @@ func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 	require.NoError(t, central.Get(ctx,
 		types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
 	require.NotNil(t, patched.Status.LoadBalancer, "status.loadBalancer must be populated")
-	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase, "worst-of (Running, Pending) is Pending")
+	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase, "worst-of (Running, Failed) is Failed")
+	assert.Contains(t, patched.Status.LoadBalancer.Message, "injected cluster-b failure")
 
 	// Cluster "a" (index 0) got its Deployment + ConfigMap in the member-cluster client.
 	require.NoError(t, memberA.Get(ctx,
@@ -1282,28 +1285,16 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-					HostAndPorts: []string{"mongo-0:27017"},
-				},
-			},
-			Clusters: []searchv1.ClusterSpec{{
-				Name: "a",
-				LoadBalancer: &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-a.example.com"},
-				},
-			}},
-		},
-	}
+	search := newMCEnvoySearch("mdb-search", "ns", "",
+		pinnedCluster("a", 0),
+		pinnedCluster("b", 1),
+	)
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	// Member client is a fake that fails every write — drives Failed.
-	memberA := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	memberA := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), message: "injected cluster-a failure"}
+	memberB := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), message: "injected cluster-b failure"}
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
@@ -1316,6 +1307,8 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 	require.NotNil(t, patched.Status.LoadBalancer)
 	assert.Equal(t, status.PhaseFailed, patched.Status.LoadBalancer.Phase,
 		"all-Failed clusters must aggregate to top-level Failed, not Pending")
+	assert.Contains(t, patched.Status.LoadBalancer.Message, "injected cluster-a failure")
+	assert.Contains(t, patched.Status.LoadBalancer.Message, "injected cluster-b failure")
 }
 
 // --- index-based naming reconcile loop tests ----------------------------------
@@ -1525,102 +1518,234 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 		"b Deployment must retain index 1 after a is removed from spec.clusters")
 }
 
-func TestDeleteEnvoyResources_MCFanOut(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+func TestDeleteEnvoyResources(t *testing.T) {
+	type envoyObj struct {
+		cluster          string // client holding the object; "" = central
+		index            int
+		foreignName      bool // labels carry another Search's name
+		foreignComponent bool // labels carry another component value
+		wantKept         bool
 	}
-	depA := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}}
-	cmA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}}
-	depB := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}}
-	cmB := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}}
-	memberA := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depA, cmA).Build()
-	memberB := fake.NewClientBuilder().WithScheme(scheme).WithObjects(depB, cmB).Build()
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
-
-	workList := []clusterWorkItem{
-		{ClusterName: "a", ClusterIndex: 0, Client: r.clientForCluster("a")},
-		{ClusterName: "b", ClusterIndex: 1, Client: r.clientForCluster("b")},
+	type workItem struct {
+		cluster    string
+		index      int
+		registered bool
 	}
-	r.deleteEnvoyResources(ctx, search, workList, zap.S())
+	tests := []struct {
+		name     string
+		members  []string
+		objs     []envoyObj
+		work     []workItem
+		wantWarn string
+	}{
+		{
+			name:    "owned member deletes fan out across clusters",
+			members: []string{"a", "b"},
+			objs: []envoyObj{
+				{cluster: "a", index: 0},
+				{cluster: "b", index: 1},
+			},
+			work: []workItem{
+				{cluster: "a", index: 0, registered: true},
+				{cluster: "b", index: 1, registered: true},
+			},
+		},
+		{
+			// The unregistered (nil-Client) cluster's objects sit on the CENTRAL
+			// client at the index its work item carries and must survive untouched.
+			name:    "missing client warns while healthy cluster cleanup continues",
+			members: []string{"a"},
+			objs: []envoyObj{
+				{cluster: "", index: 0, wantKept: true},
+				{cluster: "a", index: 1},
+			},
+			work: []workItem{
+				{cluster: "unregistered", index: 0},
+				{cluster: "a", index: 1, registered: true},
+			},
+			wantWarn: "no Kubernetes client registered for Envoy cleanup",
+		},
+		{
+			// Skipping, not erroring, on a same-name foreign object: erroring
+			// would requeue the LB teardown forever on a collision it can
+			// never resolve.
+			name: "foreign-owned object is skipped while owned objects are deleted",
+			objs: []envoyObj{
+				{cluster: "", index: 0, foreignName: true, wantKept: true},
+				{cluster: "", index: 1},
+			},
+			work: []workItem{
+				{cluster: "", index: 0, registered: true},
+				{cluster: "", index: 1, registered: true},
+			},
+		},
+		{
+			name: "object with another component label is skipped",
+			objs: []envoyObj{
+				{cluster: "", index: 0, foreignComponent: true, wantKept: true},
+			},
+			work: []workItem{{cluster: "", index: 0, registered: true}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := envoyTestScheme(t)
+			search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid"}}
+			clients := map[string]client.Client{"": fake.NewClientBuilder().WithScheme(scheme).WithObjects(search).Build()}
+			memberClients := map[string]client.Client{}
+			for _, m := range tc.members {
+				memberClients[m] = fake.NewClientBuilder().WithScheme(scheme).Build()
+				clients[m] = memberClients[m]
+			}
+			for _, o := range tc.objs {
+				labels := maps.Clone(envoyLabelsForCluster(search, o.index))
+				if o.foreignName {
+					labels[khandler.MongoDBSearchOwnerNameLabel] = "replacement-search"
+				}
+				if o.foreignComponent {
+					labels[khandler.MongoDBSearchComponentLabel] = "other-component"
+				}
+				require.NoError(t, clients[o.cluster].Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+					Name: search.LoadBalancerDeploymentNameForCluster(o.index), Namespace: "ns", Labels: labels,
+				}}))
+				require.NoError(t, clients[o.cluster].Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+					Name: search.LoadBalancerConfigMapNameForCluster(o.index), Namespace: "ns", Labels: maps.Clone(labels),
+				}}))
+			}
+			r := newMongoDBSearchEnvoyReconciler(clients[""], "envoy:latest", memberClients, "")
+			workList := make([]clusterWorkItem, 0, len(tc.work))
+			for _, w := range tc.work {
+				item := clusterWorkItem{ClusterName: w.cluster, ClusterIndex: w.index}
+				if w.registered {
+					item.Client = r.kubeClient
+					if w.cluster != "" {
+						item.Client = r.memberClients[w.cluster]
+					}
+				}
+				workList = append(workList, item)
+			}
+			logs := observeControllerLogs(t)
 
-	// Both member clusters: Deployment + ConfigMap gone at their respective indices.
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{})))
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, &corev1.ConfigMap{})))
-	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}, &appsv1.Deployment{})))
-	assert.True(t, apierrors.IsNotFound(memberB.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}, &corev1.ConfigMap{})))
+			require.NoError(t, r.deleteEnvoyResources(ctx, search, workList, zap.S()))
+
+			if tc.wantWarn != "" {
+				assert.Positive(t, logs.FilterMessageSnippet(tc.wantWarn).Len(), "expected a warning containing %q", tc.wantWarn)
+			}
+			for _, o := range tc.objs {
+				depErr := clients[o.cluster].Get(ctx, types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(o.index), Namespace: "ns"}, &appsv1.Deployment{})
+				cmErr := clients[o.cluster].Get(ctx, types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(o.index), Namespace: "ns"}, &corev1.ConfigMap{})
+				if o.wantKept {
+					assert.NoError(t, depErr)
+					assert.NoError(t, cmErr)
+				} else {
+					assert.True(t, apierrors.IsNotFound(depErr))
+					assert.True(t, apierrors.IsNotFound(cmErr))
+				}
+			}
+		})
+	}
 }
 
-func TestDeleteEnvoyResources_SkipsUnregisteredCluster(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
-	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
-
-	lbObjects := func(idx int) (*appsv1.Deployment, *corev1.ConfigMap) {
-		return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-				Name: search.LoadBalancerDeploymentNameForCluster(idx), Namespace: "ns",
-			}},
-			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-				Name: search.LoadBalancerConfigMapNameForCluster(idx), Namespace: "ns",
-			}}
+func TestEnvoyReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing.T) {
+	tests := []struct {
+		name          string
+		failDepDelete bool
+	}{
+		{name: "removed cluster's managed resources are deleted"},
+		{name: "delete failure warns and does not fail the reconcile", failDepDelete: true},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := envoyTestScheme(t)
+			search := newMCEnvoySearch("mdb-search", "ns", "search-uid", pinnedCluster("cluster-a", 0))
+			memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+			var memberB client.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+			labels := khandler.SearchOwnershipLabels(search, "", searchProxyComponent)
+			deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: search.Namespace, UID: "removed-deployment", Labels: labels}}
+			configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: search.Namespace, UID: "removed-config", Labels: maps.Clone(labels)}}
+			require.NoError(t, memberB.Create(ctx, deployment))
+			require.NoError(t, memberB.Create(ctx, configMap))
+			injectedErr := fmt.Errorf("injected envoy delete failure")
+			if tc.failDepDelete {
+				memberB = interceptor.NewClient(memberB.(client.WithWatch), interceptor.Funcs{
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						if _, ok := obj.(*appsv1.Deployment); ok {
+							return injectedErr
+						}
+						return c.Delete(ctx, obj, opts...)
+					},
+				})
+			}
 
-	// Pre-seed LB resources for the unregistered (nil-Client) cluster on the CENTRAL
-	// client at the same index the work item carries, plus resources for a registered
-	// cluster on its member client.
-	unregDep, unregCM := lbObjects(0)
-	require.NoError(t, central.Create(ctx, unregDep))
-	require.NoError(t, central.Create(ctx, unregCM))
-	regDep, regCM := lbObjects(1)
-	require.NoError(t, memberA.Create(ctx, regDep))
-	require.NoError(t, memberA.Create(ctx, regCM))
+			central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+				"cluster-a": memberA,
+				"cluster-b": memberB,
+			}, "")
+			logs := observeControllerLogs(t)
 
-	r.deleteEnvoyResources(ctx, search, []clusterWorkItem{
-		// nil Client (cluster not registered): must be skipped, central resources untouched.
-		{ClusterName: "unregistered", ClusterIndex: 0, Client: nil},
-		// registered cluster: its resources must be deleted, proving the loop still runs.
-		{ClusterName: "a", ClusterIndex: 1, Client: r.clientForCluster("a")},
-	}, zap.S())
+			if !tc.failDepDelete {
+				// An invalid spec must never drive the removed-member sweep:
+				// validation runs first and reports on the LB status.
+				invalid := &searchv1.MongoDBSearch{}
+				require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(search), invalid))
+				invalid.Spec.Clusters = append(invalid.Spec.Clusters, searchv1.ClusterSpec{Index: ptr.To(int32(2))})
+				require.NoError(t, central.Update(ctx, invalid))
+				_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(search)})
+				require.NoError(t, err)
+				require.NoError(t, memberB.Get(ctx, client.ObjectKeyFromObject(deployment), &appsv1.Deployment{}),
+					"an invalid spec must not drive removed-member deletions")
+				afterInvalid := &searchv1.MongoDBSearch{}
+				require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(search), afterInvalid))
+				require.NotNil(t, afterInvalid.Status.LoadBalancer, "the CR must report the validation failure")
+				assert.Equal(t, status.PhaseFailed, afterInvalid.Status.LoadBalancer.Phase)
+				afterInvalid.Spec.Clusters = search.Spec.Clusters
+				require.NoError(t, central.Update(ctx, afterInvalid))
+			}
 
-	// The nil-Client item must not delete anything from the central client.
-	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unregDep), &appsv1.Deployment{}),
-		"nil-Client item must not delete the central Deployment")
-	require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(unregCM), &corev1.ConfigMap{}),
-		"nil-Client item must not delete the central ConfigMap")
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(search)})
+			require.NoError(t, err)
 
-	// The registered item's resources are gone.
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(regDep), &appsv1.Deployment{})))
-	assert.True(t, apierrors.IsNotFound(memberA.Get(ctx, client.ObjectKeyFromObject(regCM), &corev1.ConfigMap{})))
+			assert.True(t, apierrors.IsNotFound(memberB.Get(ctx, client.ObjectKeyFromObject(configMap), &corev1.ConfigMap{})),
+				"one kind's delete failure must not block the other kinds")
+			depErr := memberB.Get(ctx, client.ObjectKeyFromObject(deployment), &appsv1.Deployment{})
+			if tc.failDepDelete {
+				assert.NoError(t, depErr, "failed delete leaves the Deployment behind for the next reconcile")
+				assert.Positive(t, logs.FilterMessageSnippet(injectedErr.Error()).Len(), "expected a warning mentioning the injected delete failure")
+			} else {
+				assert.True(t, apierrors.IsNotFound(depErr))
+				assert.Zero(t, logs.FilterMessageSnippet(injectedErr.Error()).Len())
+			}
+		})
+	}
 }
 
 // failingWriteClient wraps a client.Client and rejects every write so we can
 // simulate a per-cluster Failed status without needing a real envtest.
 type failingWriteClient struct {
 	client.Client
+	message string
 }
 
 func (f failingWriteClient) Create(_ context.Context, _ client.Object, _ ...client.CreateOption) error {
-	return fmt.Errorf("simulated write failure")
+	return fmt.Errorf("%s", f.failureMessage())
 }
 
 func (f failingWriteClient) Update(_ context.Context, _ client.Object, _ ...client.UpdateOption) error {
-	return fmt.Errorf("simulated write failure")
+	return fmt.Errorf("%s", f.failureMessage())
 }
 
 func (f failingWriteClient) Patch(_ context.Context, _ client.Object, _ client.Patch, _ ...client.PatchOption) error {
-	return fmt.Errorf("simulated write failure")
+	return fmt.Errorf("%s", f.failureMessage())
+}
+
+func (f failingWriteClient) failureMessage() string {
+	if f.message == "" {
+		return "simulated write failure"
+	}
+	return f.message
 }
 
 func TestEnvoyConfigHash_WhitespaceInvariant(t *testing.T) {
@@ -1661,6 +1786,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 			},
 			Clusters: []searchv1.ClusterSpec{{
 				Name:         "cluster-a",
+				Index:        ptr.To(int32(0)),
 				LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{shardName}.example.com", RouterHostname: "mongot-router.example.com"}},
 			}},
 		},
@@ -1670,7 +1796,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	// sh-0 switched routing-ready; sh-1 never ready → fallback.
 	seedSearchStateCM(t, ctx, central, "mdb-search", "ns", []string{"sh-0"})
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
 
@@ -1720,7 +1846,7 @@ func newOperatorPerClusterEnvoySearch(name, namespace string, clusterBIndex int3
 	clusterB := pinnedCluster("cluster-b", clusterBIndex)
 	clusterB.LoadBalancer = &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"}}
 	return &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, UID: types.UID(name + "-uid")},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source: &searchv1.MongoDBSource{
 				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}},
@@ -1734,8 +1860,7 @@ func TestBuildClusterWorkList_OperatorPerCluster_UsesProjectedIndex(t *testing.T
 	// Operator-per-cluster with unified CR: members map empty; LocalizeToCluster already narrowed
 	// spec.Clusters to one entry whose projected clusterIndex must be honoured.
 	central := fake.NewClientBuilder().Build()
-	// operatorClusterName is "" — this test exercises buildClusterWorkList directly, not Reconcile.
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "kind-e2e-cluster-2")
 	search := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
@@ -1831,7 +1956,6 @@ func TestEnqueueMemberClusterObjectToSearch(t *testing.T) {
 			Labels: map[string]string{
 				khandler.MongoDBSearchOwnerNameLabel:      "mdb-search",
 				khandler.MongoDBSearchOwnerNamespaceLabel: "ns",
-				khandler.MongoDBSearchClusterNameLabel:    "a",
 			},
 		},
 	}
@@ -1860,7 +1984,7 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 	scheme := envoyTestScheme(t)
 
 	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid", Generation: 1},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source:   &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}}},
 			Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(3))}},
@@ -1870,10 +1994,14 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 	// Pre-seed the Envoy resources at the pinned index 3.
-	require.NoError(t, central.Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(3), Namespace: "ns"}}))
-	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns"}}))
+	require.NoError(t, central.Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: search.LoadBalancerDeploymentNameForCluster(3), Namespace: "ns", Labels: envoyLabelsForCluster(search, 3),
+	}}))
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns", Labels: envoyLabelsForCluster(search, 3),
+	}}))
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -1884,6 +2012,9 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns"}, &corev1.ConfigMap{})),
 		"Envoy ConfigMap at the pinned index 3 must be deleted")
+	patched := &searchv1.MongoDBSearch{}
+	require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
+	assert.Nil(t, patched.Status.LoadBalancer)
 }
 
 func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testing.T) {
@@ -1937,7 +2068,7 @@ func TestEnvoyReconcile_OperatorPerCluster_Match_RendersAtPinnedIndex(t *testing
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(7), Namespace: "ns"}, cm),
 		"Envoy ConfigMap must render at pinned index 7")
 
-	assertSearchOwnerLabels(t, search, "cluster-b", dep, cm)
+	assertSearchOwnerLabels(t, search, true, dep, cm)
 
 	// Nothing at index 0 — the array-position index must not leak through.
 	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
@@ -1973,69 +2104,60 @@ func TestEnvoyReconcile_OperatorPerCluster_MissingClusterIndex_Invalid(t *testin
 		"message must come from ValidateOperatorPerClusterIndices")
 }
 
-func TestEnvoyReconcile_OperatorPerCluster_NoMatchSilentNoOp(t *testing.T) {
+func TestEnvoyReconcile_UnregisteredCluster_SkippedAndNoCentralWrites(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
 
-	// Both entries pinned so the no-op is attributable to LocalizeToCluster, not validation.
-	search := newOperatorPerClusterEnvoySearch("mdb-search", "ns", 1)
-	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-
-	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-c")
-
-	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
-	require.NoError(t, err)
-	assert.Equal(t, reconcile.Result{}, res, "no-match reconcile must return zero Result with no error")
-
-	// No Envoy Deployment / ConfigMap at any index on the central client.
-	for _, i := range []int{0, 1, 2} {
-		assert.True(t, apierrors.IsNotFound(central.Get(ctx,
-			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(i), Namespace: "ns"}, &appsv1.Deployment{})),
-			"Envoy Deployment at index %d must not exist", i)
-		assert.True(t, apierrors.IsNotFound(central.Get(ctx,
-			types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(i), Namespace: "ns"}, &corev1.ConfigMap{})),
-			"Envoy ConfigMap at index %d must not exist", i)
+	newFixture := func(t *testing.T, members map[string]client.Client) (*MongoDBSearchEnvoyReconciler, client.Client, *searchv1.MongoDBSearch) {
+		t.Helper()
+		search := newMCEnvoySearch("mdb-search", "ns", "", pinnedCluster("cluster-a", 0), pinnedCluster("cluster-b", 1))
+		central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+		return newMongoDBSearchEnvoyReconciler(central, "envoy:latest", members, ""), central, search
 	}
 
-	// LB status untouched: the no-op returns before any status patch.
-	patched := &searchv1.MongoDBSearch{}
-	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
-	assert.Nil(t, patched.Status.LoadBalancer, "no-match reconcile must not write loadBalancer status")
-}
+	t.Run("registered cluster reconciles while the unregistered one is skipped", func(t *testing.T) {
+		// Only cluster-a is registered; cluster-b is in spec but has no client.
+		memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+		r, central, search := newFixture(t, map[string]client.Client{"cluster-a": memberA})
 
-func TestEnvoyReconcile_UnregisteredCluster_PendingAndNoCentralWrites(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+		require.NoError(t, err)
 
-	search := newMCEnvoySearch("mdb-search", "ns", "", pinnedCluster("cluster-a", 0), pinnedCluster("cluster-b", 1))
-	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	// Only cluster-a is registered; cluster-b is in spec but has no client.
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"cluster-a": memberA}, "")
+		patched := &searchv1.MongoDBSearch{}
+		require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+		require.NotNil(t, patched.Status.LoadBalancer)
+		assert.Equal(t, status.PhaseRunning, patched.Status.LoadBalancer.Phase,
+			"one unregistered cluster must not stall the registered ones")
 
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
-	require.NoError(t, err)
+		// The registered cluster still reconciles into its member cluster.
+		require.NoError(t, memberA.Get(ctx,
+			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{}),
+			"registered cluster must still get its Envoy Deployment")
 
-	patched := &searchv1.MongoDBSearch{}
-	require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
-	require.NotNil(t, patched.Status.LoadBalancer)
-	assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase,
-		"unregistered cluster must aggregate to Pending")
-	assert.Contains(t, patched.Status.LoadBalancer.Message, "not registered with the operator")
+		// The unregistered cluster's resources must NOT land in the central cluster.
+		assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}, &appsv1.Deployment{})),
+			"unregistered cluster's Envoy Deployment must not be written to the central cluster")
+		assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+			types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}, &corev1.ConfigMap{})),
+			"unregistered cluster's Envoy ConfigMap must not be written to the central cluster")
+	})
 
-	// The registered cluster still reconciles into its member cluster.
-	require.NoError(t, memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, &appsv1.Deployment{}),
-		"registered cluster must still get its Envoy Deployment")
+	t.Run("no registered cluster at all surfaces Pending", func(t *testing.T) {
+		unrelated := fake.NewClientBuilder().WithScheme(scheme).Build()
+		r, central, _ := newFixture(t, map[string]client.Client{"unrelated-cluster": unrelated})
 
-	// The unregistered cluster's resources must NOT land in the central cluster.
-	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(1), Namespace: "ns"}, &appsv1.Deployment{})),
-		"unregistered cluster's Envoy Deployment must not be written to the central cluster")
-	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(1), Namespace: "ns"}, &corev1.ConfigMap{})),
-		"unregistered cluster's Envoy ConfigMap must not be written to the central cluster")
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
+		require.NoError(t, err)
+
+		patched := &searchv1.MongoDBSearch{}
+		require.NoError(t, central.Get(ctx, types.NamespacedName{Name: "mdb-search", Namespace: "ns"}, patched))
+		require.NotNil(t, patched.Status.LoadBalancer)
+		assert.Equal(t, status.PhasePending, patched.Status.LoadBalancer.Phase,
+			"a work list with no registered cluster at all must surface Pending")
+		assert.Contains(t, patched.Status.LoadBalancer.Message, "cluster-a")
+		assert.Contains(t, patched.Status.LoadBalancer.Message, "cluster-b")
+	})
 }
 
 func TestEnvoyReconcile_ValidationFailure_NoLBConfigured_NoLBStatusWrite(t *testing.T) {
@@ -2201,7 +2323,7 @@ func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
 	depName := types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}
 
 	// First apply: operator creates the Deployment with its config-hash annotation.
-	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, "", 0, managedLB, r.clientForCluster(""), nil, zap.S()))
+	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName), managedLB, nil, zap.S()))
 
 	dep := &appsv1.Deployment{}
 	require.NoError(t, central.Get(ctx, depName, dep))
@@ -2213,7 +2335,7 @@ func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
 	require.NoError(t, central.Update(ctx, dep))
 
 	// Re-apply (as any reconcile triggered during the rollout would).
-	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, "", 0, managedLB, r.clientForCluster(""), nil, zap.S()))
+	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName), managedLB, nil, zap.S()))
 
 	require.NoError(t, central.Get(ctx, depName, dep))
 	assert.Equal(t, "2026-07-14T13:53:28Z", dep.Spec.Template.Annotations[restartedAtKey],

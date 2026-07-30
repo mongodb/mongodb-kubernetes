@@ -16,18 +16,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 const (
 	// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 	ShardNamePlaceholder = "{shardName}"
-
-	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
-	// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
-	LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028
@@ -206,6 +202,7 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2, has(c2.name) && c2.name == c1.name))",message="clusters[].name must be set and unique when more than one cluster is specified"
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.index) || self.exists_one(c2, has(c2.index) && c2.index == c1.index))",message="clusters[].index must be unique when set"
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.index))",message="clusters[].index is required on every entry when more than one cluster is specified"
+	// +kubebuilder:validation:XValidation:rule="self.all(c, oldSelf.all(o, (has(o.index) ? o.index : 0) != (has(c.index) ? c.index : 0) || (has(o.name) ? o.name : '') == '' || (has(o.name) ? o.name : '') == (has(c.name) ? c.name : '')))",message="clusters[].name is immutable for an existing cluster index; remove and re-add the entry to change it"
 	Clusters []ClusterSpec `json:"clusters"`
 }
 
@@ -1046,6 +1043,10 @@ func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 	return ok && val == "true"
 }
 
+func (s *MongoDBSearch) IsReconciliationDisabled() bool {
+	return s.Annotations[DisableReconciliationAnnotation] == "true"
+}
+
 func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 	if s.IsWireprotoEnabled() {
 		return s.GetMongotWireprotoPort()
@@ -1384,13 +1385,10 @@ func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(s.Namespace, s.Name)
 }
 
-// GetOwnerLabels implements v1.ResourceOwner. Returns labels used to identify
-// the state ConfigMap owned by this MongoDBSearch.
+// GetOwnerLabels implements v1.ResourceOwner. Returns the owner labels stamped
+// on every resource managed for this MongoDBSearch.
 func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
-	return map[string]string{
-		util.OperatorLabelName: util.OperatorLabelValue,
-		LabelResourceOwner:     s.Name,
-	}
+	return khandler.SearchOwnershipLabels(s, "", "")
 }
 
 // GetKind implements v1.ObjectOwner.

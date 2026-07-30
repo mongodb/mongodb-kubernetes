@@ -29,23 +29,16 @@ logger = test_logger.get_test_logger(__name__)
 
 SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
 SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
-SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
 
 
-def _assert_search_owner_labels(
-    obj_labels: Mapping[str, str], cluster_name: str, where: str, mdbs_resource_name: str
-) -> None:
-    """Strict ``mongodb.com/{search-name,search-namespace,cluster-name}`` check."""
+def _assert_search_owner_labels(obj_labels: Mapping[str, str], where: str, mdbs_resource_name: str) -> None:
+    """Strict ``mongodb.com/{search-name,search-namespace}`` check."""
     assert (
         obj_labels.get(SEARCH_OWNER_NAME_LABEL) == mdbs_resource_name
     ), f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
     # The operator stamps the search's namespace, not the central namespace —
     # equals the namespace under test in our e2e harness.
     assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
-    assert obj_labels.get(SEARCH_CLUSTER_NAME_LABEL) == cluster_name, (
-        f"{where}: missing/wrong {SEARCH_CLUSTER_NAME_LABEL!r}; got "
-        f"{obj_labels.get(SEARCH_CLUSTER_NAME_LABEL)!r}, want {cluster_name!r}"
-    )
 
 
 def _resolve_cluster_index(helper: Optional[MCSearchDeploymentHelper], mcc: MultiClusterClient) -> int:
@@ -285,16 +278,10 @@ def verify_per_cluster_mongot_resources(
         headless = mcc.read_namespaced_service(svc_name, namespace)
         proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
         cm = mcc.read_namespaced_config_map(cm_name, namespace)
-        _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}", mdbs_resource_name)
-        _assert_search_owner_labels(
-            headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}", mdbs_resource_name
-        )
-        _assert_search_owner_labels(
-            proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}", mdbs_resource_name
-        )
-        _assert_search_owner_labels(
-            cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}", mdbs_resource_name
-        )
+        _assert_search_owner_labels(sts.metadata.labels or {}, f"STS {sts_name}", mdbs_resource_name)
+        _assert_search_owner_labels(headless.metadata.labels or {}, f"headless Service {svc_name}", mdbs_resource_name)
+        _assert_search_owner_labels(proxy.metadata.labels or {}, f"proxy Service {proxy_svc_name}", mdbs_resource_name)
+        _assert_search_owner_labels(cm.metadata.labels or {}, f"mongot CM {cm_name}", mdbs_resource_name)
 
         assert_mongot_sync_source_hosts(mcc, cm_name, namespace, expected_hosts, cm=cm)
 
@@ -321,14 +308,9 @@ def verify_per_cluster_envoy_deployment(
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
         envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
         _assert_search_owner_labels(
-            envoy_deploy.metadata.labels or {},
-            mcc.cluster_name,
-            f"Envoy Deployment {envoy_deployment_name}",
-            mdbs_resource_name,
+            envoy_deploy.metadata.labels or {}, f"Envoy Deployment {envoy_deployment_name}", mdbs_resource_name
         )
-        _assert_search_owner_labels(
-            envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}", mdbs_resource_name
-        )
+        _assert_search_owner_labels(envoy_cm.metadata.labels or {}, f"Envoy CM {envoy_cm_name}", mdbs_resource_name)
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
 
