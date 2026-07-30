@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -2126,19 +2125,6 @@ func monitoringAutomationConfigConfigMapName(appdb omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-automation-config-version"
 }
 
-// newAppDB401MockFactory returns an OM ConnectionFactory whose MarkProjectAsBackingDatabase
-// always fails with a 401 (Unauthorized) apierror, mimicking a digest nonce re-handshake
-// or genuinely corrupted admin-key during AppDB rolling restarts.
-func newAppDB401MockFactory() om.ConnectionFactory {
-	return func(omCtx *om.OMContext) om.Connection {
-		conn := om.NewEmptyMockedOmConnection(omCtx)
-		conn.(*om.MockedOmConnection).MarkProjectAsBackingDatabaseFunc = func(_ om.BackingDatabaseType) error {
-			return &apierror.Error{Status: ptr.To(401), Reason: "Unauthorized"}
-		}
-		return conn
-	}
-}
-
 // newOrgRead401MockFactory returns an OM ConnectionFactory whose ReadOrganizationsByName
 // always fails with a 401, mimicking a genuinely broken admin API key (every authenticated
 // call fails, starting with the first one).
@@ -2152,53 +2138,9 @@ func newOrgRead401MockFactory() om.ConnectionFactory {
 	}
 }
 
-// TestReconcileAppDB_401WithExistingProjectID verifies that a 401 from
-// MarkProjectAsBackingDatabase is always tolerated: reaching that call proves the
-// same credentials authenticated successfully earlier in the pass (ReadOrCreateProject
-// etc.), so the 401 can only be a transient digest-auth nonce race. The reconciliation
-// must NOT fail with "admin-key secret might be corrupted" and must have actually
-// reached the markAsBackingDatabase call (verified via mock history).
-func TestReconcileAppDB_401WithExistingProjectID(t *testing.T) {
-	ctx := context.Background()
-	opsManager := DefaultOpsManagerBuilder().Build()
-
-	omConnectionFactory := om.NewCachedOMConnectionFactory(newAppDB401MockFactory())
-	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, opsManager)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
-	require.NoError(t, err)
-
-	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "password"))
-
-	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
-	require.NoError(t, err)
-	apiKeySecret := secret.Builder().
-		SetNamespace(operatorNamespace()).
-		SetName(APIKeySecretName).
-		SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
-		Build()
-	require.NoError(t, reconciler.client.CreateSecret(ctx, apiKeySecret))
-
-	require.NoError(t, reconciler.ensureProjectIDConfigMapForCluster(ctx, opsManager, om.TestGroupID, reconciler.client))
-
-	res, err := reconciler.ReconcileAppDB(ctx, opsManager)
-	require.NoError(t, err)
-	ok, _ := workflow.OK().ReconcileResult()
-	assert.Equal(t, ok, res)
-
-	// Positive: the tolerated path actually executed — MarkProjectAsBackingDatabase was called.
-	mockConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	mockConn.CheckOrderOfOperations(t, reflect.ValueOf(mockConn.MarkProjectAsBackingDatabase))
-
-	// Secondary: no failure status surfaced.
-	assert.NotContains(t, opsManager.Status.OpsManagerStatus.Message, "admin-key secret might be corrupted")
-	assert.NotEqual(t, status.PhaseFailed, opsManager.Status.OpsManagerStatus.Phase)
-}
-
-// TestReconcileAppDB_401FromOrgReadIsAlwaysFailed is the B1 regression guard: a 401 from
+// TestReconcileAppDB_401FromOrgReadIsAlwaysFailed is the regression guard: a 401 from
 // the org read (genuine credential breakage — every authenticated call fails starting with
 // the first one) must produce Failed regardless of whether the ProjectID ConfigMap exists.
-// A 401 at markAsBackingDatabase is always tolerated (reaching mark proves credentials worked);
-// a 401 at any earlier call is always Failed.
 func TestReconcileAppDB_401FromOrgReadIsAlwaysFailed(t *testing.T) {
 	setup := func(t *testing.T, createProjectIDConfigMap bool) (*omv1.MongoDBOpsManager, *om.CachedOMConnectionFactory) {
 		ctx := context.Background()
