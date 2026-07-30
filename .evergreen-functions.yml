@@ -718,22 +718,28 @@ functions:
   # Requires three EVG project variables: rh_gh_app_id and rh_gh_app_installation_id (plain,
   # public variables), and rh_gh_app_pem_b64 (must be configured as a Private project variable).
   publish_openshift_bundles_to_rh:
-    - command: subprocess.exec
+    - command: shell.exec
       type: setup
       params:
+        shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - mongodbOperator
           - rh_gh_app_id
           - rh_gh_app_installation_id
           - rh_gh_app_pem_b64
+          - rh_dryrun
+          - requester
         env:
           VERSION: ${mongodbOperator}
-          RH_DRYRUN: ${rh_dryrun|true}
+          RH_DRYRUN: ${rh_dryrun}
+          REQUESTER: ${requester}
           RH_GH_APP_ID: ${rh_gh_app_id}
           RH_GH_APP_INSTALLATION_ID: ${rh_gh_app_installation_id}
           RH_GH_APP_PEM_B64: ${rh_gh_app_pem_b64}
-        binary: scripts/release/publish-openshift-bundles-to-rh.sh
+        script: |
+          source .generated/context.export.env
+          scripts/release/publish-openshift-bundles-to-rh.sh
 
   # Performs some AWS cleanup
   cleanup_aws:
