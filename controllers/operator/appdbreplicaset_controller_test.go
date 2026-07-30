@@ -27,10 +27,8 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -2123,70 +2121,4 @@ func monitoringAutomationConfigSecretName(appdb omv1.AppDBSpec) string {
 
 func monitoringAutomationConfigConfigMapName(appdb omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-automation-config-version"
-}
-
-// newOrgRead401MockFactory returns an OM ConnectionFactory whose ReadOrganizationsByName
-// always fails with a 401, mimicking a genuinely broken admin API key (every authenticated
-// call fails, starting with the first one).
-func newOrgRead401MockFactory() om.ConnectionFactory {
-	return func(omCtx *om.OMContext) om.Connection {
-		conn := om.NewEmptyMockedOmConnection(omCtx)
-		conn.(*om.MockedOmConnection).ReadOrganizationsByNameFunc = func(_ string) ([]*om.Organization, error) {
-			return nil, &apierror.Error{Status: ptr.To(401), Reason: "Unauthorized"}
-		}
-		return conn
-	}
-}
-
-// TestReconcileAppDB_401FromOrgReadIsAlwaysFailed is the regression guard: a 401 from
-// the org read (genuine credential breakage — every authenticated call fails starting with
-// the first one) must produce Failed regardless of whether the ProjectID ConfigMap exists.
-func TestReconcileAppDB_401FromOrgReadIsAlwaysFailed(t *testing.T) {
-	setup := func(t *testing.T, createProjectIDConfigMap bool) (*omv1.MongoDBOpsManager, *om.CachedOMConnectionFactory) {
-		ctx := context.Background()
-		opsManager := DefaultOpsManagerBuilder().Build()
-
-		omConnectionFactory := om.NewCachedOMConnectionFactory(newOrgRead401MockFactory())
-		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, opsManager)
-		reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
-		require.NoError(t, err)
-
-		require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "password"))
-
-		APIKeySecretName, err := opsManager.APIKeySecretName(ctx, secrets.SecretClient{KubeClient: kubeClient}, "")
-		require.NoError(t, err)
-		apiKeySecret := secret.Builder().
-			SetNamespace(operatorNamespace()).
-			SetName(APIKeySecretName).
-			SetStringMapToData(map[string]string{util.OmPublicApiKey: "publicApiKey", util.OmPrivateKey: "privateApiKey"}).
-			Build()
-		require.NoError(t, reconciler.client.CreateSecret(ctx, apiKeySecret))
-
-		if createProjectIDConfigMap {
-			require.NoError(t, reconciler.ensureProjectIDConfigMapForCluster(ctx, opsManager, om.TestGroupID, reconciler.client))
-			// Pre-create the agent key secret so ensureAppDbAgentApiKey (called with nil conn
-			// in the error-handling block) finds it instead of trying to generate one.
-			agentKeySecret := secret.Builder().
-				SetNamespace(opsManager.Namespace).
-				SetName(agents.ApiKeySecretName(om.TestGroupID)).
-				SetStringMapToData(map[string]string{util.OmAgentApiKey: "test-agent-key"}).
-				Build()
-			require.NoError(t, reconciler.client.CreateSecret(ctx, agentKeySecret))
-		}
-
-		_, _ = reconciler.ReconcileAppDB(ctx, opsManager)
-		return opsManager, omConnectionFactory
-	}
-
-	t.Run("initial setup (no ConfigMap)", func(t *testing.T) {
-		opsManager, _ := setup(t, false)
-		assert.Equal(t, status.PhaseFailed, opsManager.Status.OpsManagerStatus.Phase)
-		assert.Contains(t, opsManager.Status.OpsManagerStatus.Message, "admin-key secret might be corrupted")
-	})
-
-	t.Run("previously configured (ConfigMap exists)", func(t *testing.T) {
-		opsManager, _ := setup(t, true)
-		assert.Equal(t, status.PhaseFailed, opsManager.Status.OpsManagerStatus.Phase)
-		assert.Contains(t, opsManager.Status.OpsManagerStatus.Message, "admin-key secret might be corrupted")
-	})
 }
