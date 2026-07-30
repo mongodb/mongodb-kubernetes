@@ -56,10 +56,6 @@ spec:
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: webhook-server-dir
-          {{- if .Values.multiCluster.clusters }}
-            - mountPath: /etc/config/kubeconfig
-              name: kube-config-volume
-          {{- end }}
           resources:
             limits:
               cpu: {{ .Values.operator.resources.limits.cpu }}
@@ -258,12 +254,6 @@ spec:
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
-        {{- if .Values.multiCluster.clusters }}
-        - name: kube-config-volume
-          secret:
-            defaultMode: 420
-            secretName: {{ .Values.multiCluster.kubeConfigSecretName }}
-        {{- end }}
 
 {{- with .Values.operator }}
   {{- with .nodeSelector }}

@@ -883,15 +883,6 @@ def _install_multi_cluster_operator(
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
-    # multiCluster.clusters / multiCluster.kubeConfigSecretName come from the shared
-    # operator-installation-config ConfigMap; this path installs the operator with no multi-cluster
-    # kubeconfig mount, so drop them. They stay in the ConfigMap because install_official_operator
-    # still reads multiCluster.clusters for the legacy upgrade baseline.
-    # TODO(m1kola): slice-6: drop these from the ConfigMap for the new UX so this pop is unnecessary.
-    if configure_member_clusters is not None:
-        for legacy_key in ("multiCluster.clusters", "multiCluster.kubeConfigSecretName"):
-            multi_cluster_operator_installation_config.pop(legacy_key, None)
-
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
@@ -1166,12 +1157,16 @@ def install_official_operator(
                 operator_name=operator_name,
             )
         operator_name = operator_name + "-multi-cluster"
+        # The released (pre-2.x) charts still need the legacy multiCluster.clusters value. It is
+        # no longer in the shared operator-installation-config ConfigMap, so derive it locally from
+        # MEMBER_CLUSTERS using helm --set list syntax ({a,b,c}), which kubetester's
+        # _create_helm_args passes through unescaped.
         helm_args.update(
             {
                 "operator.name": operator_name,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
-                "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
+                "multiCluster.clusters": "{" + ",".join(member_cluster_names) + "}",
             }
         )
         # The "official" Operator will be installed from the Helm Repo ("mongodb/enterprise-operator")

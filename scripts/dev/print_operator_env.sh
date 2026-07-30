@@ -70,10 +70,6 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
       echo "MDB_AGENT_DEBUG_IMAGE=${MDB_AGENT_DEBUG_IMAGE}"
     fi
 
-  if [[ "${KUBE_CONFIG_PATH:-""}" != "" ]]; then
-    echo "KUBE_CONFIG_PATH=${KUBE_CONFIG_PATH}"
-  fi
-
   if [[ "${PERFORM_FAILOVER:-""}" != "" ]]; then
     echo "PERFORM_FAILOVER=${PERFORM_FAILOVER}"
   fi

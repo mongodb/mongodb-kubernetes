@@ -30,7 +30,6 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	golog "log"
@@ -55,7 +54,6 @@ import (
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/membercluster"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
@@ -277,41 +275,19 @@ func run() error {
 			return err
 		}
 
-		memberClusterClients, usingMemberClusterCRs, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
+		memberClusterClients, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
 		if err != nil {
 			return err
 		}
 
 		// Watch MemberCluster CRs so the operator rebuilds its member-cluster client map when
 		// membership changes, including the first cluster registered after a single-cluster
-		// install. TODO(m1kola): slice-3: make this reactive (no restart).
+		// install. TODO(m1kola): slice-9: make this reactive (no restart).
 		if err := mgr.Add(membercluster.NewWatcher(mgr.GetCache(), cancel)); err != nil {
 			return err
 		}
 
-		if usingMemberClusterCRs {
-			log.Infof("Discovered %d member cluster(s) from MemberCluster CRs", len(memberClusterClients))
-		} else {
-			// TODO(m1kola): slice-3: legacy fallback — discover member clusters from the
-			// <operator>-member-list ConfigMap + the monolithic mounted kubeconfig. Kept so
-			// existing multi-cluster installs keep working; removed in slice 6 once all installs
-			// use MemberCluster CRs.
-			memberClustersNames, err := getMemberClusters(ctx, cfg, currentNamespace)
-			if err != nil {
-				return err
-			}
-
-			log.Infof("Watching Member clusters (legacy discovery): %s", memberClustersNames)
-
-			if len(memberClustersNames) == 0 {
-				log.Warnf("The operator did not detect any member clusters")
-			}
-
-			memberClusterClients, err = multicluster.CreateMemberClusterClients(memberClustersNames, multicluster.GetKubeConfigPath(), memberClusterClientTimeout)
-			if err != nil {
-				return err
-			}
-		}
+		log.Infof("Discovered %d member cluster(s) from MemberCluster CRs", len(memberClusterClients))
 
 		// Add the cluster object to the manager corresponding to each member clusters.
 		for k, v := range memberClusterClients {
@@ -553,33 +529,6 @@ func setupCommunityController(
 		versionUpgradeHookImage,
 		readinessProbeImage,
 	).SetupWithManager(mgr)
-}
-
-// getMemberClusters retrieves the member clusters from the configmap util.MemberListConfigMapName
-func getMemberClusters(ctx context.Context, cfg *rest.Config, currentNamespace string) ([]string, error) {
-	c, err := client.New(cfg, client.Options{})
-	if err != nil {
-		panic(err)
-	}
-
-	m := corev1.ConfigMap{}
-	err = c.Get(ctx, types.NamespacedName{Name: util.MemberListConfigMapName, Namespace: currentNamespace}, &m)
-	if apierrors.IsNotFound(err) {
-		// No multi-cluster configuration present: run as single-cluster with no member clusters.
-		// The member-list ConfigMap is absent on single-cluster installs (e.g. when
-		// mongodbmulticluster is watched by default). Callers handle an empty member list.
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var members []string
-	for member := range m.Data {
-		members = append(members, member)
-	}
-
-	return members, nil
 }
 
 func isInLocalMode() bool {

@@ -37,9 +37,6 @@ func ShardedClusterMultiValidators() []func(m MongoDB) []v1.ValidationResult {
 		func(m MongoDB) []v1.ValidationResult {
 			return []v1.ValidationResult{validClusterSpecLists(m)}
 		},
-		func(m MongoDB) []v1.ValidationResult {
-			return []v1.ValidationResult{validateMemberClusterIsSubsetOfKubeConfig(m)}
-		},
 	}
 }
 
@@ -305,72 +302,5 @@ func duplicateServiceObjectsIsIgnoredInSingleCluster(m MongoDB) v1.ValidationRes
 	if m.Spec.DuplicateServiceObjects != nil {
 		return v1.ValidationWarning("In Single Cluster topology, spec.duplicateServiceObjects field is ignored")
 	}
-	return v1.ValidationSuccess()
-}
-
-// This is used to validate all kind of cluster spec in the same way, whether it is an override or not
-func convertOverrideToClusterSpec(override ClusterSpecItemOverride) ClusterSpecItem {
-	var overrideMembers int
-	if override.Members != nil {
-		overrideMembers = *override.Members
-	} else {
-		overrideMembers = 0
-	}
-	return ClusterSpecItem{
-		ClusterName:                 override.ClusterName,
-		Service:                     "",  // Field doesn't exist in override
-		ExternalAccessConfiguration: nil, // Field doesn't exist in override
-		Members:                     overrideMembers,
-		MemberConfig:                override.MemberConfig,
-		StatefulSetConfiguration:    override.StatefulSetConfiguration,
-		PodSpec:                     override.PodSpec,
-	}
-}
-
-func validateMemberClusterIsSubsetOfKubeConfig(m MongoDB) v1.ValidationResult {
-	// We first extract every cluster spec lists from the resource (from Shard, ConfigServer, Mongos and ShardOverrides)
-	// And we put them in a single flat structure, to be able to run all validations in a single for loop
-
-	// Slice of structs to hold name and ClusterSpecList
-	var clusterSpecLists []struct {
-		name string
-		list ClusterSpecList
-	}
-
-	// Helper function to append a ClusterSpecList to the slice
-	appendClusterSpec := func(name string, list ClusterSpecList) {
-		clusterSpecLists = append(clusterSpecLists, struct {
-			name string
-			list ClusterSpecList
-		}{
-			name: name,
-			list: list,
-		})
-	}
-
-	// Convert ClusterSpecItemOverride to ClusterSpecItem
-	for _, override := range m.Spec.ShardOverrides {
-		var convertedList ClusterSpecList
-		for _, overrideItem := range override.ClusterSpecList {
-			convertedList = append(convertedList, convertOverrideToClusterSpec(overrideItem))
-		}
-		appendClusterSpec(fmt.Sprintf("shard %+v override", override.ShardNames), convertedList)
-	}
-
-	// Append other ClusterSpecLists
-	appendClusterSpec("spec.shardSpec", m.Spec.ShardSpec.ClusterSpecList)
-	appendClusterSpec("spec.configSrvSpec", m.Spec.ConfigSrvSpec.ClusterSpecList)
-	appendClusterSpec("spec.mongosSpec", m.Spec.MongosSpec.ClusterSpecList)
-
-	// Validate each ClusterSpecList
-	for _, specList := range clusterSpecLists {
-		validationResult := ValidateMemberClusterIsSubsetOfKubeConfig(specList.list)
-		if validationResult.Level == v1.WarningLevel {
-			return v1.ValidationWarning("Warning when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
-		} else if validationResult.Level == v1.ErrorLevel {
-			return v1.ValidationError("Error when validating %s ClusterSpecList: %s", specList.name, validationResult.Msg)
-		}
-	}
-
 	return v1.ValidationSuccess()
 }

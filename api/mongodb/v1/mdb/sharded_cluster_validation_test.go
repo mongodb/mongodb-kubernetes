@@ -3,7 +3,6 @@ package mdb
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +14,6 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
 func makeMemberConfig(members int) []automationconfig.MemberOptions {
@@ -244,9 +242,6 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			Spec: corev1.PodSpec{},
 		}},
 	}
-
-	// when tests are executed with env set from current context, some kubeconfig validation tests might stop working
-	t.Setenv(multicluster.KubeConfigPathEnv, "")
 
 	tests := []struct {
 		name              string
@@ -528,153 +523,4 @@ func TestNoTopologyMigration(t *testing.T) {
 	_, err := validator.ValidateUpdate(ctx, scMulti, scSingle)
 	require.Error(t, err)
 	assert.Equal(t, "Automatic Topology Migration (Single/Multi Cluster) is not supported for MongoDB resource", err.Error())
-}
-
-func TestValidateMemberClusterIsSubsetOfKubeConfig(t *testing.T) {
-	testCases := []struct {
-		name            string
-		clusterSpec     ClusterSpecList
-		shardOverrides  []ShardOverride
-		expectedWarning bool
-		expectedMsg     string
-	}{
-		{
-			name: "Failure due to mismatched clusters",
-			clusterSpec: ClusterSpecList{
-				{ClusterName: "hello", Members: 1},
-				{ClusterName: "hi", Members: 2},
-			},
-			expectedWarning: true,
-			expectedMsg:     "Warning when validating spec.shardSpec ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [hello hi], instead - the following are: [foo bar]",
-		},
-		{
-			name: "Success when clusters match",
-			clusterSpec: ClusterSpecList{
-				{ClusterName: "foo", Members: 1},
-			},
-			expectedWarning: false,
-		},
-		{
-			name: "Failure with partial mismatch of clusters",
-			clusterSpec: ClusterSpecList{
-				{ClusterName: "foo", Members: 1},
-				{ClusterName: "unknown", Members: 2},
-			},
-			expectedWarning: true,
-			expectedMsg:     "Warning when validating spec.shardSpec ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [unknown], instead - the following are: [foo bar]",
-		},
-		{
-			name: "Success with multiple clusters in KubeConfig",
-			clusterSpec: ClusterSpecList{
-				{ClusterName: "foo", Members: 1},
-				{ClusterName: "bar", Members: 2},
-			},
-			expectedWarning: false,
-		},
-		{
-			name: "Success with multiple clusters in shard overrides",
-			clusterSpec: ClusterSpecList{
-				{ClusterName: "foo", Members: 1},
-				{ClusterName: "bar", Members: 2},
-			},
-			shardOverrides: []ShardOverride{
-				{
-					ShardNames: []string{"foo-0"},
-					ShardedClusterComponentOverrideSpec: ShardedClusterComponentOverrideSpec{
-						ClusterSpecList: []ClusterSpecItemOverride{{ClusterName: "foo"}, {ClusterName: "bar"}},
-					},
-				},
-				{
-					ShardNames: []string{"foo-1", "foo-2"},
-					ShardedClusterComponentOverrideSpec: ShardedClusterComponentOverrideSpec{
-						ClusterSpecList: []ClusterSpecItemOverride{{ClusterName: "foo"}},
-					},
-				},
-			},
-			expectedWarning: false,
-		},
-		{
-			name: "Error with incorrect clusters in shard overrides",
-			clusterSpec: ClusterSpecList{
-				{ClusterName: "foo", Members: 1},
-				{ClusterName: "bar", Members: 2},
-			},
-			shardOverrides: []ShardOverride{
-				{
-					ShardNames: []string{"foo-0"},
-					ShardedClusterComponentOverrideSpec: ShardedClusterComponentOverrideSpec{
-						ClusterSpecList: []ClusterSpecItemOverride{{ClusterName: "foo"}, {ClusterName: "unknown"}},
-					},
-				},
-				{
-					ShardNames: []string{"foo-1", "foo-2"},
-					ShardedClusterComponentOverrideSpec: ShardedClusterComponentOverrideSpec{
-						ClusterSpecList: []ClusterSpecItemOverride{{ClusterName: "foo"}},
-					},
-				},
-			},
-			expectedWarning: true,
-			expectedMsg:     "Warning when validating shard [foo-0] override ClusterSpecList: The following clusters specified in ClusterSpecList is not present in Kubeconfig: [unknown], instead - the following are: [foo bar]",
-		},
-	}
-
-	// Run each test case
-	for _, tt := range testCases {
-		t.Run(tt.name, func(t *testing.T) {
-			// The below function will create a temporary file and set the correct environment variable, so that
-			// the validation checking if clusters belong to the KubeConfig find this file
-			file := createTestKubeConfigAndSetEnvMultipleClusters(t)
-			defer os.Remove(file.Name())
-
-			sc := NewDefaultMultiShardedClusterBuilder().
-				SetName("foo").
-				SetShardCountSpec(3).
-				SetAllClusterSpecLists(tt.clusterSpec).
-				SetShardOverrides(tt.shardOverrides).
-				Build()
-			_, err := validator.ValidateCreate(ctx, sc)
-
-			if tt.expectedWarning {
-				require.NoError(t, err)
-				assert.Contains(t, sc.Status.Warnings, status.Warning(tt.expectedMsg))
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TODO: partially duplicated from mongodbmulti_validation_test.go, consider moving to another file
-// Helper function to create a KubeConfig with multiple clusters
-func createTestKubeConfigAndSetEnvMultipleClusters(t *testing.T) *os.File {
-	//nolint
-	testKubeConfig := fmt.Sprintf(`
-apiVersion: v1
-contexts:
-- context:
-    cluster: foo
-    namespace: a-1661872869-pq35wlt3zzz
-    user: foo
-  name: foo
-- context:
-    cluster: bar
-    namespace: b-1661872869-pq35wlt3yyy
-    user: bar
-  name: bar
-kind: Config
-users:
-- name: foo
-  user:
-    token: eyJhbGciOi
-- name: bar
-  user:
-    token: eyJhbGciOi
-`)
-
-	file, err := os.CreateTemp("", "kubeconfig")
-	assert.NoError(t, err)
-	_, err = file.WriteString(testKubeConfig)
-	assert.NoError(t, err)
-	t.Setenv(multicluster.KubeConfigPathEnv, file.Name())
-	return file
 }

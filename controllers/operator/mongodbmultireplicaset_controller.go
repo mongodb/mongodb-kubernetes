@@ -68,7 +68,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -1198,17 +1197,6 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 	err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
 	if err != nil {
 		zap.S().Errorf("failed to watch for member cluster healthcheck: %s", err)
-	}
-
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
-		watch.ConfigMapEventHandler{
-			ConfigMapName:      util.MemberListConfigMapName,
-			ConfigMapNamespace: env.ReadOrPanic(util.CurrentNamespace), // nolint:forbidigo
-		},
-		predicate.ResourceVersionChangedPredicate{},
-	))
-	if err != nil {
-		return err
 	}
 
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
