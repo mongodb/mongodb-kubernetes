@@ -53,7 +53,7 @@ components:
 * `kubectl` context to use configured Kubernetes Cluster
 * Operator `Project` and `Credentials` created
 * Kubernetes Namespace created
-* Python 3.6 and dependencies
+* Python (see `PYTHON_VERSION` in the generated dev context) and dependencies
 
 Most of the required configuration is achieved by using `make` at the
 root of the project. [This
@@ -206,33 +206,39 @@ def test_mdb_object_is_removed(self):
 This is a 2-step process, which requires adding a new E2E task and add
 this new task into a task group.
 
-First you add a new task, under the `tasks` dictionary in the
-`evergreen.yaml` file:
+First you add a new task, under the `tasks` list in the
+`.evergreen-tasks.yml` file:
 
 ``` yaml
 tasks:
-- name: e2e_my_new_feature
-  commands:
-    - func: "e2e_test"
+  - name: e2e_my_new_feature
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
 ```
 
-And secondly, add this task into a `task_group`. Find the one that
-matches whatever you are testing and add the task in there. If your
-task is testing something structural, it should go into
-`e2e_core_task_group`, like:
+The task name must match your `@pytest.mark.e2e_...` marker **exactly** —
+Evergreen runs the suite as `pytest -m $TASK_NAME`, so a mismatch collects
+zero tests and the task still reports success.
+
+And secondly, add this task into a `task_group` in `.evergreen.yml`. Find the
+one that matches whatever you are testing and add the task in there, like:
 
 ``` yaml
-- name: e2e_core_task_group
-  max_hosts: 100
-  setup_group:
-    - func: "clone"
-    - func: "setup_kubectl"
-  tasks:
-    - e2e_all_mongodb_resources_parallel
-    - e2e_standalone_config_map
-    - .... # more tasks
-    - e2e_my_new_feature  # this is our new task!
+task_groups:
+  - name: e2e_mdb_kind_cloudqa_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks:
+      - e2e_replica_set
+      - .... # more tasks
+      - e2e_my_new_feature  # this is our new task!
 ```
 
 After doing this, your task will be added into the list of tasks
-executed by Evergreen on each test run.
+executed by Evergreen on each test run. To confirm the wiring, this prints
+every variant that will run the task (and nothing at all if it is not wired):
+
+``` bash
+scripts/dev/run_python.sh scripts/python/find_test_variants.py --task-name e2e_my_new_feature
+```

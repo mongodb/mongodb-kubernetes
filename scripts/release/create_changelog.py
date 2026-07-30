@@ -32,7 +32,7 @@ if __name__ == "__main__":
         "-e",
         "--editor",
         action="store_true",
-        help="Open the created changelog entry in the default editor (if set, otherwise uses 'vi'). Default is True",
+        help="Open the created changelog entry in the default editor (if set, otherwise uses 'vi'). Default is False",
     )
     parser.add_argument(
         "-k",
