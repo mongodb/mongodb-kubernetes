@@ -1283,6 +1283,7 @@ task_groups:
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
       - e2e_om_feature_controls
+      - e2e_om_ops_manager_ssrf_orgid
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
       - e2e_operator_upgrade_ops_manager
@@ -1318,6 +1319,7 @@ task_groups:
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
       - e2e_om_feature_controls
+      - e2e_om_ops_manager_ssrf_orgid
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
       - e2e_operator_upgrade_ops_manager
