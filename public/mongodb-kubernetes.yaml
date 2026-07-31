@@ -383,8 +383,6 @@ spec:
               drop:
               - ALL
           env:
-            - name: OPERATOR_ENV
-              value: prod
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
