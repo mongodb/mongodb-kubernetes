@@ -73,8 +73,6 @@ spec:
             {{- toYaml .Values.operator.securityContext | nindent 12 }}
           {{- end }}
           env:
-            - name: OPERATOR_ENV
-              value: {{ .Values.operator.env }}
             {{- if .Values.operator.mdbDefaultImageType }}
             - name: MDB_DEFAULT_IMAGE_TYPE
               value: {{ .Values.operator.mdbDefaultImageType }}
