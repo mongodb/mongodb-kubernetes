@@ -21,6 +21,10 @@ export MDB_GKE_PROJECT="scratch-kubernetes-team"
 # we reset evg host to use a default ~/.kube/config for GKE instead of the one from evg host
 export EVG_HOST_NAME=""
 
+# Resolve AGENT_VERSION before operator_deployment so get_operator_helm_values()
+# can reference ${AGENT_VERSION} under set -u.
+source "${script_dir}/resolve-agent-version.sh"
+
 source scripts/funcs/operator_deployment
 # ENV_VARIABLES.SH overrides
 OPERATOR_ADDITIONAL_HELM_VALUES="$(get_operator_helm_values | tr ' ' ','),customEnvVars=OM_DEBUG_HTTP=true"

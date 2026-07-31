@@ -34,9 +34,10 @@ import boto3
 import botocore
 
 from lib.base_logger import logger
+from scripts.release.build.image_signing import docker_login_to_ecr
 
 S3_BUCKET = "kubernetes-operators-sboms"
-SILK_BOMB_IMAGE = "artifactory.corp.mongodb.com/release-tools-container-registry-public-local/silkbomb:2.0"
+SILK_BOMB_IMAGE = "901841024863.dkr.ecr.us-east-1.amazonaws.com/release-infrastructure/silkbomb:2.0"
 KONDUKTO_REPO = "mongodb/mongodb-kubernetes"
 WORKDIR = os.getenv("workdir")
 
@@ -223,6 +224,7 @@ def generate_sbom_for_cli(cli_version: str = "1.25.0", platform: str = "linux/am
     logger.info(f"Generating SBOM for CLI for version {cli_version} and platform {platform}")
     try:
         silkbomb_env_file = get_silkbomb_env_file_path()
+        docker_login_to_ecr()
         platform_sanitized = platform.replace("/", "-")
         platform_sanitized_with_underscores = platform.replace("/", "_")
 
@@ -297,6 +299,7 @@ def generate_sbom(image_pull_spec: str, platform: str = "linux/amd64"):
     tag: str
     try:
         silkbomb_env_file = get_silkbomb_env_file_path()
+        docker_login_to_ecr()
         registry, organization, image_name, tag, sha = parse_image_pull_spec(image_pull_spec)
         platform_sanitized = platform.replace("/", "-")
         daily_project_branch_id, release_project_branch_id, kondukto_project_repo = get_kondukto_sbom_data(

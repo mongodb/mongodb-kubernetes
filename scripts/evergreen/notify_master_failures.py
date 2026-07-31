@@ -202,11 +202,54 @@ def get_failed_and_running_tasks(
 MAX_DETAILED_FAILURES = 10
 
 
-def _format_task_name(task: TaskInfo, flaky_map: dict[tuple[str, str], FlakyTask]) -> str:
-    """Format a task display_name, appending flakiness info if known."""
+def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) -> set[tuple[str, str]]:
+    """Get the set of (display_name, build_variant) tuples that failed on the previous master version.
+
+    Returns an empty set if no previous version is found or if the lookup fails.
+    """
+    current_order = getattr(version_info, "order", None)
+    project_id = getattr(version_info, "project", None)
+    if current_order is None or project_id is None:
+        return set()
+
+    global _api_call_count
+    _api_call_count += 1
+    recent = api.recent_versions_by_project(project_id, params={"limit": "50"})
+
+    # Work around evergreen.py bug: RecentVersions.versions passes a list to
+    # Version() instead of individual dicts, so all fields are None.
+    # Access the raw JSON directly.
+    all_versions = [
+        v
+        for wrapper in recent.json.get("versions", [])
+        for v in wrapper.get("versions", [])
+        if v.get("order") is not None
+    ]
+
+    candidates = [v for v in all_versions if v["order"] < current_order]
+    if not candidates:
+        print("No previous master version found", file=sys.stderr)
+        return set()
+
+    prev_version_id = max(candidates, key=lambda v: v["order"])["version_id"]
+    print(f"Checking previous master version: {prev_version_id}", file=sys.stderr)
+    prev_failed, _ = get_failed_and_running_tasks(api, prev_version_id, NOTIFICATION_TASKS)
+    return {(t.display_name, t.build_variant) for t in prev_failed}
+
+
+def _format_task_name(
+    task: TaskInfo, flaky_map: dict[tuple[str, str], FlakyTask], prev_failed: set[tuple[str, str]] | None = None
+) -> str:
+    """Format a task display_name, appending flakiness and/or previous-master info if known."""
+    prev_failed = prev_failed or set()
+    annotations = []
     flaky = flaky_map.get((task.display_name, task.build_variant))
     if flaky is not None:
-        return f"{task.display_name} *(flaky: {flaky.flakiness_percent:.0f}% over {flaky.total_runs} runs)*"
+        annotations.append(f"flaky: {flaky.flakiness_percent:.0f}% over {flaky.total_runs} runs")
+    if (task.display_name, task.build_variant) in prev_failed:
+        annotations.append("also on previous master")
+    if annotations:
+        return f"{task.display_name} *({' | '.join(annotations)})*"
     return task.display_name
 
 
@@ -214,6 +257,7 @@ def format_slack_message(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo] | None = None,
     flaky_map: dict[tuple[str, str], FlakyTask] | None = None,
+    prev_failed: set[tuple[str, str]] | None = None,
 ) -> dict[str, object]:
     """Format a Slack message for build status.
 
@@ -221,8 +265,10 @@ def format_slack_message(
         version_info: Version information
         failed_tasks: List of failed tasks
         flaky_map: Optional {(task_name, variant): FlakyTask} from Honeycomb
+        prev_failed: Optional set of (task_name, variant) that also failed on the previous master
     """
     flaky_map = flaky_map or {}
+    prev_failed = prev_failed or set()
     evergreen_version_url = f"https://spruce.mongodb.com/version/{version_info.version_id}"
     is_failure = bool(failed_tasks)
     num_failures = len(failed_tasks) if failed_tasks else 0
@@ -287,12 +333,26 @@ def format_slack_message(
                 }
             )
 
+    # Previous-master context: how many failed tasks also failed on the previous master build
+    if is_failure and failed_tasks and prev_failed:
+        prev_failed_count = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in prev_failed)
+        if prev_failed_count > 0:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"_{prev_failed_count} of {num_failures} failed task(s) also failed on the previous master build (likely not caused by this commit)_",
+                    },
+                }
+            )
+
     if is_failure and failed_tasks:
         failures_by_variant: dict[str, list[str]] = {}
         for task in failed_tasks:
             if task.build_variant not in failures_by_variant:
                 failures_by_variant[task.build_variant] = []
-            failures_by_variant[task.build_variant].append(_format_task_name(task, flaky_map))
+            failures_by_variant[task.build_variant].append(_format_task_name(task, flaky_map, prev_failed))
 
         num_variants = len(failures_by_variant)
         blocks.append({"type": "divider"})
@@ -445,16 +505,29 @@ def main() -> None:
         except Exception as e:
             print(f"Warning: flakiness lookup failed: {e}", file=sys.stderr)
 
+    # Look up previous master failures (best-effort, non-fatal).
+    prev_failed: set[tuple[str, str]] = set()
+    if failed_tasks:
+        print("Checking previous master build for same failures...", file=sys.stderr)
+        try:
+            prev_failed = get_previous_version_failures(api, version_info)
+            prev_matches = sum(1 for t in failed_tasks if (t.display_name, t.build_variant) in prev_failed)
+            print(
+                f"  {prev_matches} of {len(failed_tasks)} failed tasks also failed on previous master", file=sys.stderr
+            )
+        except Exception as e:
+            print(f"Warning: previous master lookup failed: {e}", file=sys.stderr)
+
     if failed_tasks or running_tasks:
         print(f"Found {len(failed_tasks)} failed, {len(running_tasks)} running tasks", file=sys.stderr)
 
         if use_slack_dry_run:
-            message = format_slack_message(version_info, failed_tasks, flaky_map)
+            message = format_slack_message(version_info, failed_tasks, flaky_map, prev_failed)
             print(json.dumps(message, indent=2))
         else:
             print_stdout_report(version_info, failed_tasks, running_tasks, flaky_map)
             if use_slack and slack_webhook_url and failed_tasks:
-                message = format_slack_message(version_info, failed_tasks, flaky_map)
+                message = format_slack_message(version_info, failed_tasks, flaky_map, prev_failed)
                 send_slack_notification(slack_webhook_url, message)
     else:
         print("No failed or running tasks found", file=sys.stderr)

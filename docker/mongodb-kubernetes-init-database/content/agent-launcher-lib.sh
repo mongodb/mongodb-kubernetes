@@ -114,10 +114,17 @@ download_agent() {
             ;;
     esac
 
-    script_log "Downloading Agent version: ${AGENT_VERSION}"
-    script_log "Downloading a Mongodb Agent from ${base_url:?}"
+    if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
+        script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
+        download_url="${MDB_CUSTOM_AGENT_URL}"
+    else
+        script_log "Downloading Agent version: ${AGENT_VERSION}"
+        script_log "Downloading a Mongodb Agent from ${base_url:?}"
+        download_url="${base_url}/download/agent/automation/${AGENT_FILE}"
+    fi
+
     curl_opts=(
-        "${base_url}/download/agent/automation/${AGENT_FILE}"
+        "${download_url}"
 
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"

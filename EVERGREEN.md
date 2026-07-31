@@ -57,6 +57,15 @@ evergreen patch -p mongodb-kubernetes -a preflight_release_test \
 
 Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
 
+### Custom agent URL
+
+Pass `mdb_custom_agent_url` to override the agent version in all e2e variants (static and non-static). The URL must point to a `.tar.gz` agent tarball; the version is extracted from the filename. No `release.json` changes are needed.
+
+```shell
+evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -u --path .evergreen.yml \
+  --param mdb_custom_agent_url=https://example.com/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz
+```
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:

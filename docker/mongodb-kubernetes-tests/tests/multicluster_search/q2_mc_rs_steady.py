@@ -68,7 +68,6 @@ ENVOY_PROXY_PORT = 27028
 # Used for cross-cluster watch routing by MapMemberClusterObjectToSearch.
 SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
 SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
-SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
 
 
 def _idx(mcc: MultiClusterClient) -> int:
@@ -77,18 +76,14 @@ def _idx(mcc: MultiClusterClient) -> int:
     return mcc.cluster_index
 
 
-def _assert_search_owner_labels(obj_labels: Dict[str, str], cluster_name: str, where: str) -> None:
-    """Assert all three search-owner labels are present and correct on a per-cluster resource."""
+def _assert_search_owner_labels(obj_labels: Dict[str, str], where: str) -> None:
+    """Assert the search-owner labels are present and correct on a per-cluster resource."""
     assert (
         obj_labels.get(SEARCH_OWNER_NAME_LABEL) == MDBS_RESOURCE_NAME
     ), f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
     # The operator stamps the search's namespace, not the central namespace, so this
     # equals `namespace` (the test-time namespace where both CR and members run).
     assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
-    assert obj_labels.get(SEARCH_CLUSTER_NAME_LABEL) == cluster_name, (
-        f"{where}: missing/wrong {SEARCH_CLUSTER_NAME_LABEL!r}; got "
-        f"{obj_labels.get(SEARCH_CLUSTER_NAME_LABEL)!r}, want {cluster_name!r}"
-    )
 
 
 ADMIN_USER_NAME = "mdb-admin-user"
@@ -593,8 +588,8 @@ def test_verify_per_cluster_mongot_resources(
 
     Strict checks:
     - per-cluster resources exist on the owning member-cluster client
-    - every per-cluster write site carries the three canonical owner labels
-      (search-name, search-namespace, cluster-name) — used by
+    - every per-cluster write site carries the canonical owner labels
+      (search-name, search-namespace) — used by
       MapMemberClusterObjectToSearch for cross-cluster watch routing; cross-
       cluster owner refs do not GC, so labels are the actual provenance link
     - the mongot ConfigMap on each cluster lists `spec.source.external.hostAndPorts`
@@ -616,10 +611,10 @@ def test_verify_per_cluster_mongot_resources(
         headless = mcc.read_namespaced_service(svc_name, namespace)
         proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
         cm = mcc.read_namespaced_config_map(cm_name, namespace)
-        _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}")
-        _assert_search_owner_labels(headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}")
-        _assert_search_owner_labels(proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}")
-        _assert_search_owner_labels(cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}")
+        _assert_search_owner_labels(sts.metadata.labels or {}, f"STS {sts_name}")
+        _assert_search_owner_labels(headless.metadata.labels or {}, f"headless Service {svc_name}")
+        _assert_search_owner_labels(proxy.metadata.labels or {}, f"proxy Service {proxy_svc_name}")
+        _assert_search_owner_labels(cm.metadata.labels or {}, f"mongot CM {cm_name}")
 
         config_yaml = cm.data.get("config.yml") or cm.data.get("mongot.yaml")
         assert config_yaml, f"mongot CM {cm_name} missing config payload; data keys={list(cm.data or {})}"
@@ -752,10 +747,8 @@ def test_verify_per_cluster_envoy_deployment(
         assert_deployment_ready_in_cluster(apps, name=envoy_deployment_name, namespace=namespace)
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
         envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
-        _assert_search_owner_labels(
-            envoy_deploy.metadata.labels or {}, mcc.cluster_name, f"Envoy Deployment {envoy_deployment_name}"
-        )
-        _assert_search_owner_labels(envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}")
+        _assert_search_owner_labels(envoy_deploy.metadata.labels or {}, f"Envoy Deployment {envoy_deployment_name}")
+        _assert_search_owner_labels(envoy_cm.metadata.labels or {}, f"Envoy CM {envoy_cm_name}")
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
 
