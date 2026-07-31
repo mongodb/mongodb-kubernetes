@@ -8,6 +8,31 @@ import (
 	"testing"
 )
 
+func TestStaleRetrySuccessNoRetry(t *testing.T) {
+	totalRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		totalRequests++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &http.Client{Transport: &staleRetryTransport{
+		transport: http.DefaultTransport,
+	}}
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	if totalRequests != 1 {
+		t.Errorf("expected 1 request, got %d", totalRequests)
+	}
+}
+
 func TestStaleRetryRetriesOnStaleTrue(t *testing.T) {
 	totalRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
