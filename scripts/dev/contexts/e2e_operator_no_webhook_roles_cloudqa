@@ -10,4 +10,6 @@ source "${script_dir}/variables/om70"
 
 export ops_manager_version="cloud_qa"
 
+# The operator is installed without automatic admission webhook registration. This also means the
+# webhook cluster roles are not installed and the operator doesn't serve the webhook endpoint at all.
 export MDB_HELM_OPERATOR_WEBHOOK_REGISTER_CONFIGURATION="false"
