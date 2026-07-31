@@ -100,6 +100,36 @@ func TestStaleRetryBodyReplayed(t *testing.T) {
 	}
 }
 
+func TestStaleRetryMultipleStaleThenSuccess(t *testing.T) {
+	totalRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		totalRequests++
+		if totalRequests <= 3 {
+			w.Header().Set("WWW-Authenticate", `Digest realm="test", nonce="n", qop="auth", stale=true`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &http.Client{Transport: &staleRetryTransport{
+		transport: http.DefaultTransport,
+	}}
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	if totalRequests != 4 {
+		t.Errorf("expected 4 requests (3 stale + 1 success), got %d", totalRequests)
+	}
+}
+
 func TestStaleRetryMaxBound(t *testing.T) {
 	totalRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
