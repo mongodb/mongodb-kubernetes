@@ -185,7 +185,6 @@ func TestStateReconcileValue_IsReturnedFromStateMachine(t *testing.T) {
 		s.AddDirectTransition(s0, s1)
 
 		res, err := s.Reconcile()
-		assert.False(t, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(15000), res.RequeueAfter)
 		assert.Equal(t, errors.New("error"), err)
 	})
@@ -194,7 +193,7 @@ func TestStateReconcileValue_IsReturnedFromStateMachine(t *testing.T) {
 		s0 := State{
 			Name: "State0",
 			Reconcile: func() (reconcile.Result, error, bool) {
-				return reconcile.Result{Requeue: true, RequeueAfter: time.Duration(5000)}, errors.New("error"), false
+				return reconcile.Result{RequeueAfter: time.Duration(5000)}, errors.New("error"), false
 			},
 		}
 
@@ -206,7 +205,6 @@ func TestStateReconcileValue_IsReturnedFromStateMachine(t *testing.T) {
 		s.AddDirectTransition(s0, s1)
 
 		res, err := s.Reconcile()
-		assert.True(t, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(5000), res.RequeueAfter)
 		assert.Equal(t, errors.New("error"), err)
 	})

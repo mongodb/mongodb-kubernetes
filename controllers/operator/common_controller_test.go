@@ -922,7 +922,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 
 func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
-	expected := reconcile.Result{Requeue: true}
+	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 

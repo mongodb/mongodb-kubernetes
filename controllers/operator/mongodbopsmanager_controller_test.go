@@ -912,7 +912,7 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue) //nolint:staticcheck
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -939,7 +939,7 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue) //nolint:staticcheck
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -1045,7 +1045,7 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue) //nolint:staticcheck
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -1129,7 +1129,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue) //nolint:staticcheck
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))

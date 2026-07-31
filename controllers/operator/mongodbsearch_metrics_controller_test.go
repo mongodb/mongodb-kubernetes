@@ -1458,7 +1458,6 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 			assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
 
 			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
-			assert.False(t, result.Requeue) //nolint:staticcheck
 			assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
 		})
 	}

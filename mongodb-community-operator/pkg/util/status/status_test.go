@@ -32,7 +32,7 @@ type retryOption struct{}
 func (r retryOption) ApplyOption(_ *mdbv1.MongoDBCommunity) {}
 
 func (r retryOption) GetResult() (reconcile.Result, error) {
-	return reconcile.Result{Requeue: true}, nil
+	return reconcile.Result{RequeueAfter: time.Second}, nil
 }
 
 func TestDetermineReconciliationResult(t *testing.T) {
@@ -45,7 +45,6 @@ func TestDetermineReconciliationResult(t *testing.T) {
 
 		res, err := determineReconciliationResult(opts)
 		assert.NotNil(t, err)
-		assert.Equal(t, false, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	})
 
@@ -57,7 +56,6 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		}
 		res, err := determineReconciliationResult(opts)
 		assert.NotNil(t, err)
-		assert.Equal(t, false, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	})
 
@@ -69,7 +67,6 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		}
 		res, err := determineReconciliationResult(opts)
 		assert.Nil(t, err)
-		assert.Equal(t, false, res.Requeue) //nolint:staticcheck
 		assert.Equal(t, time.Duration(0), res.RequeueAfter)
 	})
 
@@ -81,6 +78,6 @@ func TestDetermineReconciliationResult(t *testing.T) {
 		}
 		res, err := determineReconciliationResult(opts)
 		assert.Nil(t, err)
-		assert.Equal(t, true, res.Requeue) //nolint:staticcheck
+		assert.True(t, res.RequeueAfter > 0)
 	})
 }

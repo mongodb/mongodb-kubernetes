@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"syscall"
+	"time"
 
 	"github.com/blang/semver"
 	"go.uber.org/zap"
@@ -422,7 +423,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// 1. Reconcile AppDB
 	emptyResult, _ := workflow.OK().ReconcileResult()
-	retryResult := reconcile.Result{Requeue: true}
+	retryResult := reconcile.Result{RequeueAfter: time.Second}
 
 	// TODO: make SetupCommonWatchers support opsmanager watcher setup
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd

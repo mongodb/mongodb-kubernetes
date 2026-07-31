@@ -137,7 +137,7 @@ type ReplicaSetReconciler struct {
 // and what is in the MongoDB.Spec
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
-// Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
+// Result.RequeueAfter is greater than 0, otherwise upon completion it will remove the work from the queue.
 func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	// TODO: generalize preparation for resource
 	// Fetch the MongoDB instance
@@ -263,7 +263,7 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		r.log.Errorf("Could not save current spec as an annotation: %s", err)
 	}
 
-	if res.RequeueAfter > 0 || res.Requeue { //nolint:staticcheck // Requeue=true with RequeueAfter=0 means immediate requeue
+	if res.RequeueAfter > 0 {
 		r.log.Info("Requeuing reconciliation")
 		return res, nil
 	}
