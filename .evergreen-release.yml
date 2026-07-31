@@ -99,6 +99,7 @@ tasks:
     allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: clone
+      - func: setup_building_host
       - func: update_evergreen_expansions
       - func: publish_openshift_bundles_to_rh
 
