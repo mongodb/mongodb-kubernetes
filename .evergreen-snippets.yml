@@ -197,6 +197,19 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: periodic_gcp_cleanup
+    commands:
+      - func: clone
+      - func: setup_gcloud_cli
+      - command: subprocess.exec
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/google-cloud-sdk/bin
+          binary: scripts/evergreen/periodic-cleanup-gcp.sh
+          env:
+            MDB_GKE_PROJECT: "scratch-kubernetes-team"
+
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -273,3 +286,13 @@ buildvariants:
     <<: *base_om8_dependency
     tasks:
       - name: kind_multi_cluster_code_snippets_task_group
+
+  - name: periodic_gcp_cleanup
+    display_name: periodic_gcp_cleanup
+    tags: [ "periodic_teardown" ]
+    allowed_requesters: [ "cron", "patch" ]
+    cron: "0 6 * * *"
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - periodic_gcp_cleanup
