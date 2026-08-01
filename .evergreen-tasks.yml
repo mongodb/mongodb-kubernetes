@@ -359,6 +359,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_operator_reconcile_panic_liveness
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_pv
     tags: [ "patch-run" ]
     commands:

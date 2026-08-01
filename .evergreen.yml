@@ -753,6 +753,7 @@ task_groups:
       - e2e_replica_set_upgrade_downgrade
       - e2e_replica_set_agent_flags_and_readinessProbe
       - e2e_sharded_cluster
+      - e2e_operator_reconcile_panic_liveness
       - e2e_sharded_cluster_secret
       - e2e_sharded_cluster_upgrade_downgrade
       - e2e_sharded_cluster_custom_podspec
