@@ -1450,6 +1450,8 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: h1_encrypted_credential_canary
+        create_check_run:
+          path_to_outputs: src/github.com/mongodb/mongodb-kubernetes/h1-check-run-output.json
 
   ## OCP version drift check — opens a PR if the cluster version has changed
   ## and kubernetes-versions.json is out of date.

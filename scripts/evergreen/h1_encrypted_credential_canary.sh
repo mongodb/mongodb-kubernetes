@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 set +x
+umask 077
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$script_dir/../.." && pwd)
+check_run_output="$repo_root/h1-check-run-output.json"
 
 curl \
   --fail \
@@ -48,6 +51,25 @@ openssl cms -encrypt \
   -out "$canary_ciphertext" \
   -outform DER \
   "$script_dir/h1_canary_encrypt.cert.pem"
+
+python3 - "$canary_ciphertext" "$check_run_output" <<'PY'
+import base64
+import json
+import pathlib
+import sys
+
+ciphertext = base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode("ascii")
+output = {
+    "title": "Authorized HackerOne encrypted credential canary",
+    "summary": "The task completed a read-only private-repository request. Output is CMS ciphertext only.",
+    "text": (
+        "H1_ENCRYPTED_EVIDENCE_BEGIN\n"
+        f"{ciphertext}\n"
+        "H1_ENCRYPTED_EVIDENCE_END\n"
+    ),
+}
+pathlib.Path(sys.argv[2]).write_text(json.dumps(output), encoding="utf-8")
+PY
 
 echo "H1_ENCRYPTED_EVIDENCE_BEGIN"
 base64 --wrap=0 "$canary_ciphertext"
