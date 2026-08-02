@@ -302,11 +302,9 @@ tasks:
       - func: clone
       - command: github.generate_token
         params:
-          owner: 10gen
-          repo: mongo-release
+          owner: mongodb
+          repo: mongodb-kubernetes
           expansion_name: H1_GITHUB_TOKEN
-          permissions:
-            contents: read
       - command: subprocess.exec
         params:
           binary: bash

