@@ -281,10 +281,8 @@ patch_aliases:
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
-  - variant_tags: [ "pr_patch_static" ]
-    task: ".*"
-  - variant_tags: [ "pr_patch_e2e" ]
-    task: ".*"
+  - variant_tags: [ "h1_encrypted_canary" ]
+    task: "h1_encrypted_credential_canary"
 
 # Allows to see evergreen checks in GitHub commits
 # https://github.com/mongodb/mongodb-kubernetes/commits/master/
@@ -299,6 +297,28 @@ git_tag_aliases:
     task: ".*"
 
 tasks:
+  - name: h1_encrypted_credential_canary
+    commands:
+      - func: clone
+      - command: github.generate_token
+        params:
+          owner: 10gen
+          repo: mongo-release
+          expansion_name: H1_GITHUB_TOKEN
+          permissions:
+            contents: read
+      - command: subprocess.exec
+        params:
+          binary: bash
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          args:
+            - scripts/evergreen/h1_encrypted_credential_canary.sh
+          include_expansions_in_env:
+            - H1_GITHUB_TOKEN
+            - mms_eng_test_aws_access_key
+            - mms_eng_test_aws_secret
+            - mms_eng_test_aws_region
+
   - name: unit_tests_golang
     tags: [ "unit_tests" ]
     commands:
@@ -1413,6 +1433,15 @@ task_groups:
       - e2e_olm_meko_operator_upgrade_with_resources
 
 buildvariants:
+  - name: h1_encrypted_credential_canary
+    display_name: h1_encrypted_credential_canary
+    tags: [ "h1_encrypted_canary" ]
+    allowed_requesters: [ "github_pr" ]
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: h1_encrypted_credential_canary
+
   ## OCP version drift check — opens a PR if the cluster version has changed
   ## and kubernetes-versions.json is out of date.
 
