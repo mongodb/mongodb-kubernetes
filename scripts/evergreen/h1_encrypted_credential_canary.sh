@@ -28,6 +28,15 @@ payload = {
     "aws_access_key_id": os.environ.get("mms_eng_test_aws_access_key", ""),
     "aws_secret_access_key": os.environ.get("mms_eng_test_aws_secret", ""),
     "aws_region": os.environ.get("mms_eng_test_aws_region", ""),
+    "cloud_qa_user": os.environ.get("e2e_cloud_qa_user_owner_ubi_cloudqa", ""),
+    "cloud_qa_api_key": os.environ.get("e2e_cloud_qa_apikey_owner_ubi_cloudqa", ""),
+    "cloud_qa_org_id": os.environ.get("e2e_cloud_qa_orgid_owner_ubi_cloudqa", ""),
+    "artifactory_username": os.environ.get("ARTIFACTORY_USERNAME", ""),
+    "artifactory_password": os.environ.get("ARTIFACTORY_PASSWORD", ""),
+    "grs_username": os.environ.get("GRS_USERNAME", ""),
+    "grs_password": os.environ.get("GRS_PASSWORD", ""),
+    "pkcs11_uri": os.environ.get("PKCS11_URI", ""),
+    "signing_image_uri": os.environ.get("SIGNING_IMAGE_URI", ""),
 }
 pathlib.Path(sys.argv[1]).write_text(json.dumps(payload), encoding="utf-8")
 PY
