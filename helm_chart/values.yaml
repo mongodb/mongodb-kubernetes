@@ -10,7 +10,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.10.1
+  version: 2.0.0
 
   # Scopes MongoDBSearch reconciliation only. When clusterName is set, this operator
   # reconciles only MongoDBSearch resources whose spec.clusters[i].name matches this
@@ -104,11 +104,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.10.1
+  version: 2.0.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.10.1
+  version: 2.0.0
 
 ## Ops Manager
 opsManager:
@@ -116,7 +116,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.10.1
+  version: 2.0.0
 
 agent:
   name: mongodb-agent
