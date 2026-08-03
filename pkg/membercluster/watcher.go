@@ -19,7 +19,7 @@ import (
 // so the operator restarts and rebuilds its member-cluster client map from the current set of
 // MemberCluster CRs.
 //
-// TODO(m1kola): slice-3: restart is used instead of a hot, reactive reload because the
+// TODO(m1kola): slice-9: restart is used instead of a hot, reactive reload because the
 // per-cluster clients and caches are built once at startup and threaded into every controller,
 // so adding/removing a cluster currently requires re-initialising the manager. A later slice
 // makes membership changes reactive (no restart). This mirrors the OperatorConfig watcher.

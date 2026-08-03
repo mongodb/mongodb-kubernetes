@@ -88,11 +88,8 @@ def _install_simulated_operator(
     os.environ["HELM_KUBECONTEXT"] = mcc.cluster_name
 
     helm_args = dict(base_helm_args)
-    # multiCluster.clusters gates a kube-config-volume mount whose Secret is never created in this mode.
     for k in (
         "operator.watchNamespace",
-        "multiCluster.clusters",
-        "multiCluster.kubeConfigSecretName",
         "multiCluster.performFailover",
     ):
         helm_args.pop(k, None)

@@ -9,13 +9,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
-	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -569,34 +567,6 @@ func ValidateUniqueClusterNames(ms ClusterSpecList) v1.ValidationResult {
 func ValidateNonEmptyClusterSpecList(ms ClusterSpecList) v1.ValidationResult {
 	if len(ms) == 0 {
 		return v1.ValidationError("ClusterSpecList empty is not allowed, please define at least one cluster")
-	}
-	return v1.ValidationSuccess()
-}
-
-func ValidateMemberClusterIsSubsetOfKubeConfig(ms ClusterSpecList) v1.ValidationResult {
-	// read the mounted kubeconfig file and
-	kubeConfigFile, err := multicluster.NewKubeConfigFile(multicluster.GetKubeConfigPath())
-	if err != nil {
-		// log the error here?
-		return v1.ValidationSuccess()
-	}
-
-	kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()
-	if err != nil {
-		// log the error here?
-		return v1.ValidationSuccess()
-	}
-
-	clusterNames := kubeConfig.GetMemberClusterNames()
-	notPresentClusters := make([]string, 0)
-
-	for _, e := range ms {
-		if !slices.Contains(clusterNames, e.ClusterName) {
-			notPresentClusters = append(notPresentClusters, e.ClusterName)
-		}
-	}
-	if len(notPresentClusters) > 0 {
-		return v1.ValidationWarning("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
 	}
 	return v1.ValidationSuccess()
 }

@@ -305,7 +305,6 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
 		mdb.ValidateUniqueClusterNames,
 		mdb.ValidateNonEmptyClusterSpecList,
-		mdb.ValidateMemberClusterIsSubsetOfKubeConfig,
 	}
 
 	var validationResults []v1.ValidationResult
