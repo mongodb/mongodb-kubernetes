@@ -8,8 +8,6 @@ github.com/cyphar/filepath-securejoin,v0.4.1,https://github.com/cyphar/filepath-
 github.com/davecgh/go-spew/spew,v1.1.2-0.20180830191138-d8f796af33cc,https://github.com/davecgh/go-spew/blob/d8f796af33cc/LICENSE,ISC
 github.com/emicklei/go-restful/v3,v3.11.0,https://github.com/emicklei/go-restful/blob/v3.11.0/LICENSE,MIT
 github.com/fxamacker/cbor/v2,v2.7.0,https://github.com/fxamacker/cbor/blob/v2.7.0/LICENSE,MIT
-github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,BSD-3-Clause
-github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,MIT
 github.com/go-logr/logr,v1.4.4,https://github.com/go-logr/logr/blob/v1.4.4/LICENSE,Apache-2.0
 github.com/go-openapi/jsonpointer,v0.21.0,https://github.com/go-openapi/jsonpointer/blob/v0.21.0/LICENSE,Apache-2.0
 github.com/go-openapi/jsonreference,v0.20.2,https://github.com/go-openapi/jsonreference/blob/v0.20.2/LICENSE,Apache-2.0
@@ -40,7 +38,6 @@ go.yaml.in/yaml/v3,v3.0.4,https://github.com/yaml/go-yaml/blob/v3.0.4/LICENSE,MI
 google.golang.org/protobuf,v1.36.11,https://go.googlesource.com/protobuf/+/v1.36.11/LICENSE,BSD-3-Clause
 gopkg.in/evanphx/json-patch.v4,v4.12.0,https://github.com/evanphx/json-patch/blob/v4.12.0/LICENSE,BSD-3-Clause
 gopkg.in/inf.v0,v0.9.1,https://github.com/go-inf/inf/blob/v0.9.1/LICENSE,BSD-3-Clause
-gopkg.in/yaml.v2,v2.4.0,https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE,Apache-2.0
 gopkg.in/yaml.v3,v3.0.1,https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE,MIT
 helm.sh/helm/v3,v3.18.6,https://github.com/helm/helm/blob/v3.18.6/LICENSE,Apache-2.0
 k8s.io/api,v0.33.13,https://github.com/kubernetes/api/blob/v0.33.13/LICENSE,Apache-2.0

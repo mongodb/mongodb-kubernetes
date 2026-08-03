@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/google/go-cmp/cmp"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -96,45 +95,4 @@ func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[
 }
 
 func (c *ResourcesHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-// ConfigMapEventHandler is an EventHandler implementation that is used to watch for events on a given ConfigMap and ConfigMapNamespace
-// The handler will force a panic on Update and Delete.
-// As of right now it is only used to watch for events for the configmap pertaining the member list of multi-cluster.
-type ConfigMapEventHandler struct {
-	ConfigMapName      string
-	ConfigMapNamespace string
-}
-
-func (m ConfigMapEventHandler) Create(context.Context, event.TypedCreateEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (m ConfigMapEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if m.isMemberListCM(e.ObjectOld) {
-		switch v := e.ObjectOld.(type) {
-		case *corev1.ConfigMap:
-			changelog := cmp.Diff(v.Data, e.ObjectNew.(*corev1.ConfigMap).Data)
-			errMsg := fmt.Sprintf("%s/%s has changed! Will kill the pod to source the changes! Changelog: %s", m.ConfigMapNamespace, m.ConfigMapName, changelog)
-			panic(errMsg)
-		}
-	}
-}
-
-func (m ConfigMapEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if m.isMemberListCM(e.Object) {
-		errMsg := fmt.Sprintf("%s/%s has been deleted! Note we will need the configmap otherwise the operator will not work", m.ConfigMapNamespace, m.ConfigMapName)
-		panic(errMsg)
-	}
-}
-
-func (m ConfigMapEventHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (m ConfigMapEventHandler) isMemberListCM(o client.Object) bool {
-	name := o.GetName()
-	ns := o.GetNamespace()
-	if name == m.ConfigMapName && ns == m.ConfigMapNamespace {
-		return true
-	}
-	return false
 }

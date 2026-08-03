@@ -28,20 +28,16 @@ const credentialSecretKubeconfigKey = "kubeconfig"
 // single-context kubeconfig. The returned map is keyed by spec.clusterName — the logical name
 // the operator uses to resolve clusterSpecList[].clusterName references in workload CRs.
 //
-// The bool return reports whether any MemberCluster CRs were found. false means the caller
-// should fall back to the legacy discovery path (member-list ConfigMap + mounted kubeconfig).
-//
 // A per-cluster failure (missing or unparseable credential Secret) is logged and that cluster
 // is skipped, so one broken cluster does not prevent the operator from managing the others.
-// This mirrors the "don't panic, continue" behaviour of the legacy path in main.go.
-func Discover(ctx context.Context, c client.Reader, namespace string, clientTimeoutSeconds int) (map[string]*restclient.Config, bool, error) {
+func Discover(ctx context.Context, c client.Reader, namespace string, clientTimeoutSeconds int) (map[string]*restclient.Config, error) {
 	memberClusterList := &operatorv1.MemberClusterList{}
 	if err := c.List(ctx, memberClusterList, client.InNamespace(namespace)); err != nil {
-		return nil, false, fmt.Errorf("listing MemberCluster CRs in namespace %s: %w", namespace, err)
+		return nil, fmt.Errorf("listing MemberCluster CRs in namespace %s: %w", namespace, err)
 	}
 
 	if len(memberClusterList.Items) == 0 {
-		return nil, false, nil
+		return nil, nil
 	}
 
 	restConfigs := map[string]*restclient.Config{}
@@ -61,7 +57,7 @@ func Discover(ctx context.Context, c client.Reader, namespace string, clientTime
 		restConfigs[mc.Spec.ClusterName] = restConfig
 	}
 
-	return restConfigs, true, nil
+	return restConfigs, nil
 }
 
 // restConfigFromMemberCluster reads the credential Secret referenced by the MemberCluster CR

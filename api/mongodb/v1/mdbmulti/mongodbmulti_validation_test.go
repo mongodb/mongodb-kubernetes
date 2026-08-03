@@ -2,15 +2,12 @@ package mdbmulti
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
 var (
@@ -112,9 +109,6 @@ func TestMongoDBMultiValidattionHorzonsWithoutTLS(t *testing.T) {
 }
 
 func TestSpecProjectOnlyOneValue(t *testing.T) {
-	file := createTestKubeConfigAndSetEnv(t)
-	defer os.Remove(file.Name())
-
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{
 		ConfigMapRef: mdbv1.ConfigMapRef{Name: "cloud-manager"},
@@ -125,34 +119,4 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 
 	_, err := validator.ValidateCreate(ctx, mrs)
 	assert.NoError(t, err)
-}
-
-func createTestKubeConfigAndSetEnv(t *testing.T) *os.File {
-	//lint:ignore S1039 I avoid to modify this string to not ruin the format
-	//nolint
-	testKubeConfig := fmt.Sprintf(
-		`
-apiVersion: v1
-contexts:
-- context:
-    cluster: foo
-    namespace: a-1661872869-pq35wlt3zzz
-    user: foo
-  name: foo
-kind: Config
-users:
-- name: foo
-  user:
-    token: eyJhbGciOi
-`)
-
-	file, err := os.CreateTemp("", "kubeconfig")
-	assert.NoError(t, err)
-
-	_, err = file.WriteString(testKubeConfig)
-	assert.NoError(t, err)
-
-	t.Setenv(multicluster.KubeConfigPathEnv, file.Name())
-
-	return file
 }
