@@ -97,7 +97,6 @@ remote-prepare-local-e2e-run() {
     -e ssh \
     "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
-  scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
   wait
 }
