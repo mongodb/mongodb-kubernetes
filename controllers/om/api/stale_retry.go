@@ -21,12 +21,9 @@ type staleRetryTransport struct {
 }
 
 func (t *staleRetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Buffer the request body so it can be replayed on each retry.
-	// Note: this triple-buffers the body (retryablehttp + here + digest.Transport).
-	// OM API payloads can be large (automation configs approach 1MB), so if this
-	// becomes a memory concern, switch to req.GetBody instead of buffering here.
+	// Fallback: if GetBody is unavailable, buffer once for replay.
 	var bodyBytes []byte
-	if req.Body != nil {
+	if req.Body != nil && req.GetBody == nil {
 		var err error
 		bodyBytes, err = io.ReadAll(req.Body)
 		if err != nil {
@@ -35,8 +32,15 @@ func (t *staleRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	}
 
 	for attempt := 0; ; attempt++ {
+		// Reset body for replay after the first attempt consumes it.
 		if bodyBytes != nil {
 			req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		} else if attempt > 0 && req.GetBody != nil {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			req.Body = body
 		}
 
 		resp, err := t.transport.RoundTrip(req)
