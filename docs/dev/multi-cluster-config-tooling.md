@@ -32,7 +32,7 @@ to consume `MemberCluster` CRs (keeping a legacy fallback), then the legacy path
 | 3 | Operator `MemberCluster` wiring + watch | CLOUDP-400899 | done | Build the per-cluster client map from `MemberCluster` CRs + credential Secrets. **Restart-based watch** chosen for this slice (mirrors the `OperatorConfig` watcher): the watcher restarts the operator on `MemberCluster` add/spec-change/delete. No-restart reactivity deferred to slice 9 (spike found it touches every controller's fan-out; `multicluster-runtime`'s `Provider`+`Engage(ctx)` is a candidate but its reconcile model is inverse to MCK's and it's pre-1.0). Discovery is CRs-if-present-else-legacy; legacy fallback tagged `TODO(m1kola): slice-3`. The member-cluster health checker (`memberwatch`) was made discovery-agnostic — it now sources per-cluster credentials from the in-memory `cluster.GetConfig()` rest.Config instead of the mounted kubeconfig file, so failover/health status works on both paths. |
 | 4 | RBAC validation | CLOUDP-400899 | todo (after 5) | `RBACValid` condition validated against the `mongodb.com/rbac-version` annotation emitted by slice 1; startup gate + periodic re-check. **Deferred until after slice 5** — not a blocker for the E2E migration: the slice-3 operator has no runtime RBAC-version awareness, so member clusters set up by the new tooling work without it. |
 | 5 | Migrate MC E2E to new tooling | CLOUDP-400899 | in progress | **Brought forward before slice 4.** Multi-cluster becomes day-2 config: install the operator single-cluster, then apply member RBAC (`generate-member-resources`) + registration (`generate-member-registration` → `MemberCluster` CRs) via new `conftest.py` helpers (`configure_multi_cluster_members`), replacing `run_kube_config_creation_tool` in the fixtures + direct callers. Recovery tests reworked to add/remove `MemberCluster` CRs (no `recover` CLI; `multi_cluster_cli_recover.py` renamed to `multi_cluster_member_add_remove.py`). The AppDB and sharded DR tests, which simulated an unhealthy cluster by editing the legacy member-list ConfigMap, now delete the failed cluster's `MemberCluster` CR + credential Secret instead (the sharded/AppDB controllers have no reachability health-check — a cluster is unhealthy purely by being absent from the operator's member map, which the CR deletion produces under both the current restart-based watch and a future hot reload). Apply the generated RBAC to **every** member cluster including central (do not `skip_central_cluster`) — validates the additive apply. Member configuration is unified in `conftest.py` for both the in-cluster and local operator (the old `prepare_local_e2e_run.sh` / `run_multi_cluster_kube_config_creator` pre-pytest registration is removed) — in both, pytest shares the operator's network vantage so the ambient kubeconfig carries operator-reachable addresses. **Follow-up: slice 9** — a local host-run operator currently exits on a `MemberCluster` CR change (the watcher cancels the manager context) and nothing restarts it, so the operator must be (re)started after the fixtures configure members. Mode "operator in-cluster + tests on host" relies on `kubefwd` and is out of scope. |
-| 6 | Clean break | CLOUDP-400899 | in progress | Split into three stacked PRs so no PR is red on its own: **(1)** make the released E2E baseline self-sufficient — see "Released baseline for upgrade tests" below; **(2)** migrate the public doc snippets (`docs/search/1{2,3}-*`, `public/architectures/setup-multi-cluster`) off `multicluster setup` + `--set multiCluster.clusters`, since they run on every PR patch via `private_kind_multi_cluster_code_snippets`; **(3)** the removals. Remove `setup`/`recovery`, the legacy discovery + fallback, and dead `common.go` RBAC/kubeconfig code. Also remove `multiCluster.clusters` and `multiCluster.kubeConfigSecretName` (still set in the `operator-installation-config` ConfigMap for `install_official_operator`'s legacy baseline, and popped for the new path in `_install_multi_cluster_operator`) — plus the `kube-config-volume` mount they gate in `helm_chart/templates/operator.yaml:59-61,263-267`. (Slice 5 already stopped `scripts/funcs/operator_deployment` forcing `operator.createOperatorServiceAccount=false` for multi, so the operator installs its base RBAC via Helm.) |
+| 6 | Clean break | CLOUDP-400899 | in progress | Split into three stacked PRs so no PR is red on its own: **(1)** make the released E2E baseline self-sufficient — see "Released baseline for upgrade tests" below; **(2)** migrate the public doc snippets (`docs/search/1{2,3}-*`, `public/architectures/setup-multi-cluster`) off `multicluster setup` + `--set multiCluster.clusters`, since they run on every PR patch via `private_kind_multi_cluster_code_snippets` — done, see "Public doc snippets" below; **(3)** the removals. Remove `setup`/`recovery`, the legacy discovery + fallback, and dead `common.go` RBAC/kubeconfig code. Also remove `multiCluster.clusters` and `multiCluster.kubeConfigSecretName` (still set in the `operator-installation-config` ConfigMap for `install_official_operator`'s legacy baseline, and popped for the new path in `_install_multi_cluster_operator`) — plus the `kube-config-volume` mount they gate in `helm_chart/templates/operator.yaml:59-61,263-267`. (Slice 5 already stopped `scripts/funcs/operator_deployment` forcing `operator.createOperatorServiceAccount=false` for multi, so the operator installs its base RBAC via Helm.) |
 | 7 | Member-scoped workload ServiceAccounts | CLOUDP-400899 | todo | End-state so `generate-member-resources` output touches **nothing** from helm/OLM. Un-hardcode the workload pod SA names in the operator (`construct/appdb_construction.go:500`, `construct/opsmanager_construction.go:480`; database SA already per-CR overridable) so pods on member clusters run under member-scoped SAs; emit member-scoped workload RBAC instead of the interim fixed-name `database-roles.yaml`. Single-cluster keeps using the helm-install SAs. |
 | 8 | RBAC de-duplication | CLOUDP-400899 | todo | Single source of truth for the operator's shared workload rules (services/secrets/configmaps/statefulsets/deployments/pods) so extending a permission is one edit, not two. Aim for: base role = shared + central-only (CRDs/operatorconfigs); member role = shared + member extras (serviceaccounts get, nodes, kube-system, /version). Mechanism left open (shared partial, restructured/parameterised template, generating member from the same source, …). Deferred deliberately — see below. |
 | 9 | No-restart `MemberCluster` reactivity (hot reload) | CLOUDP-400899 | todo | Make membership changes reactive **without** restarting the operator — the "later slice" referenced from slice 3, which currently restarts the operator on `MemberCluster` add/spec-change/delete. Candidate mechanism per slice 3: `multicluster-runtime`'s `Provider`+`Engage(ctx)` (reconcile model is inverse to MCK's and it's pre-1.0). This also resolves the **slice-5 local-dev caveat**: a host-run (`make run`) operator currently exits when the watcher cancels the manager context and nothing restarts it, so it must be (re)started after the E2E fixtures configure members day-2. Interim option if hot reload is not ready: wrap the local operator in a restart-loop/supervisor so it behaves like an in-cluster pod. Tagged `TODO(m1kola): slice-9` in `docker/mongodb-kubernetes-tests/tests/conftest.py`. |
@@ -103,6 +103,62 @@ The released MCK 1.x plugin is deliberately **not** wired into the local dev flo
 (`prepare_local_e2e_run.sh` → `scripts/dev/prepare-multi-cluster/`): `install_official_operator` skips
 legacy provisioning when `local_operator()` is set, so installing a released in-cluster operator as an
 upgrade baseline is a CI-only flow and a local fetch would be dead weight.
+
+## Public doc snippets (slice 6, PR 2)
+
+The user-facing multi-cluster tutorials also ran on the legacy flow and are CI-executed, so they were
+migrated ahead of the removals (`iux-multi-cluster-docs-snippets`):
+
+- **Search tutorials** (`docs/search/12-search-rs-multi-cluster`, `13-search-sharded-multi-cluster`;
+  run on every PR patch via `private_kind_multi_cluster_code_snippets`): `*_0100_install_operator.sh`
+  lost the `multicluster setup` block, `multiCluster.clusters` and
+  `operator.createOperatorServiceAccount=false` (keeping `createResourcesServiceAccountsAndRoles=false`,
+  tagged `TODO(m1kola): slice-7`); a new `*_0110_configure_member_clusters.sh` runs
+  `generate-member-resources` + `generate-member-registration` per cluster. The folders stay
+  intentional twins.
+- **Reference architecture** (`public/architectures/setup-multi-cluster/ra-02-setup-operator`; GKE,
+  manual/staging only): `ra-02_0200_kubectl_mongodb_configure_multi_cluster.sh` (two `setup` calls)
+  became `ra-02_0220_configure_member_clusters.sh`, reordered to run **after** the operator install —
+  registration applies `MemberCluster` CRs to central and needs the CRD the chart ships. The two
+  `setup` calls (one per watched namespace) collapse into a single
+  `generate-member-resources --watched-namespaces="${OM_NAMESPACE},${MDB_NAMESPACE}"` per cluster: one
+  member SA in `OM_NAMESPACE` with bindings in both namespaces.
+
+Findings this surfaced:
+
+- **GKE context names are not RFC 1123** (`gke_<project>_<zone>_<cluster>` — underscores), so they
+  cannot be MemberCluster `metadata.name`/RBAC names. ra-02 sanitises (`${ctx//_/-}`) and passes the
+  raw context as `--cluster-name` (`MemberCluster.spec.clusterName`, which has no RFC 1123 validation)
+  so it still matches `clusterSpecList[].clusterName` in ra-06/07/08 workload CRs. The kind search
+  tutorials need no such mapping (their contexts are already compliant).
+- **The GKE variants needed no re-wiring.** `private_gke_code_snippets` already installs the branch
+  chart: `scripts/dev/contexts/private_gke_code_snippets` exports
+  `OPERATOR_HELM_CHART="${PROJECT_DIR}/helm_chart"` and dev-image values, and `configure_docker_auth`
+  is already pulled in via `download_kube_tools`. `public_gke_code_snippets` explicitly keeps the
+  released chart (`OPERATOR_HELM_CHART=""`), so it **stays red on this flow until MCK 2.x is
+  released** — accepted: it is manual-only and its whole premise is testing the published flow.
+- **The snippets deliberately do not wait for the operator's post-registration restart.** The slice-3
+  watcher restarts the operator *in-place* (cancels the manager context; same pod, restartCount
+  increments — no new Deployment rollout), so `kubectl rollout status` cannot observe it, and a
+  restartCount watch (as the e2e harness's `wait_for_operator_pod_restart` does) is far too noisy for
+  user-facing tutorials. It is also unnecessary: reconcile is level-based (CRs applied during the
+  restart are picked up when the operator returns), and the operator's validating webhook is
+  `failurePolicy: Ignore` (`pkg/webhook/setup.go`), so CR creation cannot be rejected mid-restart.
+  Downstream snippet steps are either operator-independent or wait-based, so CI absorbs the delay.
+  The wait that *is* load-bearing — for the `mck-member-*-token` Secret before
+  `generate-member-registration` reads it — stays. Follow-up idea (tagged `TODO(m1kola): token-wait`
+  in the snippets): make `generate-member-registration` poll for the token itself, removing the
+  per-cluster wait loop from every caller.
+- **`get_operator_helm_values` re-injects `multiCluster.clusters` in multi envs**
+  (`scripts/funcs/operator_deployment:64-70`), which makes the chart render the legacy
+  `kube-config-volume` mount — and with no `multicluster setup` the kubeconfig Secret never exists,
+  so the operator pod wedges in FailedMount. The pytest harness pops this value in
+  `_install_multi_cluster_operator`; the bash snippet flow has no such pop, so
+  `docs/search/1{2,3}-*/env_variables_e2e_private.sh` now filter it out of
+  `OPERATOR_ADDITIONAL_HELM_VALUES`. The filter becomes a no-op when PR 3 removes the injection
+  (§3e) — the released-baseline consumer `install_official_operator` still needs it until then —
+  and **PR 3 should delete the filter lines** along with the injection. (The GKE contexts never set
+  `MEMBER_CLUSTERS`, so ra-02 is unaffected.)
 
 ## Interim vs end-state: workload RBAC
 
