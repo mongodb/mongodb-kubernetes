@@ -47,6 +47,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -1454,10 +1455,10 @@ func baseTestMongoDB(name string, members int) mdbv1.MongoDB {
 	}
 }
 
-// TestPublishAutomationConfigFirstRS tests the publishAutomationConfigFirstRS function which determines
+// TestPublishAutomationConfigFirst tests the publishAutomationConfigFirst function which determines
 // whether the OM automation config should be updated before the StatefulSet in certain scenarios
 // (e.g., TLS disabled, CA removed, scaling down, agent auth changes, version changes).
-func TestPublishAutomationConfigFirstRS(t *testing.T) {
+func TestPublishAutomationConfigFirst(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
@@ -1609,7 +1610,18 @@ func TestPublishAutomationConfigFirstRS(t *testing.T) {
 				Build()
 			kubeClient := kubernetesClient.NewClient(fakeClient)
 
-			result := publishAutomationConfigFirstRS(ctx, kubeClient, tc.mdb, tc.lastSpec, tc.currentAgentAuthMode, tc.sslMMSCAConfigMap, architectures.NonStatic, zap.S())
+			result := publishAutomationConfigFirst(ctx, kubeClient, tc.mdb, tc.lastSpec, func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+				return construct.DatabaseStatefulSetOptions{
+					Name:                 mdb.Name,
+					Replicas:             mdb.Spec.Members,
+					CurrentAgentAuthMode: tc.currentAgentAuthMode,
+					PodVars: &env.PodEnvVars{
+						SSLProjectConfig: env.SSLProjectConfig{
+							SSLMMSCAConfigMap: tc.sslMMSCAConfigMap,
+						},
+					},
+				}
+			}, architectures.NonStatic, zap.S())
 
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})
