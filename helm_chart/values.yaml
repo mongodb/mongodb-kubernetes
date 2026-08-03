@@ -155,9 +155,6 @@ registry:
 # This is only used by the MongoDBCommunity resource reconciler - END
 
 multiCluster:
-  # Specify if we want to deploy the operator in multi-cluster mode
-  clusters: []
-  kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
   performFailOver: true
 
 # Resources only for the MongoDBCommunity resource reconciler

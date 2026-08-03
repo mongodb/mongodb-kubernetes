@@ -60,15 +60,6 @@ get_operator_helm_values() {
     fi
   fi
 
-  # shellcheck disable=SC2154
-  if [[ "${KUBE_ENVIRONMENT_NAME-}" = "multi" ]]; then
-    if [[ -n "${MEMBER_CLUSTERS:-}" ]]; then
-      comma_separated_list="$(echo "${MEMBER_CLUSTERS}" | tr ' ' ',')"
-      # shellcheck disable=SC2154
-      config+=("multiCluster.clusters={${comma_separated_list}}")
-    fi
-  fi
-
   if [[ "${BUILD_WITH_RACE_DETECTION:-}" == "true" ]]; then
     config+=("operator.build=-race")
   fi
