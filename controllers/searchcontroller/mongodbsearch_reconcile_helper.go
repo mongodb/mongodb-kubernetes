@@ -43,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -179,6 +180,7 @@ type reconcileUnit struct {
 	tlsResource         tls.TLSConfigurableResource
 	mongotConfigFn      mongot.Modification
 	clusterName         string
+	serviceAccountName  string
 	client              kubernetesClient.Client // nil: named cluster with no registered member client
 	clusterIndex        int
 	ownerReferences     []metav1.OwnerReference
@@ -268,6 +270,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 			tlsResource:        r.mdbSearch,
 			mongotConfigFn:     mongotConfigFn,
 			clusterName:        w.ClusterName,
+			serviceAccountName: resourcenames.WorkloadDatabasePodsServiceAccount.Name(w.ClusterName, w.Local),
 			client:             w.Client,
 			clusterIndex:       w.ClusterIndex,
 			ownerReferences:    w.ownerReferences(r.mdbSearch),
@@ -417,6 +420,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, clusterIndex: w.ClusterIndex, shardName: w.ShardName},
 			mongotConfigFn:      mongotConfigFn,
 			clusterName:         w.ClusterName,
+			serviceAccountName:  resourcenames.WorkloadDatabasePodsServiceAccount.Name(w.ClusterName, w.Local),
 			client:              w.Client,
 			clusterIndex:        w.ClusterIndex,
 			ownerReferences:     w.ownerReferences(r.mdbSearch),
@@ -783,7 +787,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		},
 	))
 
-	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.serviceAccountName, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
 	stsOverride := StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration)
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,

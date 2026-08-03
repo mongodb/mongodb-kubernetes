@@ -611,3 +611,29 @@ func TestHasVolumeMount(t *testing.T) {
 		})
 	}
 }
+
+func TestOpsManagerStatefulSet_ServiceAccount(t *testing.T) {
+	ctx := context.Background()
+	buildWithMemberCluster := func(t *testing.T, memberCluster multicluster.MemberCluster) appsv1.StatefulSet {
+		client, _ := mock.NewDefaultFakeClient()
+		secretsClient := secrets.SecretClient{
+			VaultClient: &vault.VaultClient{},
+			KubeClient:  client,
+		}
+		memberCluster.Client = client
+		memberCluster.SecretClient = secretsClient
+		sts, err := OpsManagerStatefulSet(ctx, secretsClient, omv1.NewOpsManagerBuilderDefault().Build(), memberCluster, zap.S())
+		assert.NoError(t, err)
+		return sts
+	}
+
+	t.Run("legacy central cluster uses the fixed helm-install service account", func(t *testing.T) {
+		sts := buildWithMemberCluster(t, multicluster.MemberCluster{Name: multicluster.LegacyCentralClusterName, Legacy: true, Replicas: 1})
+		assert.Equal(t, util.OpsManagerServiceAccount, sts.Spec.Template.Spec.ServiceAccountName)
+	})
+
+	t.Run("member cluster uses the member-scoped service account", func(t *testing.T) {
+		sts := buildWithMemberCluster(t, multicluster.MemberCluster{Name: "cluster-a", Legacy: false, Replicas: 1})
+		assert.Equal(t, "mck-member-cluster-a-ops-manager", sts.Spec.Template.Spec.ServiceAccountName)
+	})
+}

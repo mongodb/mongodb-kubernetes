@@ -21,6 +21,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 		}
 		opts := construct.DatabaseStatefulSetOptions{
 			Name:                          mdbm.Name,
+			ServiceAccountName:            util.MongoDBServiceAccount,
 			ServicePort:                   mdbm.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
 			Persistent:                    mdbm.Spec.Persistent,
 			AgentConfig:                   &mdbm.Spec.Agent,
@@ -44,6 +45,12 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 func WithServiceName(serviceName string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.ServiceName = serviceName
+	}
+}
+
+func WithServiceAccount(serviceAccountName string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ServiceAccountName = serviceAccountName
 	}
 }
 

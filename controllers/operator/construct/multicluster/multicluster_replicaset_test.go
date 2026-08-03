@@ -311,3 +311,48 @@ func TestMultiClusterStatefulSet_StaticContainersEnvVars(t *testing.T) {
 		})
 	}
 }
+
+func TestMultiClusterStatefulSet_ServiceAccount(t *testing.T) {
+	t.Run("WithServiceAccount sets the pod template service account", func(t *testing.T) {
+		mdbm := getMultiClusterMongoDB()
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+			WithServiceAccount("mck-member-foo-database-pods"),
+		)
+		sts := MultiClusterStatefulSet(mdbm, opts)
+		assert.Equal(t, "mck-member-foo-database-pods", sts.Spec.Template.Spec.ServiceAccountName)
+	})
+
+	t.Run("without WithServiceAccount the options builder default is used", func(t *testing.T) {
+		mdbm := getMultiClusterMongoDB()
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+		)
+		sts := MultiClusterStatefulSet(mdbm, opts)
+		assert.Equal(t, util.MongoDBServiceAccount, sts.Spec.Template.Spec.ServiceAccountName)
+	})
+
+	t.Run("per-cluster pod template override wins over WithServiceAccount", func(t *testing.T) {
+		override := &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{
+			Spec: appsv1.StatefulSetSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{ServiceAccountName: "user-sa"},
+				},
+			},
+		}}
+		mdbm := getMultiClusterMongoDB()
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+			WithServiceAccount("mck-member-foo-database-pods"),
+			WithStsOverride(&override.SpecWrapper.Spec),
+		)
+		sts := MultiClusterStatefulSet(mdbm, opts)
+		assert.Equal(t, "user-sa", sts.Spec.Template.Spec.ServiceAccountName)
+	})
+}
