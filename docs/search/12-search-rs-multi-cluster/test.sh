@@ -32,6 +32,7 @@ run 12_0045_create_namespaces.sh
 run 12_0046_internal_create_image_pull_secrets.sh
 
 run_for_output 12_0100_install_operator.sh
+run_for_output 12_0110_configure_member_clusters.sh
 
 # Ops Manager resources (for the simulated external cluster)
 run 12_0300_internal_create_ops_manager_resources.sh
