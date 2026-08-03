@@ -29,7 +29,11 @@
 #                                key for the app. In Evergreen this comes from the Private
 #                                project variable `rh_gh_app_pem_b64`.
 #   VERSION     (optional) operator version; defaults to .mongodbOperator in release.json.
-#   RH_DRYRUN   (optional) "true" (default) performs a --dry-run push; "false" pushes.
+#   RH_DRYRUN   (optional) "true" performs a --dry-run push; "false" pushes. If unset,
+#               defaults to "false" (real push) when REQUESTER=github_tag (automated
+#               tag-triggered release), otherwise defaults to "true" (safe dry-run).
+#   REQUESTER   (optional) Evergreen trigger type (e.g. "github_tag", "patch"); used only
+#               to pick the RH_DRYRUN default described above.
 #   S3_BUNDLES_URL (optional) base URL of the bundles bucket.
 #   PACKAGE     (optional) operator package dir name; defaults to mongodb-kubernetes.
 
@@ -38,7 +42,16 @@ set -Eeou pipefail
 test "${MDB_DEBUG:-0}" -eq 1 && set -x
 
 VERSION="${VERSION:-$(jq -r .mongodbOperator < release.json)}"
-RH_DRYRUN="${RH_DRYRUN:-true}"
+# Default policy: real pushes only for the automated tag-triggered Evergreen release
+# (REQUESTER=github_tag); every other trigger (patch/manual run/local CLI) defaults to
+# a safe dry-run. An explicit RH_DRYRUN always overrides this default.
+if [[ -z "${RH_DRYRUN:-}" ]]; then
+  if [[ "${REQUESTER:-}" == "github_tag" ]]; then
+    RH_DRYRUN="false"
+  else
+    RH_DRYRUN="true"
+  fi
+fi
 PACKAGE="${PACKAGE:-mongodb-kubernetes}"
 S3_BUNDLES_URL="${S3_BUNDLES_URL:-https://operator-e2e-bundles.s3.amazonaws.com/bundles}"
 
