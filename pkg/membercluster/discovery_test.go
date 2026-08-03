@@ -65,13 +65,12 @@ func credentialSecret(name, server string) *corev1.Secret {
 	}
 }
 
-func TestDiscover_NoCRs_FallsBack(t *testing.T) {
+func TestDiscover_NoCRs_ReturnsNil(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 
-	restConfigs, found, err := Discover(context.Background(), c, testNamespace, 10)
+	restConfigs, err := Discover(context.Background(), c, testNamespace, 10)
 
 	require.NoError(t, err)
-	assert.False(t, found)
 	assert.Nil(t, restConfigs)
 }
 
@@ -85,10 +84,9 @@ func TestDiscover_BuildsMapKeyedByClusterName(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
 
-	restConfigs, found, err := Discover(context.Background(), c, testNamespace, 7)
+	restConfigs, err := Discover(context.Background(), c, testNamespace, 7)
 
 	require.NoError(t, err)
-	assert.True(t, found)
 	require.Len(t, restConfigs, 2)
 
 	require.Contains(t, restConfigs, "cluster-east")
@@ -112,10 +110,9 @@ func TestDiscover_SkipsClusterWithMissingSecret(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
 
-	restConfigs, found, err := Discover(context.Background(), c, testNamespace, 10)
+	restConfigs, err := Discover(context.Background(), c, testNamespace, 10)
 
 	require.NoError(t, err)
-	assert.True(t, found)
 	require.Len(t, restConfigs, 1)
 	assert.Contains(t, restConfigs, "cluster-good")
 	assert.NotContains(t, restConfigs, "cluster-bad")
@@ -134,10 +131,9 @@ func TestDiscover_SkipsClusterWithSecretMissingKubeconfigKey(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
 
-	restConfigs, found, err := Discover(context.Background(), c, testNamespace, 10)
+	restConfigs, err := Discover(context.Background(), c, testNamespace, 10)
 
 	require.NoError(t, err)
-	assert.True(t, found)
 	require.Len(t, restConfigs, 1)
 	assert.Contains(t, restConfigs, "cluster-good")
 }
