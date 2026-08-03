@@ -842,7 +842,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		construct.WithOpsManagerImage(opsManagerImage),
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
-		construct.WithKmipConfig(ctx, opsManager, memberCluster.Client, log),
+		construct.WithKmipConfig(ctx, opsManager, r.client, log),
 		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
 		construct.WithDebugPort(debugPort),
@@ -962,8 +962,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 		construct.WithOpsManagerImage(opsManagerImage),
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
-		// TODO KMIP support will not work across clusters
-		construct.WithKmipConfig(ctx, reconcilerHelper.opsManager, memberCluster.Client, log),
+		construct.WithKmipConfig(ctx, reconcilerHelper.opsManager, r.client, log),
 		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
 		construct.WithOMDefaultArchitecture(r.defaultArchitecture),

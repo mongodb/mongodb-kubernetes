@@ -16,6 +16,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -183,6 +184,11 @@ def main():
     parser = argparse.ArgumentParser(description="Release all images on merge")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
     args = parser.parse_args()
+
+    branch_name = os.environ.get("branch_name")
+    if branch_name != "master":
+        logger.info(f"Skipping release_om_and_agents: only runs on master (branch_name={branch_name})")
+        return 0
 
     release_data = load_release_json()
     ops_manager_mapping = get_ops_manager_mapping(release_data)

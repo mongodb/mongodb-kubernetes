@@ -1,3 +1,18 @@
+# DEPRECATED: this is the legacy release process (rebuilds and retests every
+# image before publishing), triggered by tags shaped "old-X.Y.Z". It is kept
+# running alongside the new publish-only process (.evergreen-release-publish.yml,
+# triggered by "new-X.Y.Z") until the new process fully replaces it. Do not
+# add new functionality here — add it to the new process instead.
+#
+# Cleanup once retired:
+# 1. Delete this file; rename .evergreen-release-publish.yml to
+#    .evergreen-release.yml in its place.
+# 2. In .evergreen.yml: remove the "old-*" git_tag_aliases entry, remove the
+#    "deprecated-release" patch alias, remove this file from the include:
+#    block, and update the remaining git_tag_aliases entry/comment to point
+#    at the renamed file. Every buildvariant tagged "deprecated-release" in
+#    this file goes away with it — nothing tagged "deprecated-release" is
+#    used anywhere else, so there is nothing else to clean up.
 include:
   - filename: .evergreen-functions.yml
 
@@ -115,6 +130,7 @@ tasks:
   - name: add_releaseinfo_to_github_assets
     commands:
       - func: clone
+      - func: compute_release_version
       - func: python_venv
       - func: add_releaseinfo_to_github_assets
 
@@ -122,8 +138,18 @@ tasks:
     tags: [ "helm_chart_release_pr" ]
     commands:
       - func: clone
+      - func: compute_release_version
       - func: python_venv
       - func: create_chart_release_pr
+
+  # Runs after every task in a "deprecated-release"-tagged variant succeeds: pushes the
+  # final "X.Y.Z" tag (which is not itself a trigger) and deletes "old-X.Y.Z".
+  - name: retag_legacy_release
+    commands:
+      - func: clone
+      - func: push_release_tag
+        vars:
+          prefix: "old-"
 
   - name: release_chart_to_oci_registry
     tags: [ "release_chart_to_oci_registry" ]
@@ -140,7 +166,7 @@ buildvariants:
 
   - name: release_images
     display_name: release_images
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
@@ -155,7 +181,7 @@ buildvariants:
 
   - name: add_releaseinfo_to_github_assets
     display_name: add_releaseinfo_to_github_assets
-    tags: ["release"]
+    tags: ["deprecated-release"]
     run_on:
       - ubuntu2404-small
     allowed_requesters: ["patch", "github_tag"]
@@ -168,7 +194,7 @@ buildvariants:
   # Preflight on git tag: images built in release_images (+ enterprise server on Quay). OM/agent preflight runs on master (see preflight_om_and_agents variant).
   - name: preflight_release_images
     display_name: preflight_release_images
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - rhel90-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -194,7 +220,7 @@ buildvariants:
 
   - name: prepare_openshift_bundles
     display_name: prepare_openshift_bundles
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - ubuntu2404-small
     allowed_requesters: [ "patch", "github_tag" ]
@@ -211,7 +237,7 @@ buildvariants:
   # are draft + human-reviewed so we do not auto-chain it after every release build.
   - name: publish_openshift_bundles_to_rh
     display_name: publish_openshift_bundles_to_rh
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - ubuntu2404-small
     allowed_requesters: [ "github_tag" ]
@@ -223,7 +249,7 @@ buildvariants:
 
   - name: prerelease_kind_code_snippets
     display_name: prerelease_kind_code_snippets
-    tags: [ "release", "prerelease_code_snippets" ]
+    tags: [ "deprecated-release", "prerelease_code_snippets" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -236,7 +262,7 @@ buildvariants:
 
   - name: prerelease_gke_code_snippets
     display_name: prerelease_gke_code_snippets
-    tags: [ "release", "prerelease_code_snippets" ]
+    tags: [ "deprecated-release", "prerelease_code_snippets" ]
     run_on:
       - ubuntu2404-small
     allowed_requesters: ["patch", "github_tag"]
@@ -249,7 +275,7 @@ buildvariants:
 
   - name: init_test_run_release
     display_name: init_test_run
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
@@ -264,7 +290,7 @@ buildvariants:
   - name: init_smoke_tests_ibm_power_release
     display_name: init_smoke_tests_ibm_power
     max_hosts: -1
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-rhel9-power-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-power-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -280,7 +306,7 @@ buildvariants:
   - name: init_smoke_tests_ibm_z_release
     display_name: init_smoke_tests_ibm_z
     max_hosts: -1
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
       - release-rhel9-zseries-large # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -296,7 +322,7 @@ buildvariants:
   - name: init_smoke_tests_arm_release
     display_name: init_smoke_tests_arm
     max_hosts: -1
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
@@ -310,7 +336,7 @@ buildvariants:
 
   - name: e2e_smoke_release
     display_name: e2e_smoke
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -324,7 +350,7 @@ buildvariants:
 
   - name: e2e_static_smoke_release
     display_name: e2e_static_smoke
-    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -338,7 +364,7 @@ buildvariants:
 
   - name: e2e_smoke_ibm_power_release
     display_name: e2e_smoke_ibm_power
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -353,7 +379,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_power_release
     display_name: e2e_static_smoke_ibm_power
-    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -368,7 +394,7 @@ buildvariants:
 
   - name: e2e_smoke_ibm_z_release
     display_name: e2e_smoke_ibm_z
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -383,7 +409,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_z_release
     display_name: e2e_static_smoke_ibm_z
-    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -398,7 +424,7 @@ buildvariants:
 
   - name: e2e_smoke_arm_release
     display_name: e2e_smoke_arm
-    tags: [ "release", "e2e_smoke_release_test_suite" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -412,7 +438,7 @@ buildvariants:
 
   - name: e2e_static_smoke_arm_release
     display_name: e2e_static_smoke_arm
-    tags: [ "release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -426,7 +452,7 @@ buildvariants:
 
   - name: release_kubectl_mongodb_plugin
     display_name: release_kubectl_mongodb_plugin
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
@@ -435,7 +461,7 @@ buildvariants:
 
   - name: create_chart_release_pr
     display_name: create_chart_release_pr
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
@@ -444,7 +470,7 @@ buildvariants:
 
   - name: release_chart_to_oci_registry
     display_name: release_chart_to_oci_registry
-    tags: [ "release" ]
+    tags: [ "deprecated-release" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
@@ -458,3 +484,17 @@ buildvariants:
         patch_optional: true
     tasks:
       - name: release_chart_to_oci_registry
+
+  # Not tagged "deprecated-release" itself (it depends on every "deprecated-release"-tagged variant
+  # succeeding, which would otherwise create a self-dependency).
+  - name: retag_legacy_release
+    display_name: retag_legacy_release
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: ".deprecated-release"
+        status: "success"
+    tasks:
+      - name: retag_legacy_release

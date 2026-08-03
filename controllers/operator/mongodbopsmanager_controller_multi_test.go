@@ -3,11 +3,13 @@ package operator
 import (
 	"context"
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -16,19 +18,27 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func omStsName(name string, clusterIdx int) string {
 	return fmt.Sprintf("%s-%d", name, clusterIdx)
+}
+
+func backupDaemonStsName(name string, clusterIdx int) string {
+	return fmt.Sprintf("%s-%d-backup-daemon", name, clusterIdx)
 }
 
 func genKeySecretName(omName string) string {
@@ -293,6 +303,119 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 		memberClusterChecks.checkPEMSecret(omPemSecretName, omTLSSecretPemHash)
 		memberClusterChecks.checkAppDBCAConfigMap(appDbCAConfigMapName)
 		memberClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+	}
+}
+
+// TestOpsManagerMultiClusterWithKMIP verifies that in multi-cluster topology the KMIP configuration is
+// read from the central cluster (where MongoDB resources live) and applied to the Ops Manager and
+// Backup Daemon statefulsets created in member clusters.
+// All KMIP-related resources are created only in the central cluster's fake client. Member clusters use
+// separate fake clients that don't contain any MongoDB resources, simulating a setup where member clusters
+// don't have access to MongoDB CRs.
+func TestOpsManagerMultiClusterWithKMIP(t *testing.T) {
+	ctx := context.Background()
+
+	kmipURL := "kmip.mongodb.com:5696"
+	kmipCAConfigMapName := "kmip-ca"
+	mdbName := "test-mdb"
+
+	clientCertificatePrefix := "test-prefix"
+	expectedClientCertificateSecretName := clientCertificatePrefix + "-" + mdbName + "-kmip-client"
+
+	memberClusterName := "kind-e2e-cluster-1"
+	memberClusterName2 := "kind-e2e-cluster-2"
+	clusters := []string{memberClusterName, memberClusterName2}
+	appDBClusterSpecItems := mdbv1.ClusterSpecList{
+		{
+			ClusterName: memberClusterName,
+			Members:     1,
+		},
+		{
+			ClusterName: memberClusterName2,
+			Members:     2,
+		},
+	}
+	clusterSpecItems := []omv1.ClusterSpecOMItem{
+		{
+			ClusterName: memberClusterName,
+			Members:     1,
+			Backup: &omv1.MongoDBOpsManagerBackupClusterSpecItem{
+				Members: 1,
+			},
+		},
+		{
+			ClusterName: memberClusterName2,
+			Members:     1,
+			Backup: &omv1.MongoDBOpsManagerBackupClusterSpecItem{
+				Members: 1,
+			},
+		},
+	}
+
+	testOm := DefaultOpsManagerBuilder().
+		SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetOpsManagerClusterSpecList(clusterSpecItems).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetAppDBClusterSpecList(appDBClusterSpecItems).
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+
+	testOm.Spec.Backup.Encryption = &omv1.Encryption{
+		Kmip: &omv1.KmipConfig{
+			Server: v1.KmipServerConfig{
+				CA:  kmipCAConfigMapName,
+				URL: kmipURL,
+			},
+		},
+	}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+	addKMIPTestResources(ctx, client, testOm, mdbName, clientCertificatePrefix)
+	configureBackupResources(ctx, client, testOm)
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+	host, port, _ := net.SplitHostPort(kmipURL)
+
+	expectedVars := []corev1.EnvVar{
+		{Name: "OM_PROP_backup_kmip_server_host", Value: host},
+		{Name: "OM_PROP_backup_kmip_server_port", Value: port},
+		{Name: "OM_PROP_backup_kmip_server_ca_file", Value: util.KMIPCAFileInContainer},
+	}
+	expectedCAMount := corev1.VolumeMount{
+		Name:      util.KMIPServerCAName,
+		MountPath: util.KMIPServerCAHome,
+		ReadOnly:  true,
+	}
+	expectedClientCertMount := corev1.VolumeMount{
+		Name:      util.KMIPClientSecretNamePrefix + expectedClientCertificateSecretName,
+		MountPath: util.KMIPClientSecretsHome + "/" + expectedClientCertificateSecretName,
+		ReadOnly:  true,
+	}
+	expectedCAVolume := statefulset.CreateVolumeFromConfigMap(util.KMIPServerCAName, kmipCAConfigMapName)
+	expectedClientCertVolume := statefulset.CreateVolumeFromSecret(util.KMIPClientSecretNamePrefix+expectedClientCertificateSecretName, expectedClientCertificateSecretName)
+
+	for clusterIdx, clusterSpecItem := range clusterSpecItems {
+		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
+
+		for _, stsName := range []string{omStsName(testOm.Name, clusterIdx), backupDaemonStsName(testOm.Name, clusterIdx)} {
+			sts := appsv1.StatefulSet{}
+			err := memberClusterClient.Get(ctx, kube.ObjectKey(testOm.Namespace, stsName), &sts)
+			require.NoError(t, err, "statefulset %s should exist in cluster %s", stsName, clusterSpecItem.ClusterName)
+
+			envs := sts.Spec.Template.Spec.Containers[0].Env
+			volumes := sts.Spec.Template.Spec.Volumes
+			volumeMounts := sts.Spec.Template.Spec.Containers[0].VolumeMounts
+
+			assert.Subset(t, envs, expectedVars, "statefulset %s in cluster %s", stsName, clusterSpecItem.ClusterName)
+			assert.Contains(t, volumeMounts, expectedCAMount, "statefulset %s in cluster %s", stsName, clusterSpecItem.ClusterName)
+			assert.Contains(t, volumeMounts, expectedClientCertMount, "statefulset %s in cluster %s", stsName, clusterSpecItem.ClusterName)
+			assert.Contains(t, volumes, expectedCAVolume, "statefulset %s in cluster %s", stsName, clusterSpecItem.ClusterName)
+			assert.Contains(t, volumes, expectedClientCertVolume, "statefulset %s in cluster %s", stsName, clusterSpecItem.ClusterName)
+		}
 	}
 }
 
