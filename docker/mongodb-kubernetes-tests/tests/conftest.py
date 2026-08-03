@@ -697,16 +697,12 @@ def get_multi_cluster_operator(
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
     operator_config_extra_spec: Optional[dict] = None,
-    # TODO(m1kola): slice-7: remove extra_helm_args. It will not longer be needed once we de-duplicate RBAC.
-    extra_helm_args: Optional[dict[str, str]] = None,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
     helm_opts = {
         "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
     }
-    if extra_helm_args is not None:
-        helm_opts.update(extra_helm_args)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -808,7 +804,9 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
     )
 
 
-def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
+def get_multi_cluster_operator_clustermode(
+    namespace: str, member_clusters_watched_namespaces: Optional[str] = None
+) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = get_central_cluster_name()
     return _install_multi_cluster_operator(
         namespace,
@@ -822,8 +820,10 @@ def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
         get_central_cluster_name(),
         configure_member_clusters=get_member_cluster_names(),
         # Watching all namespaces on each member cluster renders member RBAC as ClusterRoles
-        # instead of Roles.
-        member_clusters_watched_namespaces="*",
+        # instead of Roles. Tests that run workloads in specific namespaces can narrow this so the
+        # member-scoped workload SAs/Roles land in those namespaces (the member ClusterRole's
+        # bindings always cover the watched namespaces plus the operator namespace).
+        member_clusters_watched_namespaces=member_clusters_watched_namespaces or "*",
     )
 
 
