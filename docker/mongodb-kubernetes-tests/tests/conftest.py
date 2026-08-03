@@ -864,42 +864,26 @@ def install_multi_cluster_operator_set_members_fn(
     return _fn
 
 
-def _install_multi_cluster_operator(
+def _upgrade_multi_cluster_operator_chart(
     namespace: str,
     multi_cluster_operator_installation_config: dict[str, str],
     central_cluster_client: client.ApiClient,
-    member_cluster_clients: List[MultiClusterClient],
     helm_opts: dict[str, str],
-    central_cluster_name: str,
-    operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
-    helm_chart_path: Optional[str] = None,
-    custom_operator_version: Optional[str] = None,
-    apply_crds_first: bool = False,
-    create_operator_config: bool = True,
-    operator_config_extra_spec: Optional[dict] = None,
-    configure_member_clusters: Optional[List[str]] = None,
-    member_clusters_watched_namespaces: Optional[str] = None,
+    operator_name: Optional[str],
+    helm_chart_path: Optional[str],
+    custom_operator_version: Optional[str],
+    apply_crds_first: bool,
+    create_operator_config: bool,
+    operator_config_extra_spec: Optional[dict],
 ) -> Operator:
+    """Shared part of both multi-cluster install flows: merge the helm opts, install/upgrade the
+    chart on the central cluster and create the OperatorConfig CR."""
     multi_cluster_operator_installation_config.update(helm_opts)
 
     # The Operator will be installed from the following repo, so adding it first
     helm_repo_add("mongodb", "https://mongodb.github.io/helm-charts")
 
-    helm_chart_path, operator_version = helm_chart_path_and_version(
-        helm_chart_path or "", custom_operator_version or ""
-    )
-
-    # Only the released baseline needs this: it renders the chart's database-roles onto the member
-    # clusters, which generate-member-resources already does for the new path.
-    if configure_member_clusters is None:
-        prepare_multi_cluster_namespaces(
-            namespace,
-            multi_cluster_operator_installation_config,
-            member_cluster_clients,
-            central_cluster_name,
-            skip_central_cluster=True,
-            helm_chart_path=helm_chart_path,
-        )
+    helm_chart_path, _ = helm_chart_path_and_version(helm_chart_path or "", custom_operator_version or "")
 
     operator = Operator(
         name=operator_name,
@@ -918,6 +902,56 @@ def _install_multi_cluster_operator(
     else:
         operator.wait_for_operator_ready()
 
+    return operator
+
+
+def _scale_down_in_cluster_operator_if_local(
+    operator: Operator, namespace: str, central_cluster_client: client.ApiClient
+):
+    # If we're running locally, then immediately after installing the deployment, we scale it to zero.
+    # This way operator in POD is not interfering with locally running one.
+    if local_operator():
+        client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment_scale(
+            namespace=namespace,
+            name=operator.name,
+            body={"spec": {"replicas": 0}},
+        )
+
+
+def _install_multi_cluster_operator(
+    namespace: str,
+    multi_cluster_operator_installation_config: dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    helm_opts: dict[str, str],
+    central_cluster_name: str,
+    *,
+    operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
+    helm_chart_path: Optional[str] = None,
+    custom_operator_version: Optional[str] = None,
+    apply_crds_first: bool = False,
+    create_operator_config: bool = True,
+    operator_config_extra_spec: Optional[dict] = None,
+    configure_member_clusters: List[str],
+    member_clusters_watched_namespaces: Optional[str] = None,
+) -> Operator:
+    """New-path multi-cluster install: helm install of the chart followed by member registration
+    (member-cluster RBAC via generate-member-resources + MemberCluster CRs and credential Secrets
+    via generate-member-registration). For the released (pre-2.x) baseline used by upgrade tests,
+    see _install_released_multi_cluster_baseline."""
+    operator = _upgrade_multi_cluster_operator_chart(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        helm_opts,
+        operator_name=operator_name,
+        helm_chart_path=helm_chart_path,
+        custom_operator_version=custom_operator_version,
+        apply_crds_first=apply_crds_first,
+        create_operator_config=create_operator_config,
+        operator_config_extra_spec=operator_config_extra_spec,
+    )
+
     # Apply member-cluster RBAC and register each MemberCluster CR + credential Secret. Works the
     # same for the in-cluster and local operator, since pytest runs in the same network vantage as
     # the operator either way. If the central cluster also serves as a member, it's included in
@@ -927,52 +961,99 @@ def _install_multi_cluster_operator(
     # stops the process on a CR change and nothing restarts it, so the operator must be (re)started
     # after this runs. Slice 9 (no-restart hot reload, or an interim local restart-loop) makes it
     # seamless. See docs/dev/multi-cluster-config-tooling.md.
-    if configure_member_clusters is not None:
-        assert operator_name is not None
-        # A fresh registration makes the operator restart to rebuild its member-cluster client map;
-        # snapshot the restart count first and wait for that restart so tests don't race it. If the
-        # MemberCluster CRs already exist (e.g. reinstalling the operator in an already-configured
-        # namespace) the operator picks them up at startup and does not restart, so skip the wait. The
-        # local operator has no pod to restart (see the slice-9 TODO above).
-        try:
-            existing_member_crs = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
-                group="operator.mongodb.com",
-                version="v1",
-                namespace=namespace,
-                plural="memberclusters",
-            )["items"]
-        except client.rest.ApiException:
-            existing_member_crs = []
-        wait_for_registration_restart = not local_operator() and len(existing_member_crs) == 0
-
-        previous_restart_count = None
-        if wait_for_registration_restart:
-            previous_restart_count = wait_for_operator_pod_present(
-                namespace, operator_name, api_client=central_cluster_client
-            )
-
-        configure_multi_cluster_members(
-            configure_member_clusters,
-            namespace,
-            namespace,
-            central_cluster_name,
-            watched_namespaces=member_clusters_watched_namespaces,
-        )
-
-        if wait_for_registration_restart:
-            wait_for_operator_pod_restart(
-                namespace, operator_name, previous_restart_count, api_client=central_cluster_client
-            )
-        operator.wait_for_operator_ready()
-
-    # If we're running locally, then immediately after installing the deployment, we scale it to zero.
-    # This way operator in POD is not interfering with locally running one.
-    if local_operator():
-        client.AppsV1Api(api_client=central_cluster_client).patch_namespaced_deployment_scale(
+    assert operator_name is not None
+    # A fresh registration makes the operator restart to rebuild its member-cluster client map;
+    # snapshot the restart count first and wait for that restart so tests don't race it. If the
+    # MemberCluster CRs already exist (e.g. reinstalling the operator in an already-configured
+    # namespace) the operator picks them up at startup and does not restart, so skip the wait. The
+    # local operator has no pod to restart (see the slice-9 TODO above).
+    try:
+        existing_member_crs = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
+            group="operator.mongodb.com",
+            version="v1",
             namespace=namespace,
-            name=operator.name,
-            body={"spec": {"replicas": 0}},
+            plural="memberclusters",
+        )["items"]
+    except client.rest.ApiException:
+        existing_member_crs = []
+    wait_for_registration_restart = not local_operator() and len(existing_member_crs) == 0
+
+    previous_restart_count = None
+    if wait_for_registration_restart:
+        previous_restart_count = wait_for_operator_pod_present(
+            namespace, operator_name, api_client=central_cluster_client
         )
+
+    configure_multi_cluster_members(
+        configure_member_clusters,
+        namespace,
+        namespace,
+        central_cluster_name,
+        watched_namespaces=member_clusters_watched_namespaces,
+    )
+
+    if wait_for_registration_restart:
+        wait_for_operator_pod_restart(
+            namespace, operator_name, previous_restart_count, api_client=central_cluster_client
+        )
+    operator.wait_for_operator_ready()
+
+    _scale_down_in_cluster_operator_if_local(operator, namespace, central_cluster_client)
+
+    return operator
+
+
+def _install_released_multi_cluster_baseline(
+    namespace: str,
+    multi_cluster_operator_installation_config: dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    helm_opts: dict[str, str],
+    central_cluster_name: str,
+    *,
+    operator_name: Optional[str] = MULTI_CLUSTER_OPERATOR_NAME,
+    helm_chart_path: Optional[str] = None,
+    custom_operator_version: Optional[str] = None,
+    apply_crds_first: bool = False,
+    create_operator_config: bool = True,
+    operator_config_extra_spec: Optional[dict] = None,
+) -> Operator:
+    """Install a released (pre-2.x) multi-cluster operator as the baseline of an upgrade/downgrade
+    test. Released operators discover member clusters from the legacy member-list ConfigMap (created
+    by the caller) and run workload pods under the chart's fixed-name database-roles, so there is no
+    member registration here; instead the released chart's database-roles are rendered onto the
+    member clusters below (generate-member-resources only exists for the new path)."""
+    # Merge the helm opts and resolve the chart path up front so the database-roles render uses
+    # exactly what the install below uses. Both steps are idempotent pass-throughs for the released
+    # repo charts used here, so the shared install helper repeating them is a no-op.
+    multi_cluster_operator_installation_config.update(helm_opts)
+    resolved_helm_chart_path, _ = helm_chart_path_and_version(helm_chart_path or "", custom_operator_version or "")
+
+    # Only the released baseline needs this: it renders the chart's database-roles onto the member
+    # clusters, which generate-member-resources already does for the new path.
+    prepare_multi_cluster_namespaces(
+        namespace,
+        multi_cluster_operator_installation_config,
+        member_cluster_clients,
+        central_cluster_name,
+        skip_central_cluster=True,
+        helm_chart_path=resolved_helm_chart_path,
+    )
+
+    operator = _upgrade_multi_cluster_operator_chart(
+        namespace,
+        multi_cluster_operator_installation_config,
+        central_cluster_client,
+        helm_opts,
+        operator_name=operator_name,
+        helm_chart_path=resolved_helm_chart_path,
+        custom_operator_version=custom_operator_version,
+        apply_crds_first=apply_crds_first,
+        create_operator_config=create_operator_config,
+        operator_config_extra_spec=operator_config_extra_spec,
+    )
+
+    _scale_down_in_cluster_operator_if_local(operator, namespace, central_cluster_client)
 
     return operator
 
@@ -1142,9 +1223,11 @@ def install_official_operator(
         assert operator_name is not None
         assert central_cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-        # Every baseline we install today is pre-2.x, so the legacy flow is hardcoded. A baseline on a
-        # released 2.x chart would instead need generate-member-resources/-registration from a released
-        # 2.x plugin, so dispatch on the baseline's major once that exists.
+        # Every baseline we install today is pre-2.x, so the legacy flow is hardcoded (released
+        # baselines get the fixed-name database-roles via _install_released_multi_cluster_baseline
+        # and discover members from the member-list ConfigMap). A baseline on a released 2.x chart
+        # would instead need generate-member-resources/-registration from a released 2.x plugin, so
+        # dispatch on the baseline's major once that exists.
         # Skipped for a local operator: installing a released in-cluster baseline is a CI-only flow.
         if not local_operator():
             run_legacy_kube_config_creation_tool(
@@ -1173,7 +1256,7 @@ def install_official_operator(
         # to support testing unreleased versions in patch builds.
         assert member_cluster_clients is not None
         assert central_cluster_client is not None
-        return _install_multi_cluster_operator(
+        return _install_released_multi_cluster_baseline(
             namespace,
             helm_args,
             central_cluster_client,
