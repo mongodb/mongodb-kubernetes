@@ -70,6 +70,7 @@ Run only the customer steps listed below:
 ```bash
 bash code_snippets/12_0045_create_namespaces.sh
 bash code_snippets/12_0100_install_operator.sh
+bash code_snippets/12_0110_configure_member_clusters.sh
 bash code_snippets/12_0301_install_cert_manager.sh
 bash code_snippets/12_0316_create_search_sync_secret.sh
 bash code_snippets/12_0316a_create_mongot_tls_certificates.sh
