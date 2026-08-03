@@ -1,0 +1,6 @@
+---
+kind: breaking
+date: 2026-07-01
+---
+
+* **Operator**: The `operator.watchedResources` Helm value and the `-watch-resource` operator flag have been removed. Configure which custom resources the operator reconciles using `.spec.watchedResources` in the `OperatorConfig` CR instead. When omitted, it defaults to all known MCK CRDs (`mongodb`, `opsmanagers`, `mongodbusers`, `mongodbcommunity`, `mongodbsearch`, `mongodbmulticluster`, `clustermongodbroles`, `voyageais`). The previously implicit enablement of `mongodbmulticluster` (derived from the `multiCluster.clusters` Helm value) and `clustermongodbroles` (derived from the `operator.enableClusterMongoDBRoles` Helm value) is now expressed explicitly through this list. In particular, `operator.enableClusterMongoDBRoles` now only controls creation of the `ClusterMongoDBRole` RBAC and no longer affects whether the operator reconciles `ClusterMongoDBRole` resources: to stop the operator reconciling them, omit `clustermongodbroles` from `.spec.watchedResources` (rather than setting `operator.enableClusterMongoDBRoles=false`). Users who previously restricted the watched resources must create or update their `OperatorConfig` resource before upgrading to MCK 2.0.

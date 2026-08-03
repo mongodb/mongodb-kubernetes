@@ -124,6 +124,7 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebug          bool
 	AgentDebugImage     string
 	DefaultArchitecture architectures.DefaultArchitecture
+	PropagateProxyEnv   bool
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
@@ -370,7 +371,7 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 		}
 	}
 
-	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv()...)
+	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv(stsOpts.PropagateProxyEnv)...)
 	stsOpts.ExtraEnvs = extraEnvs
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)

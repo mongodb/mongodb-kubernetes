@@ -1,0 +1,177 @@
+{{- /*
+Member-cluster RBAC for multi-cluster configuration.
+
+Rendered only when `memberCluster.enabled=true`, which is set exclusively by
+`kubectl mongodb multicluster generate-member-resources` (never by helm install / OLM).
+These resources are additive to the base installation RBAC and use a distinct,
+cluster-name-scoped naming convention (`mck-member-<cluster-name>-*`) so they never collide
+with the base `operator.name` resources — including when the operator's own cluster
+is also configured as a member cluster.
+
+The naming prefix is deliberately decoupled from `.Values.operator.name` (which still
+differs between single- and multi-cluster installs pending operator-name unification):
+the operator reconstructs the ServiceAccount name `mck-member-<cluster-name>-sa` from the
+MemberCluster CR's metadata.name (the same value passed here as memberCluster.name) when
+validating RBAC.
+
+memberCluster.* is intentionally absent from values.yaml — it is a plugin-internal render
+flag, not a user-facing install option, so guard the access with `default dict`.
+*/ -}}
+{{- if (.Values.memberCluster | default dict).enabled }}
+{{- $name := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" .Values.memberCluster.name) }}
+{{- $namespace := include "mongodb-kubernetes-operator.namespace" . }}
+{{- $watchNamespace := $namespace | list }}
+{{- if .Values.operator.watchNamespace }}
+{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
+{{- if not (has "*" $watchNamespace) }}
+{{- /* Watching all namespaces is covered by a single ClusterRoleBinding, so don't
+       also emit a redundant RoleBinding in the operator namespace. */}}
+{{- $watchNamespace = concat $watchNamespace ($namespace | list) | uniq }}
+{{- end }}
+{{- end }}
+{{- $roleScope := "Role" -}}
+{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
+{{- $roleScope = "ClusterRole" }}
+{{- end }}
+{{- $rbacVersion := .Chart.Version | quote }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-sa
+  namespace: {{ $namespace }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+---
+# Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
+# longer auto-created, so we create one explicitly for the operator to authenticate with.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}-token
+  namespace: {{ $namespace }}
+  annotations:
+    kubernetes.io/service-account.name: {{ $name }}-sa
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+type: kubernetes.io/service-account-token
+---
+kind: {{ $roleScope }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role
+{{- if eq $roleScope "Role" }}
+  namespace: {{ $namespace }}
+{{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+      - services
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+      - watch
+      - deletecollection
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+      - watch
+      - deletecollection
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - watch
+      - patch
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - deletecollection
+  # get on serviceaccounts lets the operator read the mck-member-<cluster-name>-sa
+  # mongodb.com/rbac-version annotation to validate this cluster's RBAC.
+  - apiGroups:
+      - ''
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+{{- if eq $roleScope "ClusterRole" }}
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - nonResourceURLs:
+      - /version
+    verbs:
+      - get
+{{- end }}
+{{- range $idx, $ns := $watchNamespace }}
+{{- $nsBlock := "" }}
+{{- if not (eq $ns "*") }}
+{{- $nsBlock = printf "namespace: %s" $ns }}
+{{- end }}
+---
+{{- if eq $ns "*" }}
+kind: ClusterRoleBinding
+{{- else }}
+kind: RoleBinding
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-binding
+  {{ $nsBlock }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $roleScope }}
+  name: {{ $name }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-sa
+    namespace: {{ $namespace }}
+{{- end }}
+{{- end }}

@@ -88,23 +88,20 @@ def _install_simulated_operator(
     os.environ["HELM_KUBECONTEXT"] = mcc.cluster_name
 
     helm_args = dict(base_helm_args)
-    # multiCluster.clusters gates a kube-config-volume mount whose Secret is never created in this mode.
     for k in (
         "operator.watchNamespace",
-        "multiCluster.clusters",
-        "multiCluster.kubeConfigSecretName",
-        "multiCluster.clusterClientTimeout",
         "multiCluster.performFailover",
     ):
         helm_args.pop(k, None)
 
     helm_args["operator.name"] = SIMULATED_OPERATOR_NAME
     helm_args["operator.createOperatorServiceAccount"] = "true"
-    # MongoDB-resource-pod SAs are pre-created by run_kube_config_creation_tool — Helm 3
-    # ownership-metadata check fails if we re-render them.
+    # MongoDB-resource-pod SAs are pre-created on the member clusters by generate-member-resources'
+    # database-roles — Helm 3 ownership-metadata check fails if we re-render them here.
+    # TODO(m1kola): slice-7: revisit once workload pod SAs are member-scoped; the interim
+    # fixed-name database-roles that make this workaround necessary go away in slice 7.
     helm_args["operator.createResourcesServiceAccountsAndRoles"] = "false"
     helm_args["operator.clusterIdentity.clusterName"] = mcc.cluster_name
-    helm_args["operator.watchedResources"] = "{mongodbsearch}"
 
     # upgrade(multi_cluster=True) = `helm upgrade --install`, and skips the
     # webhook wait because the test pod's cluster != central cluster, so it can't
@@ -115,6 +112,9 @@ def _install_simulated_operator(
         helm_args=helm_args,
         api_client=mcc.api_client,
     ).upgrade(multi_cluster=True)
+    # Restrict this operator to mongodbsearch only via OperatorConfig (the watch set is no longer a
+    # Helm value). This triggers a graceful restart so the operator reloads and watches search only.
+    operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec={"watchedResources": ["mongodbsearch"]})
     logger.info(
         f"installed simulated-MC operator in {mcc.cluster_name} "
         f"(identity={mcc.cluster_name}, name={SIMULATED_OPERATOR_NAME}, watches=mongodbsearch only)"
@@ -151,7 +151,7 @@ def install_central_mc_operator(
         central_client,
         member_clients,
         member_names,
-        watched_resources=watched,
+        operator_config_extra_spec={"watchedResources": watched},
     )
 
 

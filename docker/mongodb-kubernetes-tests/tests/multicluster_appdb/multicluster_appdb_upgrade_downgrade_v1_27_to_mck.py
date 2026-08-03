@@ -3,6 +3,8 @@ from typing import Dict, List, Optional
 
 import kubernetes.client
 from kubetester import read_configmap
+from kubetester.helm import apply_member_cluster_crd, apply_operator_config_crd
+from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -11,6 +13,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import (
+    configure_multi_cluster_members,
     get_central_cluster_name,
     get_custom_appdb_version,
     install_legacy_deployment_state_meko,
@@ -132,6 +135,16 @@ scale_on_downgrade = TestCase(
 
 
 @fixture(scope="module")
+def multi_cluster_operator_installation_config(
+    multi_cluster_operator_installation_config: Dict[str, str],
+) -> Dict[str, str]:
+    # TODO(m1kola): slice-7: the fixed-name workload SAs are already applied by the member RBAC
+    # registered below, and Helm refuses to adopt objects it does not own.
+    multi_cluster_operator_installation_config["operator.createResourcesServiceAccountsAndRoles"] = "false"
+    return multi_cluster_operator_installation_config
+
+
+@fixture(scope="module")
 def ops_manager(
     namespace: str,
     custom_version: str,
@@ -241,6 +254,28 @@ class TestOperatorUpgrade:
         # Scale down the existing operator deployment to 0. This is needed as we are initially installing MEKO
         # and replacing it with MCK
         downscale_operator_deployment(deployment_name=LEGACY_MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
+
+    def test_apply_operator_config(self, namespace: str, central_cluster_client: kubernetes.client.ApiClient):
+        # The OperatorConfig CRD is only shipped by MCK, not by the legacy operator we are upgrading from.
+        # Apply it and wait for it to be established before creating the OperatorConfig CR, so that the
+        # desired default architecture is configured before the operator is upgraded to MCK.
+        apply_operator_config_crd(api_client=central_cluster_client)
+        spec = build_operator_config_spec_from_test_env()
+        if spec:
+            create_operator_config(namespace, spec, api_client=central_cluster_client)
+
+    def test_register_member_clusters(
+        self,
+        namespace: str,
+        central_cluster_name: str,
+        member_cluster_names: List[str],
+        central_cluster_client: kubernetes.client.ApiClient,
+    ):
+        # MCK discovers members from MemberCluster CRs, which MEKO does not create, so register them
+        # before the upgrade. The MEKO kubeconfig Secret + member-list ConfigMap stay in place for the
+        # downgrade leg below.
+        apply_member_cluster_crd(api_client=central_cluster_client)
+        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")
