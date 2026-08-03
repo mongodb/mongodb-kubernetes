@@ -10,7 +10,7 @@ import (
 // maxStaleRetries is the maximum number of times RoundTrip will retry after
 // receiving a 401 with stale=true (RFC 7616 §3.2). A bound prevents infinite
 // loops against a misconfigured server that always returns stale=true.
-const maxStaleRetries = 5
+const maxStaleRetries = 3
 
 // staleRetryTransport wraps an http.RoundTripper and retries requests when
 // the server returns 401 with stale=true in the WWW-Authenticate header
