@@ -20,6 +20,13 @@ from tests.constants import APPDB_SA_NAME, OM_SA_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 
+def expected_service_account_name(member_cluster_name: Optional[str], fixed_sa_name: str) -> str:
+    """Member clusters use member-scoped ServiceAccounts; single-cluster keeps the fixed base-install name."""
+    if member_cluster_name is None:
+        return fixed_sa_name
+    return f"mck-member-{member_cluster_name}-{fixed_sa_name.removeprefix('mongodb-kubernetes-')}"
+
+
 @fixture(scope="module")
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     """The fixture for Ops Manager to be created."""
@@ -81,7 +88,9 @@ class TestOpsManagerCreation:
         appdb_sts = ops_manager.read_appdb_statefulset()
         assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 3)
 
-        assert appdb_sts.spec.template.spec.service_account_name == APPDB_SA_NAME
+        assert appdb_sts.spec.template.spec.service_account_name == expected_service_account_name(
+            ops_manager.pick_one_appdb_member_cluster_name(), APPDB_SA_NAME
+        )
 
         containers_by_name = {container.name: container for container in appdb_sts.spec.template.spec.containers}
 
@@ -121,7 +130,9 @@ class TestOpsManagerCreation:
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
         sts = ops_manager.read_statefulset()
-        assert sts.spec.template.spec.service_account_name == OM_SA_NAME
+        assert sts.spec.template.spec.service_account_name == expected_service_account_name(
+            ops_manager.pick_one_om_member_cluster_name(), OM_SA_NAME
+        )
 
         assert len(sts.spec.template.spec.containers) == 1
         om_container = sts.spec.template.spec.containers[0]
@@ -292,7 +303,9 @@ class TestOpsManagerCreation:
 
     def test_backup_pod_spec(self, ops_manager: MongoDBOpsManager):
         backup_sts = ops_manager.read_backup_statefulset()
-        assert backup_sts.spec.template.spec.service_account_name == OM_SA_NAME
+        assert backup_sts.spec.template.spec.service_account_name == expected_service_account_name(
+            ops_manager.pick_one_om_member_cluster_name(), OM_SA_NAME
+        )
 
         assert len(backup_sts.spec.template.spec.containers) == 1
         om_container = backup_sts.spec.template.spec.containers[0]
