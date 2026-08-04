@@ -1542,10 +1542,18 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
-func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int) {
+func (m *MongoDB) applyComputedReplicaSetMigrationStatus(phase status.Phase, priorStatusMembers int) {
 	extCount := len(m.Spec.GetExternalMembers())
 
 	if extCount == 0 {
+		// An empty spec.externalMembers only means the user asked for the last VM to go, not that it
+		// is gone: until this reconcile succeeds the operator is still removing those processes from
+		// the automation config. Leave the migration status untouched so we neither announce
+		// MigrationComplete early nor recompute a reason from a spec that no longer has anything to
+		// compare against.
+		if phase != status.PhaseRunning {
+			return
+		}
 		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
 		m.Status.MigrationObservedExternalMembersCount = nil
 		// Only flip Migrating to False if migration was previously active.
@@ -1559,6 +1567,94 @@ func (m *MongoDB) applyComputedReplicaSetMigrationStatus(priorStatusMembers int)
 	desiredK8sMembers := m.Spec.Members
 
 	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorStatusMembers)
+
+	meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(true, migratingReason))
+}
+
+// sumClusterCounts totals a per-member-cluster count map.
+func sumClusterCounts(m map[string]int) int {
+	total := 0
+	for _, v := range m {
+		total += v
+	}
+	return total
+}
+
+// shardedClusterInClusterMemberCount totals the in-Kubernetes mongod/mongos processes described by a
+// reconciled sharded size breakdown. It is override-aware
+func shardedClusterInClusterMemberCount(shardCount int, s *status.MongodbShardedSizeStatusInClusters) int {
+	if s == nil {
+		return 0
+	}
+	numOverridden := len(s.ShardOverridesInClusters)
+	numNonOverridden := shardCount - numOverridden
+	if numNonOverridden < 0 {
+		numNonOverridden = 0
+	}
+	total := numNonOverridden * s.TotalShardMongodsInClusters()
+	for _, perCluster := range s.ShardOverridesInClusters {
+		total += sumClusterCounts(perCluster)
+	}
+	total += s.TotalConfigServerMongodsInClusters() + s.TotalMongosCountInClusters()
+	return total
+}
+
+// shardedClusterSpecMemberCount totals the desired in-Kubernetes mongod/mongos processes described by
+// the ShardedCluster spec.
+func (m *MongoDB) shardedClusterSpecMemberCount() int {
+	total := 0
+	for i := 0; i < m.Spec.ShardCount; i++ {
+		if members, overridden := m.shardOverrideMembers(m.ShardName(i)); overridden {
+			total += members
+		} else {
+			total += m.Spec.MongodsPerShardCount
+		}
+	}
+	total += m.Spec.ConfigServerCount + m.Spec.MongosCount
+	return total
+}
+
+// shardOverrideMembers returns the overridden member count for the given shard (matched by K8s
+// StatefulSet name) and whether such an override with an explicit member count exists.
+func (m *MongoDB) shardOverrideMembers(shardName string) (int, bool) {
+	for i := range m.Spec.ShardOverrides {
+		override := m.Spec.ShardOverrides[i]
+		if override.Members == nil {
+			continue
+		}
+		for _, name := range override.ShardNames {
+			if name == shardName {
+				return *override.Members, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// applyComputedShardedClusterMigrationStatus is the ShardedCluster analogue of applyComputedReplicaSetMigrationStatus
+func (m *MongoDB) applyComputedShardedClusterMigrationStatus(phase status.Phase, priorK8sMemberCount int) {
+	extCount := len(m.Spec.GetExternalMembers())
+
+	if extCount == 0 {
+		// See applyComputedReplicaSetMigrationStatus: the migration is only finished once the
+		// reconcile that removes the last VM processes has succeeded.
+		if phase != status.PhaseRunning {
+			return
+		}
+		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
+		m.Status.MigrationObservedExternalMembersCount = nil
+		// Only flip Migrating to False if migration was previously active.
+		if cond := meta.FindStatusCondition(m.Status.Conditions, status.ConditionMigrating); cond != nil && cond.Status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(false, ""))
+		}
+		return
+	}
+
+	isDryRun := m.GetAnnotations()[util.MigrationDryRunAnnotation] == "true"
+	// The spec's desired in-cluster member count (the fixed target), analogous to ReplicaSet's spec.Members.
+	desiredK8sMembers := m.shardedClusterSpecMemberCount()
+
+	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorK8sMemberCount)
 
 	meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(true, migratingReason))
 }
@@ -1581,11 +1677,21 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
+		// Capture the last-reconciled member count before overwriting it below, so the migration
+		// reason can detect "Extending" (spec.members exceeds the previously reconciled count).
+		priorStatusMembers := m.Status.Members
 		if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
 			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
-		m.applyComputedReplicaSetMigrationStatus(m.Status.Members)
+		m.applyComputedReplicaSetMigrationStatus(phase, priorStatusMembers)
 	case ShardedCluster:
+		// Capture the previously-reconciled in-cluster member count before the size option overwrites
+		// SizeStatusInClusters below, so the migration reason can detect active provisioning ("Extending").
+		// Use the last-reconciled shard count (m.Status.ShardCount), not m.Spec.ShardCount: the status
+		// size maps describe the previous topology, so interpreting them with a just-increased spec shard
+		// count would overcount the prior (multiplying the new shard count by the old per-shard
+		// distribution) and hide "Extending" when a whole new shard is being added.
+		priorK8sMemberCount := shardedClusterInClusterMemberCount(m.Status.ShardCount, m.Status.SizeStatusInClusters)
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
 			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
 				m.Status.MongodbShardedClusterSizeConfig = *sizeConfig
@@ -1596,6 +1702,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 				m.Status.SizeStatusInClusters = sizeConfigInClusters
 			}
 		}
+		m.applyComputedShardedClusterMigrationStatus(phase, priorK8sMemberCount)
 	}
 
 	if option, exists := status.GetOption(statusOptions, status.MigrationStatusOption{}); exists {
@@ -1608,7 +1715,12 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		m.Status.Version = m.Spec.Version
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 		m.Status.Message = ""
-		m.Status.MigrationObservedExternalMembersCount = new(len(m.Spec.GetExternalMembers()))
+		// Only track the observed external-member count while a migration is in progress. When no
+		// external members remain, leave it nil so migration status is fully cleared (see
+		// applyComputedReplicaSetMigrationStatus).
+		if extCount := len(m.Spec.GetExternalMembers()); extCount > 0 {
+			m.Status.MigrationObservedExternalMembersCount = new(extCount)
+		}
 
 		switch m.Spec.ResourceType {
 		case ShardedCluster:
