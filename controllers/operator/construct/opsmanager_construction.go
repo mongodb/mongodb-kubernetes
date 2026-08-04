@@ -93,6 +93,15 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 	}
 }
 
+// WithAppDBTLSCAConfigMapName injects the effective AppDB CA ConfigMap name (resolved by the
+// controller from either the internal AppDB spec or an external AppDB's referenced CR) so the
+// OpsManager and Backup Daemon pods mount the correct CA to trust the AppDB's TLS certificate.
+func WithAppDBTLSCAConfigMapName(name string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBTlsCAConfigMapName = name
+	}
+}
+
 func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.VaultConfig = config
@@ -283,16 +292,24 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
 		OwnerName:           opsManager.Name,
 		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
-		// TODO(CLOUDP-TBD): AppDBTlsCAConfigMapName is computed from the internal AppDB spec
-		// even in external-AppDB mode, so OM/BackupDaemon won't trust the external CR's actual
-		// CA. Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not
-		// fixed here.
-		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
+		// AppDBTlsCAConfigMapName defaults to the internal AppDB spec here and is overridden by the
+		// controller via WithAppDBTLSCAConfigMapName with the effective value (which, for an external
+		// AppDB, comes from the referenced CR). Guard against a nil AppDB (omitted in external mode).
+		AppDBTlsCAConfigMapName: appDBCAConfigMapNameFromSpec(opsManager),
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Namespace:               opsManager.Namespace,
 		Labels:                  opsManager.Labels,
 		StsLabels:               opsManager.GetOwnerLabels(),
 	}
+}
+
+// appDBCAConfigMapNameFromSpec returns the internal AppDB CA ConfigMap name, guarding against a
+// nil AppDB (which is valid when spec.externalApplicationDatabaseRef is set).
+func appDBCAConfigMapNameFromSpec(opsManager *omv1.MongoDBOpsManager) string {
+	if opsManager.Spec.AppDB == nil {
+		return ""
+	}
+	return opsManager.Spec.AppDB.GetCAConfigMapName()
 }
 
 // opsManagerOptions returns a function which returns the OpsManagerStatefulSetOptions to create the OpsManager StatefulSet

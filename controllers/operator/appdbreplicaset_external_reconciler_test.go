@@ -315,6 +315,74 @@ func TestComputeExternalAppDBConnectionString_WritesFixedSecret(t *testing.T) {
 	assert.Contains(t, string(result.Data[util.AppDbConnectionStringKey]), util.OpsManagerMongoDBUserName)
 }
 
+func TestResolveAppDBTLSConfig(t *testing.T) {
+	ctx := context.Background()
+
+	externalTLSMongoDB := func() *mdbv1.MongoDB {
+		mdb := validExternalAppDBMongoDB()
+		mdb.Spec.Security = &mdbv1.Security{
+			TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "external-ca-cm"},
+			CertificatesSecretsPrefix: "certs",
+		}
+		return mdb
+	}
+
+	externalNoTLSMongoDB := func() *mdbv1.MongoDB {
+		mdb := validExternalAppDBMongoDB()
+		mdb.Spec.Security = nil
+		return mdb
+	}
+
+	tests := []struct {
+		name         string
+		om           *omv1.MongoDBOpsManager
+		objects      []client.Object
+		expectedCA   string
+		expectedTLS  bool
+		expectsError bool
+	}{
+		{
+			name:        "external AppDB with TLS resolves CA and enabled flag from referenced CR",
+			om:          withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), validExternalAppDBRef()),
+			objects:     []client.Object{externalTLSMongoDB()},
+			expectedCA:  "external-ca-cm",
+			expectedTLS: true,
+		},
+		{
+			name:        "external AppDB without TLS resolves empty CA and disabled flag",
+			om:          withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), validExternalAppDBRef()),
+			objects:     []client.Object{externalNoTLSMongoDB()},
+			expectedCA:  "",
+			expectedTLS: false,
+		},
+		{
+			name:         "external AppDB referencing missing CR errors",
+			om:           withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), validExternalAppDBRef()),
+			expectsError: true,
+		},
+		{
+			name:        "internal AppDB falls back to spec.AppDB",
+			om:          DefaultOpsManagerBuilder().Build(),
+			expectedCA:  "",
+			expectedTLS: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler := newOpsManagerReconcilerForValidation(tt.objects...)
+			ca, tls, err := resolveAppDBTLSConfig(ctx, reconciler.client, tt.om)
+			if tt.expectsError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedCA, ca)
+			assert.Equal(t, tt.expectedTLS, tls)
+		})
+	}
+}
+
 func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testing.T) {
 	// real UIDs needed: the ownership check compares OwnerReference UIDs, and empty test UIDs
 	// ("" == "") would make every StatefulSet look OM-owned

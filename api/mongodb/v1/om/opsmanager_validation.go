@@ -282,23 +282,56 @@ func warnMonitoringAgentContainer(os MongoDBOpsManagerSpec) v1.ValidationResult 
 }
 
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
-	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
-		validOmVersion,
-		validAppDBVersion,
-		connectivityIsNotConfigurable,
-		cloudManagerConfigIsNotConfigurable,
-		opsManagerConfigIsNotConfigurable,
-		credentialsIsNotConfigurable,
-		s3StoreMongodbUserSpecifiedNoMongoResource,
-		kmipValidation,
-		validateEmptyClusterSpecListSingleCluster,
-		validateTopologyIsSpecified,
-		validateClusterSpecList,
-		validateBackupS3Stores,
-		featureCompatibilityVersionValidation,
-		validateAppDBUniqueExternalDomains,
-		warnMonitoringAgentStartupParameters,
-		warnMonitoringAgentContainer,
+	// AppDB-specific validators only apply to the internally-managed AppDB (spec.applicationDatabase).
+	// When spec.externalApplicationDatabaseRef is set, spec.applicationDatabase may be omitted entirely,
+	// so validating it (e.g. its version) would incorrectly reject a valid external-AppDB OM. These
+	// validators are skipped in that case, while OM-level validators always run.
+	appDBValidators := map[string]struct{}{
+		"validAppDBVersion":                         {},
+		"connectivityIsNotConfigurable":             {},
+		"cloudManagerConfigIsNotConfigurable":       {},
+		"opsManagerConfigIsNotConfigurable":         {},
+		"credentialsIsNotConfigurable":              {},
+		"validateEmptyClusterSpecListSingleCluster": {},
+		"featureCompatibilityVersionValidation":     {},
+		"validateAppDBUniqueExternalDomains":        {},
+		"warnMonitoringAgentStartupParameters":      {},
+		"warnMonitoringAgentContainer":              {},
+	}
+	isExternalAppDB := om.Spec.ExternalApplicationDatabaseRef != nil
+
+	type namedValidator struct {
+		name string
+		fn   func(m MongoDBOpsManagerSpec) v1.ValidationResult
+	}
+	// Order is significant: ProcessValidations returns the first error, and tests assert on it.
+	allValidators := []namedValidator{
+		{"validOmVersion", validOmVersion},
+		{"validAppDBVersion", validAppDBVersion},
+		{"connectivityIsNotConfigurable", connectivityIsNotConfigurable},
+		{"cloudManagerConfigIsNotConfigurable", cloudManagerConfigIsNotConfigurable},
+		{"opsManagerConfigIsNotConfigurable", opsManagerConfigIsNotConfigurable},
+		{"credentialsIsNotConfigurable", credentialsIsNotConfigurable},
+		{"s3StoreMongodbUserSpecifiedNoMongoResource", s3StoreMongodbUserSpecifiedNoMongoResource},
+		{"kmipValidation", kmipValidation},
+		{"validateEmptyClusterSpecListSingleCluster", validateEmptyClusterSpecListSingleCluster},
+		{"validateTopologyIsSpecified", validateTopologyIsSpecified},
+		{"validateClusterSpecList", validateClusterSpecList},
+		{"validateBackupS3Stores", validateBackupS3Stores},
+		{"featureCompatibilityVersionValidation", featureCompatibilityVersionValidation},
+		{"validateAppDBUniqueExternalDomains", validateAppDBUniqueExternalDomains},
+		{"warnMonitoringAgentStartupParameters", warnMonitoringAgentStartupParameters},
+		{"warnMonitoringAgentContainer", warnMonitoringAgentContainer},
+	}
+
+	var validators []func(m MongoDBOpsManagerSpec) v1.ValidationResult
+	for _, v := range allValidators {
+		if isExternalAppDB {
+			if _, isAppDB := appDBValidators[v.name]; isAppDB {
+				continue
+			}
+		}
+		validators = append(validators, v.fn)
 	}
 
 	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
@@ -316,8 +349,8 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		}
 	}
 
-	// Explicit tests for AppDB multi-cluster
-	if om.Spec.AppDB.IsMultiCluster() {
+	// Explicit tests for AppDB multi-cluster (only for the internally-managed AppDB)
+	if om.Spec.ExternalApplicationDatabaseRef == nil && om.Spec.AppDB.IsMultiCluster() {
 		for _, validator := range multiClusterAppDBSharedClusterValidators {
 			res := validator(om.Spec.AppDB.ClusterSpecList)
 			if res.Level > 0 {

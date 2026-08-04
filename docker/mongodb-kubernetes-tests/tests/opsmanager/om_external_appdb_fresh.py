@@ -12,8 +12,10 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
+    appdb_tls_security,
     assert_owned_by_mongodb,
     assert_owned_by_ops_manager,
     assert_sentinel_doc_present,
@@ -66,11 +68,28 @@ def primary_om(namespace: str, custom_version: Optional[str]) -> MongoDBOpsManag
 
 
 @fixture(scope="module")
+def appdb_ca_configmap(app_db_issuer_ca_configmap: str) -> str:
+    # ConfigMap "app-db-issuer-ca" (key ca-pem) created from the test issuer's CA; this is the CA the
+    # external AppDB CR advertises via security.tls.ca and that the operator threads into OM. The same
+    # CA is reused for the internal AppDB after reverse migration.
+    return app_db_issuer_ca_configmap
+
+
+@fixture(scope="module")
+def appdb_cert_prefix(namespace: str, issuer: str) -> str:
+    # Creates the "appdb-<DB_NAME>-cert" member cert secret. Because the MongoDB CR and the internal
+    # AppDB share the same name (DB_NAME) and cert prefix, the adopted StatefulSet reuses these certs.
+    return create_appdb_certs(namespace, issuer, DB_NAME)
+
+
+@fixture(scope="module")
 def external_appdb(
     namespace: str,
     custom_mdb_version: str,
     member_cluster_names,
     central_cluster_client: kubernetes.client.ApiClient,
+    appdb_cert_prefix: str,
+    appdb_ca_configmap: str,
 ) -> MongoDB:
     resource = appdb_role_resource(
         namespace,
@@ -79,6 +98,7 @@ def external_appdb(
         member_cluster_names=member_cluster_names,
         central_cluster_client=central_cluster_client,
     )
+    resource.configure_custom_tls(appdb_ca_configmap, appdb_cert_prefix)
     try_load(resource)
     return resource
 
@@ -122,17 +142,24 @@ class TestFreshStartExternalAppDB:
         assert_owned_by_mongodb(sec.metadata, DB_NAME)
         assert "password" in read_secret(namespace, password_secret_name(OM_NAME))
 
-    def test_connection_string_secret(self, primary_om: MongoDBOpsManager, namespace: str):
+    def test_connection_string_secret(
+        self, primary_om: MongoDBOpsManager, namespace: str, issuer_ca_filepath: str
+    ):
         # the connection-string secret is created by the OM controller (never by the referenced
         # CR, per the design) and intentionally carries no OwnerReferences
         cnx_string = primary_om.read_appdb_connection_url()
+        # the referenced CR has TLS enabled, so the operator-computed connection string must request
+        # TLS (ssl=true) rather than a plaintext connection.
+        assert "ssl=true" in cnx_string
+
         expected_hosts = {f"{DB_NAME}-{i}.{DB_NAME}-svc.{namespace}.svc.cluster.local:27017" for i in range(3)}
 
         # the URI itself must name the referenced CR's pods - not merely "work" via server discovery
         parsed = pymongo.uri_parser.parse_uri(cnx_string)
         assert {f"{host}:{port}" for host, port in parsed["nodelist"]} == expected_hosts
 
-        client = pymongo.MongoClient(cnx_string, serverSelectionTimeoutMS=30000)
+        # connecting over TLS from the test requires the same CA the operator mounts into OM.
+        client = pymongo.MongoClient(cnx_string, tlsCAFile=issuer_ca_filepath, serverSelectionTimeoutMS=30000)
         try:
             hello = client.admin.command("hello")
             assert hello["setName"] == DB_NAME
@@ -155,8 +182,8 @@ class TestReverseMigrationAfterFreshStart:
     # garbage-collected by the CR deletion if the ownership transfer failed
     SHARED_SECRET_NAMES = [f"{DB_NAME}-om-password", f"{DB_NAME}-keyfile"]
 
-    def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager):
-        write_sentinel_doc(primary_om.read_appdb_connection_url())
+    def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
+        write_sentinel_doc(primary_om.read_appdb_connection_url(), tls_ca_file=issuer_ca_filepath)
 
     def test_capture_secrets_before_reverse_migration(self, primary_om: MongoDBOpsManager, namespace: str):
         # graceful path: same hosts + same password => the computed connection string value must
@@ -175,10 +202,22 @@ class TestReverseMigrationAfterFreshStart:
             assert sec.data == self.shared_secret_data[name], f"secret {name} contents changed"
             assert_owned_by_ops_manager(sec.metadata, OM_NAME)
 
-    def test_reverse_migration_reconfigure_om(self, primary_om: MongoDBOpsManager, custom_appdb_version: str):
+    def test_reverse_migration_reconfigure_om(
+        self,
+        primary_om: MongoDBOpsManager,
+        custom_appdb_version: str,
+        appdb_ca_configmap: str,
+        appdb_cert_prefix: str,
+    ):
         primary_om.load()
         primary_om["spec"]["externalApplicationDatabaseRef"] = None
-        primary_om["spec"]["applicationDatabase"] = {"members": 3, "version": custom_appdb_version}
+        # the internal AppDB keeps TLS with the same CA/certs as the external CR, so the computed
+        # connection string (ssl=true + same hosts) is unchanged and the migration stays graceful.
+        primary_om["spec"]["applicationDatabase"] = {
+            "members": 3,
+            "version": custom_appdb_version,
+            "security": appdb_tls_security(appdb_ca_configmap, appdb_cert_prefix),
+        }
         primary_om.update()
 
     def test_external_appdb_is_unmanaged(self, external_appdb: MongoDB):
@@ -229,5 +268,5 @@ class TestReverseMigrationAfterFreshStart:
         self._assert_shared_secrets_claimed_and_unchanged(namespace)
         assert primary_om.read_appdb_connection_url() == self.connection_string_before
 
-    def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager):
-        assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
+    def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
+        assert_sentinel_doc_present(primary_om.read_appdb_connection_url(), tls_ca_file=issuer_ca_filepath)

@@ -71,7 +71,7 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 
 	objectKey := kube.ObjectKey(opsManager.Namespace, ref.Name)
 
-	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref, objectKey)
+	refObject, err := fetchExternalAppDBRefObject(ctx, e.client, ref, objectKey)
 	if err != nil {
 		return xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
 	}
@@ -144,7 +144,7 @@ func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(
 	password := string(passwordSecret.Data[util.OpsManagerPasswordKey])
 
 	objectKey := kube.ObjectKey(opsManager.Namespace, ref.Name)
-	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref, objectKey)
+	refObject, err := fetchExternalAppDBRefObject(ctx, e.client, ref, objectKey)
 	if err != nil {
 		return "", xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
 	}
@@ -152,21 +152,60 @@ func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(
 	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
 }
 
+// resolveAppDBTLSConfig returns the CA ConfigMap name and TLS-enabled flag that OpsManager and
+// the Backup Daemon should use to trust the AppDB's TLS certificate. For the internally-managed
+// AppDB it reads opsManager.Spec.AppDB; for an external AppDB it reads the referenced
+// MongoDB/MongoDBMultiCluster CR's security config.
+func resolveAppDBTLSConfig(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager) (caConfigMapName string, tlsEnabled bool, err error) {
+	if opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+		if opsManager.Spec.AppDB == nil {
+			return "", false, nil
+		}
+		return opsManager.Spec.AppDB.GetCAConfigMapName(), opsManager.Spec.AppDB.IsSecurityTLSConfigEnabled(), nil
+	}
+
+	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	objectKey := kube.ObjectKey(opsManager.Namespace, ref.Name)
+	refObject, err := fetchExternalAppDBRefObject(ctx, c, ref, objectKey)
+	if err != nil {
+		return "", false, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
+	}
+
+	return refObject.GetCAConfigMapName(), refObject.IsTLSEnabled(), nil
+}
+
 type externalAppDBRefObject struct {
 	connectionstring.ConnectionStringBuilder
 	mdbv1.DbCommonSpec
 }
 
+// GetCAConfigMapName returns the name of the ConfigMap holding the CA certificate that
+// OpsManager should trust when connecting to the external AppDB over TLS ("" if TLS is off).
+func (o *externalAppDBRefObject) GetCAConfigMapName() string {
+	security := o.GetSecurity()
+	if security.TLSConfig != nil {
+		return security.TLSConfig.CA
+	}
+	return ""
+}
+
+// IsTLSEnabled reports whether the referenced CR has TLS enabled.
+func (o *externalAppDBRefObject) IsTLSEnabled() bool {
+	return o.IsSecurityTLSConfigEnabled()
+}
+
 type ExternalAppDB interface {
 	connectionstring.ConnectionStringBuilder
 	GetRole() string
+	GetCAConfigMapName() string
+	IsTLSEnabled() bool
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalApplicationDatabaseRef, objectKey client.ObjectKey) (ExternalAppDB, error) {
+func fetchExternalAppDBRefObject(ctx context.Context, c client.Client, ref *omv1.ExternalApplicationDatabaseRef, objectKey client.ObjectKey) (ExternalAppDB, error) {
 	switch ref.Kind {
 	case "MongoDB":
 		mongodb := &mdbv1.MongoDB{}
-		if err := e.client.Get(ctx, objectKey, mongodb); err != nil {
+		if err := c.Get(ctx, objectKey, mongodb); err != nil {
 			if apiErrors.IsNotFound(err) {
 				return nil, xerrors.Errorf("externalApplicationDatabaseRef points to MongoDB %s which does not exist", objectKey)
 			}
@@ -178,7 +217,7 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		}, nil
 	case "MongoDBMultiCluster":
 		mongodbMulti := &mdbmulti.MongoDBMultiCluster{}
-		if err := e.client.Get(ctx, objectKey, mongodbMulti); err != nil {
+		if err := c.Get(ctx, objectKey, mongodbMulti); err != nil {
 			if apiErrors.IsNotFound(err) {
 				return nil, xerrors.Errorf("externalApplicationDatabaseRef points to MongoDBMultiCluster %s which does not exist", objectKey)
 			}

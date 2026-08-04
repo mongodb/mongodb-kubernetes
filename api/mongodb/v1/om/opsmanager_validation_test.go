@@ -361,6 +361,16 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "Multiple member clusters with the same externalDomain (test) are not allowed. " +
 				"Check if all spec.applicationDatabase.clusterSpecList[*].externalAccess.externalDomain fields are defined and are unique.",
 		},
+		"External AppDB ref with omitted applicationDatabase version passes validation": {
+			// spec.applicationDatabase may be omitted entirely when externalApplicationDatabaseRef is
+			// set, so AppDB-specific validators (e.g. version) must not run in that case.
+			testedOm: NewOpsManagerBuilder().
+				SetVersion("7.0.0").
+				SetAppDbVersion("").
+				SetExternalApplicationDatabaseRef(&ExternalApplicationDatabaseRef{Name: "test-om-db", Kind: "MongoDB"}).
+				Build(),
+			expectedPart: status.None,
+		},
 	}
 
 	for testName := range tests {

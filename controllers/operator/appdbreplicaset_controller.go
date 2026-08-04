@@ -670,8 +670,15 @@ func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Cont
 		return nil
 	}
 
-	annotationToAdd := map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}
-	if err := annotations.SetAnnotations(ctx, &sts, annotationToAdd, r.client); err != nil {
+	// Use Update (not annotations.SetAnnotations, which PATCHes) to match the other AppDB
+	// StatefulSet mutations (reclaimAppDBStatefulset, the external reconciler's forward-migration
+	// request): the operator's ClusterRole grants update but not patch on apps/statefulsets, so a
+	// PATCH here fails with a Forbidden error and the reverse-migration handshake never starts.
+	if sts.Annotations == nil {
+		sts.Annotations = map[string]string{}
+	}
+	sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] = trueString
+	if err := r.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to request StatefulSet release: %w", err)
 	}
 

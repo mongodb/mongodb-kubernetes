@@ -134,6 +134,12 @@ type OpsManagerReconcilerHelper struct {
 	memberClusters  []multicluster.MemberCluster
 	stateStore      *StateStore[OMDeploymentState]
 	deploymentState *OMDeploymentState
+
+	// appDBCAConfigMapName and appDBTLSEnabled hold the AppDB TLS configuration resolved once
+	// per reconcile. For an internally-managed AppDB they come from opsManager.Spec.AppDB; for an
+	// external AppDB they come from the referenced MongoDB/MongoDBMultiCluster CR's security config.
+	appDBCAConfigMapName string
+	appDBTLSEnabled      bool
 }
 
 func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
@@ -445,6 +451,13 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
+
+	appDBCAConfigMapName, appDBTLSEnabled, err := resolveAppDBTLSConfig(ctx, r.client, opsManager)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error resolving AppDB TLS configuration: %w", err)), log, opsManagerExtraStatusParams)
+	}
+	opsManagerReconcilerHelper.appDBCAConfigMapName = appDBCAConfigMapName
+	opsManagerReconcilerHelper.appDBTLSEnabled = appDBTLSEnabled
 
 	for _, memberCluster := range opsManagerReconcilerHelper.getHealthyMemberClusters() {
 		if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, opsManager, appDBConnectionString, memberCluster, log); err != nil {
@@ -845,6 +858,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
 		construct.WithDebugPort(debugPort),
 		construct.WithOMDefaultArchitecture(r.defaultArchitecture),
+		construct.WithAppDBTLSCAConfigMapName(reconcilerHelper.appDBCAConfigMapName),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("error building OpsManager stateful set: %w", err)
@@ -920,14 +934,12 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 	// update the central URL
 	setConfigProperty(reconcilerHelper.opsManager, util.MmsCentralUrlPropKey, reconcilerHelper.opsManager.CentralURL(), log)
 
-	// TODO(CLOUDP-TBD): reflects internal AppDB's TLS setting even in external-AppDB mode —
-	// same deferred TLS/CA parity gap as opsmanager_construction.go's AppDBTlsCAConfigMapName.
-	if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
+	// AppDB TLS/CA is resolved once per reconcile (see resolveAppDBTLSConfig): for an internal
+	// AppDB from opsManager.Spec.AppDB, for an external AppDB from the referenced CR's security.
+	if reconcilerHelper.appDBTLSEnabled {
 		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
 	}
-	// TODO(CLOUDP-TBD): same deferred TLS/CA parity gap — GetCAConfigMapName() is computed from
-	// the internal AppDB spec even in external-AppDB mode.
-	if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
+	if reconcilerHelper.appDBCAConfigMapName != "" {
 		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
 	}
 
@@ -969,6 +981,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
 		construct.WithOMDefaultArchitecture(r.defaultArchitecture),
+		construct.WithAppDBTLSCAConfigMapName(reconcilerHelper.appDBCAConfigMapName),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("error building stateful set: %w", err)
@@ -1245,11 +1258,11 @@ func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Cont
 }
 
 func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
-	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.Spec.GetAppDbCA() == "" {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.appDBCAConfigMapName == "" {
 		return nil
 	}
 
-	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.GetAppDbCA())
+	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.appDBCAConfigMapName)
 }
 
 func (r *OpsManagerReconciler) replicateKMIPCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
@@ -1869,8 +1882,12 @@ func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(ctx context.Cont
 		return customCertificates, err
 	}
 
-	if opsManager.Spec.GetAppDbCA() != "" {
-		cmContents, err := configmap.ReadKey(ctx, r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetAppDbCA()))
+	appDBCAConfigMapName, _, err := resolveAppDBTLSConfig(ctx, r.client, opsManager)
+	if err != nil {
+		return []backup.S3CustomCertificate{}, xerrors.New(err.Error())
+	}
+	if appDBCAConfigMapName != "" {
+		cmContents, err := configmap.ReadKey(ctx, r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, appDBCAConfigMapName))
 		if err != nil {
 			return []backup.S3CustomCertificate{}, xerrors.New(err.Error())
 		}

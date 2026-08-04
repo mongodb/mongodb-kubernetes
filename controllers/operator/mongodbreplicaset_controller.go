@@ -502,9 +502,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if blocked {
 			return r.updateStatus(ctx, workflow.Pending("%s", blockedMessage))
 		}
-		if err := r.consumeAdoptionSignal(ctx, rs); err != nil {
-			return r.updateStatus(ctx, workflow.Failed(err))
-		}
+		// NOTE: the adoption signal (AppDBMigrationReadyAnnotation) is consumed only AFTER this CR has
+		// durably adopted the StatefulSet in reconcileMemberResources below (see consumeAdoptionSignal
+		// call after the main reconcile). Consuming it here would clear the migration-ready annotation
+		// before the CR's OwnerReference is set on the StatefulSet; any requeue in between (e.g. the
+		// TLS/cert steps) would then leave checkAdoptionGate permanently blocked (no annotation AND no
+		// owner reference).
 
 		if err := r.ensureAppDBRoleUser(ctx, rs, conn); err != nil {
 			return r.updateStatus(ctx, workflow.Failed(err))
@@ -609,6 +612,17 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, status)
+	}
+
+	// The StatefulSet now carries this CR's OwnerReference (set by reconcileMemberResources), so the
+	// forward-migration handover is complete and it is safe to clear the migration-ready annotation.
+	// Doing it here (rather than right after the adoption gate) closes the race where a requeue
+	// between consuming the signal and adopting the StatefulSet would re-block checkAdoptionGate.
+	// consumeAdoptionSignal is idempotent (a no-op once the annotation is gone).
+	if rs.Spec.Role == mdbv1.RoleAppDB {
+		if err := r.consumeAdoptionSignal(ctx, rs); err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
 	}
 
 	// === 6. Final steps
@@ -723,6 +737,14 @@ func publishAutomationConfigFirstRS(ctx context.Context, getter kubernetesClient
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	if databaseContainer == nil {
+		// The existing StatefulSet has no database container, so it was not shaped by this MongoDB
+		// controller — e.g. a StatefulSet just adopted during forward migration that still carries the
+		// AppDB pod template. Its volume mounts can't be compared against the MongoDB spec; treat it
+		// like a new StatefulSet (the upcoming reconcile reshapes it to the MongoDB pod template).
+		log.Debugf("StatefulSet %s has no %s container yet (adopted/awaiting reshape)", namespacedName, util.DatabaseContainerName)
+		return false
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 
 	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {

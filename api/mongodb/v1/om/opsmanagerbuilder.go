@@ -40,6 +40,11 @@ func (b *OpsManagerBuilder) SetAppDbVersion(version string) *OpsManagerBuilder {
 	return b
 }
 
+func (b *OpsManagerBuilder) SetExternalApplicationDatabaseRef(ref *ExternalApplicationDatabaseRef) *OpsManagerBuilder {
+	b.om.Spec.ExternalApplicationDatabaseRef = ref
+	return b
+}
+
 func (b *OpsManagerBuilder) SetAppDbPodSpec(podSpec mdbv1.MongoDbPodSpec) *OpsManagerBuilder {
 	b.om.Spec.AppDB.PodSpec = &podSpec
 	return b

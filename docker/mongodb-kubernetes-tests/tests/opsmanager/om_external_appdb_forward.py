@@ -11,8 +11,10 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
+    appdb_tls_security,
     assert_sentinel_doc_present,
     configure_appdb_role_mongodb,
     meta_om_resource,
@@ -60,12 +62,36 @@ def meta_om(namespace: str, custom_version: Optional[str], custom_appdb_version:
 
 
 @fixture(scope="module")
-def primary_om(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def appdb_ca_configmap(app_db_issuer_ca_configmap: str) -> str:
+    # ConfigMap "app-db-issuer-ca" (key ca-pem) created from the test issuer's CA; the same CA is
+    # used by the internal AppDB (before forward migration) and the external MongoDB CR (after), so
+    # the computed connection string is identical across the switch and OM pods don't restart.
+    return app_db_issuer_ca_configmap
+
+
+@fixture(scope="module")
+def appdb_cert_prefix(namespace: str, issuer: str) -> str:
+    # Creates "appdb-<DB_NAME>-cert". The internal AppDB and the MongoDB CR share the name DB_NAME
+    # and this prefix, so they resolve to the same member cert secret across forward migration.
+    return create_appdb_certs(namespace, issuer, DB_NAME)
+
+
+@fixture(scope="module")
+def primary_om(
+    namespace: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
+    appdb_ca_configmap: str,
+    appdb_cert_prefix: str,
+) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(
         yaml_fixture("om_external_appdb_primary_om.yaml"), name=OM_NAME, namespace=namespace
     )
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+    # start with a TLS-enabled internal AppDB so that after forward migration to the (also TLS)
+    # external CR the connection string (ssl=true, same hosts) is unchanged.
+    resource["spec"]["applicationDatabase"]["security"] = appdb_tls_security(appdb_ca_configmap, appdb_cert_prefix)
     try_load(resource)
     return resource
 
@@ -76,6 +102,8 @@ def external_appdb(
     custom_mdb_version: str,
     member_cluster_names,
     central_cluster_client: kubernetes.client.ApiClient,
+    appdb_cert_prefix: str,
+    appdb_ca_configmap: str,
 ) -> MongoDB:
     resource = appdb_role_resource(
         namespace,
@@ -84,6 +112,7 @@ def external_appdb(
         member_cluster_names=member_cluster_names,
         central_cluster_client=central_cluster_client,
     )
+    resource.configure_custom_tls(appdb_ca_configmap, appdb_cert_prefix)
     try_load(resource)
     return resource
 
@@ -133,8 +162,11 @@ class TestSentinelDocSurvivesForwardMigration:
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
-    def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager):
-        write_sentinel_doc(primary_om.read_appdb_connection_url())
+    def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
+        cnx_string = primary_om.read_appdb_connection_url()
+        # the internal AppDB is TLS-enabled, so its connection string must request TLS
+        assert "ssl=true" in cnx_string
+        write_sentinel_doc(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_capture_state_before_migration(self, primary_om: MongoDBOpsManager, namespace: str):
         self.__class__.restart_counts_before = read_om_pod_restart_counts(primary_om)
@@ -155,8 +187,11 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_om_reaches_running(self, primary_om: MongoDBOpsManager):
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    def test_sentinel_doc_survives(self, primary_om: MongoDBOpsManager):
-        assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
+    def test_sentinel_doc_survives(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
+        cnx_string = primary_om.read_appdb_connection_url()
+        # after forward migration the external CR is also TLS, so the string still requests TLS
+        assert "ssl=true" in cnx_string
+        assert_sentinel_doc_present(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_no_om_pod_restarts_across_switch(self, primary_om: MongoDBOpsManager):
         restart_counts_after = read_om_pod_restart_counts(primary_om)
@@ -224,10 +259,11 @@ class TestReverseMigrationAfterForwardMigration:
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
-    def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager):
+    def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
         # the data-preservation proof: written before the forward migration, survives CR deletion
-        # and the recreate because the PVCs were retained
-        assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
+        # and the recreate because the PVCs were retained. The internal AppDB security (TLS) is
+        # inherited from the OM spec's applicationDatabase, so the reconnect is over TLS.
+        assert_sentinel_doc_present(primary_om.read_appdb_connection_url(), tls_ca_file=issuer_ca_filepath)
 
 
 @pytest.mark.e2e_om_external_appdb_forward
@@ -242,28 +278,35 @@ class TestAdoptionGateBlocksWithoutBothSignals:
     ReplicaSetReconcilerHelper.Reconcile BEFORE checkAdoptionGate
     (mongodbreplicaset_controller.go:355-389), and that project resolves against the Meta OM."""
 
-    FOREIGN_OWNER_UID = "11111111-1111-1111-1111-111111111111"
+    # A REAL owner object is required. An ownerReference pointing at a non-existent owner is
+    # garbage-collected by Kubernetes (the dependent StatefulSet is deleted), which would make the
+    # gate see a Fresh Start (no StatefulSet) instead of a foreign-owned one. So we create a real
+    # ConfigMap and reference its actual UID.
+    FOREIGN_OWNER_NAME = "some-unrelated-owner"
+    foreign_owner_uid: ClassVar[str]
 
     @staticmethod
-    def _foreign_owner_reference() -> k8s_client.V1OwnerReference:
+    def _foreign_owner_reference(uid: str) -> k8s_client.V1OwnerReference:
         return k8s_client.V1OwnerReference(
             api_version="v1",
             kind="ConfigMap",
-            name="some-unrelated-owner",
-            uid=TestAdoptionGateBlocksWithoutBothSignals.FOREIGN_OWNER_UID,
+            name=TestAdoptionGateBlocksWithoutBothSignals.FOREIGN_OWNER_NAME,
+            uid=uid,
             controller=True,
             block_owner_deletion=True,
         )
 
     @staticmethod
-    def _minimal_statefulset(name: str, namespace: str, annotations: Optional[dict] = None) -> k8s_client.V1StatefulSet:
+    def _minimal_statefulset(
+        name: str, namespace: str, owner_uid: str, annotations: Optional[dict] = None
+    ) -> k8s_client.V1StatefulSet:
         labels = {"app": name}
         return k8s_client.V1StatefulSet(
             metadata=k8s_client.V1ObjectMeta(
                 name=name,
                 namespace=namespace,
                 annotations=annotations or {},
-                owner_references=[TestAdoptionGateBlocksWithoutBothSignals._foreign_owner_reference()],
+                owner_references=[TestAdoptionGateBlocksWithoutBothSignals._foreign_owner_reference(owner_uid)],
             ),
             spec=k8s_client.V1StatefulSetSpec(
                 service_name=name,
@@ -277,8 +320,14 @@ class TestAdoptionGateBlocksWithoutBothSignals:
         )
 
     def test_create_foreign_statefulset_no_annotation(self, namespace: str):
+        # create a real owner first so the fabricated foreign StatefulSet is not garbage-collected
+        cm = k8s_client.CoreV1Api().create_namespaced_config_map(
+            namespace,
+            k8s_client.V1ConfigMap(metadata=k8s_client.V1ObjectMeta(name=self.FOREIGN_OWNER_NAME)),
+        )
+        self.__class__.foreign_owner_uid = cm.metadata.uid
         k8s_client.AppsV1Api().create_namespaced_stateful_set(
-            namespace, self._minimal_statefulset(GATE_DB_NAME, namespace)
+            namespace, self._minimal_statefulset(GATE_DB_NAME, namespace, self.foreign_owner_uid)
         )
 
     def test_create_appdb_role_mongodb(self, gate_appdb_mongodb: MongoDB, meta_om: MongoDBOpsManager, namespace: str):
@@ -286,12 +335,12 @@ class TestAdoptionGateBlocksWithoutBothSignals:
         gate_appdb_mongodb.update()
 
     def test_reports_waiting_status_without_annotation(self, gate_appdb_mongodb: MongoDB):
-        gate_appdb_mongodb.assert_reaches_phase(Phase.Pending, msg_regexp=".*waiting for Ops Manager.*", timeout=120)
+        gate_appdb_mongodb.assert_reaches_phase(Phase.Pending, msg_regexp=".*[Ww]aiting for Ops Manager.*", timeout=120)
 
     def test_statefulset_untouched_without_annotation(self, namespace: str):
         sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(GATE_DB_NAME, namespace)
         assert len(sts.metadata.owner_references) == 1
-        assert sts.metadata.owner_references[0].uid == self.FOREIGN_OWNER_UID
+        assert sts.metadata.owner_references[0].uid == self.foreign_owner_uid
 
     def test_add_annotation_but_keep_foreign_owner_reference(self, namespace: str):
         sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(GATE_DB_NAME, namespace)
@@ -302,6 +351,6 @@ class TestAdoptionGateBlocksWithoutBothSignals:
     def test_still_blocked_with_annotation_but_foreign_owner_present(self, gate_appdb_mongodb: MongoDB, namespace: str):
         gate_appdb_mongodb.load()
         gate_appdb_mongodb.update()
-        gate_appdb_mongodb.assert_reaches_phase(Phase.Pending, msg_regexp=".*waiting for Ops Manager.*", timeout=120)
+        gate_appdb_mongodb.assert_reaches_phase(Phase.Pending, msg_regexp=".*[Ww]aiting for Ops Manager.*", timeout=120)
         sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(GATE_DB_NAME, namespace)
         assert len(sts.metadata.owner_references) == 1, "gate must not adopt while foreign OwnerReference remains"
