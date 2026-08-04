@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,9 +31,9 @@ func TestMigrationLifecycleStatusTransitions(t *testing.T) {
 
 	const totalVMs = 3
 	extMembers := []mdbv1.ExternalMember{
-		{ProcessName: "vm-0", Hostname: "vm-0.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
-		{ProcessName: "vm-1", Hostname: "vm-1.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
-		{ProcessName: "vm-2", Hostname: "vm-2.vm-svc.ns.svc.cluster.local", Type: "mongod", ReplicaSetName: "vm-rs"},
+		{ProcessName: "vm-0", Hostname: "vm-0.vm-svc.ns.svc.cluster.local:27017", Type: "mongod", ReplicaSetName: "vm-rs"},
+		{ProcessName: "vm-1", Hostname: "vm-1.vm-svc.ns.svc.cluster.local:27017", Type: "mongod", ReplicaSetName: "vm-rs"},
+		{ProcessName: "vm-2", Hostname: "vm-2.vm-svc.ns.svc.cluster.local:27017", Type: "mongod", ReplicaSetName: "vm-rs"},
 	}
 
 	// Start with 1 k8s member (the initial extend step).
@@ -77,14 +78,23 @@ func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context,
 		// Pre-populate the OM RS with external members, mirroring real OM where VM agents are
 		// already RS members before any k8s members are added.
 		rsName := rs.Spec.ReplicaSetNameOverride
+		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: rs.Spec.Version}}
 		processes := make([]om.Process, len(rs.Spec.ExternalMembers))
 		for i, m := range rs.Spec.ExternalMembers {
-			processes[i] = om.Process{"name": m.ProcessName, "hostname": m.Hostname, "processType": "mongod"}
+			// NewMongodProcess sets the default port (27017); strip it from the CR hostname so the
+			// resulting process hostname:port matches the external member Hostname in the drift check.
+			processes[i] = om.NewMongodProcess(
+				m.ProcessName,
+				strings.TrimSuffix(m.Hostname, ":27017"),
+				"fake-image", false,
+				&mdbv1.AdditionalMongodConfig{},
+				spec, "", nil, "",
+			)
 		}
 		omRS := om.NewReplicaSet(rsName, rs.Spec.Version)
 		rsWithProcesses := om.NewReplicaSetWithProcesses(omRS, processes, make([]automationconfig.MemberOptions, len(processes)), nil)
 		_ = mc.ReadUpdateDeployment(func(d om.Deployment) error {
-			d["replicaSets"] = append(d.GetReplicaSets(), rsWithProcesses.Rs)
+			d.MergeReplicaSet(rsWithProcesses, nil, nil, nil, zap.S())
 			return nil
 		}, zap.S())
 	})
