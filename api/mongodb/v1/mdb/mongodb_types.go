@@ -441,6 +441,14 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// Role marks this resource as playing a special role for another MongoDB
+	// Kubernetes resource. Currently only AppDB is supported, marking this
+	// resource as the externally-managed Application Database for a
+	// MongoDBOpsManager resource.
+	// +kubebuilder:validation:Enum=AppDB
+	// +optional
+	Role string `json:"role,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -819,6 +827,10 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetRole() string {
+	return d.Role
 }
 
 func (s *Security) IsTLSEnabled() bool {

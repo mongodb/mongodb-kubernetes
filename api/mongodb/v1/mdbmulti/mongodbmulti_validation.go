@@ -55,6 +55,14 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 
 	var validationResults []v1.ValidationResult
 
+	// Check that spec.role is not set on MongoDBMultiCluster. This must run before CommonValidators:
+	// those include role-derived checks (e.g. appDBRoleRequiresScram) whose errors would be misleading
+	// when the role itself is unsupported, and only the first error-level result is surfaced.
+	// roleNotSupported can be removed entirely once MongoDBMultiCluster gains spec.role support.
+	if res := roleNotSupported(m.Spec); res.Level > 0 {
+		return []v1.ValidationResult{res}
+	}
+
 	for _, validator := range mdbv1.CommonValidators(m.Spec.DbCommonSpec) {
 		res := validator(m.Spec.DbCommonSpec)
 		if res.Level > 0 {
@@ -77,6 +85,15 @@ func (m *MongoDBMultiCluster) RunValidations(old *MongoDBMultiCluster) []v1.Vali
 	}
 
 	return validationResults
+}
+
+// roleNotSupported rejects any spec.role value on MongoDBMultiCluster.
+// The role field is only supported on MongoDB resources.
+func roleNotSupported(ms MongoDBMultiSpec) v1.ValidationResult {
+	if ms.Role != "" {
+		return v1.ValidationError("spec.role is not supported on MongoDBMultiCluster")
+	}
+	return v1.ValidationSuccess()
 }
 
 // validateUniqueExternalDomains validates uniqueness of the domains if they are provided.
