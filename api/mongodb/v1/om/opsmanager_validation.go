@@ -54,10 +54,17 @@ func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func applicationDatabaseOrExternalRefIsSet(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if os.AppDB == nil && os.ExternalApplicationDatabaseRef == nil {
+		return v1.OpsManagerResourceValidationError("at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set", status.OpsManager)
+	}
+
+	return v1.ValidationSuccess()
+}
+
 func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	version := os.AppDB.GetMongoDBVersion()
-	_, err := semver.Make(version)
-	if err != nil {
+	if _, err := semver.Make(version); err != nil {
 		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err), status.AppDb)
 	}
 
@@ -285,27 +292,28 @@ func warnMonitoringAgentContainer(os MongoDBOpsManagerSpec) v1.ValidationResult 
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
-		validAppDBVersion,
-		connectivityIsNotConfigurable,
-		cloudManagerConfigIsNotConfigurable,
-		opsManagerConfigIsNotConfigurable,
-		credentialsIsNotConfigurable,
+		applicationDatabaseOrExternalRefIsSet,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
 		kmipValidation,
-		validateEmptyClusterSpecListSingleCluster,
 		validateTopologyIsSpecified,
 		validateClusterSpecList,
 		validateBackupS3Stores,
-		featureCompatibilityVersionValidation,
-		validateAppDBUniqueExternalDomains,
-		warnMonitoringAgentStartupParameters,
-		warnMonitoringAgentContainer,
 	}
 
-	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
-		mdb.ValidateUniqueClusterNames,
-		mdb.ValidateNonEmptyClusterSpecList,
-		mdb.ValidateMemberClusterIsSubsetOfKubeConfig,
+	// AppDB validators apply only to an internal AppDB
+	if om.Spec.ExternalApplicationDatabaseRef == nil {
+		validators = append(validators,
+			validAppDBVersion,
+			connectivityIsNotConfigurable,
+			cloudManagerConfigIsNotConfigurable,
+			opsManagerConfigIsNotConfigurable,
+			credentialsIsNotConfigurable,
+			validateEmptyClusterSpecListSingleCluster,
+			featureCompatibilityVersionValidation,
+			validateAppDBUniqueExternalDomains,
+			warnMonitoringAgentStartupParameters,
+			warnMonitoringAgentContainer,
+		)
 	}
 
 	var validationResults []v1.ValidationResult
@@ -317,8 +325,19 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		}
 	}
 
-	// Explicit tests for AppDB multi-cluster
-	if om.Spec.AppDB.IsMultiCluster() {
+	if om.Spec.ExternalApplicationDatabaseRef != nil {
+		expectedName := om.Name + "-db"
+		if om.Spec.ExternalApplicationDatabaseRef.Name != expectedName {
+			validationResults = append(validationResults, v1.OpsManagerResourceValidationError(fmt.Sprintf("spec.externalApplicationDatabaseRef.name must be %s", expectedName), status.OpsManager))
+		}
+	} else if om.Spec.AppDB.IsMultiCluster() {
+		// Explicit tests for AppDB multi-cluster
+		multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
+			mdb.ValidateUniqueClusterNames,
+			mdb.ValidateNonEmptyClusterSpecList,
+			mdb.ValidateMemberClusterIsSubsetOfKubeConfig,
+		}
+
 		for _, validator := range multiClusterAppDBSharedClusterValidators {
 			res := validator(om.Spec.AppDB.ClusterSpecList)
 			if res.Level > 0 {

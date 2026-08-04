@@ -169,7 +169,7 @@ func newAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsMa
 		readOnly:        readOnly,
 	}
 
-	appDBSpec := opsManager.Spec.AppDB
+	appDBSpec := *opsManager.Spec.AppDB
 
 	if err := helper.initializeStateStore(ctx, appDBSpec, opsManager.Annotations, log); err != nil {
 		return nil, xerrors.Errorf("failed to initialize appdb state store: %w", err)
@@ -647,7 +647,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	// For example: we have 3 members in a cluster, and we try to remove the entire cluster spec. The operator is scaling members down one by one.
 	// We could remove one member successfully, but recreate other members with default configuration, rather the one that was used before.
 	// Removing cluster spec would remove all non-default cluster configuration i.e. priority, persistence, etc. and that can lead to unexpected issues.
-	if err := r.blockNonEmptyClusterSpecItemRemoval(rs); err != nil {
+	if err := r.blockNonEmptyClusterSpecItemRemoval(*rs); err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log)
 	}
 
@@ -797,7 +797,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		log.Debugf("Scaling status for memberCluster: %s, replicasThisReconcile=%d, specReplicas=%d, achievedDesiredScaling=%t", member.Name, replicasThisReconcile, specReplicas, achievedDesiredScaling)
 	}
 
-	if err := r.helper.saveAppDBState(ctx, opsManager.Spec.AppDB, log); err != nil {
+	if err := r.helper.saveAppDBState(ctx, *opsManager.Spec.AppDB, log); err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Could not save deployment state: %w", err)), log, omStatusOption)
 	}
 
@@ -1114,7 +1114,7 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 		return workflow.OK()
 	}
 
-	caConfigMapName := construct.CAConfigMapName(om.Spec.AppDB, log)
+	caConfigMapName := construct.CAConfigMapName(*om.Spec.AppDB, log)
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -1197,7 +1197,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
 
 	auth := automationconfig.Auth{}
-	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: rs, OpsManager: *opsManager}
+	appDBConfigurable := omv1.AppDBConfigurable{AppDBSpec: *rs, OpsManager: *opsManager}
 
 	if err := scram.Enable(ctx, &auth, r.SecretClient, &appDBConfigurable); err != nil {
 		return automationconfig.AutomationConfig{}, err
@@ -1819,7 +1819,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return env.PodEnvVars{}, xerrors.Errorf("error reading existing podVars: %w", err)
 	}
 
-	projectConfig, err := opsManager.GetAppDBProjectConfig(ctx, r.SecretClient, r.client)
+	projectConfig, err := opsManager.GetAppDBProjectConfig(ctx, r.client)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error getting existing project config: %w", err)
 	}
@@ -2105,8 +2105,8 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 			// Configures external service for both single and multi cluster deployments
 			// This will also delete external services if the externalAccess configuration is removed
 			if opsManager.Spec.AppDB.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name) != nil {
-				svc := getAppDBExternalService(opsManager.Spec.AppDB, memberCluster.Index, memberCluster.Name, podIdx)
-				placeholderReplacer := getPlaceholderReplacer(opsManager.Spec.AppDB, memberCluster, podIdx)
+				svc := getAppDBExternalService(*opsManager.Spec.AppDB, memberCluster.Index, memberCluster.Name, podIdx)
+				placeholderReplacer := getPlaceholderReplacer(*opsManager.Spec.AppDB, memberCluster, podIdx)
 
 				if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
 					return xerrors.Errorf("failed to process annotations in external service %s in cluster %s: %w", svc.Name, memberCluster.Name, err)
@@ -2128,7 +2128,7 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 
 			// Configures pod services for multi cluster deployments
 			if opsManager.Spec.AppDB.IsMultiCluster() && opsManager.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name) == nil {
-				svc := getAppDBPodService(opsManager.Spec.AppDB, memberCluster.Index, podIdx)
+				svc := getAppDBPodService(*opsManager.Spec.AppDB, memberCluster.Index, podIdx)
 				svc.Name = dns.GetMultiServiceName(opsManager.Spec.AppDB.Name(), memberCluster.Index, podIdx)
 				err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc)
 				if err != nil && !apiErrors.IsAlreadyExists(err) {
