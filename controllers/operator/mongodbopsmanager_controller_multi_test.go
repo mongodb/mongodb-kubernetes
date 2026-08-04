@@ -267,8 +267,8 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 
 	// prepare TLS certificates and CA in central cluster
 
-	appDbCAConfigMapName := createAppDbCAConfigMap(ctx, t, omClient, appDB)
-	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(ctx, t, omClient, appDB)
+	appDbCAConfigMapName := createAppDbCAConfigMap(ctx, t, omClient, *appDB)
+	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(ctx, t, omClient, *appDB)
 	appDbPemSecretName := appDbTLSCertSecret + "-pem"
 
 	/* omCAConfigMapName */
@@ -480,8 +480,8 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 
 	// prepare TLS certificates and CA in central cluster
 
-	appDbCAConfigMapName := createAppDbCAConfigMap(ctx, t, omClient, appDB)
-	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(ctx, t, omClient, appDB)
+	appDbCAConfigMapName := createAppDbCAConfigMap(ctx, t, omClient, *appDB)
+	appDbTLSCertSecret, appDbTLSSecretPemHash := createAppDBTLSCert(ctx, t, omClient, *appDB)
 	appDbPemSecretName := appDbTLSCertSecret + "-pem"
 
 	/* omCAConfigMapName */

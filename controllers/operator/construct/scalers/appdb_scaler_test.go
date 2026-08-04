@@ -293,7 +293,7 @@ func TestAppDBMultiClusterScaler(t *testing.T) {
 func opsManagerBuilder() *omv1.OpsManagerBuilder {
 	spec := omv1.MongoDBOpsManagerSpec{
 		Version:     "5.0.0",
-		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
+		AppDB:       omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
 	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-om", Namespace: mock.TestNamespace}}

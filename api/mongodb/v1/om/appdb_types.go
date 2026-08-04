@@ -256,7 +256,13 @@ func (m *AppDBSpec) NamespacedName() types.NamespacedName {
 // GetOpsManagerUserPasswordSecretName returns the name of the secret
 // that will store the Ops Manager user's password.
 func (m *AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
-	return m.Name() + "-om-password"
+	return OpsManagerUserPasswordSecretName(m.Name())
+}
+
+// OpsManagerUserPasswordSecretName returns the name of the secret that will
+// store the Ops Manager user's password, given the AppDB's effective name.
+func OpsManagerUserPasswordSecretName(omName string) string {
+	return omName + "-om-password"
 }
 
 // GetOpsManagerUserPasswordSecretKey returns the key that should be used to map to the Ops Manager user's
@@ -352,10 +358,6 @@ func DefaultAppDbBuilder() *AppDbBuilder {
 
 func (b *AppDbBuilder) Build() *AppDBSpec {
 	return b.appDb.DeepCopy()
-}
-
-func (m *AppDBSpec) GetSecretName() string {
-	return m.Name() + "-password"
 }
 
 func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
