@@ -970,7 +970,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 
 func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	appDBReplicaSet := opsManager.Spec.AppDB
-	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
+	r.SetupCommonWatchers(appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
 
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})

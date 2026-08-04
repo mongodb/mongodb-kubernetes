@@ -1,9 +1,13 @@
 package om
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
@@ -170,4 +174,97 @@ func TestIsTLSEnabled(t *testing.T) {
 			assert.Equal(t, tc.expected, om.IsTLSEnabled())
 		})
 	}
+}
+
+func TestAppDBName(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepare  func(om *MongoDBOpsManager)
+		expected string
+	}{
+		{
+			name: "returns externalApplicationDatabaseRef name when set",
+			prepare: func(om *MongoDBOpsManager) {
+				om.Spec.AppDB = nil
+				om.Spec.ExternalApplicationDatabaseRef = &ExternalApplicationDatabaseRef{Name: "external-appdb", Kind: "MongoDB"}
+			},
+			expected: "external-appdb",
+		},
+		{
+			name:     "returns AppDB name when externalApplicationDatabaseRef is not set",
+			expected: "om-test-db",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := NewOpsManagerBuilderDefault().SetName("om-test").Build()
+			if tc.prepare != nil {
+				tc.prepare(om)
+			}
+			assert.Equal(t, tc.expected, om.AppDBName())
+		})
+	}
+}
+
+func TestOpsManager_InitDefaultFields_ExternalRefSkipsAppDBDefaulting(t *testing.T) {
+	externalRef := &ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}
+	tests := []struct {
+		name             string
+		spec             MongoDBOpsManagerSpec
+		expectedAppDBNil bool
+		expectedDefault  bool
+	}{
+		{
+			name:             "ref-only: AppDB stays nil",
+			spec:             MongoDBOpsManagerSpec{ExternalApplicationDatabaseRef: externalRef},
+			expectedAppDBNil: true,
+		},
+		{
+			name:            "both set: AppDB kept but not defaulted",
+			spec:            MongoDBOpsManagerSpec{AppDB: &AppDBSpec{}, ExternalApplicationDatabaseRef: externalRef},
+			expectedDefault: false,
+		},
+		{
+			name:            "appdb-only: defaulted as today",
+			spec:            MongoDBOpsManagerSpec{AppDB: &AppDBSpec{}},
+			expectedDefault: true,
+		},
+		{
+			name:            "neither set: instantiated as today",
+			spec:            MongoDBOpsManagerSpec{},
+			expectedDefault: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := &MongoDBOpsManager{
+				ObjectMeta: metav1.ObjectMeta{Name: "om-test", Namespace: "mongodb"},
+				Spec:       tc.spec,
+			}
+
+			om.InitDefaultFields()
+
+			if tc.expectedAppDBNil {
+				assert.Nil(t, om.Spec.AppDB)
+				return
+			}
+			require.NotNil(t, om.Spec.AppDB)
+			if tc.expectedDefault {
+				assert.Equal(t, "om-test", om.Spec.AppDB.OpsManagerName)
+				assert.Equal(t, "mongodb", om.Spec.AppDB.Namespace)
+				assert.NotNil(t, om.Spec.AppDB.Security)
+			} else {
+				assert.Equal(t, "", om.Spec.AppDB.OpsManagerName)
+				assert.Nil(t, om.Spec.AppDB.Security)
+			}
+		})
+	}
+}
+
+func TestOpsManager_UnmarshalJSON_ExternalRefLeavesAppDBNil(t *testing.T) {
+	data := []byte(`{"metadata":{"name":"om-test","namespace":"mongodb"},"spec":{"externalApplicationDatabaseRef":{"name":"om-test-db","kind":"MongoDB"}}}`)
+	om := &MongoDBOpsManager{}
+	require.NoError(t, json.Unmarshal(data, om))
+	assert.NotNil(t, om.Spec.ExternalApplicationDatabaseRef)
+	assert.Nil(t, om.Spec.AppDB)
 }
