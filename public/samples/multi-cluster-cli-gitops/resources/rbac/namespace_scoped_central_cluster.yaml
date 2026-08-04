@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-role
@@ -98,7 +97,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-role-binding
@@ -117,7 +115,6 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multicluster

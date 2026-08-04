@@ -204,9 +204,9 @@ func (c *omMemberClusterChecks) checkOmUserScramCredentialsSecretName(omName str
 func (c *omMemberClusterChecks) reconcileAndCheck(reconciler reconcile.Reconciler, expectedRequeue bool) {
 	res, err := reconciler.Reconcile(c.ctx, requestFromObject(c.om))
 	if expectedRequeue {
-		assert.True(c.t, res.Requeue || res.RequeueAfter > 0, "result=%+v", res)
+		assert.True(c.t, res.RequeueAfter > 0, "result=%+v", res)
 	} else {
-		assert.True(c.t, !res.Requeue && res.RequeueAfter > 0)
+		assert.True(c.t, res.RequeueAfter > 0)
 	}
 	assert.NoError(c.t, err)
 }

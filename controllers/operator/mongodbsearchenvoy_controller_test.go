@@ -1256,11 +1256,10 @@ func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
 
-	res, err := r.Reconcile(ctx, reconcile.Request{
+	_, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
 	})
 	require.NoError(t, err)
-	assert.False(t, res.Requeue)
 
 	// Re-fetch to see the patched status.
 	patched := &searchv1.MongoDBSearch{}
