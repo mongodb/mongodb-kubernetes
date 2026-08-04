@@ -820,9 +820,8 @@ def get_multi_cluster_operator_clustermode(
         get_central_cluster_name(),
         configure_member_clusters=get_member_cluster_names(),
         # Watching all namespaces on each member cluster renders member RBAC as ClusterRoles
-        # instead of Roles. Tests that run workloads in specific namespaces can narrow this so the
-        # member-scoped workload SAs/Roles land in those namespaces (the member ClusterRole's
-        # bindings always cover the watched namespaces plus the operator namespace).
+        # instead of Roles. Only narrow this together with operator.watchNamespace: member-cluster
+        # caches are scoped from the operator's watchNamespace and need the cluster-scope render.
         member_clusters_watched_namespaces=member_clusters_watched_namespaces or "*",
     )
 
