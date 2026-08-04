@@ -22,6 +22,14 @@ from tests.vm_migration.vm_migration_common_helper import (
     assert_migration_tool_version_annotation,
     generated_mongodb_doc,
 )
+from tests.vm_migration.vm_migration_dry_run import (
+    MIGRATING_CONDITION_REASON_EXTENDING,
+    MIGRATING_CONDITION_REASON_IN_PROGRESS,
+    MIGRATING_CONDITION_REASON_PRUNING,
+    wait_until_migrating_condition_reason,
+    wait_until_phase_and_migrating_condition_reason,
+    wait_until_running_and_migration_complete,
+)
 
 # The voting limit test trips the config server and a shard independently: the config server
 # votes come from top-level spec.memberConfig and the shard votes from its own shardOverride,
@@ -128,9 +136,13 @@ def apply_generated_sharded_cluster_resource(
     resource_name: str | None = None,
     customer_sets_disabled_tls_mode: bool = False,
     prepare_external_resources=None,
+    incremental: bool = False,
 ) -> MongoDB:
     """Apply the generated sharded cluster CR. The config server K8s members get their votes from
-    top-level memberConfig and each shard gets its own shardOverride, both non voting to start."""
+    top-level memberConfig and each shard gets its own shardOverride, both non voting to start.
+
+    When incremental=True, all K8s counts start at 0 and grow one member at a time via
+    extend_and_prune_sharded_* operations."""
     resource_doc = generated_mongodb_doc(generated_cr_yaml)
     resource = MongoDB(resource_name or resource_doc["metadata"]["name"], namespace)
     if try_load(resource):
@@ -142,30 +154,45 @@ def apply_generated_sharded_cluster_resource(
                 "net", {}
             ).setdefault("tls", {})["mode"] = "disabled"
 
-    # The generated CR carries all Kubernetes node counts at 0, mirroring the replica set Members
-    # field, so the customer sets the target Kubernetes counts here. The VM nodes stay in
-    # externalMembers and the Kubernetes members scale up from 0.
-    resource_doc["spec"]["mongodsPerShardCount"] = MIN_K8S_SHARD
-    resource_doc["spec"]["mongosCount"] = MIN_K8S_MONGOS
+    if incremental:
+        # VM-only import: every Kubernetes node count starts at 0 and grows one member at a time via
+        # extend_and_prune_sharded_* , exercising the Migrating reasons Extending/Pruning. Mirrors the
+        # replica set initial_members=0 flow. shardCount keeps its imported value; VM processes stay in
+        # externalMembers.
+        resource_doc["spec"]["configServerCount"] = 0
+        resource_doc["spec"]["mongodsPerShardCount"] = 0
+        resource_doc["spec"]["mongosCount"] = 0
+        resource_doc["spec"]["memberConfig"] = []
+        resource_name_value = resource_doc["metadata"]["name"]
+        resource_doc["spec"]["shardOverrides"] = [
+            {"shardNames": [f"{resource_name_value}-{shard_index}"], "memberConfig": []}
+            for shard_index in range(resource_doc["spec"]["shardCount"])
+        ]
+    else:
+        # The generated CR carries all Kubernetes node counts at 0, mirroring the replica set Members
+        # field, so the customer sets the target Kubernetes counts here. The VM nodes stay in
+        # externalMembers and the Kubernetes members scale up from 0.
+        resource_doc["spec"]["mongodsPerShardCount"] = MIN_K8S_SHARD
+        resource_doc["spec"]["mongosCount"] = MIN_K8S_MONGOS
 
-    # Shard K8s members default to voting, which would already put a shard over the limit once its
-    # VM members are counted. A per-shard override pins them non voting and keeps shard votes
-    # independent of the config server for the voting limit test.
-    resource_name_value = resource_doc["metadata"]["name"]
-    resource_doc["spec"]["shardOverrides"] = [
-        {
-            "shardNames": [f"{resource_name_value}-{shard_index}"],
-            "memberConfig": [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_SHARD)],
-        }
-        for shard_index in range(resource_doc["spec"]["shardCount"])
-    ]
+        # Shard K8s members default to voting, which would already put a shard over the limit once its
+        # VM members are counted. A per-shard override pins them non voting and keeps shard votes
+        # independent of the config server for the voting limit test.
+        resource_name_value = resource_doc["metadata"]["name"]
+        resource_doc["spec"]["shardOverrides"] = [
+            {
+                "shardNames": [f"{resource_name_value}-{shard_index}"],
+                "memberConfig": [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_SHARD)],
+            }
+            for shard_index in range(resource_doc["spec"]["shardCount"])
+        ]
 
-    config_members = [
-        m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
-    ]
-    if config_members:
-        resource_doc["spec"]["configServerCount"] = MIN_K8S_CONFIGSRV
-        resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_CONFIGSRV)]
+        config_members = [
+            m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
+        ]
+        if config_members:
+            resource_doc["spec"]["configServerCount"] = MIN_K8S_CONFIGSRV
+            resource_doc["spec"]["memberConfig"] = [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_CONFIGSRV)]
 
     if prepare_external_resources is not None:
         prepare_external_resources(resource_doc)
@@ -173,6 +200,166 @@ def apply_generated_sharded_cluster_resource(
     resource.backing_obj = resource_doc
     resource.update()
     return resource
+
+
+def sharded_connection_string_tester(
+    mdb_migration: MongoDB, use_ssl: bool = False, ca_path: str | None = None
+) -> MongoTester:
+    """Return a MongoTester seeded from the operator-managed <name>-connection-string secret.
+
+    Unlike mdb_migration.tester() (which builds K8s mongos FQDNs from spec.mongosCount and therefore
+    targets nothing while mongosCount == 0), the standard connection string lists the CURRENT active
+    mongos routers: the external VM mongos early in migration and the K8s mongos once they exist.
+    """
+    try_load(mdb_migration)
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
+    conn_str = secret.get("connectionString.standard", "")
+    assert conn_str, (
+        f"connection-string secret {mdb_migration.name}-connection-string has no "
+        f"'connectionString.standard' value yet"
+    )
+    return MongoTester(conn_str, use_ssl, ca_path)
+
+
+def _set_member_config(member_config: list, index: int, *, votes: int, priority: str) -> None:
+    """Set (appending if needed) the votes/priority of member_config[index]."""
+    entry = {"priority": priority, "votes": votes}
+    if len(member_config) <= index:
+        member_config.append(entry)
+    else:
+        member_config[index] = entry
+
+
+def _remove_one_external(mdb_migration: MongoDB, predicate) -> None:
+    """Remove one external member matching predicate (raises if none match)."""
+    matching = [m for m in mdb_migration["spec"]["externalMembers"] if predicate(m)]
+    assert matching, "expected at least one matching external member to prune"
+    mdb_migration["spec"]["externalMembers"].remove(matching[-1])
+
+
+def _wait_prune_or_complete(mdb_migration: MongoDB, is_last: bool, timeout: int) -> None:
+    """After a prune update: assert Running+Pruning, or Running+MigrationComplete on the final VM.
+
+    Pruning is a single-reconcile transient state, so Running and the reason are checked in one poll
+    to avoid a race with the next reconcile flipping the reason to InProgress.
+    """
+    if is_last:
+        wait_until_running_and_migration_complete(mdb_migration, timeout=timeout)
+    else:
+        wait_until_phase_and_migrating_condition_reason(
+            mdb_migration, "Running", MIGRATING_CONDITION_REASON_PRUNING, timeout=timeout
+        )
+
+
+def extend_and_prune_sharded_replica_components(
+    mdb_migration: MongoDB,
+    om_tester: OMTester,
+    config_rs_name: str,
+    shard_rs_name: str,
+    mongos_cluster_name: str,
+    total_vms: int,
+    timeout: int = 600,
+) -> None:
+    """Incrementally migrate the config server then the single shard (the replica-set components).
+
+    For each VM member: extend one K8s member (non voting) -> assert Extending; prune one VM ->
+    assert Pruning; promote the K8s member to voting -> assert InProgress. Config votes live in
+    top-level memberConfig; shard votes live in the shard's shardOverride. Every update is a single
+    migration change. Does not migrate mongos; the mongos phase runs last, so it (not this function)
+    prunes the final external member and observes MigrationComplete.
+    """
+    try_load(mdb_migration)
+    # pruned tracks VMs removed so far so _wait_prune_or_complete can detect the final external member.
+    # Because mongos migrates last and always contributes >= 1 VM, pruned == total_vms is never true
+    # inside these config/shard loops — every prune here asserts Pruning, never MigrationComplete.
+    pruned = 0
+
+    # ---- Config server: grow configServerCount 0 -> n_config; votes in top-level memberConfig ----
+    if not isinstance(mdb_migration["spec"].get("memberConfig"), list):
+        mdb_migration["spec"]["memberConfig"] = []
+    n_config = len([m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == config_rs_name])
+    for i in range(n_config):
+        mdb_migration["spec"]["configServerCount"] = i + 1
+        _set_member_config(mdb_migration["spec"]["memberConfig"], i, votes=0, priority="0")
+        mdb_migration.update()
+        wait_until_migrating_condition_reason(mdb_migration, MIGRATING_CONDITION_REASON_EXTENDING, timeout=timeout)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+        pruned += 1
+        _remove_one_external(mdb_migration, lambda m: m.get("replicaSetName") == config_rs_name)
+        mdb_migration.update()
+        _wait_prune_or_complete(mdb_migration, pruned == total_vms, timeout)
+
+        _set_member_config(mdb_migration["spec"]["memberConfig"], i, votes=1, priority="1")
+        mdb_migration.update()
+        wait_until_phase_and_migrating_condition_reason(
+            mdb_migration, "Running", MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=timeout
+        )
+        om_tester.assert_cluster_available(mongos_cluster_name)
+
+    # ---- Shard: grow mongodsPerShardCount 0 -> n_shard; votes in the shard's shardOverride ----
+    shard_k8s_name = _shard_k8s_name_for_rs(mdb_migration, shard_rs_name)
+    n_shard = len([m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == shard_rs_name])
+    for i in range(n_shard):
+        mdb_migration["spec"]["mongodsPerShardCount"] = i + 1
+        override = next(o for o in mdb_migration["spec"]["shardOverrides"] if shard_k8s_name in o["shardNames"])
+        if not isinstance(override.get("memberConfig"), list):
+            override["memberConfig"] = []
+        _set_member_config(override["memberConfig"], i, votes=0, priority="0")
+        mdb_migration.update()
+        wait_until_migrating_condition_reason(mdb_migration, MIGRATING_CONDITION_REASON_EXTENDING, timeout=timeout)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+        pruned += 1
+        _remove_one_external(mdb_migration, lambda m: m.get("replicaSetName") == shard_rs_name)
+        mdb_migration.update()
+        _wait_prune_or_complete(mdb_migration, pruned == total_vms, timeout)
+
+        override = next(o for o in mdb_migration["spec"]["shardOverrides"] if shard_k8s_name in o["shardNames"])
+        _set_member_config(override["memberConfig"], i, votes=1, priority="1")
+        mdb_migration.update()
+        wait_until_phase_and_migrating_condition_reason(
+            mdb_migration, "Running", MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=timeout
+        )
+        om_tester.assert_cluster_available(mongos_cluster_name)
+
+
+def extend_and_prune_sharded_mongos(
+    mdb_migration: MongoDB,
+    om_tester: OMTester,
+    mongos_cluster_name: str,
+    total_vms: int,
+    pruned_so_far: int,
+    timeout: int = 600,
+) -> None:
+    """Incrementally migrate the (stateless) mongos routers: grow mongosCount 0 -> n_mongos, pruning
+    one VM mongos per step. Mongos have no votes, so there is no promote step. The last VM pruned is
+    the last external member overall -> MigrationComplete. Connectivity is asserted per step by
+    re-reading the connection-string secret
+
+    Each prune asserts Running + Pruning only. Do not add a follow-up assertion that the reason
+    settles to InProgress: the reason is recomputed solely on reconcile, and a prune that leaves
+    external members behind is the last thing that happens to the resource until the next spec
+    change, so Pruning legitimately stays put. Convergence is asserted where it matters, on the
+    final prune, via MigrationComplete.
+    """
+    try_load(mdb_migration)
+    pruned = pruned_so_far
+    n_mongos = len([m for m in mdb_migration["spec"]["externalMembers"] if m["type"] == "mongos"])
+    for i in range(n_mongos):
+        mdb_migration["spec"]["mongosCount"] = i + 1
+        mdb_migration.update()
+        wait_until_migrating_condition_reason(mdb_migration, MIGRATING_CONDITION_REASON_EXTENDING, timeout=timeout)
+        mdb_migration.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+        pruned += 1
+        is_last = pruned == total_vms
+        _remove_one_external(mdb_migration, lambda m: m["type"] == "mongos")
+        mdb_migration.update()
+        _wait_prune_or_complete(mdb_migration, is_last, timeout)
+
+        om_tester.assert_cluster_available(mongos_cluster_name)
+        sharded_connection_string_tester(mdb_migration).assert_connectivity()
 
 
 def assert_connection_string_after_full_sharded_migration(mdb_migration: MongoDB, ca_path: str | None = None) -> None:

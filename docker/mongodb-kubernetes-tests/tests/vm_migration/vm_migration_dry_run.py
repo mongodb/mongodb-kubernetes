@@ -121,8 +121,8 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     """Dry-run annotation → wait for connectivity → assert ``Validating`` → clear annotation.
 
     While the annotation is present, ``Migrating`` is True with ``reason: Validating``; connectivity
-    progress is in ``NetworkConnectivityVerified`` on ``status.conditions``. After the annotation is
-    removed, the operator transitions to ``InProgress`` on the next reconcile.
+    progress is in ``NetworkConnectivityVerified`` on ``status.conditions``. Once the annotation is
+    removed, the operator recomputes the reason on the next reconcile and leaves ``Validating``.
 
     Removes the dry-run annotation so later tests reconcile normally. Uses backing_obj and JSON merge
     patch (null) so the key is actually removed. Merge patch only drops keys when set to null.
@@ -144,7 +144,30 @@ def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 60
     if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
         ann[MIGRATION_DRY_RUN_ANNOTATION] = None
         mdb.update()
-    wait_until_migrating_condition_reason(mdb, MIGRATING_CONDITION_REASON_IN_PROGRESS)
+    wait_until_migrating_reason_not_validating(mdb)
+
+
+def wait_until_migrating_reason_not_validating(mdb: MongoDB, *, timeout: int = 120) -> None:
+    """Poll until Migrating=True with a reason other than Validating.
+
+    Which reason follows the dry-run depends on how the CR was applied, not on the dry-run itself:
+    a VM-only import (all Kubernetes counts 0) settles straight to InProgress, while a
+    pre-provisioned import goes to Extending and stays there until the StatefulSet finishes
+    scaling — far longer than any reasonable dry-run timeout. Asserting a specific reason here
+    would encode the VM-only case; what the dry-run owns is that clearing the annotation un-pins
+    Validating, which happens on the next reconcile either way.
+    """
+
+    def _ok() -> bool:
+        mdb.load()
+        mig = _get_condition(_status_dict(mdb).get("conditions", []), CONDITION_MIGRATING)
+        return (
+            mig is not None
+            and mig.get("status") == "True"
+            and mig.get("reason") != MIGRATING_CONDITION_REASON_VALIDATING
+        )
+
+    KubernetesTester.wait_until(_ok, timeout=timeout)
 
 
 def wait_until_migrating_condition_reason(mdb: MongoDB, expected_reason: str, *, timeout: int = 120) -> None:
