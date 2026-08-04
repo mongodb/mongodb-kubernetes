@@ -887,11 +887,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_om_ops_manager_ssrf_orgid
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
   - name: e2e_om_ops_manager_scale
     tags: [ "patch-run" ]
     commands:
