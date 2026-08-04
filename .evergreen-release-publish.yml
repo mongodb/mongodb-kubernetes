@@ -11,7 +11,7 @@ include:
   - filename: .evergreen-functions.yml
 
 tasks:
-  - name: mckci_release_publish_group
+  - name: mckci_release_publish_images
     allowed_requesters: [ "patch", "github_tag" ]
     commands:
       - func: clone
@@ -23,7 +23,7 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
             source .generated/context.export.env
-            scripts/mckci release publish group --commit "${revision}"
+            scripts/mckci release publish images --commit "${revision}" --latest-marker latest
 
   # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
   # is not itself a trigger) and deletes "new-X.Y.Z".
@@ -42,7 +42,7 @@ buildvariants:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
     tasks:
-      - name: mckci_release_publish_group
+      - name: mckci_release_publish_images
 
   # Preflight/RH certification against the images just published to
   # quay.io/mongodb/*:{version} — reuses the task defined in
