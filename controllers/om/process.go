@@ -36,7 +36,6 @@ const (
 	ClusterRoleShardSrv = "shardsvr"
 )
 
-
 // infrastructureFieldPaths lists args2_6 field paths that are set into the
 // mongod spec by the operator or deployment infrastructure, not by the
 // arguments present on the mongod config level. AdditionalMongodConfig
@@ -659,7 +658,6 @@ func (p Process) ReplicaSetName() string {
 func (p Process) ClusterRole() string {
 	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
 }
-
 
 func (p Process) security() map[string]interface{} {
 	args := p.Args()

@@ -15,7 +15,6 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
-    assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
     generated_user_docs,
@@ -29,9 +28,10 @@ from tests.vm_migration.vm_migration_replicaset_helper import (
     assert_connection_string_after_full_migration,
     assert_connection_string_contains_current_hosts,
     assert_k8s_process_names,
+    connection_string_tester,
     deploy_vm_service,
     deploy_vm_statefulset,
-    promote_and_prune,
+    promote_and_prune_extend,
     vm_replica_set_tester,
 )
 
@@ -141,12 +141,25 @@ def generated_cr(generated_cr_yaml: str) -> dict:
 
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr: dict) -> MongoDB:
-    return apply_generated_mongodb_resource(namespace, generated_cr, customer_sets_disabled_tls_mode=True)
+    # Start VM-only (spec.members == 0) so this scenario exercises the incremental extend flow:
+    # K8s members are grown one at a time in promote_and_prune_extend, asserting the Migrating
+    # reason Extending. The other replicaset scenarios use the pre-provisioned promote_and_prune.
+    return apply_generated_mongodb_resource(
+        namespace, generated_cr, customer_sets_disabled_tls_mode=True, initial_members=0
+    )
 
 
 @fixture(scope="module")
 def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(mdb_migration.tester(use_ssl=False))
+    # Seed from the connection-string secret so the checker tracks the current active members
+    # across the entire cutover (VM hosts -> K8s pods), not the empty K8s topology at members==0.
+    # allowed_sequential_failures is raised above the default of 1: each promote/prune step
+    # triggers a brief replica-set reconfig during which a majority-acknowledged write can fail
+    # transiently, and that must not fail the health assertion.
+    return MongoDBBackgroundTester(
+        connection_string_tester(mdb_migration, use_ssl=False),
+        allowed_sequential_failures=3,
+    )
 
 
 # Test flow
@@ -253,31 +266,33 @@ def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
-def test_max_voting_members_validation(mdb_migration: MongoDB):
-    assert_max_voting_members_validation(mdb_migration)
+@skip_if_local()
+def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
+    mdb_health_checker.start()
+
+
+# Note: the max-voting-members validation is covered by the other replicaset scenarios (which
+# pre-provision K8s members and flip their votes). It is intentionally omitted here: this scenario
+# starts VM-only and grows members incrementally, and the operator forbids removing Kubernetes
+# members during migration, so the "scale up to trip the limit, then scale back down" approach
+# cannot recover to a valid state.
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
 @skip_if_local()
 def test_connectivity_after_migration(mdb_migration: MongoDB):
     """Replica set remains reachable without authentication after migration."""
-    mdb_migration.tester(use_ssl=False).assert_connectivity()
+    connection_string_tester(mdb_migration, use_ssl=False).assert_connectivity()
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB):
-    assert_migration_data_exists(mdb_migration.tester(use_ssl=False))
-
-
-@mark.e2e_vm_migration_replicaset_no_auth
-@skip_if_local()
-def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTester):
-    mdb_health_checker.start()
+    assert_migration_data_exists(connection_string_tester(mdb_migration, use_ssl=False))
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
 def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
-    promote_and_prune(mdb_migration, vm_sts)
+    promote_and_prune_extend(mdb_migration, vm_sts)
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
@@ -301,9 +316,9 @@ def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBB
 @skip_if_local()
 def test_connectivity_after_promote(mdb_migration: MongoDB):
     """Replica set remains reachable without authentication after promote and prune."""
-    mdb_migration.tester(use_ssl=False).assert_connectivity()
+    connection_string_tester(mdb_migration, use_ssl=False).assert_connectivity()
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
 def test_migration_data_exists_after_promote(mdb_migration: MongoDB):
-    assert_migration_data_exists(mdb_migration.tester(use_ssl=False))
+    assert_migration_data_exists(connection_string_tester(mdb_migration, use_ssl=False))

@@ -35,11 +35,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     insert_migration_data,
     run_generate_cr,
 )
-from tests.vm_migration.vm_migration_dry_run import (
-    create_wrong_ca_configmap,
-    run_migration_dry_run_connectivity_passes,
-    run_wrong_ca_dry_run_fails_then_passes,
-)
+from tests.vm_migration.vm_migration_dry_run import create_wrong_ca_configmap, run_wrong_ca_dry_run_fails_then_passes
 from tests.vm_migration.vm_migration_replicaset_helper import (
     MIN_K8S_MONGOD,
     MIN_VM_MONGOD,
@@ -522,10 +518,11 @@ def test_migration_dry_run_wrong_ca_fails_then_passes(namespace: str, mdb_migrat
     )
 
 
-@mark.e2e_vm_migration_replicaset_x509
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    """Run migration dry-run: operator only validates connectivity to externalMembers, then we clear the annotation."""
-    run_migration_dry_run_connectivity_passes(mdb_migration)
+# The passing dry-run is covered by test_migration_dry_run_wrong_ca_fails_then_passes above, which ends
+# with a full run_migration_dry_run_connectivity_passes. A second standalone dry-run test cannot work
+# here: the first one clears the annotation, which releases the migration, so re-adding the annotation
+# afterwards asks the operator to re-enter a one-way gate it has already passed — the Migrating reason
+# is legitimately Extending by then.
 
 
 @mark.e2e_vm_migration_replicaset_x509
