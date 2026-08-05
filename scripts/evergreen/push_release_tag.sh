@@ -21,7 +21,15 @@ fi
 
 remote="https://x-access-token:${GH_TOKEN:-}@github.com/mongodb/mongodb-kubernetes.git"
 
-git tag -a "${version}" -m "Release of MCK ${version}" "${revision}"
-git push "${remote}" "refs/tags/${version}"
+# A "test-" prefix (only ever paired with the "new-" trigger prefix) marks a
+# dry run: the trigger tag is deleted as usual, but the real, human-facing
+# "X.Y.Z" tag must never be pushed, since it would disturb other PRs' next-
+# version computation.
+if [[ "${prefix}" == "new-" && "${version}" == test-* ]]; then
+  echo "dry run detected (trigger tag '${trigger_tag}'), skipping push of real release tag"
+else
+  git tag -a "${version}" -m "Release of MCK ${version}" "${revision}"
+  git push "${remote}" "refs/tags/${version}"
+fi
 git push "${remote}" ":refs/tags/${trigger_tag}"
 
