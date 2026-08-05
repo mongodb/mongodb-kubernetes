@@ -259,10 +259,9 @@ type MongoDBUser struct {
 	// +kubebuilder:default:=admin
 	AuthSource string `json:"authSource,omitempty"`
 
-	// DefaultDatabase is the database placed in the connection string URI path. Defaults to "admin".
+	// DefaultDatabase is the database placed in the connection string URI path.
+	// Leaves the URI path empty when unset.
 	// +optional
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:=admin
 	DefaultDatabase string `json:"defaultDatabase,omitempty"`
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
@@ -313,25 +312,14 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 	return fmt.Sprintf("%s-%s", m.ScramCredentialsSecretName, "scram-credentials")
 }
 
-// ValidateUser returns an error if the user fields are in an invalid combination.
-// AuthSource and DefaultDatabase must either both be set or both be empty.
-func (m MongoDBUser) ValidateUser() error {
-	if m.AuthSource != "" && m.DefaultDatabase == "" {
-		return fmt.Errorf("defaultDatabase is required when authSource is set for user %q", m.Name)
-	}
-	if m.DefaultDatabase != "" && m.AuthSource == "" {
-		return fmt.Errorf("authSource is required when defaultDatabase is set for user %q", m.Name)
-	}
-	return nil
-}
-
-// ApplyDefaults sets AuthSource and DefaultDatabase to "admin" when neither is set.
-// This is a defensive fallback for local/e2e resources that have not gone through the
-// API server, where the kubebuilder default markers on these fields would otherwise apply.
+// ApplyDefaults sets AuthSource to "admin" when unset. DefaultDatabase is left as-is:
+// when empty, the connection string URI path stays empty and the driver defaults to
+// its own database (e.g. "test"). This is also a defensive fallback for local/e2e
+// resources that have not gone through the API server, where the kubebuilder default
+// marker on AuthSource would otherwise apply.
 func (m *MongoDBUser) ApplyDefaults() {
-	if m.AuthSource == "" && m.DefaultDatabase == "" {
+	if m.AuthSource == "" {
 		m.AuthSource = defaultDBForUser
-		m.DefaultDatabase = defaultDBForUser
 	}
 }
 

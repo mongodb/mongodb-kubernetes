@@ -166,10 +166,6 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
 
-	if err := user.Spec.ValidateSpec(); err != nil {
-		return r.updateStatus(ctx, user, workflow.Invalid("%s", err.Error()), log)
-	}
-
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
 	var mdb project.Reader
 

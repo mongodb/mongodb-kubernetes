@@ -9136,9 +9136,9 @@ spec:
                         the connection strings for the user.
                       type: string
                     defaultDatabase:
-                      default: admin
-                      description: DefaultDatabase is the database placed in the connection
-                        string URI path. Defaults to "admin".
+                      description: |-
+                        DefaultDatabase is the database placed in the connection string URI path.
+                        Leaves the URI path empty when unset.
                       type: string
                     name:
                       description: Name is the username of the user

@@ -8,38 +8,23 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
-func TestMongoDBUserSpec_ValidateSpec(t *testing.T) {
-	t.Run("authSource and defaultDatabase together are valid", func(t *testing.T) {
-		spec := MongoDBUserSpec{AuthSource: "admin", DefaultDatabase: "myapp"}
-		assert.NoError(t, spec.ValidateSpec())
-	})
-
-	t.Run("empty spec is valid (ApplyDefaults sets both fields to admin before validation)", func(t *testing.T) {
-		spec := MongoDBUserSpec{}
-		assert.NoError(t, spec.ValidateSpec())
-	})
-
-	t.Run("authSource without defaultDatabase is invalid", func(t *testing.T) {
-		spec := MongoDBUserSpec{AuthSource: "admin"}
-		assert.Error(t, spec.ValidateSpec())
-	})
-
-	t.Run("defaultDatabase without authSource is invalid", func(t *testing.T) {
-		spec := MongoDBUserSpec{DefaultDatabase: "myapp"}
-		assert.Error(t, spec.ValidateSpec())
-	})
-}
-
 func TestMongoDBUserSpec_ApplyDefaults(t *testing.T) {
-	t.Run("empty spec defaults both fields to admin", func(t *testing.T) {
+	t.Run("empty authSource defaults to admin, defaultDatabase left empty", func(t *testing.T) {
 		spec := MongoDBUserSpec{}
 		spec.ApplyDefaults()
 		assert.Equal(t, "admin", spec.AuthSource)
-		assert.Equal(t, "admin", spec.DefaultDatabase)
+		assert.Equal(t, "", spec.DefaultDatabase)
 	})
 
 	t.Run("already-set fields are left untouched", func(t *testing.T) {
 		spec := MongoDBUserSpec{AuthSource: "admin", DefaultDatabase: "myapp"}
+		spec.ApplyDefaults()
+		assert.Equal(t, "admin", spec.AuthSource)
+		assert.Equal(t, "myapp", spec.DefaultDatabase)
+	})
+
+	t.Run("defaultDatabase alone is left as-is", func(t *testing.T) {
+		spec := MongoDBUserSpec{DefaultDatabase: "myapp"}
 		spec.ApplyDefaults()
 		assert.Equal(t, "admin", spec.AuthSource)
 		assert.Equal(t, "myapp", spec.DefaultDatabase)
