@@ -1986,7 +1986,7 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 		sts *appsv1.StatefulSet
 	}{
 		{
-			name: "removes migration-ready annotation during adoption",
+			name: "keeps migration-ready annotation during adoption for reshape",
 			sts: ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").
 				SetOwnerReferences(nil).
 				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true", "other": "kept"}).Build()),
@@ -2011,12 +2011,13 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 
 			ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 
-			if tt.name == "removes migration-ready annotation during adoption" {
+			if tt.name == "keeps migration-ready annotation during adoption for reshape" {
 				result := appsv1.StatefulSet{}
 				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
-				assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation,
-					"the migration-ready annotation must be consumed on adoption, or the OM controller would re-adopt prematurely on reverse migration")
-				assert.True(t, ownershipStatus.IsOK(), "should own the STS after consuming migration signal")
+				assert.Contains(t, result.Annotations, util.AppDBMigrationReadyAnnotation,
+					"the migration-ready annotation must persist after adoption for STS reshape detection")
+				assert.Contains(t, result.Annotations, "other", "unrelated annotations must be preserved")
+				assert.True(t, ownershipStatus.IsOK(), "should own the STS after adoption")
 			} else if tt.name == "no-op when annotation absent" {
 				result := appsv1.StatefulSet{}
 				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
