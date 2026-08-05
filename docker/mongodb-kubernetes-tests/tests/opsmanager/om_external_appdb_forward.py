@@ -12,6 +12,7 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
+    assert_no_migration_annotations,
     assert_project_exists,
     assert_sentinel_doc_present,
     configure_appdb_role_mongodb,
@@ -126,6 +127,9 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_om_reaches_running(self, primary_om: MongoDBOpsManager):
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
+    def test_no_migration_annotations_after_forward_migration(self, namespace: str):
+        assert_no_migration_annotations(namespace, DB_NAME)
+
     def test_sentinel_doc_survives(self, primary_om: MongoDBOpsManager):
         assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
 
@@ -205,6 +209,9 @@ class TestReverseMigrationAfterForwardMigration:
         # recreate-from-scratch: the new StatefulSet re-binds the retained PVCs by name
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+
+    def test_no_migration_annotations_after_reverse_migration(self, namespace: str):
+        assert_no_migration_annotations(namespace, DB_NAME)
 
     def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager):
         # the data-preservation proof: written before the forward migration, survives CR deletion

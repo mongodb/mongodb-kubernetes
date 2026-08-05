@@ -13,6 +13,7 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
+    assert_no_migration_annotations,
     assert_owned_by_mongodb,
     assert_owned_by_ops_manager,
     assert_project_exists,
@@ -101,6 +102,7 @@ class TestFreshStartExternalAppDB:
         # touched its ownership in the fresh-start flow
         sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
         assert_owned_by_mongodb(sts.metadata, DB_NAME)
+        assert_no_migration_annotations(namespace, DB_NAME)
 
     def test_password_secret(self, namespace: str):
         # ownership follows the AppDB's manager: in the fresh start the MongoDB CR created the
@@ -185,6 +187,7 @@ class TestReverseMigrationAfterFreshStart:
         # after adoption the StatefulSet belongs solely to the Ops Manager
         sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
         assert_owned_by_ops_manager(sts.metadata, OM_NAME)
+        assert_no_migration_annotations(namespace, DB_NAME)
 
     def test_om_secrets_only_updated_owner_reference(self, primary_om: MongoDBOpsManager, namespace: str):
         # the OM-claimed shared secrets must survive the handover with identical contents; only

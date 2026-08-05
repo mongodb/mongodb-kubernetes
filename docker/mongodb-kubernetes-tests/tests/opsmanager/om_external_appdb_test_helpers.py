@@ -1,6 +1,7 @@
 from typing import Optional
 
 import pymongo
+from kubernetes import client as k8s_client
 from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -103,3 +104,10 @@ def assert_project_exists(meta_om: MongoDBOpsManager, appdb_name: str):
     """Verifies the AppDB CR's project still exists on the Meta OM after reverse migration."""
     tester = meta_om.get_om_tester(project_name=f"{appdb_name}-project")
     tester.assert_group_exists()
+
+
+def assert_no_migration_annotations(namespace: str, sts_name: str):
+    sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace)
+    annotations = sts.metadata.annotations or {}
+    assert "mongodb.com/appdb-migration-ready" not in annotations
+    assert "mongodb.com/appdb-reverse-migration-ready" not in annotations

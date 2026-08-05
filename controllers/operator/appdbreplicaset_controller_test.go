@@ -2145,44 +2145,11 @@ func TestReconcileAppDbReplicaSet_BuildAppDBConnectionURL(t *testing.T) {
 	assert.Contains(t, connString, util.OpsManagerMongoDBUserName)
 }
 
-func TestIsReAdoptedStatefulSetPendingReshape(t *testing.T) {
-	tests := []struct {
-		name            string
-		containers      []string
-		expectedPending bool
-	}{
-		{
-			name:            "MongoDB-CR shape (non-static) is pending reshape",
-			containers:      []string{util.DatabaseContainerName},
-			expectedPending: true,
-		},
-		{
-			name:            "MongoDB-CR shape (static architecture) is pending reshape",
-			containers:      []string{util.AgentContainerName, util.DatabaseContainerName},
-			expectedPending: true,
-		},
-		{
-			name:            "internal-AppDB shape is not pending reshape",
-			containers:      []string{util.AgentContainerName, util.MongodbContainerName},
-			expectedPending: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sts := appsv1.StatefulSet{}
-			for _, name := range tt.containers {
-				sts.Spec.Template.Spec.Containers = append(sts.Spec.Template.Spec.Containers, corev1.Container{Name: name})
-			}
-			assert.Equal(t, tt.expectedPending, isReAdoptedStatefulSetPendingReshape(sts))
-		})
-	}
-}
-
 // TestReconcileAppDB_ReshapesReAdoptedStatefulSet reproduces the reverse-migration state right
-// after re-adoption: the StatefulSet is OM-owned again but still carries the MongoDB CR's pod
-// shape. A single ReconcileAppDB pass must rewrite the pod template to the internal-AppDB shape
-// instead of deadlocking on the agent goal-state wait (which those CR-shaped pods can never
-// satisfy - they run no headless agent).
+// after re-adoption: the StatefulSet is OM-owned again but still carries the
+// AppDBReverseMigrationReadyAnnotation, signaling that the pod template must be rewritten.
+// A single ReconcileAppDB pass must rewrite the pod template to the internal-AppDB shape
+// instead of deadlocking on the agent goal-state wait.
 func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
 	ctx := context.Background()
 	opsManager := DefaultOpsManagerBuilder().Build()
@@ -2202,6 +2169,7 @@ func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
 		SetOwnerReference(kube.BaseOwnerReference(opsManager)).
 		Build()
 	require.NoError(t, err)
+	sts.Annotations = map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}
 	sts.Spec.Template.Spec.Containers = []corev1.Container{{Name: util.DatabaseContainerName, Image: "busybox"}}
 	require.NoError(t, kubeClient.CreateStatefulSet(ctx, sts))
 
@@ -2209,7 +2177,7 @@ func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
 	require.NoError(t, err)
 	// first pass after re-adoption ends with a short requeue to configure monitoring;
 	// the point is that it deploys the StatefulSet instead of blocking on the agent goal-state
-	// wait (default Pending, RequeueAfter 10s) which the CR-shaped pods can never satisfy
+	// wait which the CR-shaped pods can never satisfy
 	assert.Equal(t, reconcile.Result{RequeueAfter: time.Second}, res, "reconcile must not block on the agent goal-state wait for a CR-shaped StatefulSet")
 
 	result, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
@@ -2220,6 +2188,8 @@ func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
 	}
 	assert.Contains(t, containerNames, util.MongodbContainerName, "pod template must be rewritten to the internal-AppDB shape")
 	assert.NotContains(t, containerNames, util.DatabaseContainerName, "the MongoDB-CR container must not survive the reshape")
+	assert.NotContains(t, result.Annotations, util.AppDBReverseMigrationReadyAnnotation, "reverse migration annotation must be cleared after STS reshape")
+	assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation, "forward migration annotation must not be present after STS reshape")
 }
 
 func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
@@ -2260,15 +2230,16 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 			expectedReverseAnnotation: true,
 		},
 		{
-			name:  "ownerless with release request: adopts and clears annotations",
+			name:  "ownerless with release request: adopts and keeps reverse annotation for reshape",
 			omUID: "om-uid-1111",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
 				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
 					SetOwnerReferences(nil).
 					SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
 			},
-			expectedOwned:      true,
-			expectedOMOwnerRef: true,
+			expectedOwned:             true,
+			expectedOMOwnerRef:        true,
+			expectedReverseAnnotation: true,
 		},
 		{
 			name:  "ownerless with stale forward annotation: adopts and clears it",

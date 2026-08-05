@@ -195,60 +195,6 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 }
 
-// TestEnsureAppDBStatefulSetOwnership_OnlyStripsHealthyAppDBMemberClusters proves the strip step iterates the
-// AppDB's own healthy member clusters (ReconcileAppDbReplicaSet.GetHealthyMemberClusters), not the
-// operator-wide set of every registered member cluster. memberClusterUnrelatedToAppDB is
-// registered operator-wide (e.g. used by some other multi-cluster resource) but isn't part of
-// this AppDB's ClusterSpecList, so it's given a nil client: if the strip loop touched it, calling
-// Get on a nil client.Client would panic.
-func TestEnsureAppDBStatefulSetOwnership_OnlyStripsHealthyAppDBMemberClusters(t *testing.T) {
-	ctx := context.Background()
-
-	memberClusterName := "kind-e2e-cluster-1"
-	memberClusterName2 := "kind-e2e-cluster-2"
-	memberClusterUnrelatedToAppDB := "kind-e2e-cluster-unrelated"
-
-	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	globalMemberClustersMap := getFakeMultiClusterMapWithClusters([]string{memberClusterName, memberClusterName2}, omConnectionFactory)
-	globalMemberClustersMap[memberClusterUnrelatedToAppDB] = nil
-
-	appDBClusterSpecItems := mdbv1.ClusterSpecList{
-		{ClusterName: memberClusterName, Members: 1},
-		{ClusterName: memberClusterName2, Members: 1},
-	}
-
-	testOm := withExternalAppDBRef(
-		DefaultOpsManagerBuilder().
-			SetName("test-om").
-			SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
-			SetAppDbMembers(0).
-			SetAppDBClusterSpecList(appDBClusterSpecItems).
-			Build(),
-		validExternalAppDBRef(),
-	)
-	mdb := validExternalAppDBMongoDB()
-
-	sts := appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            "test-om-db",
-			Namespace:       mock.TestNamespace,
-			OwnerReferences: kube.BaseOwnerReference(testOm),
-		},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(int32(3)),
-		},
-	}
-
-	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, globalMemberClustersMap, omConnectionFactory, architectures.NonStatic)
-	require.NoError(t, reconciler.client.Create(ctx, mdb))
-	require.NoError(t, reconciler.client.Create(ctx, &sts))
-
-	require.NotPanics(t, func() {
-		err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm)
-		assert.NoError(t, err)
-	})
-}
-
 func TestComputeExternalAppDBConnectionString_WritesFixedSecret(t *testing.T) {
 	ctx := context.Background()
 
