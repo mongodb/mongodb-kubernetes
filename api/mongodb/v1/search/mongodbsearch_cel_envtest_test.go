@@ -2,6 +2,7 @@ package search_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,20 +32,25 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 		}
 	}
 
-	t.Run("valid minimal spec is accepted", func(t *testing.T) {
-		search := newSearch("valid", searchv1.ClusterSpec{})
-		require.NoError(t, k8sClient.Create(ctx, search))
-		require.NoError(t, k8sClient.Delete(ctx, search))
-	})
-
-	rejectionTests := []struct {
-		name          string
-		clusters      []searchv1.ClusterSpec
+	tests := []struct {
+		name string
+		// create is the spec.clusters value submitted on create.
+		create []searchv1.ClusterSpec
+		// update, when non-nil, replaces spec.clusters in an update after a
+		// successful create; the expectation then applies to that update
+		// (for oldSelf-based transition rules).
+		update []searchv1.ClusterSpec
+		// errorContains is the expected CEL validation message;
+		// empty means the operation must succeed.
 		errorContains string
 	}{
 		{
+			name:   "valid minimal spec is accepted",
+			create: []searchv1.ClusterSpec{{}},
+		},
+		{
 			name: "loadBalancer must set exactly one of managed or unmanaged",
-			clusters: []searchv1.ClusterSpec{{
+			create: []searchv1.ClusterSpec{{
 				LoadBalancer: &searchv1.LoadBalancerConfig{
 					Managed:   &searchv1.ManagedLBConfig{},
 					Unmanaged: &searchv1.UnmanagedLBConfig{},
@@ -54,7 +60,7 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 		},
 		{
 			name: "cluster names are required when more than one cluster is specified",
-			clusters: []searchv1.ClusterSpec{
+			create: []searchv1.ClusterSpec{
 				{Index: ptr.To(int32(0))},
 				{Index: ptr.To(int32(1))},
 			},
@@ -62,30 +68,37 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 		},
 		{
 			name: "cluster index must be unique",
-			clusters: []searchv1.ClusterSpec{
+			create: []searchv1.ClusterSpec{
 				{Name: "cluster-a", Index: ptr.To(int32(0))},
 				{Name: "cluster-b", Index: ptr.To(int32(0))},
 			},
 			errorContains: "clusters[].index must be unique when set",
 		},
+		{
+			name:          "cluster name is immutable for an existing index",
+			create:        []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}},
+			update:        []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(0))}},
+			errorContains: "clusters[].name is immutable for an existing cluster index",
+		},
 	}
-	for _, tc := range rejectionTests {
+	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := k8sClient.Create(ctx, newSearch("invalid", tc.clusters...))
+			search := newSearch(fmt.Sprintf("case-%d", i), tc.create...)
+			err := k8sClient.Create(ctx, search)
+
+			if tc.update != nil {
+				require.NoError(t, err)
+				search.Spec.Clusters = tc.update
+				err = k8sClient.Update(ctx, search)
+			}
+
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
 			require.Error(t, err)
 			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
 			assert.Contains(t, err.Error(), tc.errorContains)
 		})
 	}
-
-	t.Run("cluster name is immutable for an existing index", func(t *testing.T) {
-		search := newSearch("immutable-name", searchv1.ClusterSpec{Name: "cluster-a", Index: ptr.To(int32(0))})
-		require.NoError(t, k8sClient.Create(ctx, search))
-
-		search.Spec.Clusters[0].Name = "cluster-b"
-		err := k8sClient.Update(ctx, search)
-		require.Error(t, err)
-		assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
-		assert.Contains(t, err.Error(), "clusters[].name is immutable for an existing cluster index")
-	})
 }
