@@ -22,6 +22,46 @@ delete_resources_safely() {
     done
 }
 
+list_load_balancer_services() {
+    service_namespace="${1}"
+    kubectl get services -n "${service_namespace}" --ignore-not-found \
+        -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.name}{"\n"}{end}' 2>error.log
+}
+
+delete_load_balancer_services() {
+    service_namespace="${1}"
+
+    if ! services="$(list_load_balancer_services "${service_namespace}")"; then
+        echo "Failed to list LoadBalancer Services in ${service_namespace}, skipping namespace cleanup."
+        return 1
+    fi
+
+    while IFS= read -r service; do
+        if [ -z "${service}" ]; then
+            continue
+        fi
+
+        echo "Attempting deletion of LoadBalancer Service ${service} in ${service_namespace}..."
+        if ! kubectl delete service "${service}" -n "${service_namespace}" --wait=true --timeout=5m --ignore-not-found 2>error.log; then
+            echo "Failed to delete LoadBalancer Service ${service} in ${service_namespace}, skipping namespace cleanup."
+            return 1
+        fi
+    done <<EOF
+${services}
+EOF
+
+    if ! remaining_services="$(list_load_balancer_services "${service_namespace}")"; then
+        echo "Failed to verify LoadBalancer Services in ${service_namespace}, skipping namespace cleanup."
+        return 1
+    fi
+    if [ -n "${remaining_services}" ]; then
+        echo "LoadBalancer Services remain in ${service_namespace}: ${remaining_services}"
+        return 1
+    fi
+
+    return 0
+}
+
 if [ -z ${DELETE_OLDER_THAN_AMOUNT+x} ] || [ -z ${DELETE_OLDER_THAN_UNIT+x} ]; then
     echo "Need to set both 'DELETE_OLDER_THAN_AMOUNT' and 'DELETE_OLDER_THAN_UNIT' environment variables."
     exit 1
@@ -65,6 +105,11 @@ for namespace in $(kubectl get namespace -l "${LABELS}" -o name 2>error.log); do
     delete_resources_safely "om" "${namespace_name}"
     delete_resources_safely "clustermongodbroles" "${namespace_name}"
 
+    if ! delete_load_balancer_services "${namespace_name}"; then
+        echo "Leaving ${namespace_name} for a later cleanup retry."
+        continue
+    fi
+
     echo "Attempting to delete namespace: ${namespace_name}"
 
     if kubectl get namespace "${namespace_name}" >/dev/null 2>&1; then
@@ -74,6 +119,11 @@ for namespace in $(kubectl get namespace -l "${LABELS}" -o name 2>error.log); do
     fi
 
     if kubectl get namespace "${namespace_name}" >/dev/null 2>&1; then
+        if ! delete_load_balancer_services "${namespace_name}"; then
+            echo "LoadBalancer Services reappeared in ${namespace_name}; leaving namespace finalizers intact."
+            continue
+        fi
+
         echo "Namespace ${namespace_name} is still stuck, removing finalizers..."
         kubectl patch namespace "${namespace_name}" -p '{"metadata":{"finalizers":null}}' --type=merge
 

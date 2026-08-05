@@ -1,4 +1,4 @@
-IMAGE_VERSION=0.18
+IMAGE_VERSION=0.19
 
 .PHONY: all
 all: build push install
