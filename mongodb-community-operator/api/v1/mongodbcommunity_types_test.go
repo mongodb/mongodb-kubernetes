@@ -592,38 +592,23 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	}, authUsers[1])
 }
 
-func TestMongoDBUser_ValidateUser(t *testing.T) {
-	t.Run("authSource and defaultDatabase together are valid", func(t *testing.T) {
-		u := MongoDBUser{Name: "u", AuthSource: "admin", DefaultDatabase: "myapp"}
-		assert.NoError(t, u.ValidateUser())
-	})
-
-	t.Run("empty is valid (kubebuilder default / ApplyDefaults sets db to admin)", func(t *testing.T) {
-		u := MongoDBUser{Name: "u"}
-		assert.NoError(t, u.ValidateUser())
-	})
-
-	t.Run("authSource without defaultDatabase is invalid", func(t *testing.T) {
-		u := MongoDBUser{Name: "u", AuthSource: "admin"}
-		assert.Error(t, u.ValidateUser())
-	})
-
-	t.Run("defaultDatabase without authSource is invalid", func(t *testing.T) {
-		u := MongoDBUser{Name: "u", DefaultDatabase: "myapp"}
-		assert.Error(t, u.ValidateUser())
-	})
-}
-
 func TestMongoDBUser_ApplyDefaults(t *testing.T) {
-	t.Run("empty user defaults both fields to admin", func(t *testing.T) {
+	t.Run("empty authSource defaults to admin, defaultDatabase left empty", func(t *testing.T) {
 		u := MongoDBUser{Name: "u"}
 		u.ApplyDefaults()
 		assert.Equal(t, "admin", u.AuthSource)
-		assert.Equal(t, "admin", u.DefaultDatabase)
+		assert.Equal(t, "", u.DefaultDatabase)
 	})
 
 	t.Run("already-set fields are left untouched", func(t *testing.T) {
 		u := MongoDBUser{Name: "u", AuthSource: "admin", DefaultDatabase: "myapp"}
+		u.ApplyDefaults()
+		assert.Equal(t, "admin", u.AuthSource)
+		assert.Equal(t, "myapp", u.DefaultDatabase)
+	})
+
+	t.Run("defaultDatabase alone is left as-is", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", DefaultDatabase: "myapp"}
 		u.ApplyDefaults()
 		assert.Equal(t, "admin", u.AuthSource)
 		assert.Equal(t, "myapp", u.DefaultDatabase)

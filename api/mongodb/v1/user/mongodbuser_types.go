@@ -102,23 +102,12 @@ type MongoDBUserSpec struct {
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
 }
 
-// ValidateSpec returns an error if the spec fields are in an invalid combination.
-// AuthSource and DefaultDatabase must either both be set or both be empty.
-func (spec MongoDBUserSpec) ValidateSpec() error {
-	if spec.AuthSource != "" && spec.DefaultDatabase == "" {
-		return fmt.Errorf("spec.defaultDatabase is required when spec.authSource is set")
-	}
-	if spec.DefaultDatabase != "" && spec.AuthSource == "" {
-		return fmt.Errorf("spec.authSource is required when spec.defaultDatabase is set")
-	}
-	return nil
-}
-
-// ApplyDefaults sets AuthSource and DefaultDatabase to "admin" when neither is set.
+// ApplyDefaults sets AuthSource to "admin" when unset. DefaultDatabase is left as-is:
+// when empty, the connection string URI path stays empty and the driver defaults to
+// its own database (e.g. "test").
 func (spec *MongoDBUserSpec) ApplyDefaults() {
-	if spec.AuthSource == "" && spec.DefaultDatabase == "" {
+	if spec.AuthSource == "" {
 		spec.AuthSource = "admin"
-		spec.DefaultDatabase = "admin"
 	}
 }
 

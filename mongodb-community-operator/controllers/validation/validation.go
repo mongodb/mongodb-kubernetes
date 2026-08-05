@@ -52,12 +52,6 @@ func validateSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) error {
 
 // validateUsers checks if the users configuration is valid
 func validateUsers(mdb mdbv1.MongoDBCommunity) error {
-	for _, u := range mdb.Spec.Users {
-		if err := u.ValidateUser(); err != nil {
-			return err
-		}
-	}
-
 	connectionStringSecretNameMap := map[string]authtypes.User{}
 	nameCollisions := []string{}
 
