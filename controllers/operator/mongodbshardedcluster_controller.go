@@ -70,6 +70,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -2592,6 +2593,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		Replicas(scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
@@ -2634,6 +2636,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
@@ -2677,6 +2680,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),

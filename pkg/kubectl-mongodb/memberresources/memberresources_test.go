@@ -64,10 +64,8 @@ type resourceNames struct {
 	operatorRole    string
 	operatorBinding string
 
-	// Database-workload RBAC.
-	// TODO(m1kola): slice-1: these workload names are fixed today because the operator
-	// hardcodes the pod ServiceAccount names; they become member-scoped (mck-member-<cluster>-*)
-	// once that hardcoding is removed, at which point only these values change.
+	// Database-workload RBAC, also cluster-scoped-named as mck-member-<cluster>-* in
+	// member mode so it is additive to the base installation's fixed-name workload RBAC.
 	workloadAppdbSA      string
 	workloadDatabaseSA   string
 	workloadOpsManagerSA string
@@ -83,11 +81,11 @@ func expectedNames(clusterName string) resourceNames {
 		operatorRole:    prefix + "role",
 		operatorBinding: prefix + "role-binding",
 
-		workloadAppdbSA:      "mongodb-kubernetes-appdb",
-		workloadDatabaseSA:   "mongodb-kubernetes-database-pods",
-		workloadOpsManagerSA: "mongodb-kubernetes-ops-manager",
-		workloadAppdbRole:    "mongodb-kubernetes-appdb",
-		workloadAppdbBinding: "mongodb-kubernetes-appdb",
+		workloadAppdbSA:      prefix + "appdb",
+		workloadDatabaseSA:   prefix + "database-pods",
+		workloadOpsManagerSA: prefix + "ops-manager",
+		workloadAppdbRole:    prefix + "appdb",
+		workloadAppdbBinding: prefix + "appdb",
 	}
 }
 
@@ -192,13 +190,6 @@ func TestRender(t *testing.T) {
 		},
 	}
 
-	operatorNames := map[string]bool{
-		n.operatorSA:      true,
-		n.operatorToken:   true,
-		n.operatorRole:    true,
-		n.operatorBinding: true,
-	}
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := Render(clusterName, memberNs, tc.watched, "")
@@ -208,11 +199,9 @@ func TestRender(t *testing.T) {
 			require.ElementsMatch(t, tc.want, resourceIDs(resources), "unexpected resources")
 
 			for _, r := range resources {
-				// Operator member resources carry the rbac-version annotation the operator's
-				// RBAC validation relies on.
-				if operatorNames[r.GetName()] {
-					assert.NotEmpty(t, r.GetAnnotations()["mongodb.com/rbac-version"], "%s/%s missing mongodb.com/rbac-version annotation", r.GetKind(), r.GetName())
-				}
+				// Every member-mode resource — operator and workload alike — carries the
+				// rbac-version annotation the operator's RBAC validation relies on.
+				assert.NotEmpty(t, r.GetAnnotations()["mongodb.com/rbac-version"], "%s/%s missing mongodb.com/rbac-version annotation", r.GetKind(), r.GetName())
 				// The operator bindings point at the expected operator role scope (the workload
 				// binding always references its own namespaced Role, so it is excluded here).
 				if r.GetName() == n.operatorBinding && (r.GetKind() == "RoleBinding" || r.GetKind() == "ClusterRoleBinding") {
@@ -318,42 +307,65 @@ func TestEmbeddedChartMatchesDisk(t *testing.T) {
 
 // TestHelmTemplateParity cross-checks the embedded render against the `helm` CLI
 // rendering the on-disk chart, as a belt-and-braces check that our SDK rendering
-// matches real Helm.
+// matches real Helm. Each template Render embeds is rendered via the CLI with
+// --show-only and compared against the corresponding documents of the embedded render.
 func TestHelmTemplateParity(t *testing.T) {
 	helmBin, err := exec.LookPath("helm")
 	require.NoError(t, err, "helm must be installed to run the chart parity test")
 
-	cmd := exec.Command(helmBin, "template", diskChartDir,
-		"--set", "memberCluster.enabled=true",
-		"--set", "memberCluster.name=cluster-east",
-		"--set", "operator.namespace=mongodb",
-		"--show-only", "templates/member-cluster-rbac.yaml",
-	)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	require.NoError(t, cmd.Run(), "helm template failed\n%s", stderr.String())
-
 	const clusterName = "cluster-east"
 	names := expectedNames(clusterName)
 
+	helmTemplate := func(showOnly string) string {
+		cmd := exec.Command(helmBin, "template", diskChartDir,
+			"--set", "memberCluster.enabled=true",
+			"--set", "memberCluster.name="+clusterName,
+			"--set", "operator.namespace=mongodb",
+			"--show-only", showOnly,
+		)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		require.NoError(t, cmd.Run(), "helm template failed\n%s", stderr.String())
+		return stdout.String()
+	}
+
 	embeddedOut, err := Render(clusterName, "mongodb", []string{"mongodb"}, "")
 	require.NoError(t, err, "embedded render failed")
+	embeddedResources := parseResources(t, embeddedOut)
 
-	helmResources := kindNames(parseResources(t, stdout.String()))
-	// The CLI --show-only call renders just the member template, so restrict the embedded
-	// output to the operator member resources (by name) before comparing.
-	operatorNames := map[string]bool{
-		names.operatorSA:      true,
-		names.operatorToken:   true,
-		names.operatorRole:    true,
-		names.operatorBinding: true,
+	// Each CLI --show-only call renders a single template, so restrict the embedded
+	// output to that template's resources (by name) before comparing.
+	for _, tc := range []struct {
+		template string
+		names    map[string]bool
+	}{
+		{
+			template: "templates/member-cluster-rbac.yaml",
+			names: map[string]bool{
+				names.operatorSA:      true,
+				names.operatorToken:   true,
+				names.operatorRole:    true,
+				names.operatorBinding: true,
+			},
+		},
+		{
+			template: "templates/database-roles.yaml",
+			names: map[string]bool{
+				names.workloadAppdbSA:      true,
+				names.workloadDatabaseSA:   true,
+				names.workloadOpsManagerSA: true,
+			},
+		},
+	} {
+		t.Run(tc.template, func(t *testing.T) {
+			helmResources := kindNames(parseResources(t, helmTemplate(tc.template)))
+			var embeddedSubset []*unstructured.Unstructured
+			for _, r := range embeddedResources {
+				if tc.names[r.GetName()] {
+					embeddedSubset = append(embeddedSubset, r)
+				}
+			}
+			require.ElementsMatch(t, helmResources, kindNames(embeddedSubset), "embedded render and helm CLI disagree on %s resources", tc.template)
+		})
 	}
-	var embeddedMember []*unstructured.Unstructured
-	for _, r := range parseResources(t, embeddedOut) {
-		if operatorNames[r.GetName()] {
-			embeddedMember = append(embeddedMember, r)
-		}
-	}
-	embeddedNames := kindNames(embeddedMember)
-	require.ElementsMatch(t, helmResources, embeddedNames, "embedded render and helm CLI disagree on member resources")
 }

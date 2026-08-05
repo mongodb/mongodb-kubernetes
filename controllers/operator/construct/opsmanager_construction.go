@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -59,6 +60,7 @@ type OpsManagerStatefulSetOptions struct {
 	Name                         string
 	Replicas                     int
 	ServiceName                  string
+	ServiceAccountName           string
 	Namespace                    string
 	OwnerName                    string
 	ServicePort                  int
@@ -286,13 +288,15 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
-		OwnerName:           opsManager.Name,
-		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
-		EnvVars:             opsManagerConfigurationToEnvVars(opsManager),
-		Namespace:           opsManager.Namespace,
-		Labels:              opsManager.Labels,
-		StsLabels:           opsManager.GetOwnerLabels(),
+		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
+		OwnerName:               opsManager.Name,
+		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
+		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
+		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
+		ServiceAccountName:      util.OpsManagerServiceAccount,
+		Namespace:               opsManager.Namespace,
+		Labels:                  opsManager.Labels,
+		StsLabels:               opsManager.GetOwnerLabels(),
 	}
 }
 
@@ -317,6 +321,7 @@ func opsManagerOptions(memberCluster multicluster.MemberCluster, additionalOpts 
 		opts.Replicas = memberCluster.Replicas
 		opts.StatefulSetSpecOverride = stsSpec
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
+		opts.ServiceAccountName = resourcenames.WorkloadOpsManagerServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)
 
 		for _, additionalOpt := range additionalOpts {
 			additionalOpt(&opts)
@@ -482,7 +487,7 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 				configurePodSpecSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				pullSecretsConfigurationFunc,
-				podtemplatespec.WithServiceAccount(util.OpsManagerServiceAccount),
+				podtemplatespec.WithServiceAccount(opts.ServiceAccountName),
 				podtemplatespec.WithAffinity(opts.Name, podAntiAffinityLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
 				initContainerMod,
