@@ -139,6 +139,7 @@ const (
 	// Service accounts
 	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
 	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
+	AppDBServiceAccount      = "mongodb-kubernetes-appdb"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"

@@ -16,12 +16,10 @@ from pytest import fixture, mark
 from tests.conftest import (
     create_issuer_ca_configmap,
     get_central_cluster_client,
-    get_central_cluster_name,
     get_issuer_ca_filepath,
     get_member_cluster_api_client,
     install_multi_cluster_operator_cluster_scoped,
 )
-from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 
 from ..common.constants import MEMBER_CLUSTER_1, MEMBER_CLUSTER_2, MEMBER_CLUSTER_3
@@ -159,14 +157,6 @@ def test_create_namespace(
         OM_NAMESPACE,
         image_pull_secret_name,
         image_pull_secret_data,
-    )
-
-    prepare_multi_cluster_namespaces(
-        OM_NAMESPACE,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        get_central_cluster_name(),
-        True,
     )
 
 

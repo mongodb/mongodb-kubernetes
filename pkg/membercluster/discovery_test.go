@@ -68,13 +68,14 @@ func credentialSecret(name, server string) *corev1.Secret {
 func TestDiscover_NoCRs_ReturnsNil(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 
-	restConfigs, err := Discover(context.Background(), c, testNamespace, 10)
+	restConfigs, resourceNames, err := Discover(context.Background(), c, testNamespace, 10)
 
 	require.NoError(t, err)
 	assert.Nil(t, restConfigs)
+	assert.Nil(t, resourceNames)
 }
 
-func TestDiscover_BuildsMapKeyedByClusterName(t *testing.T) {
+func TestDiscover_BuildsMapsKeyedByClusterName(t *testing.T) {
 	objs := []client.Object{
 		memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"),
 		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
@@ -84,7 +85,7 @@ func TestDiscover_BuildsMapKeyedByClusterName(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
 
-	restConfigs, err := Discover(context.Background(), c, testNamespace, 7)
+	restConfigs, resourceNames, err := Discover(context.Background(), c, testNamespace, 7)
 
 	require.NoError(t, err)
 	require.Len(t, restConfigs, 2)
@@ -99,6 +100,12 @@ func TestDiscover_BuildsMapKeyedByClusterName(t *testing.T) {
 
 	// client timeout is applied
 	assert.Equal(t, float64(7), restConfigs["cluster-east"].Timeout.Seconds())
+
+	// resource names map spec.clusterName → metadata.name
+	assert.Equal(t, map[string]string{
+		"cluster-east": "cluster-east",
+		"west_legacy":  "cluster-west",
+	}, resourceNames)
 }
 
 func TestDiscover_SkipsClusterWithMissingSecret(t *testing.T) {
@@ -110,12 +117,15 @@ func TestDiscover_SkipsClusterWithMissingSecret(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
 
-	restConfigs, err := Discover(context.Background(), c, testNamespace, 10)
+	restConfigs, resourceNames, err := Discover(context.Background(), c, testNamespace, 10)
 
 	require.NoError(t, err)
 	require.Len(t, restConfigs, 1)
 	assert.Contains(t, restConfigs, "cluster-good")
 	assert.NotContains(t, restConfigs, "cluster-bad")
+
+	// skipped clusters appear in neither map
+	assert.Equal(t, map[string]string{"cluster-good": "cluster-good"}, resourceNames)
 }
 
 func TestDiscover_SkipsClusterWithSecretMissingKubeconfigKey(t *testing.T) {
@@ -131,9 +141,10 @@ func TestDiscover_SkipsClusterWithSecretMissingKubeconfigKey(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(objs...).Build()
 
-	restConfigs, err := Discover(context.Background(), c, testNamespace, 10)
+	restConfigs, resourceNames, err := Discover(context.Background(), c, testNamespace, 10)
 
 	require.NoError(t, err)
 	require.Len(t, restConfigs, 1)
 	assert.Contains(t, restConfigs, "cluster-good")
+	assert.Equal(t, map[string]string{"cluster-good": "cluster-good"}, resourceNames)
 }
