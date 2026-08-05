@@ -11,15 +11,15 @@ The envtest binaries are provisioned automatically by all unit test entry points
 once into `bin/envtest/` and exposed to `go test` via `KUBEBUILDER_ASSETS`.
 
 To run a test package directly (or from an IDE), provision the binaries once —
-the `env.Start` helper locates them in `bin/envtest/` on its own:
+the `env` helper locates them in `bin/envtest/` on its own:
 
 ```shell
 make envtest-assets
 go test -v ./api/mongodb/v1/search/...   # or any other package with envtest tests
 ```
 
-`ENVTEST_K8S_VERSION` (Makefile) tracks the minimum supported Kubernetes version from
-`kubernetes-versions.json`; override with `make envtest-assets ENVTEST_K8S_VERSION=1.35.x`.
+`ENVTEST_K8S_VERSION` (Makefile) is derived from the minimum supported Kubernetes version
+in `kubernetes-versions.json`; override with `make envtest-assets ENVTEST_K8S_VERSION=1.35.x`.
 
 ## Writing a new envtest test
 
@@ -29,9 +29,12 @@ registered. It works from any package — co-locate CEL tests next to the API ty
 define the rules (see below), or use it from controller tests:
 
 ```go
+func TestMain(m *testing.M) {
+    os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbsearch.yaml")))
+}
+
 func TestSomething(t *testing.T) {
-    testEnv := env.Start(t, env.WithCRDs("mongodb.com_mongodbsearch.yaml"))
-    k8sClient := testEnv.Client
+    k8sClient := env.Shared(t).Client
     // ... create/update objects, assert API server behaviour
 }
 ```
@@ -39,8 +42,14 @@ func TestSomething(t *testing.T) {
 Guidelines:
 
 - Each test *package* boots its own control plane (`go test` compiles every package
-  into a separate binary, so environments cannot be shared across packages). Call
-  `env.Start` once per top-level test and share it across subtests to keep boot cost low.
+  into a separate binary, so environments cannot be shared across packages). One boot
+  takes a few seconds, so **boot exactly once per package** from `TestMain` with
+  `env.RunShared` and access the environment from every test via `env.Shared(t)`:
+  ```go
+  func TestMain(m *testing.M) {
+      os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbsearch.yaml")))
+  }
+  ```
 - Pass `env.WithCRDs(...)` to install only the CRDs the test needs (faster boot);
   omit it to install all of `config/crd/bases`.
 - Missing binaries or CRD paths fail the test immediately — this is deliberate, so CI

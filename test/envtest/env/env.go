@@ -4,8 +4,10 @@
 //
 // Each Go test package that needs an API server starts its own control plane:
 // `go test` compiles every package into a separate binary, so a control plane
-// cannot be shared across packages. To keep the boot cost (a few seconds) low,
-// start one environment per top-level test and share it across subtests.
+// cannot be shared across packages. Within a package, boot exactly once from
+// TestMain via RunShared (the plain Go equivalent of Ginkgo's BeforeSuite) and
+// access the environment from every test via Shared — this keeps the boot cost
+// (a few seconds) at one per package no matter how many tests are added.
 //
 // The binaries are provisioned by `make envtest-assets`; the unit test entry
 // points (make golang-tests, scripts/evergreen/unit-tests-golang.sh) run it
@@ -13,6 +15,7 @@
 package env
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -54,15 +57,47 @@ func WithCRDs(crdFileNames ...string) Option {
 	}
 }
 
-// Start boots a local Kubernetes control plane, installs the CRDs (all of
-// config/crd/bases unless WithCRDs is given) and returns the running TestEnv.
-// The control plane is stopped automatically when the test finishes.
-//
-// The test fails immediately if the envtest binaries are missing;
-// run `make envtest-assets` to download them.
-func Start(t *testing.T, opts ...Option) *TestEnv {
-	t.Helper()
+// shared is the package-wide environment started by RunShared.
+var shared *TestEnv
 
+// RunShared boots a single control plane shared by all tests in the package,
+// runs the package's tests and tears the control plane down. It is the plain
+// Go equivalent of Ginkgo's BeforeSuite/AfterSuite, used from the package's
+// TestMain:
+//
+//	func TestMain(m *testing.M) {
+//		os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbsearch.yaml")))
+//	}
+//
+// Tests access the environment through Shared.
+func RunShared(m *testing.M, opts ...Option) int {
+	testEnv, err := start(opts...)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to start the envtest control plane; run `make envtest-assets` to download the required binaries: %v\n", err)
+		return 1
+	}
+	shared = testEnv
+
+	code := m.Run()
+
+	if err := testEnv.Environment.Stop(); err != nil && code == 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to stop the envtest control plane: %v\n", err)
+		code = 1
+	}
+	return code
+}
+
+// Shared returns the package-wide environment started by RunShared in the
+// package's TestMain. It fails the test immediately if RunShared was not used.
+func Shared(t *testing.T) *TestEnv {
+	t.Helper()
+	require.NotNil(t, shared, "no shared envtest environment; call env.RunShared from the package's TestMain")
+	return shared
+}
+
+// start boots the control plane and builds the client; RunShared stops it
+// after m.Run.
+func start(opts ...Option) (*TestEnv, error) {
 	environment := &envtest.Environment{
 		CRDDirectoryPaths:     []string{crdBasesDir()},
 		ErrorIfCRDPathMissing: true,
@@ -75,18 +110,21 @@ func Start(t *testing.T, opts ...Option) *TestEnv {
 	}
 
 	cfg, err := environment.Start()
-	require.NoError(t, err, "failed to start the envtest control plane; run `make envtest-assets` to download the required binaries")
-	t.Cleanup(func() {
-		require.NoError(t, environment.Stop(), "failed to stop the envtest control plane")
-	})
+	if err != nil {
+		return nil, err
+	}
 
 	scheme := kruntime.NewScheme()
-	require.NoError(t, mdbv1.AddToScheme(scheme))
+	if err := mdbv1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
 
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 
-	return &TestEnv{Environment: environment, Config: cfg, Client: k8sClient}
+	return &TestEnv{Environment: environment, Config: cfg, Client: k8sClient}, nil
 }
 
 // crdBasesDir returns the absolute path to config/crd/bases.

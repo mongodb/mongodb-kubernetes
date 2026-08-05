@@ -3,6 +3,7 @@ package search_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,14 +17,20 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
+// TestMain boots one envtest control plane shared by all tests in this package
+// (see test/envtest/env). Future envtest-based tests in this package should use
+// env.Shared(t) instead of starting their own environment.
+func TestMain(m *testing.M) {
+	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbsearch.yaml")))
+}
+
 // TestMongoDBSearchCELValidation proves that the CEL validation rules defined on
 // the MongoDBSearch CRD are enforced by a real Kubernetes API server (booted
 // locally via envtest). It covers both create-time rules and the oldSelf-based
 // transition rule, neither of which can be exercised by plain Go unit tests.
 func TestMongoDBSearchCELValidation(t *testing.T) {
 	ctx := context.Background()
-	testEnv := env.Start(t, env.WithCRDs("mongodb.com_mongodbsearch.yaml"))
-	k8sClient := testEnv.Client
+	k8sClient := env.Shared(t).Client
 
 	newSearch := func(name string, clusters ...searchv1.ClusterSpec) *searchv1.MongoDBSearch {
 		return &searchv1.MongoDBSearch{
