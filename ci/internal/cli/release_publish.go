@@ -101,12 +101,13 @@ version.`,
 
 func newPublishImagesCmd() *cobra.Command {
 	var (
-		buildInfo    string
-		releaseJSON  string
-		commit       string
-		latestMarker string
-		force        bool
-		dryRun       bool
+		buildInfo        string
+		releaseJSON      string
+		commit           string
+		latestMarker     string
+		registryOverride string
+		force            bool
+		dryRun           bool
 	)
 
 	cmd := &cobra.Command{
@@ -135,7 +136,7 @@ published version.`,
 			if err != nil {
 				return err
 			}
-			results, err := release.PublishImages(images, commit, latestMarker, force, dryRun, release.DefaultRegistryConnector)
+			results, err := release.PublishImages(images, commit, latestMarker, registryOverride, force, dryRun, release.DefaultRegistryConnector)
 			if err != nil {
 				return err
 			}
@@ -163,6 +164,7 @@ published version.`,
 	cmd.Flags().StringVar(&releaseJSON, "release-json", "release.json", "path to release.json")
 	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to publish")
 	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
+	cmd.Flags().StringVar(&registryOverride, "registry-override", "", "if set, replaces every image's release-registry host+namespace with this prefix (keeping each image's own repo name suffix) — for testing against a non-production registry; e.g. \"quay.io/my-test-org\"")
 	cmd.Flags().BoolVar(&force, "force", false, "publish every image even if any production tag already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 
