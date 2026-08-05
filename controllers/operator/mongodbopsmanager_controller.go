@@ -422,21 +422,10 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// 1. Reconcile AppDB
-	emptyResult, _ := workflow.OK().ReconcileResult()
+	emptyResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 	retryResult := reconcile.Result{RequeueAfter: time.Second}
 
-	// TODO: make SetupCommonWatchers support opsmanager watcher setup
-	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
-	// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
-	appDBReplicaSet := opsManager.Spec.AppDB
-	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
-
-	// We need to remove the watches on the top of the reconcile since we might add resources with the same key below.
-	if opsManager.IsTLSEnabled() {
-		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
-	}
-	// register backup
-	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
+	r.configureWatchersForDynamicResources(ctx, opsManager, log)
 
 	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
 	if err != nil {
@@ -493,11 +482,11 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	if vault.IsVaultSecretBackend() {
 		vaultMap := make(map[string]string)
 		for _, s := range opsManager.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), appDBReplicaSet.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), opsManager.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
 		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), appDBReplicaSet.Namespace, s)
+			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), opsManager.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
 
@@ -977,6 +966,17 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 	}
 
 	return mutatedSts, nil
+}
+
+func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+	appDBReplicaSet := opsManager.Spec.AppDB
+	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
+
+	if opsManager.IsTLSEnabled() {
+		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
+	}
+
+	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 }
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
@@ -2068,7 +2068,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	log.Info("Cleaned up Ops Manager related resources.")
 }
 
-func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
 	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, log)
 }
 
