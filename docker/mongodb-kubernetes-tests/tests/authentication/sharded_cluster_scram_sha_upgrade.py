@@ -42,7 +42,7 @@ class TestShardedClusterDeleted(KubernetesTester):
       Deletes the Sharded Cluster
     delete:
       file: sharded-cluster-scram-sha-1.yaml
-      wait_until: mongo_resource_deleted
+      wait_until: mongo_resource_deleted_no_om
       timeout: 240
     """
 

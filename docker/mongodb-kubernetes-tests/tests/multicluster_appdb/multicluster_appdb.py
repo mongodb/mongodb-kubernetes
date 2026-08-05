@@ -1,11 +1,13 @@
 import kubernetes
 import kubernetes.client
 import pytest
+from kubetester import delete_statefulset, wait_for_statefulset_ready, wait_for_statefulset_recreated
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
+from tests.conftest import get_member_cluster_api_client
 from tests.multicluster.conftest import cluster_spec_list
 
 CERT_PREFIX = "prefix"
@@ -115,6 +117,55 @@ def test_create_om(ops_manager: MongoDBOpsManager, appdb_member_cluster_names: l
         assert (
             f"appdb-{cluster_name}.local" in hostnames
         ), f"per-cluster hostAlias missing on AppDB STS in {cluster_name}: got {hostnames}"
+
+
+@mark.e2e_multi_cluster_appdb
+def test_appdb_statefulsets_multi_cluster_identity(
+    ops_manager: MongoDBOpsManager,
+    appdb_member_cluster_names: list[str],
+):
+    """Regression test: AppDB StatefulSets in member clusters must carry no ownerReferences.
+
+    A cross-cluster ownerReference points to the MongoDBOpsManager CR that only exists in
+    the central cluster. The Kubernetes GC treats the StatefulSet as an orphan and deletes
+    it immediately, causing an infinite create-delete reconciliation loop. Cleanup on CR
+    deletion is handled through explicit label-based deletion instead."""
+    for cluster_name in appdb_member_cluster_names:
+        sts = ops_manager.read_appdb_statefulset(member_cluster_name=cluster_name)
+        owner_refs = sts.metadata.owner_references
+        assert not owner_refs, (
+            f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no "
+            f"ownerReferences in multi-cluster mode, but got: {owner_refs}"
+        )
+
+
+@mark.e2e_multi_cluster_appdb
+def test_appdb_statefulset_watch_recreates_deleted_member(
+    ops_manager: MongoDBOpsManager,
+    namespace: str,
+    appdb_member_cluster_names: list[str],
+):
+    """Deleting an AppDB StatefulSet in a member cluster must trigger the operator's member-cluster
+    StatefulSet watch, which reconciles the MongoDBOpsManager and recreates the StatefulSet. A Running
+    resource requeues only after 24h, so a prompt recreation proves the watch drove the reconcile
+    rather than the periodic resync."""
+    cluster_name = appdb_member_cluster_names[0]
+    api_client = get_member_cluster_api_client(cluster_name)
+    sts_old = ops_manager.read_appdb_statefulset(member_cluster_name=cluster_name)
+    sts_name = sts_old.metadata.name
+    # The multi-cluster member watch maps the StatefulSet to its parent CR through the
+    # MongoDBMultiResource annotation (member StatefulSets carry no ownerReference), so the
+    # annotation must be present for the watch to trigger a reconcile.
+    assert "MongoDBMultiResource" in (sts_old.metadata.annotations or {}), (
+        f"AppDB StatefulSet {sts_name} in cluster {cluster_name} must carry the MongoDBMultiResource "
+        f"annotation, but had annotations={sts_old.metadata.annotations}"
+    )
+
+    delete_statefulset(namespace, sts_name, api_client=api_client)
+    wait_for_statefulset_recreated(namespace, sts_name, sts_old.metadata.uid, api_client=api_client)
+    wait_for_statefulset_ready(namespace, sts_name, api_client=api_client, timeout=800)
+
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @mark.e2e_multi_cluster_appdb

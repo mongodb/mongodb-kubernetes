@@ -73,6 +73,7 @@ const (
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
 	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
+	EnvVarCustomAgentURL   = "MDB_CUSTOM_AGENT_URL"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
@@ -196,6 +197,7 @@ const (
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
+	OperatorClusterNameEnv           = "OPERATOR_CLUSTER_NAME"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
@@ -221,10 +223,14 @@ const (
 	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
 
 	// Search environment variables
-	SearchRepoURLEnv = "MDB_SEARCH_REPO_URL"
-	SearchNameEnv    = "MDB_SEARCH_NAME"
-	SearchVersionEnv = "MDB_SEARCH_VERSION"
-	EnvoyImageEnv    = "MDB_ENVOY_IMAGE"
+	SearchRepoURLEnv         = "MDB_SEARCH_REPO_URL"
+	SearchNameEnv            = "MDB_SEARCH_NAME"
+	SearchVersionEnv         = "MDB_SEARCH_VERSION"
+	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
+	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
+
+	// VoyageAI environment variables
+	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"
 
 	// Different default configuration values
 	DefaultMongodStorageSize           = "16G"
@@ -251,16 +257,15 @@ const (
 	DefaultS3MaxConnections = 50
 
 	// Ops Manager related constants
-	OmPropertyPrefix                   = "OM_PROP_"
-	MmsJvmParamEnvVar                  = "CUSTOM_JAVA_MMS_UI_OPTS"
-	BackupDaemonJvmParamEnvVar         = "CUSTOM_JAVA_DAEMON_OPTS"
-	GenKeyPath                         = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion                    = "5.0"
-	AppDBAutomationConfigKey           = "cluster-config.json"
-	AppDBMonitoringAutomationConfigKey = "monitoring-cluster-config.json"
-	DefaultAppDbPasswordKey            = "password"
-	AppDbConnectionStringKey           = "connectionString"
-	AppDbProjectIdKey                  = "projectId"
+	OmPropertyPrefix           = "OM_PROP_"
+	MmsJvmParamEnvVar          = "CUSTOM_JAVA_MMS_UI_OPTS"
+	BackupDaemonJvmParamEnvVar = "CUSTOM_JAVA_DAEMON_OPTS"
+	GenKeyPath                 = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion            = "5.0"
+	AppDBAutomationConfigKey   = "cluster-config.json"
+	DefaultAppDbPasswordKey    = "password"
+	AppDbConnectionStringKey   = "connectionString"
+	AppDbProjectIdKey          = "projectId"
 	// Immutable backups were introduced in 8.0.19
 	// This variable is used for validating the OM version when an s3 store with object lock is configured
 	MinimumVersionImmutableBackup = "8.0.19"
@@ -340,6 +345,8 @@ const (
 	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
 
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
+
+	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 )
 
 type OperatorEnvironment string

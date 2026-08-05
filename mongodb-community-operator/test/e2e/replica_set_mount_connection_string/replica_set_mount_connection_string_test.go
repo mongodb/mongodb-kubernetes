@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,12 +40,25 @@ func createPythonTestPod(idx int, namespace, secretName, secretKey string) corev
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: ptr.To(true),
+				RunAsUser:    ptr.To(int64(2000)),
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 			Containers: []corev1.Container{
 				{
 					Name:       "python-app",
 					Image:      "quay.io/mongodb/mongodb-kubernetes-operator-test-app:1.0.0",
 					Command:    []string{"python", "main.py"},
 					WorkingDir: "/app",
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: ptr.To(false),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+					},
 					Env: []corev1.EnvVar{
 						{
 							Name: "CONNECTION_STRING",

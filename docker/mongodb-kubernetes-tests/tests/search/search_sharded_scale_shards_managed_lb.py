@@ -10,7 +10,9 @@ the MongoDBSearch resource correctly reconciles:
 Test flow:
   Phase 1: Deploy sharded cluster (2 shards) + MongoDBSearch with managed LB, verify search
   Phase 2: Scale UP to 3 shards, redistribute data, verify search works across all 3 shards
-  Phase 3: Scale DOWN to 2 shards, verify cleanup and search still works
+  Phase 3: Scale DOWN to 2 shards, verify FULL teardown of the removed shard's mongot
+           resources (StatefulSet, headless + proxy Services, ConfigMap, PVCs) and that
+           search still works
 """
 
 import kubernetes
@@ -63,7 +65,8 @@ ENVOY_PROXY_PORT = 27028
 
 # Resource names
 MDB_RESOURCE_NAME = "mdb-sh-scale"
-MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
+# Distinct from MDB_RESOURCE_NAME so the search and sharded controllers don't share the <name>-state ConfigMap.
+MDBS_RESOURCE_NAME = "mdb-sh-scale-search"
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
@@ -100,6 +103,20 @@ def verify_shard_resources_exist(namespace: str, mdbs_name: str, shard_name: str
     assert proxy_svc is not None, f"Proxy Service {proxy_svc_name} not found"
     logger.info(f"Proxy Service {proxy_svc_name} exists")
 
+    # Assert the ConfigMap and PVC(s) exist too, so the matching absence checks in
+    # verify_shard_resources_deleted can't pass vacuously if a future rename drifts
+    # the expected names.
+    cm_name = search_resource_names.shard_configmap_name(mdbs_name, shard_name)
+    cm = core_v1.read_namespaced_config_map(cm_name, namespace)
+    assert cm is not None, f"mongot ConfigMap {cm_name} not found"
+    logger.info(f"mongot ConfigMap {cm_name} exists")
+
+    pvc_prefix = f"data-{sts_name}-"
+    pvcs = core_v1.list_namespaced_persistent_volume_claim(namespace)
+    matching = [p.metadata.name for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)]
+    assert matching, f"no PVC with prefix {pvc_prefix!r} found for shard {shard_name}"
+    logger.info(f"PVC(s) {matching} exist for shard {shard_name}")
+
 
 def verify_shard_proxy_service_deleted(namespace: str, mdbs_name: str, shard_name: str):
     core_v1 = client.CoreV1Api()
@@ -116,6 +133,73 @@ def verify_shard_proxy_service_deleted(namespace: str, mdbs_name: str, shard_nam
 
     run_periodically(check, timeout=300, sleep_time=10, msg=f"proxy service {proxy_svc_name} deletion")
     logger.info(f"Proxy service {proxy_svc_name} confirmed deleted")
+
+
+def verify_shard_resources_deleted(namespace: str, mdbs_name: str, shard_name: str):
+    """Assert FULL teardown of a removed shard's mongot resources.
+
+    The stale-resource sweep deletes the per-shard mongot StatefulSet, headless
+    Service, proxy Service, and mongot ConfigMap; the StatefulSet's
+    ``persistentVolumeClaimRetentionPolicy.whenDeleted: Delete`` then reaps the
+    backing PVC(s). Each kind is polled independently so a partial sweep surfaces
+    the specific resource that leaked. We poll until 404 (or empty list for PVCs)
+    rather than reading once — the sweep runs asynchronously after the
+    MongoDBSearch reports Running.
+    """
+    apps_v1 = client.AppsV1Api()
+    core_v1 = client.CoreV1Api()
+
+    sts_name = search_resource_names.shard_statefulset_name(mdbs_name, shard_name)
+    svc_name = search_resource_names.shard_service_name(mdbs_name, shard_name)
+    cm_name = search_resource_names.shard_configmap_name(mdbs_name, shard_name)
+    # PVCs are named "<volumeClaimName>-<sts-name>-<ordinal>"; the mongot data
+    # volume claim is "data" (search_construction.go), so the prefix is "data-<sts>-".
+    pvc_prefix = f"data-{sts_name}-"
+
+    def sts_gone():
+        try:
+            apps_v1.read_namespaced_stateful_set(sts_name, namespace)
+            return False, f"StatefulSet {sts_name} still exists"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"StatefulSet {sts_name} deleted"
+            raise
+
+    def headless_svc_gone():
+        try:
+            core_v1.read_namespaced_service(svc_name, namespace)
+            return False, f"headless Service {svc_name} still exists"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"headless Service {svc_name} deleted"
+            raise
+
+    def configmap_gone():
+        try:
+            core_v1.read_namespaced_config_map(cm_name, namespace)
+            return False, f"mongot ConfigMap {cm_name} still exists"
+        except kubernetes.client.ApiException as e:
+            if e.status == 404:
+                return True, f"mongot ConfigMap {cm_name} deleted"
+            raise
+
+    def pvcs_gone():
+        pvcs = core_v1.list_namespaced_persistent_volume_claim(namespace)
+        leftover = [p.metadata.name for p in pvcs.items if p.metadata.name.startswith(pvc_prefix)]
+        if leftover:
+            return False, f"PVC(s) for removed shard still exist: {leftover}"
+        return True, f"no PVCs with prefix {pvc_prefix!r} remain"
+
+    # Proxy Service is covered by verify_shard_proxy_service_deleted; here we
+    # add the StatefulSet, headless Service, ConfigMap, and PVCs.
+    for check, label in (
+        (sts_gone, f"StatefulSet {sts_name}"),
+        (headless_svc_gone, f"headless Service {svc_name}"),
+        (configmap_gone, f"mongot ConfigMap {cm_name}"),
+        (pvcs_gone, f"PVCs {pvc_prefix}*"),
+    ):
+        run_periodically(check, timeout=300, sleep_time=10, msg=f"{label} deletion")
+        logger.info(f"{label} confirmed deleted for removed shard {shard_name}")
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +257,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 # ===========================================================================
@@ -184,7 +268,7 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 @MARKER
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @MARKER
@@ -248,7 +332,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @MARKER
 def test_verify_envoy_deployment(namespace: str):
-    envoy_deployment_name = search_resource_names.lb_deployment_name(MDB_RESOURCE_NAME)
+    envoy_deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
 
     def check_envoy_deployment():
         try:
@@ -459,10 +543,17 @@ def test_scale_down_wait_for_search_running(mdbs: MongoDBSearch):
 
 @MARKER
 def test_scale_down_verify_stale_resources_cleaned(namespace: str):
-    """Verify that the proxy service for the removed shard is cleaned up by the operator."""
+    """Verify the removed shard's mongot resources are FULLY torn down by the operator.
+
+    Beyond the proxy Service (the only kind the original sweep removed), the
+    generalized stale-resource sweep deletes the per-shard mongot StatefulSet,
+    headless Service, and ConfigMap, and the StatefulSet's PVC retention policy
+    reaps the backing PVC(s). Runs after MongoDBSearch reaches Running.
+    """
     removed_shard_name = f"{MDB_RESOURCE_NAME}-{SCALED_UP_SHARD_COUNT - 1}"
     verify_shard_proxy_service_deleted(namespace, MDBS_RESOURCE_NAME, removed_shard_name)
-    logger.info(f"Stale proxy service for {removed_shard_name} confirmed deleted")
+    verify_shard_resources_deleted(namespace, MDBS_RESOURCE_NAME, removed_shard_name)
+    logger.info(f"Stale mongot resources for {removed_shard_name} confirmed fully deleted")
 
 
 @MARKER

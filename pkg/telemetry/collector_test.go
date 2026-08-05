@@ -16,9 +16,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
@@ -1171,47 +1173,77 @@ func (m *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 	return m.MockGet(ctx, key, obj, opts...)
 }
 
-func TestAddCommunityEvents(t *testing.T) {
-	operatorUUID := "test-operator-uuid"
-
-	// Those 2 cases are when a customer uses Community reconciler to deploy enterprise or community MDB image
-	testCases := []struct {
-		name         string
-		mongodbImage string
-		isEnterprise bool
-	}{
-		{
-			name:         "With community image",
-			mongodbImage: "mongodb-community-server",
-			isEnterprise: false,
-		},
-		{
-			name:         "With enterprise image",
-			mongodbImage: "mongodb-enterprise-server",
-			isEnterprise: true,
+func communityItemWithMongodImage(uid, name, image string) mcov1.MongoDBCommunity {
+	item := mcov1.MongoDBCommunity{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:  types.UID(uid),
+			Name: name,
 		},
 	}
-
-	now := time.Now()
-
-	for _, tc := range testCases {
-		t.Run("With community resources", func(t *testing.T) {
-			communityList := &mcov1.MongoDBCommunityList{
-				Items: []mcov1.MongoDBCommunity{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("community-1"),
-							Name: "test-community-1",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("community-2"),
-							Name: "test-community-2",
+	if image != "" {
+		item.Spec.StatefulSetConfiguration = v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "mongod", Image: image},
+							},
 						},
 					},
 				},
-			}
+			},
+		}
+	}
+	return item
+}
+
+func TestAddCommunityEvents(t *testing.T) {
+	operatorUUID := "test-operator-uuid"
+	now := time.Now()
+
+	testCases := []struct {
+		name         string
+		items        []mcov1.MongoDBCommunity
+		isEnterprise []bool
+	}{
+		{
+			name: "No container image override defaults to community (not enterprise)",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", ""),
+				communityItemWithMongodImage("community-2", "test-community-2", ""),
+			},
+			isEnterprise: []bool{false, false},
+		},
+		{
+			name: "Explicit enterprise image override reports enterprise",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", "mongodb-enterprise-server:7.0"),
+				communityItemWithMongodImage("community-2", "test-community-2", "mongodb-enterprise-server:7.0"),
+			},
+			isEnterprise: []bool{true, true},
+		},
+		{
+			name: "Explicit community image override reports non-enterprise",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", "mongodb-community-server:7.0"),
+				communityItemWithMongodImage("community-2", "test-community-2", "mongodb-community-server:7.0"),
+			},
+			isEnterprise: []bool{false, false},
+		},
+		{
+			name: "Mixed: one enterprise override, one default",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", "mongodb-enterprise-server:7.0"),
+				communityItemWithMongodImage("community-2", "test-community-2", ""),
+			},
+			isEnterprise: []bool{true, false},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			communityList := &mcov1.MongoDBCommunityList{Items: tc.items}
 
 			mc := &MockClient{
 				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
@@ -1222,49 +1254,43 @@ func TestAddCommunityEvents(t *testing.T) {
 				},
 			}
 
-			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
+			events := addCommunityEvents(context.Background(), mc, operatorUUID, now)
 
-			assert.Len(t, events, 2, "Should return 2 events for 2 community resources")
-
-			assert.Equal(t, now, events[0].Timestamp)
-			assert.Equal(t, Deployments, events[0].Source)
-			assert.Equal(t, "community-1", events[0].Properties["deploymentUID"])
-			assert.Equal(t, operatorUUID, events[0].Properties["operatorID"])
-			assert.Equal(t, false, events[0].Properties["isMultiCluster"])
-			assert.Equal(t, "Community", events[0].Properties["type"])
-			assert.Equal(t, tc.isEnterprise, events[0].Properties["IsRunningEnterpriseImage"])
-
-			assert.Equal(t, "community-2", events[1].Properties["deploymentUID"])
-			assert.Equal(t, tc.isEnterprise, events[1].Properties["IsRunningEnterpriseImage"])
-		})
-
-		t.Run("With list error", func(t *testing.T) {
-			mc := &MockClient{
-				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-					return errors.New("list error")
-				},
+			assert.Len(t, events, len(tc.items), "Should return one event per community resource")
+			for i, event := range events {
+				assert.Equal(t, now, event.Timestamp)
+				assert.Equal(t, Deployments, event.Source)
+				assert.Equal(t, string(tc.items[i].UID), event.Properties["deploymentUID"])
+				assert.Equal(t, operatorUUID, event.Properties["operatorID"])
+				assert.Equal(t, false, event.Properties["isMultiCluster"])
+				assert.Equal(t, "Community", event.Properties["type"])
+				assert.Equal(t, tc.isEnterprise[i], event.Properties["IsRunningEnterpriseImage"])
 			}
-
-			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
-
-			assert.Empty(t, events, "Should return empty slice on list error")
-		})
-
-		t.Run("With empty list", func(t *testing.T) {
-			mc := &MockClient{
-				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-					if l, ok := list.(*mcov1.MongoDBCommunityList); ok {
-						*l = mcov1.MongoDBCommunityList{}
-					}
-					return nil
-				},
-			}
-
-			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
-
-			assert.Empty(t, events, "Should return empty slice for empty community list")
 		})
 	}
+
+	t.Run("With list error", func(t *testing.T) {
+		mc := &MockClient{
+			MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+				return errors.New("list error")
+			},
+		}
+		events := addCommunityEvents(context.Background(), mc, operatorUUID, now)
+		assert.Empty(t, events, "Should return empty slice on list error")
+	})
+
+	t.Run("With empty list", func(t *testing.T) {
+		mc := &MockClient{
+			MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+				if l, ok := list.(*mcov1.MongoDBCommunityList); ok {
+					*l = mcov1.MongoDBCommunityList{}
+				}
+				return nil
+			},
+		}
+		events := addCommunityEvents(context.Background(), mc, operatorUUID, now)
+		assert.Empty(t, events, "Should return empty slice for empty community list")
+	})
 }
 
 func TestAddSearchEvents(t *testing.T) {

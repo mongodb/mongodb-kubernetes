@@ -2,7 +2,6 @@ package construct
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strconv"
@@ -62,7 +61,6 @@ const (
 
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
-	LogFileAutomationAgentStderrEnv  = "MDB_LOG_FILE_AUTOMATION_AGENT_STDERR"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
@@ -107,6 +105,7 @@ type DatabaseStatefulSetOptions struct {
 	DatabaseNonStaticImage string
 	MongodbImage           string
 	AgentImage             string
+	CustomAgentURL         string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -245,9 +244,10 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	opts := DatabaseStatefulSetOptions{
 		Name:                    cfg.rsName,
 		ServiceName:             cfg.serviceName,
+		Annotations:             map[string]string{"type": "ShardedCluster"},
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),
 		ServicePort:             cfg.componentSpec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		OwnerReference:          kube.BaseOwnerReference(&cfg.mdb),
+		OwnerReference:          cfg.mdb.OwnerReferenceForMemberCluster(),
 		AgentConfig:             cfg.componentSpec.GetAgentConfig(),
 		StatefulSetSpecOverride: statefulSetSpecOverride,
 		Labels:                  cfg.mdb.Labels,
@@ -962,10 +962,8 @@ func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar
 	logFileWithoutExt := logFileName[0 : len(logFileName)-len(logFileExt)]
 
 	verboseLogFile := fmt.Sprintf("%s%s-verbose%s", logFileDir, logFileWithoutExt, logFileExt)
-	stderrLogFile := fmt.Sprintf("%s%s-stderr%s", logFileDir, logFileWithoutExt, logFileExt)
 	return []corev1.EnvVar{
 		{Name: LogFileAutomationAgentVerboseEnv, Value: verboseLogFile},
-		{Name: LogFileAutomationAgentStderrEnv, Value: stderrLogFile},
 		{Name: LogFileAutomationAgentEnv, Value: automationLogFile},
 	}
 }
@@ -1031,10 +1029,9 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		)
 	}
 
-	// This is only used for debugging
-	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
-		zap.S().Debugf("using a custom agent version: %s", agentVersion)
-		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	if opts.CustomAgentURL != "" {
+		zap.S().Debugf("using a custom agent URL: %s", opts.CustomAgentURL)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: opts.CustomAgentURL})
 	}
 
 	// append any additional env vars specified.
@@ -1117,5 +1114,6 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))
 
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+
 	return volumes, volumeMounts
 }

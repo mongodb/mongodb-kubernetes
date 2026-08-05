@@ -333,7 +333,7 @@ def clean_unused_keys(org_id: str):
     - currently used by the script (USER_OWNER env variable)
     - containing "EVG" or "NOT_DELETE" in their description
     """
-    keys, newer_keys = get_keys_older_than(org_id, minutes_interval=70)
+    keys, newer_keys = get_keys_older_than(org_id, minutes_interval=140)
     print(f"found {len(keys)} keys for potential removal")
     deleted_keys = []
     kept_keys = []
@@ -362,7 +362,7 @@ def keep_the_key(key: Dict) -> bool:
 
 def clean_unused_projects(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers"""
-    projects, newer_projects = get_projects_older_than(org_id, minutes_interval=70)
+    projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
     deleted_projects = []
     kept_projects = []

@@ -133,7 +133,7 @@ def mongodb_x509_user(central_cluster_client: kubernetes.client.ApiClient, names
 
 @mark.e2e_multi_cluster_tls_with_x509
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_tls_with_x509

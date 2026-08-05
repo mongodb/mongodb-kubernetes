@@ -17,7 +17,7 @@ metadata:
   name: ${namespace}
   labels:
     evg: task
-    pod-security.kubernetes.io/warn: "restricted"
+    pod-security.kubernetes.io/enforce: "restricted"
   annotations:
     evg/version: "https://evergreen.mongodb.com/version/${version_id:-'not-specified'}"
     evg/task-name: ${TASK_NAME:-'not-specified'}
@@ -280,6 +280,7 @@ docker_run_local_registry() {
   reg_port="$2"
   running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
   if [ "${running}" != 'true' ]; then
+    docker rm -f "${reg_name}" 2>/dev/null || true
     docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
   fi
 }

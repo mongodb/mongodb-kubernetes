@@ -7,13 +7,11 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 )
 
-// Private constants — verbatim values from MCO's mongodbstatefulset.go and readiness/config/config.go.
 const (
 	appdbClusterFilePath                = "/var/lib/automation/config/cluster-config.json"
 	appdbAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 	appdbAutomationAgentOptions         = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 
-	// Readiness probe logger env var names — from MCO's pkg/readiness/config.
 	appdbReadinessProbeLoggerBackups  = "READINESS_PROBE_LOGGER_BACKUPS"
 	appdbReadinessProbeLoggerMaxSize  = "READINESS_PROBE_LOGGER_MAX_SIZE"
 	appdbReadinessProbeLoggerMaxAge   = "READINESS_PROBE_LOGGER_MAX_AGE"
@@ -22,29 +20,43 @@ const (
 	appdbAgentHealthStatusFilePathEnv = "AGENT_STATUS_FILEPATH"
 )
 
-// MongodbUserCommand is the bash preamble that sets up the correct UID mapping for mongod.
-// Verbatim copy from MCO's mongodbstatefulset.go.
-const MongodbUserCommand = `current_uid=$(id -u)
-declare -r current_uid
-if ! grep -q "${current_uid}" /etc/passwd ; then
-sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
-echo "mongodb:x:$(id -u):$(id -g):,,,:/:/bin/bash" >> /tmp/passwd
-export NSS_WRAPPER_PASSWD=/tmp/passwd
-export LD_PRELOAD=libnss_wrapper.so
-export NSS_WRAPPER_GROUP=/etc/group
+// BaseAgentCommand returns the core agent binary invocation flags.
+// Uses ${agent_binary:-agent/mongodb-agent} so a custom agent downloaded by
+// downloadCustomAgentIfSet() (non-static mode) takes precedence over the
+// pre-baked binary.
+func BaseAgentCommand() string {
+	return "${agent_binary:-agent/mongodb-agent} -healthCheckFilePath=" + appdbAgentHealthStatusFilePathValue + " -serveStatusPort=5000"
+}
+
+// downloadCustomAgentIfSet returns a bash snippet that downloads and installs
+// a custom agent from MDB_CUSTOM_AGENT_URL when set, setting the local
+// agent_binary variable so BaseAgentCommand() picks it up. Only used in
+// non-static mode — in static mode the agent image is already built with
+// the correct binary.
+func downloadCustomAgentIfSet() string {
+	return `if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
+  echo "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
+  pushd /tmp >/dev/null || true
+  if ! curl --location --silent --retry 3 --fail -v --output automation-agent.tar.gz "${MDB_CUSTOM_AGENT_URL}" 2>&1; then
+    echo "Error: failed to download custom agent from ${MDB_CUSTOM_AGENT_URL}"
+    exit 1
+  fi
+  if ! tar -xzf automation-agent.tar.gz; then
+    echo "Error: failed to extract custom agent tarball"
+    exit 1
+  fi
+  cp mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /tmp/mongodb-agent
+  rm -rf /tmp/automation-agent.tar.gz /tmp/mongodb-mms-automation-agent-*
+  chmod +x /tmp/mongodb-agent
+  agent_binary=/tmp/mongodb-agent
+  popd >/dev/null || true
 fi
 `
-
-// BaseAgentCommand returns the core agent binary invocation flags.
-// Verbatim copy from MCO's mongodbstatefulset.go.
-func BaseAgentCommand() string {
-	return "agent/mongodb-agent -healthCheckFilePath=" + appdbAgentHealthStatusFilePathValue + " -serveStatusPort=5000"
 }
 
 // AutomationAgentCommand returns the full command array for the automation agent container.
-// withAgentAPIKeyExport detects whether we want to deploy this agent with the agent api key exported;
-// it can be used to register the agent with OM.
-// Verbatim copy from MCO's mongodbstatefulset.go.
+// withAgentAPIKeyExport selects the preamble that exports AGENT_API_KEY from the mounted
+// agent-api-key secret, which the agent uses to register with Ops Manager for monitoring.
 func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
 	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
 	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
@@ -58,24 +70,33 @@ func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLeve
 		agentLogOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
 	}
 
-	if withAgentAPIKeyExport {
-		return []string{"/bin/bash", "-c", GetMongodbUserCommandWithAPIKeyExport(withStatic) + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+	// In non-static mode, download the custom agent if MDB_CUSTOM_AGENT_URL is set.
+	// In static mode, the agent image is already built with the correct binary.
+	downloadSnippet := ""
+	if !withStatic {
+		downloadSnippet = downloadCustomAgentIfSet()
 	}
-	return []string{"/bin/bash", "-c", MongodbUserCommand + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+
+	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic, withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
 }
 
-// GetMongodbUserCommandWithAPIKeyExport returns the bash preamble that exports AGENT_API_KEY from a file.
-// Verbatim copy from MCO's mongodbstatefulset.go.
-func GetMongodbUserCommandWithAPIKeyExport(withStatic bool) string {
+// GetMongodbUserCommand returns the bash preamble for the automation agent. When
+// withAgentAPIKeyExport is true it also exports AGENT_API_KEY from the mounted
+// agent-api-key secret, which the agent uses to register with Ops Manager for monitoring.
+func GetMongodbUserCommand(withStatic bool, withAgentAPIKeyExport bool) string {
 	agentPrepareScript := ""
 	if withStatic {
 		agentPrepareScript = "/usr/local/bin/setup-agent-files.sh\n"
 	}
 
-	//nolint:gosec //The credentials path is hardcoded in the container.
+	apiKeyExport := ""
+	if withAgentAPIKeyExport {
+		//nolint:gosec //The credentials path is hardcoded in the container.
+		apiKeyExport = "AGENT_API_KEY=\"$(cat /mongodb-automation/agent-api-key/agentApiKey)\"\n"
+	}
+
 	return fmt.Sprintf(`%scurrent_uid=$(id -u)
-AGENT_API_KEY="$(cat /mongodb-automation/agent-api-key/agentApiKey)"
-declare -r current_uid
+%sdeclare -r current_uid
 if ! grep -q "${current_uid}" /etc/passwd ; then
 sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
 echo "mongodb:x:$(id -u):$(id -g):,,,:/:/bin/bash" >> /tmp/passwd
@@ -83,5 +104,5 @@ export NSS_WRAPPER_PASSWD=/tmp/passwd
 export LD_PRELOAD=libnss_wrapper.so
 export NSS_WRAPPER_GROUP=/etc/group
 fi
-`, agentPrepareScript)
+`, agentPrepareScript, apiKeyExport)
 }

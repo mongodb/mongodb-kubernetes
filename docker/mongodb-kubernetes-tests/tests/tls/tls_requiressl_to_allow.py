@@ -39,7 +39,7 @@ def tls_replica_set(
 
 @mark.e2e_replica_set_tls_require_to_allow
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_replica_set_tls_require_to_allow

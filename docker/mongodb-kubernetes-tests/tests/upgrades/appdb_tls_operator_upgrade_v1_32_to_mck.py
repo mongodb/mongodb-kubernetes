@@ -98,7 +98,7 @@ def test_install_latest_official_operator(
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
     )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck
@@ -150,7 +150,7 @@ def test_upgrade_operator(
         operator = get_default_operator(
             namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
         )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_appdb_tls_operator_upgrade_v1_32_to_mck

@@ -1,5 +1,16 @@
 # For .evergreen.yml configuration and usage reference, see EVERGREEN.md file
 
+# Ensure path filtering only applies to PR patches, not merge queue or mainline.
+disable_merge_queue_path_filtering: true
+
+# Never schedule any build for commits/PRs that only touch these files.
+ignore:
+  - "**/*.md"
+  - ".gitignore"
+  - "**/OWNERS"
+  - ".github/**"
+  - "!changelog/**"
+
 # 2h timeout for all the tasks
 exec_timeout_secs: 7200
 
@@ -9,13 +20,23 @@ include:
   - filename: .evergreen-mco.yml
   - filename: .evergreen-snippets.yml
   - filename: .evergreen-release.yml
+  - filename: .evergreen-release-publish.yml
 
 variables:
+  # NOTE: This is a denylist to prevent missing changes that shoudl trigger e2e.
+  # If you add a new non-production folder/file type, add it to this ignore list
+  # to save CI costs and increase PR reliability by skipping unnecesary E2E runs.
+  - &production_code_paths
+    paths:
+      - "**"
+      - "!ci/**" # CI tooling that is fully unit-tests covered and should not affect prod
+      - "!.evergreen-release.yml" # Prevent the release config itself from triggering E2E on PR
+
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.24 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.25 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -58,6 +79,8 @@ variables:
   - &community_dependency
     depends_on:
       - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
@@ -177,6 +200,8 @@ variables:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
       # Wait for OM images to be published to quay.io on commit builds (staging).
@@ -202,6 +227,10 @@ parameters:
     value: "0"
     description: set this to 1 if you want shell scripts to enable set -x
 
+  - key: mdb_custom_agent_url
+    value: ""
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -225,8 +254,11 @@ patch_aliases:
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
     task: ".*"
-  - alias: "release"
-    variant_tags: [ "release" ]
+  - alias: "deprecated-release"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  - alias: "release-publish"
+    variant_tags: [ "release-publish" ]
     task: ".*"
   - alias: "preflight_release_test"
     description: "Release-style preflight only (no image release, no Pyxis submit); patch-only. See EVERGREEN.md."
@@ -235,8 +267,8 @@ patch_aliases:
   - alias: "staging"
     variant_tags: [ "staging" ]
     task: ".*"
-  - alias: "pr_patch"
-    variant_tags: [ "pr_patch" ]
+  - alias: "pr_patch_static"
+    variant_tags: [ "pr_patch_static" ]
     task: ".*"
   - alias: "static"
     description: "Run all static container variants"
@@ -253,7 +285,9 @@ patch_aliases:
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
-  - variant_tags: [ "pr_patch" ]
+  - variant_tags: [ "pr_patch_static" ]
+    task: ".*"
+  - variant_tags: [ "pr_patch_e2e" ]
     task: ".*"
 
 # Allows to see evergreen checks in GitHub commits
@@ -262,10 +296,19 @@ github_checks_aliases:
   - variant: ".*"
     task: ".*"
 
-# Triggered on git tag
+# Triggered on git tag. The plain "X.Y.Z" shape is intentionally NOT a trigger:
+# it's applied by the release pipelines themselves as the final, human-facing
+# tag once their trigger tag's pipeline succeeds, and must not re-trigger anything.
 git_tag_aliases:
-  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release" ]
+  # Legacy process (deprecated, still supported): rebuilds and retests images
+  # before publishing. See .evergreen-release.yml.
+  - git_tag: "^old-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  # New process: publishes the already-promoted images for the given commit
+  # without rebuilding or retesting. See .evergreen-release-publish.yml.
+  - git_tag: "^new-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "release-publish" ]
     task: ".*"
 
 tasks:
@@ -297,6 +340,11 @@ tasks:
     tags: [ "unit_tests" ]
     commands:
       - func: lint_repo
+
+  - name: bash_tests
+    tags: [ "unit_tests" ]
+    commands:
+      - func: test_bash
 
   - name: go_bump_policy_tests
     tags: [ "unit_tests" ]
@@ -342,6 +390,7 @@ tasks:
         params:
           expansion_name: GH_TOKEN
       - func: setup_chart_testing_cli
+      - func: setup_prek
       - command: subprocess.exec
         type: setup
         params:
@@ -440,9 +489,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-      - func: download_multi_cluster_binary
-        vars:
-          platform: linux/s390x
       - func: quay_staging_login
       - func: pipeline
         vars:
@@ -454,9 +500,6 @@ tasks:
       - func: setup_building_host_minikube
         vars:
           skip_minikube_setup: true
-      - func: download_multi_cluster_binary
-        vars:
-          platform: linux/ppc64le
       - func: quay_staging_login
       - func: pipeline
         vars:
@@ -566,6 +609,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_one_thread
@@ -575,6 +619,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf
@@ -584,6 +629,7 @@ tasks:
     commands:
       - func: clone
       - func: switch_context
+      - func: python_venv
       - func: generate_perf_tests_tasks
         vars:
           variant: e2e_operator_perf_thirty
@@ -599,18 +645,6 @@ tasks:
         vars:
           image_name: ops-manager
 
-  - name: publish_ops_manager
-    commands:
-      - func: clone
-      - func: switch_context
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: ops-manager
-          build_scenario: release
-
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
       - func: clone
@@ -619,54 +653,20 @@ tasks:
       - func: setup_prepare_openshift_bundles
       - func: prepare_openshift_bundles_for_e2e
 
-  - name: backup_csv_images_dry_run
+  # Runs after all staging tests pass on a master merge: promotes every release
+  # image (build_info.json) at the merged commit to its primary staging repo.
+  - name: mckci_release_promote
     commands:
       - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --dry-run
-            - --verbose
-  - name: backup_csv_images_limit_3
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --limit
-            - "3"
-            - --verbose
-  - name: backup_csv_images_all
-    commands:
-      - func: clone
-      - func: quay_login
-      - command: subprocess.exec
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          binary: python3
-          args:
-            - scripts/dev/release/backup_csv_images.py
-            - scripts/dev/release/1.2.0.clusterserviceversion.yaml
-            - --verbose
-
-  # Dummy placeholder: will call `mckctl release promote` once the tool is wired into CI.
-  # Runs after all staging tests pass on a master merge to confirm the build is promotable.
-  - name: mckctl_release_promote
-    commands:
+      - func: setup_building_host
       - command: shell.exec
+        type: test
         params:
+          shell: bash
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
-            echo "would run: mckctl release promote --version ${OPERATOR_VERSION}"
+            source .generated/context.export.env
+            scripts/mckci release promote images --commit "${revision}" --latest-marker latest
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
@@ -696,6 +696,9 @@ task_groups:
   - name: check_ocp_version_drift_task_group
     setup_group:
       - func: clone
+      - command: github.generate_token
+        params:
+          expansion_name: GH_TOKEN
       - func: setup_openshift_client
       - func: setup_gh
     tasks:
@@ -710,6 +713,7 @@ task_groups:
       - func: download_kube_tools
     tasks:
       - lint_repo
+      - bash_tests
       - unit_tests_golang
       - unit_tests_python
       - unit_tests_helm
@@ -724,16 +728,14 @@ task_groups:
   # Task group for deploying mongodbcommunity resources and testing the (former) MCO
   - name: e2e_mdb_community_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task]
     tasks:
       - e2e_community_replicaset_scale
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubi_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       # e2e_kube_only_task_group
       - e2e_crd_validation
@@ -860,39 +862,38 @@ task_groups:
       - e2e_replica_set_oidc_workforce
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
-    <<: *teardown_group
 
   # All MongoDBSearch tests that fit on large instances (mongot requires 2 CPU).
   # Added to cloudqa-large variants.
   - name: e2e_mdb_kind_search_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
-    tasks:
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks: &single_cluster_search_tasks
       - e2e_search_community_basic
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
+      - e2e_search_auto_embedding_bad_secret
+      - e2e_search_auto_embedding_key_handling
+      - e2e_search_enterprise_external_auto_embedding
       - e2e_search_community_tls
       - e2e_search_community_external_mongod_basic
       - e2e_search_community_external_mongod_tls
       - e2e_search_enterprise_basic
       - e2e_search_replicaset_external_mongodb_single_mongot
       - e2e_search_sharded_internal_mongodb_single_mongot
-      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_enc_mtls
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_mongot_replicaset_x509_auth
-    <<: *teardown_group
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
   # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to cloudqa-large variants.
   - name: e2e_mdb_kind_search_large_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
@@ -901,65 +902,82 @@ task_groups:
       - e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
       - e2e_search_replicaset_external_mongodb_proxy_service
-    <<: *teardown_group
+      - e2e_search_connectivity_tool
+      - e2e_search_connectivity_tool_sharded
+      - e2e_search_connectivity_rolling_restarts
+      - e2e_search_sharded_routed_from_another_shard
+      - e2e_search_sharded_onboarding_no_outage
+      - e2e_search_cds_hot_reload
+      - e2e_search_envoy_retry_policy
+      - e2e_search_auto_embedding_rolling_restart
 
   # Same as e2e_mdb_kind_search_task_group but for om80 variants.
   # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
+  # Metrics-forwarder tests require Ops Manager, so they run only on the om variant.
   - name: e2e_om80_kind_search_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_search_community_basic
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
+      - e2e_search_auto_embedding_bad_secret
+      - e2e_search_auto_embedding_key_handling
+      - e2e_search_enterprise_external_auto_embedding
       - e2e_search_community_tls
       - e2e_search_community_external_mongod_basic
       - e2e_search_community_external_mongod_tls
       - e2e_search_enterprise_basic
       - e2e_search_replicaset_external_mongodb_single_mongot
       - e2e_search_sharded_internal_mongodb_single_mongot
-      - e2e_search_enterprise_tls
+      - e2e_search_enterprise_enc_mtls
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_mongot_replicaset_x509_auth
-    <<: *teardown_group
+      - e2e_search_enterprise_metrics_forwarder_replicaset
+      - e2e_search_external_metrics_forwarder_replicaset
 
   # Same as e2e_mdb_kind_search_large_task_group but for om80 variants.
   # Uses setup_and_teardown_task (not cloudqa) since ops_manager_version is not 'cloud_qa'.
+  # Metrics-forwarder tests require Ops Manager, so they run only on the om variant.
   - name: e2e_om80_kind_search_large_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
       - e2e_search_sharded_scale_shards_managed_lb
+      - e2e_search_sharded_enterprise_external_mongod_managed_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
       - e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
       - e2e_search_replicaset_external_mongodb_proxy_service
-    <<: *teardown_group
+      - e2e_search_connectivity_tool
+      - e2e_search_connectivity_tool_sharded
+      - e2e_search_connectivity_rolling_restarts
+      - e2e_search_sharded_routed_from_another_shard
+      - e2e_search_sharded_onboarding_no_outage
+      - e2e_search_cds_hot_reload
+      - e2e_search_envoy_retry_policy
+      - e2e_search_auto_embedding_rolling_restart
+      - e2e_search_enterprise_metrics_forwarder_sharded
+      - e2e_search_external_metrics_forwarder_sharded
 
   # this task group contains just a one task, which is smoke testing whether the operator
   # works correctly when we run it without installing webhook cluster roles
   - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_replica_set_agent_flags_and_readinessProbe
-    <<: *teardown_group
 
   # This task group mostly duplicates tests running in e2e_mdb_kind_ubi_cloudqa
   # This is mostly a smoke test, so we execute only a few essential ones.
   - name: e2e_mdb_openshift_ubi_cloudqa_task_group
     max_hosts: 2
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
-    <<: *teardown_group
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_crd_validation
       - e2e_replica_set_scram_sha_256_user_connectivity
@@ -969,16 +987,13 @@ task_groups:
 
   - name: e2e_mdb_openshift_search_ubi_cloudqa_task_group
     max_hosts: 1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
-    <<: *teardown_group
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_search_sharded_openshift_external
 
   - name: e2e_custom_domain_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa]
     tasks:
       - e2e_replica_set
 
@@ -986,11 +1001,13 @@ task_groups:
   # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
   - name: e2e_operator_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_search
+      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
+      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
+      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
+      # - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -998,27 +1015,26 @@ task_groups:
       - e2e_operator_multi_namespaces
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
-    <<: *teardown_group
 
   # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
   # additionally, it sends telemetry to cloud-dev; more here: https://wiki.corp.mongodb.com/display/MMS/Telemetry
   - name: e2e_operator_race_with_telemetry_task_group
     max_hosts: -1
-    <<: *setup_group_multi_cluster
-    <<: *setup_and_teardown_task
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_reconcile_race_with_telemetry
-    <<: *teardown_group
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
   # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
   - name: e2e_static_operator_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_operator_upgrade_replica_set
-      - e2e_operator_upgrade_search
+      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
+      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
+      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
+      # - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -1026,12 +1042,10 @@ task_groups:
       - e2e_operator_multi_namespaces
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
-    <<: *teardown_group
 
   - name: e2e_multi_cluster_kind_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_multi_cluster_replica_set
       - e2e_multi_cluster_replica_set_migration
@@ -1099,22 +1113,26 @@ task_groups:
       - e2e_sharded_cluster_oidc_m2m_user
       - e2e_multi_cluster_oidc_m2m_group
       - e2e_multi_cluster_oidc_m2m_user
+      - e2e_search_simulated_mc_rs
+      - e2e_search_simulated_mc_sharded
 
-    <<: *teardown_group
 
   - name: e2e_multi_cluster_2_clusters_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_multi_cluster_2_clusters_replica_set
       - e2e_multi_cluster_2_clusters_clusterwide
-    <<: *teardown_group
+      - e2e_search_q2_mc_rs_steady
+      - e2e_search_q3_mc_sharded_external_mtls
+      - e2e_search_connectivity_tool_mc_rs
+      - e2e_search_connectivity_tool_mc_sharded
+      - e2e_search_ext_mc_rs_x509_enc_mtls
+      - e2e_search_ext_mc_sharded_scram_enc_mtls
 
   - name: e2e_multi_cluster_om_appdb_task_group
     max_hosts: -1
-    <<: *setup_group_multi_cluster
-    <<: *setup_and_teardown_task
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
     tasks:
       # Dedicated AppDB Multi-Cluster tests
       - e2e_multi_cluster_appdb_validation
@@ -1164,12 +1182,10 @@ task_groups:
     # disabled tests:
     #    - e2e_om_multiple # multi-cluster failures in EVG
     #    - e2e_om_appdb_scale_up_down # test not "reused" for multi-cluster appdb
-    <<: *teardown_group
 
   - name: e2e_static_multi_cluster_om_appdb_task_group
     max_hosts: -1
-    <<: *setup_group_multi_cluster
-    <<: *setup_and_teardown_task
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
     tasks:
       # Dedicated AppDB Multi-Cluster tests
       - e2e_multi_cluster_appdb_validation
@@ -1216,25 +1232,21 @@ task_groups:
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
-    <<: *teardown_group
 
   # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
   # that is not in the mesh
   - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
     max_hosts: -1
-    <<: *setup_group_multi_cluster
-    <<: *setup_and_teardown_task
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_multi_cluster_om_clusterwide_operator_not_in_mesh_networking
-    <<: *teardown_group
 
 
   # This task group runs on Kind clusters and includes ALL Ops Manager tests
   # including the cluster-wide resources changing and operator upgrade tests.
   - name: e2e_ops_manager_kind_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
@@ -1274,12 +1286,10 @@ task_groups:
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
       - e2e_operator_upgrade_ops_manager
-    <<: *teardown_group
 
   - name: e2e_static_ops_manager_kind_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
@@ -1318,94 +1328,74 @@ task_groups:
     #    - e2e_om_ops_manager_https_enabled_internet_mode
     #    - e2e_om_ops_manager_https_enabled
     #    - e2e_om_ops_manager_https_enabled_prefix
-    <<: *teardown_group
 
   - name: e2e_smoke_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_backup
-    <<: *teardown_group
 
   - name: e2e_smoke_arm_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_replica_set
-    <<: *teardown_group
 
   - name: e2e_smoke_ibm_task_group
     max_hosts: -1
-    <<: *setup_group_ibm
-    <<: *setup_and_teardown_task_cloudqa
+    <<: [*setup_group_ibm, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_replica_set
-    <<: *teardown_group
 
   - name: e2e_ops_manager_kind_5_0_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_remotemode
       - e2e_om_ops_manager_backup_restore
       - e2e_om_ops_manager_queryable_backup
       - e2e_om_ops_manager_backup
-    <<: *teardown_group
 
   # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
   - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_remotemode
       - e2e_om_ops_manager_backup_restore
       - e2e_om_ops_manager_backup
-    <<: *teardown_group
 
   # Tests features only supported on OM60
   - name: e2e_ops_manager_kind_6_0_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_prometheus
-    <<: *teardown_group
 
   # Tests features only supported on OM80
   - name: e2e_ops_manager_kind_8_0_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_backup_object_lock
-    <<: *teardown_group
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
   - name: e2e_ops_manager_upgrade_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_upgrade
-    <<: *teardown_group
 
   # Tests features only supported on OM60
   - name: e2e_static_ops_manager_kind_6_0_only_task_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_prometheus
-    <<: *teardown_group
 
   - name: e2e_kind_olm_group
     max_hosts: -1
-    <<: *setup_group
-    <<: *setup_and_teardown_task
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     setup_task_can_fail_task: true
     setup_task:
       # Even if the two first tasks are already part of setup_and_teardown_task,
@@ -1419,7 +1409,6 @@ task_groups:
       - e2e_olm_operator_upgrade
       - e2e_olm_operator_upgrade_with_resources
       - e2e_olm_meko_operator_upgrade_with_resources
-    <<: *teardown_group
 
 buildvariants:
   ## OCP version drift check — opens a PR if the cluster version has changed
@@ -1427,7 +1416,7 @@ buildvariants:
 
   - name: check_ocp_version_drift
     display_name: check_ocp_version_drift
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -1437,7 +1426,7 @@ buildvariants:
 
   - name: unit_tests
     display_name: "unit_tests"
-    tags: [ "pr_patch", "staging", "unit_tests" ]
+    tags: [ "pr_patch_static", "staging", "unit_tests" ]
     run_on:
       - ubuntu2204-small #TODO: Uses older ubuntu2204, because for some reason on ubuntu2404 the helm binary is not found
     tasks:
@@ -1455,44 +1444,44 @@ buildvariants:
   # MongoDBCommunity build variant
   - name: e2e_mdb_community
     display_name: e2e_mdb_community
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *community_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *community_dependency
     tasks:
       - name: e2e_mdb_community_task_group
 
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
     display_name: e2e_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
     run_on:
       - ubuntu2404-medium
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_custom_domain_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
     run_on:
       - ubuntu2404-medium
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1512,17 +1501,17 @@ buildvariants:
 
   - name: e2e_mdb_kind_ubi_cloudqa_large
     display_name: e2e_mdb_kind_ubi_cloudqa_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1625,10 +1614,10 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2204-medium-high-memory
-    <<: *base_om8_dependency
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
       # TODO (CLOUDP-346008): Replace this task group with e2e_ops_manager_kind_5_0_only_task_group once the issue with queryable backup task is resolved in OM8
@@ -1639,7 +1628,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1650,17 +1639,17 @@ buildvariants:
 
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_om8_dependency
     tasks:
       - name: e2e_om80_kind_search_task_group
       - name: e2e_om80_kind_search_large_task_group
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1799,16 +1788,16 @@ buildvariants:
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1817,16 +1806,16 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1835,16 +1824,16 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_om_appdb_task_group
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1853,10 +1842,10 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
 
@@ -1864,16 +1853,16 @@ buildvariants:
 
   - name: e2e_operator_kind_ubi_cloudqa
     display_name: e2e_operator_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_operator_task_group
 
   - name: e2e_static_operator_kind_ubi_cloudqa
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1882,16 +1871,17 @@ buildvariants:
 
   - name: e2e_operator_no_webhook_roles_cloudqa
     display_name: e2e_operator_no_webhook_roles_cloudqa
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
     run_on:
       - ubuntu2404-large
-    <<: *base_no_om_image_dependency
     tasks:
       - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
 
   - name: e2e_kind_olm_ubi
     display_name: e2e_kind_olm_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: *production_code_paths
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1912,7 +1902,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "pr_patch", "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1932,8 +1922,8 @@ buildvariants:
     # This variants runs the tests from MCO with the MEKO operator binary
   - name: e2e_mco_tests
     display_name: "e2e_mco_tests"
-    tags: [ "pr_patch", "staging", "e2e_mco_test_suite" ]
-    <<: *community_dependency
+    tags: [ "pr_patch_e2e", "staging", "e2e_mco_test_suite" ]
+    <<: [*production_code_paths, *community_dependency]
     run_on:
       - ubuntu2404-large
 
@@ -1944,7 +1934,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_10_thread
@@ -1954,7 +1944,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_one_thread
@@ -1964,7 +1954,7 @@ buildvariants:
     tags: [ "manual_patch", "e2e_perf_test_suite" ]
     allowed_requesters: [ "patch" ]
     run_on:
-      - ubuntu1804-xlarge
+      - ubuntu2404-xlarge
     <<: *base_om7_dependency
     tasks:
       - name: generate_perf_tasks_30_thread
@@ -1974,7 +1964,7 @@ buildvariants:
   - name: init_test_run
     display_name: init_test_run
     max_hosts: -1
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2036,7 +2026,7 @@ buildvariants:
     priority: 70
     display_name: run_pre_commit
     allowed_requesters: [ "patch", "github_pr" ]
-    tags: [ "pr_patch", "auto_bump" ]
+    tags: [ "pr_patch_static", "auto_bump" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2055,7 +2045,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2111,7 +2101,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
-    tags: [ "pr_patch", "staging" ]
+    tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2151,47 +2141,6 @@ buildvariants:
 
   ### Build variants for manual patch only
 
-  - name: backup_csv_images
-    display_name: "Backup CSV Images"
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch" ]
-    run_on:
-      - ubuntu2404-small
-    tasks:
-      - name: backup_csv_images_dry_run
-      - name: backup_csv_images_limit_3
-      - name: backup_csv_images_all
-
-  - name: publish_om70_images
-    display_name: publish_om70_images
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch", "github_pr" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: e2e_om70_kind_ubi
-        name: '*'
-      - variant: e2e_static_om70_kind_ubi
-        name: '*'
-    tasks:
-      - name: publish_ops_manager
-      - name: release_agent
-
-  - name: publish_om80_images
-    display_name: publish_om80_images
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch", "github_pr" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: e2e_om80_kind_ubi
-        name: '*'
-      - variant: e2e_static_om80_kind_ubi
-        name: '*'
-    tasks:
-      - name: publish_ops_manager
-      - name: release_agent
-
   - name: migrate_all_agents
     display_name: migrate_all_agents
     tags: [ "manual_patch" ]
@@ -2214,8 +2163,8 @@ buildvariants:
   # Notification task - runs after all staging tasks complete to report build status.
   # Runs after all staging tests (including GKE snippets) succeed on master merge.
   # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
-  - name: mckctl_release_promote
-    display_name: mckctl_release_promote
+  - name: mckci_release_promote
+    display_name: mckci_release_promote
     allowed_requesters: [ "commit" ]
     depends_on:
       - name: "*"
@@ -2224,7 +2173,7 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     tasks:
-      - name: mckctl_release_promote
+      - name: mckci_release_promote
 
   # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
   # depends_on with patch_optional:true generates phantom dependencies for tasks that

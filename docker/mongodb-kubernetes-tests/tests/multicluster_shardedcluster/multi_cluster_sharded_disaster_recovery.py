@@ -45,7 +45,7 @@ def is_cloud_qa() -> bool:
 
 @mark.e2e_multi_cluster_sharded_disaster_recovery
 def test_install_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @fixture(scope="function")
@@ -164,14 +164,14 @@ class TestDeployShardedClusterWithFailedCluster:
 
         # sleeping to ensure the operator will suicide after config map is changed
         # TODO: as part of https://jira.mongodb.org/browse/CLOUDP-288588, and when we re-activate this test, ensure
-        #  this sleep is really nededed or if the subsquent call to multi_cluster_operator.assert_is_running() is enough
+        #  this sleep is really nededed or if the subsquent call to multi_cluster_operator.wait_for_operator_ready() is enough
         time.sleep(30)
 
     @skip_if_local
     # Modifying the configmap triggers an (intentional) panic, the pod should restart.
     # Operator process restart has to be done manually when running locally.
     def test_operator_has_restarted(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_delete_all_statefulsets_in_failed_cluster(
         self, sc: MongoDB, central_cluster_client: kubernetes.client.ApiClient

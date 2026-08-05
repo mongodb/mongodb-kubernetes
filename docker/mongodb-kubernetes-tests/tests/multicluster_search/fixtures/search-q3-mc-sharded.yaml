@@ -1,0 +1,19 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: mdb-mc-sh-ext-lb
+spec:
+  shardCount: 3
+  type: ShardedCluster
+  topology: MultiCluster
+  version: 8.3.4-ent
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  logLevel: WARN
+  persistent: true
+  mongos: {}
+  shard: {}
+  configSrv: {}

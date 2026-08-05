@@ -21,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
@@ -241,7 +242,8 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
 	opts.Annotations = opsManager.Annotations
-	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferenceForMemberCluster(), log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 
@@ -258,6 +260,9 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	opts.LoggingConfiguration = opsManager.Spec.Logging
 
 	omSts := statefulset.New(opsManagerStatefulSetFunc(opts))
+	if opsManager.Spec.IsMultiCluster() {
+		omSts.Annotations = merge.StringToStringMap(omSts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
+	}
 	var err error
 	if opts.StatefulSetSpecOverride != nil {
 		omSts.Spec = merge.StatefulSetSpecs(omSts.Spec, *opts.StatefulSetSpecOverride)
@@ -275,7 +280,7 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          kube.BaseOwnerReference(opsManager),
+		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
 		OwnerName:               opsManager.Name,
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
 		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),

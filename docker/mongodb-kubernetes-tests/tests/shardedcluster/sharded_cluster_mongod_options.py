@@ -15,7 +15,7 @@ from tests.constants import OPERATOR_NAME
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("sharded-cluster-mongod-options.yaml"),
@@ -41,7 +41,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_mongod_options_and_log_rotation

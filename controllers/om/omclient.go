@@ -613,7 +613,7 @@ func (oc *HTTPOmConnection) ReadOrganizations(page int) (Paginated, error) {
 }
 
 func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/orgs/%s", orgID))
+	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/orgs/%s", url.PathEscape(orgID)))
 	if err != nil {
 		return nil, err
 	}
@@ -640,7 +640,7 @@ func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingData
 }
 
 func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?name=%s", orgID, url.QueryEscape(name))
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?name=%s", url.PathEscape(orgID), url.QueryEscape(name))
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err
@@ -656,7 +656,7 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name 
 
 // ReadProjectsInOrganization returns all projects inside organization
 func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
-	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?itemsPerPage=500&pageNum=%d", orgID, page)
+	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?itemsPerPage=500&pageNum=%d", url.PathEscape(orgID), page)
 	res, err := oc.get(mPath)
 	if err != nil {
 		return nil, err

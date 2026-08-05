@@ -61,6 +61,7 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := mdb.GetPrometheus()
@@ -243,6 +244,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	}
 	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
 	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	externalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
 		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
@@ -360,6 +362,7 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, ptr.To(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := opsManager.Spec.AppDB.Prometheus
@@ -399,6 +402,7 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
 	internalService.Spec.PublishNotReadyAddresses = false
 
 	return set, service.CreateOrUpdateService(ctx, client, internalService)
@@ -416,6 +420,7 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
 	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, getInternalServiceDefinition(opsManager))
+	internalService.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
 	internalService.Spec.PublishNotReadyAddresses = false
 
 	// add queryable backup port to service
@@ -432,6 +437,7 @@ func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.Memb
 	namespacedName = kube.ObjectKey(opsManager.Namespace, opsManager.ExternalSvcName())
 	if externalConnectivity := opsManager.GetExternalConnectivityConfigurationForMemberCluster(memberCluster.Name); externalConnectivity != nil {
 		svc := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, port, *externalConnectivity)
+		svc.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
 		svc.Spec.PublishNotReadyAddresses = false
 
 		// Need to create queryable backup service
@@ -514,7 +520,6 @@ func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, app
 	svcBuilder := service.Builder().
 		SetNamespace(namespacedName.Namespace).
 		SetName(namespacedName.Name).
-		SetOwnerReferences(kube.BaseOwnerReference(owner)).
 		SetLabels(svcLabels).
 		SetSelector(selectorLabels).
 		SetServiceType(mongoServiceDefinition.Type).

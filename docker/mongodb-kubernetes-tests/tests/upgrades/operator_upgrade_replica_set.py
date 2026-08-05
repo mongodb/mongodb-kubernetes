@@ -83,7 +83,7 @@ def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
 
 @mark.e2e_operator_upgrade_replica_set
 def test_install_latest_official_operator(official_operator: Operator):
-    official_operator.assert_is_running()
+    official_operator.wait_for_operator_ready()
 
 
 @mark.e2e_operator_upgrade_replica_set
@@ -103,7 +103,7 @@ def test_upgrade_operator(namespace: str, operator_installation_config: dict[str
     operator = get_default_operator(
         namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
     )
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_operator_upgrade_replica_set

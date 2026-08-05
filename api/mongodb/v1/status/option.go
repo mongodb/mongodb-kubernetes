@@ -53,6 +53,19 @@ func (o BaseUrlOption) Value() interface{} {
 	return o.BaseUrl
 }
 
+// ProjectIdOption describes the Ops Manager project (group) ID.
+type ProjectIdOption struct {
+	ProjectId string
+}
+
+func NewProjectIdOption(projectId string) ProjectIdOption {
+	return ProjectIdOption{ProjectId: projectId}
+}
+
+func (o ProjectIdOption) Value() any {
+	return o.ProjectId
+}
+
 // OMPartOption describes the part of Ops Manager resource status to be updated
 type OMPartOption struct {
 	StatusPart Part

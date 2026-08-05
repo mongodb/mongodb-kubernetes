@@ -79,7 +79,7 @@ class TestOpsManagerCreation:
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 4)
+        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 3)
 
         assert appdb_sts.spec.template.spec.service_account_name == APPDB_SA_NAME
 
@@ -367,7 +367,7 @@ class TestOpsManagerUpdate:
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 4)
+        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 3)
 
         # Find each container by name instead of position
         containers_by_name = {c.name: c for c in appdb_sts.spec.template.spec.containers}
@@ -375,7 +375,9 @@ class TestOpsManagerUpdate:
         # Check that all required containers exist
         assert "mongod" in containers_by_name, "mongod container not found"
         assert "mongodb-agent" in containers_by_name, "mongodb-agent container not found"
-        assert "mongodb-agent-monitoring" in containers_by_name, "mongodb-agent-monitoring container not found"
+        assert (
+            "mongodb-agent-monitoring" not in containers_by_name
+        ), "mongodb-agent-monitoring container should not be present"
 
         assert appdb_sts.spec.template.metadata.annotations == {"annotation1": "val"}
 

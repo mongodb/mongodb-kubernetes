@@ -43,6 +43,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -67,6 +68,7 @@ const (
 	mongoDBMultiClusterCRDPlural = "mongodbmulticluster"
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
+	voyageAICRDPlural            = "voyageais"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
@@ -89,6 +91,7 @@ func init() {
 	utilruntime.Must(apiv1.AddToScheme(scheme))
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(vaiv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -124,6 +127,7 @@ func run() error {
 			mongoDBOpsManagerCRDPlural,
 			mongoDBCommunityCRDPlural,
 			mongoDBSearchCRDPlural,
+			voyageAICRDPlural,
 			clusterMongoDBRoleCRDPlural,
 		}
 	}
@@ -240,6 +244,9 @@ func run() error {
 			var cluster runtime_cluster.Cluster
 
 			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
+				// Use the operator scheme so cross-cluster owner references
+				// can resolve our CRD types (default scheme lacks them).
+				options.Scheme = scheme
 				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
 					defaultNamespaces := make(map[string]cache.Config)
 					for _, namespace := range namespacesToWatch {
@@ -287,7 +294,16 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBSearchCRDPlural) {
-		if err := setupMongoDBSearchCRD(ctx, mgr); err != nil {
+		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
+		if operatorClusterName != "" {
+			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
+		}
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClusterObjectsMap, operatorClusterName); err != nil {
+			return err
+		}
+	}
+	if slices.Contains(crds, voyageAICRDPlural) {
+		if err := setupVoyageAICRD(ctx, mgr); err != nil {
 			return err
 		}
 	}
@@ -407,19 +423,35 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 		Complete()
 }
 
-func setupMongoDBSearchCRD(ctx context.Context, mgr manager.Manager) error {
+func setupVoyageAICRD(ctx context.Context, mgr manager.Manager) error {
+	imageRepository := env.ReadOrDefault(util.VoyageAIRepoURLEnv, "quay.io/mongodb/voyageai")
+	return operator.AddVoyageAIController(ctx, mgr, imageRepository)
+}
+
+func setupMongoDBSearchCRD(
+	ctx context.Context,
+	mgr manager.Manager,
+	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	operatorClusterName string,
+) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
-	}); err != nil {
+	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+		return err
+	}
+
+	// Metrics forwarder controller — image is again enforced in controller
+	metricsForwarderImage := env.ReadOrDefault(util.MetricsForwarderImageEnv, "")
+	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 

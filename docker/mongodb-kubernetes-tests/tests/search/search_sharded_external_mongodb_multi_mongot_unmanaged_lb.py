@@ -17,6 +17,7 @@ Key difference from search_sharded_enterprise_external_lb.py:
 - The other test uses spec.source.mongodb.name (operator-managed MongoDB source)
 """
 
+from kubernetes import client
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
@@ -102,12 +103,28 @@ def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelpe
     )
 
 
+# Shard that carries a per-shard sizing override (spec.clusters[].shardOverrides[]).
+# The override only changes mongot resource requests, so it has no effect on LB
+# routing or search connectivity — the other shard keeps the operator default.
+OVERRIDDEN_SHARD_NAME = f"{MDB_RESOURCE_NAME}-1"
+OVERRIDE_CPU_REQUEST = "300m"
+OVERRIDE_MEMORY_REQUEST = "500Mi"
+
+
 @fixture(scope="function")
 def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
     return helper.mdbs_for_ext_sharded_source(
         mongot_user_name=MONGOT_USER_NAME,
         lb_mode="Unmanaged",
         lb_endpoint=f"{MDBS_RESOURCE_NAME}-search-0-{{shardName}}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}",
+        shard_overrides=[
+            {
+                "shardNames": [OVERRIDDEN_SHARD_NAME],
+                "resourceRequirements": {
+                    "requests": {"cpu": OVERRIDE_CPU_REQUEST, "memory": OVERRIDE_MEMORY_REQUEST},
+                },
+            }
+        ],
     )
 
 
@@ -123,14 +140,14 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     """Test that the operator is installed and running."""
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
@@ -204,6 +221,27 @@ def test_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with external sharded source config."""
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
+def test_verify_shard_override_applied(namespace: str, mdbs: MongoDBSearch):
+    """The overridden shard's mongot StatefulSet carries the override resource
+    requests; the other shard keeps the operator default (2 CPU)."""
+    apps_v1 = client.AppsV1Api()
+
+    overridden_sts = apps_v1.read_namespaced_stateful_set(
+        search_resource_names.shard_statefulset_name(mdbs.name, OVERRIDDEN_SHARD_NAME), namespace
+    )
+    requests = overridden_sts.spec.template.spec.containers[0].resources.requests
+    assert requests["cpu"] == OVERRIDE_CPU_REQUEST
+    assert requests["memory"] == OVERRIDE_MEMORY_REQUEST
+
+    default_shard_name = f"{MDB_RESOURCE_NAME}-0"
+    default_sts = apps_v1.read_namespaced_stateful_set(
+        search_resource_names.shard_statefulset_name(mdbs.name, default_shard_name), namespace
+    )
+    default_requests = default_sts.spec.template.spec.containers[0].resources.requests
+    assert default_requests["cpu"] != OVERRIDE_CPU_REQUEST, "non-overridden shard must keep the cluster default sizing"
 
 
 @mark.e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb

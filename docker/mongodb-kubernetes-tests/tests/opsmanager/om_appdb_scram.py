@@ -187,7 +187,7 @@ class TestChangeOpsManagerExistingUserPassword:
 
     def test_config_map_reached_v3(self, ops_manager: MongoDBOpsManager):
         KubernetesTester.wait_until(
-            lambda: ops_manager.get_automation_config_tester().reached_version(3),
+            lambda: ops_manager.get_automation_config_tester().reached_version(4),
             timeout=180,
         )
 
@@ -232,9 +232,8 @@ class TestOpsManagerGeneratesNewPasswordIfNoneSpecified:
     def test_new_password_was_created(self, ops_manager: MongoDBOpsManager):
         assert ops_manager.read_appdb_generated_password() != ""
 
-    def test_wait_for_config_map_reached_v4(self, ops_manager: MongoDBOpsManager):
-        # should reach version 4 as password should change back
-        assert ops_manager.get_automation_config_tester().reached_version(4)
+    def test_wait_for_config_map_reached_v5(self, ops_manager: MongoDBOpsManager):
+        assert ops_manager.get_automation_config_tester().reached_version(5)
 
     def test_cannot_authenticate_with_old_password(self, ops_manager: MongoDBOpsManager):
         app_db_tester = ops_manager.get_appdb_tester()

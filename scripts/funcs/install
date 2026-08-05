@@ -37,6 +37,26 @@ detect_architecture() {
       esac
 }
 
+kubectl_apply_retry() {
+    local max_attempts=5
+    local base_delay=10
+    local attempt=1
+    while true; do
+        if kubectl apply "$@"; then
+            return 0
+        fi
+        if [[ ${attempt} -ge ${max_attempts} ]]; then
+            echo "kubectl apply failed after ${max_attempts} attempts" >&2
+            return 1
+        fi
+        local jitter=$((RANDOM % (base_delay + 1)))
+        local delay=$((base_delay + jitter))
+        echo "kubectl apply attempt ${attempt}/${max_attempts} failed, retrying in ${delay}s..." >&2
+        sleep "${delay}"
+        attempt=$((attempt + 1))
+    done
+}
+
 # Curl wrapper with jitter and consistent retry params for CI downloads.
 # Adds 0-30s random jitter to prevent thundering herd when CI retries trigger simultaneously.
 # Time range: 0-630s (0-30s jitter + up to 600s curl timeout).

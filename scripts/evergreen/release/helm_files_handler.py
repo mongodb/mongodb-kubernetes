@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import ruamel.yaml
@@ -66,3 +67,45 @@ def get_value_in_yaml_file(yaml_file_path: str, key: str):
         doc = yaml.load(fd)
 
     return get_value_in_doc(doc, key)
+
+
+def update_community_agent_image_in_file(yaml_file_path: str, new_version: str):
+    """Updates MDB_COMMUNITY_AGENT_IMAGE and AGENT_IMAGE env vars in Kubernetes Deployment manifests."""
+    yaml = ruamel.yaml.YAML()
+    yaml.explicit_start = True
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+
+    with open(yaml_file_path, "r") as fd:
+        docs = list(yaml.load_all(fd))
+
+    updated = False
+    for doc in docs:
+        if doc is None or doc.get("kind") != "Deployment":
+            continue
+        containers = doc.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+        for container in containers:
+            for env in container.get("env", []):
+                if env.get("name") in ("MDB_COMMUNITY_AGENT_IMAGE", "AGENT_IMAGE"):
+                    registry = env["value"].rsplit(":", 1)[0]
+                    new_value = f"{registry}:{new_version}"
+                    if env["value"] != new_value:
+                        env["value"] = new_value
+                        updated = True
+
+    if updated:
+        with open(yaml_file_path, "w") as fd:
+            yaml.dump_all(docs, fd)
+        print(f"Updated community agent image to {new_version} in {yaml_file_path}")
+
+
+def update_community_agent_image_in_go_file(go_file_path: str, new_version: str):
+    """Updates the hardcoded mongodb-agent default version in a Go source file."""
+    pattern = re.compile(r"(quay\.io/mongodb/mongodb-agent:)\d+\.\d+\.\d+\.\d+-\d+")
+    with open(go_file_path, "r") as fd:
+        content = fd.read()
+    new_content, count = pattern.subn(rf"\g<1>{new_version}", content)
+    if count:
+        with open(go_file_path, "w") as fd:
+            fd.write(new_content)
+        print(f"Updated community agent image to {new_version} in {go_file_path}")
