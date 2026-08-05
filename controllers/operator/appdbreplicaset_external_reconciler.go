@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -140,14 +141,56 @@ func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(
 	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
 }
 
+// resolveAppDBTLSConfig returns the CA ConfigMap name and TLS-enabled flag that OpsManager and the
+// Backup Daemon should use to trust the AppDB's TLS certificate. For the internally-managed AppDB it
+// reads opsManager.Spec.AppDB; for an external AppDB it reads the referenced MongoDB CR's security config.
+func resolveAppDBTLSConfig(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager) (caConfigMapName string, tlsEnabled bool, err error) {
+	if opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+		if opsManager.Spec.AppDB == nil {
+			return "", false, nil
+		}
+		return opsManager.Spec.AppDB.GetCAConfigMapName(), opsManager.Spec.AppDB.IsSecurityTLSConfigEnabled(), nil
+	}
+
+	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	if ref.Kind != "MongoDB" {
+		return "", false, xerrors.Errorf("externalApplicationDatabaseRef.kind %q is not supported", ref.Kind)
+	}
+	mongodb := &mdbv1.MongoDB{}
+	objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
+	if err := c.Get(ctx, objectKey, mongodb); err != nil {
+		return "", false, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
+	}
+
+	refObject := &externalAppDBRefObject{ConnectionStringBuilder: mongodb, DbCommonSpec: mongodb.Spec.DbCommonSpec}
+	return refObject.GetCAConfigMapName(), refObject.IsTLSEnabled(), nil
+}
+
 type externalAppDBRefObject struct {
 	connectionstring.ConnectionStringBuilder
 	mdbv1.DbCommonSpec
 }
 
+// GetCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
+// should trust when connecting to the external AppDB over TLS ("" if TLS is off).
+func (o *externalAppDBRefObject) GetCAConfigMapName() string {
+	security := o.GetSecurity()
+	if security.TLSConfig != nil {
+		return security.TLSConfig.CA
+	}
+	return ""
+}
+
+// IsTLSEnabled reports whether the referenced CR has TLS enabled.
+func (o *externalAppDBRefObject) IsTLSEnabled() bool {
+	return o.IsSecurityTLSConfigEnabled()
+}
+
 type ExternalAppDB interface {
 	connectionstring.ConnectionStringBuilder
 	GetRole() string
+	GetCAConfigMapName() string
+	IsTLSEnabled() bool
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalApplicationDatabaseRef) (ExternalAppDB, error) {
