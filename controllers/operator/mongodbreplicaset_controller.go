@@ -794,11 +794,14 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 
 	// Forward Migration, reclaim the AppDB Statefulset
 	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
-		if len(sts.OwnerReferences) == 0 || ownedByThisMongoDB {
+		if len(sts.OwnerReferences) == 0 {
 			if err := r.reclaimAppDBStatefulsetOwnership(ctx, mdb, sts); err != nil {
 				return workflow.Failed(err)
 			}
+			return workflow.OK()
+		}
 
+		if ownedByThisMongoDB {
 			return workflow.OK()
 		}
 
@@ -824,8 +827,8 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 
 func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = kube.BaseOwnerReference(mdb)
+	// stale reverse annotation cleanup
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
-	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
 	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
 	}

@@ -1034,6 +1034,11 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return false
 	}
 
+	if currentSts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		log.Debugf("Statefulset %s has the forward migration ready annotation set to true.", currentSts.Name)
+		return false
+	}
+
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
 	if databaseContainer == nil {
 		return false

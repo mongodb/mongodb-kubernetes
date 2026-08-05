@@ -686,7 +686,7 @@ func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Cont
 // reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears migration annotations
 func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = kube.BaseOwnerReference(opsManager)
-	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	// stale forward migration annotation cleanup
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
 	if err := r.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
@@ -870,16 +870,16 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
-	allStatefulSetsExist, err := r.allStatefulSetsExist(ctx, opsManager, log)
+	allStatefulSetsExistAndValid, err := r.allStatefulSetsExistsInValidState(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)
 	}
 
-	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExist, log)
+	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExistAndValid, log)
 
 	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExist, appdbOpts)
+			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExistAndValid, appdbOpts)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
@@ -2373,27 +2373,7 @@ func (r *ReconcileAppDbReplicaSet) getCurrentStatefulsetHostnames(opsManager *om
 	})
 }
 
-// isReAdoptedStatefulSetPendingReshape returns true when a StatefulSet taken back from a
-// MongoDB CR (reverse migration re-adoption) still carries the CR's pod shape and awaits the
-// rewrite to the internal-AppDB pod template. Internal AppDB pods always run a dedicated
-// "mongod" container (static and non-static architecture, vault or secret config backend);
-// MongoDB CR pods never do.
-func isReAdoptedStatefulSetPendingReshape(sts appsv1.StatefulSet) bool {
-	for _, c := range sts.Spec.Template.Spec.Containers {
-		if c.Name == util.MongodbContainerName {
-			return false
-		}
-	}
-	return true
-}
-
-// allStatefulSetsExist reports whether every member cluster's AppDB StatefulSet exists in its
-// internal-AppDB form. A StatefulSet re-adopted from a MongoDB CR that hasn't been reshaped yet
-// counts as not existing: its pods run no headless agent, so waiting for agent goal state before
-// deployStatefulSet rewrites the pod template would deadlock (the wait is skipped while this
-// returns false).
-func (r *ReconcileAppDbReplicaSet) allStatefulSetsExist(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
-	allStsExist := true
+func (r *ReconcileAppDbReplicaSet) allStatefulSetsExistsInValidState(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
 	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 		stsName := opsManager.Spec.AppDB.NameForCluster(r.helper.getMemberClusterIndex(memberCluster.Name))
 		sts, err := memberCluster.Client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
@@ -2401,17 +2381,19 @@ func (r *ReconcileAppDbReplicaSet) allStatefulSetsExist(ctx context.Context, ops
 			if apiErrors.IsNotFound(err) {
 				// we do not return immediately here to check all clusters and also leave the information on other sts in the debug logs
 				log.Debugf("Statefulset %s/%s does not exist.", memberCluster.Name, stsName)
-				allStsExist = false
-			} else {
-				return false, err
+				return false, nil
 			}
-		} else if isReAdoptedStatefulSetPendingReshape(sts) {
-			log.Debugf("Statefulset %s/%s was re-adopted from a MongoDB CR and still awaits the rewrite to the internal-AppDB pod template.", memberCluster.Name, stsName)
-			allStsExist = false
+
+			return false, err
+		}
+
+		if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+			log.Debugf("Statefulset %s/%s has the reverse migration ready annotation set to true.", memberCluster.Name, stsName)
+			return false, nil
 		}
 	}
 
-	return allStsExist, nil
+	return true, nil
 }
 
 // migrateToNewDeploymentState reads old config maps with the deployment state and writes them to the new deploymentState structure.
