@@ -593,24 +593,14 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 }
 
 func TestMongoDBUser_ValidateUser(t *testing.T) {
-	t.Run("legacy db field alone is valid", func(t *testing.T) {
-		u := MongoDBUser{Name: "u", DB: "admin"}
-		assert.NoError(t, u.ValidateUser())
-	})
-
 	t.Run("authSource and defaultDatabase together are valid", func(t *testing.T) {
 		u := MongoDBUser{Name: "u", AuthSource: "admin", DefaultDatabase: "myapp"}
 		assert.NoError(t, u.ValidateUser())
 	})
 
-	t.Run("empty is valid (controller defaults db to admin)", func(t *testing.T) {
+	t.Run("empty is valid (kubebuilder default / ApplyDefaults sets db to admin)", func(t *testing.T) {
 		u := MongoDBUser{Name: "u"}
 		assert.NoError(t, u.ValidateUser())
-	})
-
-	t.Run("db combined with authSource is invalid", func(t *testing.T) {
-		u := MongoDBUser{Name: "u", DB: "admin", AuthSource: "admin"}
-		assert.Error(t, u.ValidateUser())
 	})
 
 	t.Run("authSource without defaultDatabase is invalid", func(t *testing.T) {
@@ -624,17 +614,19 @@ func TestMongoDBUser_ValidateUser(t *testing.T) {
 	})
 }
 
-func TestMongoDBUser_EffectiveHelpers(t *testing.T) {
-	t.Run("legacy db used for both auth and path", func(t *testing.T) {
-		u := MongoDBUser{DB: "admin"}
-		assert.Equal(t, "admin", u.EffectiveAuthDatabase())
-		assert.Equal(t, "admin", u.EffectivePathDatabase())
+func TestMongoDBUser_ApplyDefaults(t *testing.T) {
+	t.Run("empty user defaults both fields to admin", func(t *testing.T) {
+		u := MongoDBUser{Name: "u"}
+		u.ApplyDefaults()
+		assert.Equal(t, "admin", u.AuthSource)
+		assert.Equal(t, "admin", u.DefaultDatabase)
 	})
 
-	t.Run("new fields: authSource for auth, defaultDatabase for path", func(t *testing.T) {
-		u := MongoDBUser{AuthSource: "admin", DefaultDatabase: "myapp"}
-		assert.Equal(t, "admin", u.EffectiveAuthDatabase())
-		assert.Equal(t, "myapp", u.EffectivePathDatabase())
+	t.Run("already-set fields are left untouched", func(t *testing.T) {
+		u := MongoDBUser{Name: "u", AuthSource: "admin", DefaultDatabase: "myapp"}
+		u.ApplyDefaults()
+		assert.Equal(t, "admin", u.AuthSource)
+		assert.Equal(t, "myapp", u.DefaultDatabase)
 	})
 }
 
