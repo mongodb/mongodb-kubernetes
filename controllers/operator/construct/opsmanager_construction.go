@@ -93,6 +93,15 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 	}
 }
 
+// WithAppDBTLSCAConfigMapName injects the effective AppDB CA ConfigMap name (resolved by the
+// controller from either the internal AppDB spec or an external AppDB's referenced CR) so the
+// OpsManager and Backup Daemon pods mount the correct CA to trust the AppDB's TLS certificate.
+func WithAppDBTLSCAConfigMapName(name string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBTlsCAConfigMapName = name
+	}
+}
+
 func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.VaultConfig = config
