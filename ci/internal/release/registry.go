@@ -50,6 +50,16 @@ type cRegistry struct {
 	insecure bool
 }
 
+// signatureTagFor returns the cosign "simple signing" sibling tag name for an
+// image digest: the digest with ":" replaced by "-", plus a ".sig" suffix.
+// This is cosign's default tag-based signature storage scheme, used when
+// COSIGN_REPOSITORY points at the image's own repository (see
+// scripts/release/build/image_signing.py) rather than the OCI 1.1 referrers
+// API.
+func signatureTagFor(digest v1.Hash) string {
+	return strings.ReplaceAll(digest.String(), ":", "-") + ".sig"
+}
+
 func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) error {
 	src, err := name.ParseReference(srcRef, t.nameOpts()...)
 	if err != nil {
@@ -88,6 +98,44 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 				return fmt.Errorf("write image %s: %w", tag, err)
 			}
 		}
+	}
+	if err := t.copySignature(src, desc.Digest, dstRepo); err != nil {
+		return fmt.Errorf("copy signature for %s: %w", srcRef, err)
+	}
+	return nil
+}
+
+// copySignature copies the cosign signature sibling tag (if the source image
+// was signed) from src's repository to dstRepo, under the same
+// digest-derived tag name (see signatureTagFor). The signature tag encodes
+// the image's digest, so one copy covers every tag CopyWithTags applied to
+// that same digest (e.g. both :{version} and :latest). If the source has no
+// signature tag (the image wasn't signed — signing is optional per image,
+// see build_info.json's per-image "sign" field), this is a silent no-op.
+func (t *cRegistry) copySignature(src name.Reference, digest v1.Hash, dstRepo string) error {
+	sigTag := signatureTagFor(digest)
+
+	srcSigRef := src.Context().Tag(sigTag)
+	sigDesc, err := remote.Get(srcSigRef, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		var terr *transport.Error
+		if errors.As(err, &terr) && terr.StatusCode == http.StatusNotFound {
+			return nil
+		}
+		return fmt.Errorf("get signature %s: %w", srcSigRef, err)
+	}
+
+	sigImg, err := sigDesc.Image()
+	if err != nil {
+		return fmt.Errorf("read signature image %s: %w", srcSigRef, err)
+	}
+
+	dstSigRef, err := name.NewTag(fmt.Sprintf("%s/%s:%s", t.host, dstRepo, sigTag), t.nameOpts()...)
+	if err != nil {
+		return fmt.Errorf("parse signature target tag %s: %w", sigTag, err)
+	}
+	if err := remote.Write(dstSigRef, sigImg, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
+		return fmt.Errorf("write signature %s: %w", sigTag, err)
 	}
 	return nil
 }
