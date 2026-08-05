@@ -178,6 +178,27 @@ The `ra-01` recipe targets GKE, but nothing in this scenario is GKE-specific: an
 
 ## Getting Started
 
+### Getting the Files
+
+This guide lives in the public [mongodb-kubernetes](https://github.com/mongodb/mongodb-kubernetes) repository, and its snippets compose with files elsewhere in the repo (the `public/architectures` reference suites and the snippet runner). A sparse checkout fetches exactly what you need.
+
+To make the runbook match the operator version you're deploying (recommended -- `master` moves with operator development), add `--branch <tag>` to the clone below, using that version's release tag from the [releases page](https://github.com/mongodb/mongodb-kubernetes/releases), e.g. `--branch 1.10.0`.
+
+```bash
+git clone --filter=blob:none --sparse --depth 1 \
+  https://github.com/mongodb/mongodb-kubernetes.git
+cd mongodb-kubernetes
+git sparse-checkout set \
+  docs/search/12-search-percluster-operator-rs \
+  docs/search/13-search-percluster-operator-sharded \
+  public/architectures \
+  scripts/code_snippets
+```
+
+Everything below assumes you're inside that checkout.
+
+### Environment
+
 ```bash
 cd docs/search/12-search-percluster-operator-rs
 

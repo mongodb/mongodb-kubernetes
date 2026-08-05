@@ -119,6 +119,8 @@ For example, `mdbs-sh-search-2-mdb-sh-1-proxy-svc` decodes as: MongoDBSearch `md
 
 ## Getting Started
 
+To fetch the files, use the sparse-checkout recipe in [scenario 12's Getting Started](../12-search-percluster-operator-rs/README.md#getting-the-files) — it already includes this directory and everything both scenarios depend on, and explains how to pin the checkout to your operator version's release tag.
+
 ```bash
 cd docs/search/13-search-percluster-operator-sharded
 
