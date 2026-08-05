@@ -102,7 +102,7 @@ type TLSSourceConfig struct {
 // sizing is the resolved per-(cluster, shard) ClusterSpec — see
 // MongoDBSearch.ResolveSizingForClusterShard — read for Replicas / Persistence /
 // ResourceRequirements / JVMFlags / StatefulSetConfiguration.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName, serviceAccountName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -156,7 +156,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
 				podtemplatespec.WithVolumes(volumes),
-				podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
+				podtemplatespec.WithServiceAccount(serviceAccountName),
 				podtemplatespec.WithTerminationGracePeriodSeconds(int(searchv1.MongotTerminationGracePeriodSeconds)),
 				// Default: spread this StatefulSet's mongot pods across hosts (preferred, not
 				// required). A clusters[].statefulSet affinity override replaces this term.

@@ -26,7 +26,6 @@ from tests.conftest import (
     install_multi_cluster_operator_cluster_scoped,
     update_coredns_hosts,
 )
-from tests.multicluster import prepare_multi_cluster_namespaces
 from tests.multicluster.conftest import cluster_spec_list, create_namespace
 from tests.multicluster_appdb.conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
@@ -80,14 +79,6 @@ class MultiClusterOMClusterWideTestHelper:
             self.OM_NAMESPACE,
             image_pull_secret_name,
             image_pull_secret_data,
-        )
-
-        prepare_multi_cluster_namespaces(
-            self.OM_NAMESPACE,
-            get_multi_cluster_operator_installation_config(get_namespace()),
-            get_member_cluster_clients(),
-            get_central_cluster_name(),
-            True,
         )
 
     def create_tls_resources(

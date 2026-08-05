@@ -64,6 +64,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -525,6 +526,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
+			mconstruct.WithServiceAccount(resourcenames.WorkloadDatabasePodsServiceAccount.Name(item.ClusterName, false)),
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),

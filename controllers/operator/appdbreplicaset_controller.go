@@ -56,6 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -2052,6 +2053,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 		updateStrategy := r.GetAppDBUpdateStrategyType(opsManager)
 
+		appdbOpts.ServiceAccountName = resourcenames.WorkloadAppDBServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)
 		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, updateStrategy, r.defaultArchitecture, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))

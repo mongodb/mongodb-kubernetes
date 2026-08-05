@@ -10,8 +10,8 @@ from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests.conftest import generate_and_apply_member_resources, get_multi_cluster_operator_clustermode
 
-from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_namespace
 
 CERT_SECRET_PREFIX = "clustercert"
@@ -184,34 +184,19 @@ def test_create_namespaces(
     )
 
 
-@pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
-def test_deploy_operator(multi_cluster_operator_clustermode: Operator):
-    multi_cluster_operator_clustermode.wait_for_operator_ready()
+@pytest.fixture(scope="module")
+def install_operator(namespace: str, mdba_ns: str, mdbb_ns: str, member_cluster_names: List[str]) -> Operator:
+    # The operator watches all namespaces, so member RBAC is rendered cluster-wide (default).
+    # The MongoDBMulti workloads run in mdba_ns/mdbb_ns (the central cluster doubles as a member):
+    # an extra narrowed render seeds the member-scoped workload SAs/Roles there.
+    operator = get_multi_cluster_operator_clustermode(namespace)
+    generate_and_apply_member_resources(member_cluster_names, namespace, watched_namespaces=mdba_ns + "," + mdbb_ns)
+    return operator
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide
-def test_prepare_namespace(
-    multi_cluster_operator_installation_config: Dict[str, str],
-    member_cluster_clients: List[MultiClusterClient],
-    central_cluster_name: str,
-    mdba_ns: str,
-    mdbb_ns: str,
-):
-    prepare_multi_cluster_namespaces(
-        mdba_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-        skip_central_cluster=False,
-    )
-
-    prepare_multi_cluster_namespaces(
-        mdbb_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-        skip_central_cluster=False,
-    )
+def test_deploy_operator(install_operator: Operator):
+    install_operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_2_clusters_clusterwide

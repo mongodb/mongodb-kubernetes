@@ -24,15 +24,11 @@ import (
 //   - member-cluster-rbac.yaml: the operator's own member RBAC (mck-member-<cluster-name>-* SA,
 //     token, Role/ClusterRole, bindings) — additive and distinctly named so it never collides
 //     with base-installation RBAC.
-//   - database-roles.yaml: RBAC for the MongoDB pods.
+//   - database-roles.yaml: RBAC for the MongoDB pods. In member mode it renders
+//     member-scoped names (mck-member-<cluster-name>-*), so it is additive to the base
+//     installation RBAC just like member-cluster-rbac.yaml.
 var memberTemplates = []string{
 	"member-cluster-rbac.yaml",
-	// TODO(m1kola): slice-1: interim. The workload pod SAs are fixed-name and hard-coded in
-	// the operator's pod construction, so we must emit database-roles.yaml here and it
-	// re-applies over the helm/OLM-managed copies on the operator's own cluster (harmless but
-	// non-additive). The end state is member-scoped workload SAs (operator un-hardcodes the SA
-	// names) so this output touches nothing from the base install; when that lands, replace
-	// this with member-scoped workload RBAC. See docs/dev/multi-cluster-config-tooling.md.
 	"database-roles.yaml",
 }
 
