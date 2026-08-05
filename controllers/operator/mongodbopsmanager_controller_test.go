@@ -456,12 +456,26 @@ func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 	assert.Len(t, password, 12, "auto generated password should have a size of 12")
 }
 
+func TestEnsureAppDbPassword_ErrorWhenPasswordSecretKeyRefNotFound(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
+	kubeManager, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+	appDBReconciler, err := newAppDbReconciler(ctx, kubeManager, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
+
+	assert.Error(t, err)
+	assert.Empty(t, password)
+	assert.Contains(t, err.Error(), "my-secret")
+	assert.Contains(t, err.Error(), "does not exist")
+}
+
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	_, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	s := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.PasswordSecretKeyRef.Name, Namespace: testOm.Namespace},
@@ -476,7 +490,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 
 	require.NoError(t, err)
 
-	appDBReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, log)
+	appDBReconciler, err := newAppDbReconciler(ctx, client, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
 	require.NoError(t, err)
 	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
 
