@@ -57,7 +57,12 @@ def main():
 
     if os.environ.get("SKIP_GITHUB_RELEASE_UPLOAD", "false").lower() == "false":
         github_artifacts = artifacts_tar + [checksum_file]
-        upload_assets_to_github_release(github_artifacts, release_version)
+        # Dry runs draft the GitHub release under a "test-{version}" tag rather
+        # than the real "{version}" one (see .github/workflows/release.yml), so
+        # assets must be attached there instead.
+        is_dryrun = os.environ.get("IS_DRYRUN", "false").lower() == "true"
+        github_release_tag = f"test-{release_version}" if is_dryrun else release_version
+        upload_assets_to_github_release(github_artifacts, github_release_tag)
 
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that

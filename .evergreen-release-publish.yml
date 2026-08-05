@@ -23,7 +23,11 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
             source .generated/context.export.env
-            scripts/mckci release publish images --commit "${revision}" --latest-marker latest
+            registry_override=""
+            if [[ "${IS_DRYRUN}" == "true" ]]; then
+              registry_override="${dryrun_registry_override}"
+            fi
+            scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
 
   # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
   # is not itself a trigger) and deletes "new-X.Y.Z".
