@@ -10,7 +10,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -131,11 +131,10 @@ func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx cont
 func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
 	ref := opsManager.Spec.ExternalApplicationDatabaseRef
 
-	passwordSecret := corev1.Secret{}
-	if err := e.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)), &passwordSecret); err != nil {
+	password, err := secret.ReadKey(ctx, e.SecretClient, util.OpsManagerPasswordKey, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)))
+	if err != nil {
 		return "", xerrors.Errorf("failed to read shared password secret: %w", err)
 	}
-	password := string(passwordSecret.Data[util.OpsManagerPasswordKey])
 
 	objectKey := kube.ObjectKey(opsManager.Namespace, ref.Name)
 	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref, objectKey)
