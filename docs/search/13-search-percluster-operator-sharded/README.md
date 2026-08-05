@@ -111,7 +111,7 @@ For example, `mdbs-sh-search-2-mdb-sh-1-proxy-svc` decodes as: MongoDBSearch `md
 
 ## Prerequisites
 
-- [`ra-01` through `ra-05`](../../../public/architectures/setup-multi-cluster/) — GKE/kind clusters, ra-02's central operator, Istio, connectivity, cert-manager. If you're on local kind clusters instead of GKE, `scripts/dev/recreate_kind_clusters.sh` sets up an equivalent multi-cluster kind environment.
+- [`ra-01` through `ra-05`](../../../public/architectures/setup-multi-cluster/) — the Kubernetes clusters, ra-02's central operator, service mesh, connectivity, cert-manager. The `ra-01` recipe targets GKE, but any clusters that pass `ra-04`'s connectivity check work.
 - [`ra-06-ops-manager-multi-cluster`](../../../public/architectures/ra-06-ops-manager-multi-cluster) — Ops Manager itself (deployed on `K8S_CLUSTER_0`), plus the `mdb-org-owner-credentials` Secret / `mdb-org-project-config` ConfigMap this scenario reuses to talk to the OM API directly (same pattern scenario 12's `12_0400` uses; see `ra-06_0610`). There are no `OPS_MANAGER_API_*` placeholder vars in `env_variables.sh` — everything is derived at runtime.
 - `helm`, `kubectl`, `jq`, `curl` — `jq` is required for the Automation Config step; there is no Python dependency anywhere in this scenario.
 - This scenario does **not** depend on `ra-07`/`ra-08` — it deploys its own sharded source (steps 4-7 below), because the tested topology pins the source to a single cluster rather than spreading it across the same clusters Search runs in.
