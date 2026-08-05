@@ -427,8 +427,6 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	emptyResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 	retryResult := reconcile.Result{RequeueAfter: time.Second}
 
-	r.configureWatchersForDynamicResources(ctx, opsManager, log)
-
 	appDbReconciler, appDBReconcilerErr := r.createAppDBReconcile(ctx, opsManager, log)
 	if appDBReconcilerErr != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
