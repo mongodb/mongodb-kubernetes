@@ -56,6 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/membercluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -275,10 +276,11 @@ func run() error {
 			return err
 		}
 
-		memberClusterClients, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
+		memberClusterClients, memberClusterResourceNames, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
 		if err != nil {
 			return err
 		}
+		resourcenames.SetResourceNames(memberClusterResourceNames)
 
 		// Watch MemberCluster CRs so the operator rebuilds its member-cluster client map when
 		// membership changes, including the first cluster registered after a single-cluster

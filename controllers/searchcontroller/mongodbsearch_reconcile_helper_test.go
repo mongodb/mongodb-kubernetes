@@ -37,6 +37,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -1374,13 +1375,13 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 
 	// Single config mode
 	sts := &appsv1.StatefulSet{}
-	stsFunc := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", false)
+	stsFunc := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", util.MongoDBServiceAccount, labels, "img:v1", false)
 	stsFunc(sts)
 	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], MongotConfigPath)
 
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
-	stsFunc = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", true)
+	stsFunc = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", util.MongoDBServiceAccount, labels, "img:v1", true)
 	stsFunc(sts)
 	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]
 	assert.Contains(t, startupCmd, MongotPerPodConfigDirPath)
@@ -5310,4 +5311,43 @@ func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
 	// cluster-b's unit was still applied despite cluster-a failing first.
 	require.NoError(t, clusterB.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+}
+
+func TestBuildReplicaSetPlan_ServiceAccount(t *testing.T) {
+	newSearch := func(clusters []searchv1.ClusterSpec) *searchv1.MongoDBSearch {
+		mdb := newTestMongoDBSearch("mdb-search", "ns")
+		mdb.Spec.Clusters = clusters
+		mdb.Spec.Source = &searchv1.MongoDBSource{
+			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"a.example:27017"}},
+		}
+		return mdb
+	}
+
+	t.Run("single-cluster unnamed entry uses the fixed service account", func(t *testing.T) {
+		mdb := newSearch([]searchv1.ClusterSpec{{}})
+		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState()}
+		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
+		require.NoError(t, err)
+		require.Len(t, plan.units, 1)
+		assert.Equal(t, util.MongoDBServiceAccount, plan.units[0].serviceAccountName)
+	})
+
+	t.Run("named member clusters use member-scoped service accounts", func(t *testing.T) {
+		mdb := newSearch([]searchv1.ClusterSpec{{Name: "cluster-a"}, {Name: "cluster-b"}})
+		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState()}
+		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
+		require.NoError(t, err)
+		require.Len(t, plan.units, 2)
+		assert.Equal(t, "mck-member-cluster-a-database-pods", plan.units[0].serviceAccountName)
+		assert.Equal(t, "mck-member-cluster-b-database-pods", plan.units[1].serviceAccountName)
+	})
+
+	t.Run("the operator's own cluster uses the fixed service account in per-cluster operator mode", func(t *testing.T) {
+		mdb := newSearch([]searchv1.ClusterSpec{{Name: "cluster-a"}})
+		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState(), operatorClusterName: "cluster-a"}
+		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
+		require.NoError(t, err)
+		require.Len(t, plan.units, 1)
+		assert.Equal(t, util.MongoDBServiceAccount, plan.units[0].serviceAccountName)
+	})
 }

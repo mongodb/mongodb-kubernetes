@@ -392,3 +392,20 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
 	})
 }
+
+func TestAppDbStatefulSet_ServiceAccount(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	t.Run("fixed default name provided by the caller is used", func(t *testing.T) {
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ServiceAccountName: util.AppDBServiceAccount}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		assert.Equal(t, util.AppDBServiceAccount, sts.Spec.Template.Spec.ServiceAccountName)
+	})
+
+	t.Run("explicit option is used", func(t *testing.T) {
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ServiceAccountName: "mck-member-cluster-a-appdb"}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		assert.Equal(t, "mck-member-cluster-a-appdb", sts.Spec.Template.Spec.ServiceAccountName)
+	})
+}
