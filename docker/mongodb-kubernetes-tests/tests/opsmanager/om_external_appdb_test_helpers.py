@@ -91,15 +91,6 @@ def assert_sentinel_doc_present(cnx_string: str):
         client.close()
 
 
-def read_om_pod_restart_counts(ops_manager: MongoDBOpsManager) -> dict[str, int]:
-    """Maps Primary OM pod name -> sum of container restartCounts across all its containers."""
-    counts = {}
-    for api_client, pod in ops_manager.read_om_pods():
-        total = sum(cs.restart_count for cs in (pod.status.container_statuses or []))
-        counts[pod.metadata.name] = total
-    return counts
-
-
 def assert_project_exists(meta_om: MongoDBOpsManager, appdb_name: str):
     """Verifies the AppDB CR's project still exists on the Meta OM after reverse migration."""
     tester = meta_om.get_om_tester(project_name=f"{appdb_name}-project")

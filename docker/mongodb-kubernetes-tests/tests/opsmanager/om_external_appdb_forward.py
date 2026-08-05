@@ -18,7 +18,6 @@ from tests.opsmanager.om_external_appdb_test_helpers import (
     configure_appdb_role_mongodb,
     meta_om_resource,
     password_secret_name,
-    read_om_pod_restart_counts,
     ref_kind_for_appdb,
     write_sentinel_doc,
 )
@@ -84,14 +83,8 @@ class TestDeployInitialState:
 @pytest.mark.e2e_om_external_appdb_forward
 class TestSentinelDocSurvivesForwardMigration:
     """Procedure 2: start with internal AppDB, write a sentinel doc, create the MongoDB (role: AppDB)
-    CR named "<om-name>-db", set externalApplicationDatabaseRef, and wait for adoption. Restart-count
-    assertion is unconditional (not "at most one") because Open Item 1 in the design doc has been
-    verified for the default-port case by Task 0's spike: AppDBSpec.BuildConnectionURL and
-    MongoDB.BuildConnectionString produce identical output, so the computed connection string value
-    does not change across the switch and no connectionStringHash-triggered restart is expected.
-    The non-default-port case remains an open caveat and is out of scope for this fixture (default port)."""
+    CR named "<om-name>-db", set externalApplicationDatabaseRef, and wait for adoption."""
 
-    restart_counts_before: ClassVar[dict[str, int]]
     password_secret_before: ClassVar[dict[str, str]]
     connection_string_before: ClassVar[str]
 
@@ -99,7 +92,6 @@ class TestSentinelDocSurvivesForwardMigration:
         write_sentinel_doc(primary_om.read_appdb_connection_url())
 
     def test_capture_state_before_migration(self, primary_om: MongoDBOpsManager, namespace: str):
-        self.__class__.restart_counts_before = read_om_pod_restart_counts(primary_om)
         self.__class__.password_secret_before = read_secret(namespace, password_secret_name(OM_NAME))
         self.__class__.connection_string_before = primary_om.read_appdb_connection_url()
 
