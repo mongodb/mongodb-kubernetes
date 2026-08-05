@@ -1935,9 +1935,10 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Conte
 	if err != nil {
 		return "", "", "", "", workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", mongodbUserObjectKey, err))
 	}
+	mongodbUser.Spec.ApplyDefaults()
 	userName := mongodbUser.Spec.Username
-	pathDB := mongodbUser.Spec.EffectivePathDatabase()
-	authSource := mongodbUser.Spec.EffectiveAuthDatabase()
+	pathDB := mongodbUser.Spec.DefaultDatabase
+	authSource := mongodbUser.Spec.AuthSource
 	password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
 	if err != nil {
 		return "", "", "", "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
@@ -1979,9 +1980,10 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err))
 		}
+		mongodbUser.Spec.ApplyDefaults()
 		userName = mongodbUser.Spec.Username
-		authSource = mongodbUser.Spec.EffectiveAuthDatabase()
-		pathDB = mongodbUser.Spec.EffectivePathDatabase()
+		authSource = mongodbUser.Spec.AuthSource
+		pathDB = mongodbUser.Spec.DefaultDatabase
 		password, err = mongodbUser.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))

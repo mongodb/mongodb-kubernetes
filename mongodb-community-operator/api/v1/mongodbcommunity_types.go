@@ -253,19 +253,16 @@ type MongoDBUser struct {
 	// Name is the username of the user
 	Name string `json:"name"`
 
-	// DB is the database the user is stored in. Defaults to "admin".
-	// Deprecated: use AuthSource and DefaultDatabase instead.
+	// AuthSource is the authentication database for the user. Defaults to "admin".
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=admin
-	DB string `json:"db,omitempty"`
-
-	// AuthSource is the authentication database for the user. Required when not using the deprecated db field.
-	// +optional
 	AuthSource string `json:"authSource,omitempty"`
 
-	// DefaultDatabase is the database placed in the connection string URI path. Required when AuthSource is set.
+	// DefaultDatabase is the database placed in the connection string URI path. Defaults to "admin".
 	// +optional
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=admin
 	DefaultDatabase string `json:"defaultDatabase,omitempty"`
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
@@ -317,38 +314,25 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 }
 
 // ValidateUser returns an error if the user fields are in an invalid combination.
-// Either the deprecated db field must be set, or both authSource and defaultDatabase must be set together.
+// AuthSource and DefaultDatabase must either both be set or both be empty.
 func (m MongoDBUser) ValidateUser() error {
-	usingLegacy := m.DB != ""
-	usingNew := m.AuthSource != "" || m.DefaultDatabase != ""
-	if usingLegacy && usingNew {
-		return fmt.Errorf("db is deprecated and cannot be combined with authSource or defaultDatabase for user %q", m.Name)
-	}
-	if !usingLegacy && m.AuthSource != "" && m.DefaultDatabase == "" {
+	if m.AuthSource != "" && m.DefaultDatabase == "" {
 		return fmt.Errorf("defaultDatabase is required when authSource is set for user %q", m.Name)
 	}
-	if !usingLegacy && m.DefaultDatabase != "" && m.AuthSource == "" {
+	if m.DefaultDatabase != "" && m.AuthSource == "" {
 		return fmt.Errorf("authSource is required when defaultDatabase is set for user %q", m.Name)
 	}
 	return nil
 }
 
-// EffectiveAuthDatabase returns the authentication database for this user.
-// Returns db if set (deprecated path), otherwise returns authSource.
-func (m MongoDBUser) EffectiveAuthDatabase() string {
-	if m.DB != "" {
-		return m.DB
+// ApplyDefaults sets AuthSource and DefaultDatabase to "admin" when neither is set.
+// This is a defensive fallback for local/e2e resources that have not gone through the
+// API server, where the kubebuilder default markers on these fields would otherwise apply.
+func (m *MongoDBUser) ApplyDefaults() {
+	if m.AuthSource == "" && m.DefaultDatabase == "" {
+		m.AuthSource = defaultDBForUser
+		m.DefaultDatabase = defaultDBForUser
 	}
-	return m.AuthSource
-}
-
-// EffectivePathDatabase returns the database placed in the connection string URI path.
-// Returns db if set (deprecated path), otherwise returns defaultDatabase.
-func (m MongoDBUser) EffectivePathDatabase() string {
-	if m.DB != "" {
-		return m.DB
-	}
-	return m.DefaultDatabase
 }
 
 // GetConnectionStringSecretName gets the connection string secret name provided by the user or generated
@@ -358,7 +342,7 @@ func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 		return m.ConnectionStringSecretName
 	}
 
-	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.EffectiveAuthDatabase(), m.Name))
+	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.AuthSource, m.Name))
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
@@ -607,20 +591,17 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			}
 		}
 
-		// When the MongoDB resource has been fetched from Kubernetes,
-		// the User's database will be set to "admin" because this is set
-		// by default on the CRD, but when running e2e tests, the resource
-		// we are working with is local -- it has not been posted to the
-		// Kubernetes API and the `u.DB` was not set to the default ("admin").
-		// This is why the "admin" value is being set here.
-		if u.DB == "" && u.AuthSource == "" { //nolint:staticcheck
-			u.DB = defaultDBForUser //nolint:staticcheck
-		}
+		// When the MongoDB resource has been fetched from Kubernetes, the User's
+		// authSource/defaultDatabase will be set to "admin" by the CRD's kubebuilder
+		// default, but when running e2e tests, the resource we are working with is
+		// local -- it has not been posted to the Kubernetes API and the defaults were
+		// never applied. This is why the fallback default is applied here too.
+		u.ApplyDefaults()
 
 		users[i] = authtypes.User{
 			Username:                          u.Name,
-			AuthSource:                        u.EffectiveAuthDatabase(),
-			DefaultDatabase:                   u.EffectivePathDatabase(),
+			AuthSource:                        u.AuthSource,
+			DefaultDatabase:                   u.DefaultDatabase,
 			Roles:                             roles,
 			ConnectionStringSecretName:        u.GetConnectionStringSecretName(m.Name),
 			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
@@ -628,7 +609,7 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
 		}
 
-		if u.EffectiveAuthDatabase() != constants.ExternalDB {
+		if u.AuthSource != constants.ExternalDB {
 			users[i].ScramCredentialsSecretName = u.GetScramCredentialsSecretName()
 			users[i].PasswordSecretKey = u.GetPasswordSecretKey()
 			users[i].PasswordSecretName = u.PasswordSecretRef.Name

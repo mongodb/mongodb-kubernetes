@@ -816,7 +816,7 @@ func ConnectionStringSecretIsCleanedUp(ctx context.Context, mdb *mdbv1.MongoDBCo
 
 func AuthUsersDeletedIsUpdated(ctx context.Context, mdb *mdbv1.MongoDBCommunity, mdbUser mdbv1.MongoDBUser) func(t *testing.T) {
 	return func(t *testing.T) {
-		deletedUser := automationconfig.DeletedUser{User: mdbUser.Name, Dbs: []string{mdbUser.DB}}
+		deletedUser := automationconfig.DeletedUser{User: mdbUser.Name, Dbs: []string{mdbUser.AuthSource}}
 
 		currentAc := getAutomationConfig(ctx, t, mdb)
 

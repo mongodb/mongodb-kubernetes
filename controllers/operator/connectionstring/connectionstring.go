@@ -48,9 +48,9 @@ type builder struct {
 	isReplicaSet        bool
 	isTLSEnabled        bool
 
-	hostnames   []string
-	database    string
-	authSource  string
+	hostnames  []string
+	database   string
+	authSource string
 
 	scheme           Scheme
 	connectionParams map[string]string

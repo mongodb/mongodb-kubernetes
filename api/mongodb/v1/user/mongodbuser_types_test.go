@@ -9,29 +9,14 @@ import (
 )
 
 func TestMongoDBUserSpec_ValidateSpec(t *testing.T) {
-	t.Run("legacy db field alone is valid", func(t *testing.T) {
-		spec := MongoDBUserSpec{Database: "admin"}
-		assert.NoError(t, spec.ValidateSpec())
-	})
-
 	t.Run("authSource and defaultDatabase together are valid", func(t *testing.T) {
 		spec := MongoDBUserSpec{AuthSource: "admin", DefaultDatabase: "myapp"}
 		assert.NoError(t, spec.ValidateSpec())
 	})
 
-	t.Run("empty spec is valid (controller defaults db to admin)", func(t *testing.T) {
+	t.Run("empty spec is valid (ApplyDefaults sets both fields to admin before validation)", func(t *testing.T) {
 		spec := MongoDBUserSpec{}
 		assert.NoError(t, spec.ValidateSpec())
-	})
-
-	t.Run("db combined with authSource is invalid", func(t *testing.T) {
-		spec := MongoDBUserSpec{Database: "admin", AuthSource: "admin"}
-		assert.Error(t, spec.ValidateSpec())
-	})
-
-	t.Run("db combined with defaultDatabase is invalid", func(t *testing.T) {
-		spec := MongoDBUserSpec{Database: "admin", DefaultDatabase: "myapp"}
-		assert.Error(t, spec.ValidateSpec())
 	})
 
 	t.Run("authSource without defaultDatabase is invalid", func(t *testing.T) {
@@ -45,32 +30,34 @@ func TestMongoDBUserSpec_ValidateSpec(t *testing.T) {
 	})
 }
 
-func TestMongoDBUserSpec_EffectiveHelpers(t *testing.T) {
-	t.Run("legacy db used for auth but never for path", func(t *testing.T) {
-		spec := MongoDBUserSpec{Database: "admin"}
-		assert.Equal(t, "admin", spec.EffectiveAuthDatabase())
-		assert.Equal(t, "", spec.EffectivePathDatabase())
+func TestMongoDBUserSpec_ApplyDefaults(t *testing.T) {
+	t.Run("empty spec defaults both fields to admin", func(t *testing.T) {
+		spec := MongoDBUserSpec{}
+		spec.ApplyDefaults()
+		assert.Equal(t, "admin", spec.AuthSource)
+		assert.Equal(t, "admin", spec.DefaultDatabase)
 	})
 
-	t.Run("new fields use authSource for auth and defaultDatabase for path", func(t *testing.T) {
+	t.Run("already-set fields are left untouched", func(t *testing.T) {
 		spec := MongoDBUserSpec{AuthSource: "admin", DefaultDatabase: "myapp"}
-		assert.Equal(t, "admin", spec.EffectiveAuthDatabase())
-		assert.Equal(t, "myapp", spec.EffectivePathDatabase())
+		spec.ApplyDefaults()
+		assert.Equal(t, "admin", spec.AuthSource)
+		assert.Equal(t, "myapp", spec.DefaultDatabase)
 	})
 }
 
 func TestMongoDBUser_ChangedIdentifier(t *testing.T) {
 	before := MongoDBUser{
 		Spec: MongoDBUserSpec{
-			Username: "before-name",
-			Database: "before-db",
+			Username:   "before-name",
+			AuthSource: "before-db",
 		},
 	}
 
 	after := MongoDBUser{
 		Spec: MongoDBUserSpec{
-			Username: "after-name",
-			Database: "after-db",
+			Username:   "after-name",
+			AuthSource: "after-db",
 		},
 		Status: MongoDBUserStatus{
 			Username: "before-name",
@@ -83,8 +70,8 @@ func TestMongoDBUser_ChangedIdentifier(t *testing.T) {
 
 	before = MongoDBUser{
 		Spec: MongoDBUserSpec{
-			Username: "before-name",
-			Database: "before-db",
+			Username:   "before-name",
+			AuthSource: "before-db",
 		},
 		Status: MongoDBUserStatus{
 			Username: "before-name",

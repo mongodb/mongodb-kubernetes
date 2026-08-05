@@ -68,7 +68,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 	_, createdUser := ac.Auth.GetUser("my-user", "admin")
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
-	assert.Equal(t, user.Spec.EffectiveAuthDatabase(), createdUser.Database)
+	assert.Equal(t, user.Spec.AuthSource, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 
 	require.NoError(t, client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user))
@@ -124,7 +124,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 
 	_, createdUser := ac.Auth.GetUser("my-user", "admin")
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
-	assert.Equal(t, user.Spec.EffectiveAuthDatabase(), createdUser.Database)
+	assert.Equal(t, user.Spec.AuthSource, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 
 	// reconcile the same user again and make sure the automation config is not updated, if the user's password is not changed

@@ -152,7 +152,7 @@ func TestGetDeletedUsers(t *testing.T) {
 					Name: "password-secret-name",
 				},
 				ConnectionStringSecretName: "connection-string-secret",
-				DB:                         "admin",
+				AuthSource:                 "admin",
 			},
 		},
 	}
@@ -182,7 +182,7 @@ func TestGetDeletedUsers(t *testing.T) {
 						Name: "password-secret-name",
 					},
 					ConnectionStringSecretName: "connection-string-secret",
-					DB:                         "admin",
+					AuthSource:                 "admin",
 				},
 				{
 					Name: "newUser",
@@ -190,7 +190,7 @@ func TestGetDeletedUsers(t *testing.T) {
 						Name: "new-password-secret-name",
 					},
 					ConnectionStringSecretName: "new-connection-string-secret",
-					DB:                         "admin",
+					AuthSource:                 "admin",
 				},
 			},
 		}
