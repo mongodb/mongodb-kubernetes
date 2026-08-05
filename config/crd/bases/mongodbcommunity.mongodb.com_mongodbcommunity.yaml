@@ -574,6 +574,10 @@ spec:
                       nullable: true
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    authSource:
+                      description: AuthSource is the authentication database for the
+                        user. Required when not using the deprecated db field.
+                      type: string
                     connectionStringSecretAnnotations:
                       additionalProperties:
                         type: string
@@ -593,8 +597,13 @@ spec:
                       type: string
                     db:
                       default: admin
-                      description: DB is the database the user is stored in. Defaults
-                        to "admin"
+                      description: |-
+                        DB is the database the user is stored in. Defaults to "admin".
+                        Deprecated: use AuthSource and DefaultDatabase instead.
+                      type: string
+                    defaultDatabase:
+                      description: DefaultDatabase is the database placed in the connection
+                        string URI path. Required when AuthSource is set.
                       type: string
                     name:
                       description: Name is the username of the user

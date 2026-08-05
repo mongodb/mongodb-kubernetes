@@ -86,8 +86,7 @@ type MongoDBResourceRef struct {
 }
 
 type MongoDBUserSpec struct {
-	Roles []Role `json:"roles,omitempty"`
-	// +optional
+	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
 	// Deprecated: use AuthSource and DefaultDatabase instead.
 	// +optional
