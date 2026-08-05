@@ -351,9 +351,10 @@ kustomize:
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
 
 # envtest: local Kubernetes control plane (etcd + kube-apiserver) used by Go tests
-# (see test/envtest). ENVTEST_K8S_VERSION tracks the minimum supported Kubernetes
-# version from kubernetes-versions.json.
-ENVTEST_K8S_VERSION ?= 1.34.x
+# (see test/envtest). ENVTEST_K8S_VERSION defaults to the minimum supported Kubernetes
+# version from kubernetes-versions.json, reduced to a minor-version wildcard (e.g.
+# 1.34.3 -> 1.34.x) so that setup-envtest resolves the latest available patch release.
+ENVTEST_K8S_VERSION ?= $(shell jq -r '.kubernetes.min' kubernetes-versions.json | cut -d. -f1-2).x
 SETUP_ENVTEST = $(shell pwd)/bin/setup-envtest
 ENVTEST_ASSETS_DIR = $(shell pwd)/bin/envtest
 # setup-envtest (a downloader for the envtest binaries) is versioned independently of
