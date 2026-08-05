@@ -845,9 +845,6 @@ func (r *ReplicaSetReconcilerHelper) releaseAppDBStatefulsetOwnership(ctx contex
 	return nil
 }
 
-// ensureAppDBRoleUser creates the shared mongodb-ops-manager user in the AppDB CR's project,
-// matching the internal AppDB reconciler's password secret shape. The secret name is derived
-// from the CR's own name (required by the naming convention to equal <om-name>-db).
 func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
 	if mdb.Spec.Role != mdbv1.RoleAppDB {
 		return nil
@@ -856,14 +853,11 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 	secretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
 	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
 
-	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
+	password, err := secret.ReadKey(ctx, r.reconciler.SecretClient, util.OpsManagerPasswordKey, secretObjectKey)
 	if err != nil && !secret.SecretNotExist(err) {
-		return xerrors.Errorf("failed to check for existing password secret: %w", err)
+		return xerrors.Errorf("failed to read password secret %s: %w", secretName, err)
 	}
-
-	password := existingData[util.OpsManagerPasswordKey]
-	if password != "" {
-	} else {
+	if password == "" {
 		password, err = generate.RandomFixedLengthStringOfSize(20)
 		if err != nil {
 			return xerrors.Errorf("failed to generate password: %w", err)
@@ -876,8 +870,8 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
 			Build()
 
-		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
-			return xerrors.Errorf("failed to create password secret: %w", err)
+		if err := secret.CreateOrUpdate(ctx, r.reconciler.SecretClient, newSecret); err != nil {
+			return xerrors.Errorf("failed to create/update password secret: %w", err)
 		}
 	}
 
@@ -890,8 +884,8 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 			AuthenticationRestrictions: []string{},
 			Mechanisms:                 []string{},
 		}
-		for _, role := range []string{"readWriteAnyDatabase", "dbAdminAnyDatabase", "clusterMonitor", "backup", "restore", "hostManager"} {
-			omUser.AddRole(&om.Role{Role: role, Database: "admin"})
+		for _, r := range omv1.AppDBUserRoles {
+			omUser.AddRole(&om.Role{Role: r.Name, Database: r.Database})
 		}
 		if err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
 			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
@@ -901,10 +895,6 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 	}, r.log)
 }
 
-// ensureAppDBRoleKeyfile keeps the AppDB project's cluster keyfile in sync with the shared
-// "<name>-keyfile" secret so migrations don't mix keyfile generations. The CR's project must
-// be dedicated to this AppDB — co-hosted deployments would be rolled by the key change.
-// The user is responsible for cleaning up the project after migration.
 func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
 	if mdb.Spec.Role != mdbv1.RoleAppDB {
 		return nil
@@ -913,11 +903,10 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context,
 	secretName := fmt.Sprintf("%s-keyfile", mdb.Name)
 	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
 
-	existingData, err := secret.ReadStringData(ctx, r.reconciler.SecretClient, secretObjectKey)
+	sharedKey, err := secret.ReadKey(ctx, r.reconciler.SecretClient, constants.AgentKeyfileKey, secretObjectKey)
 	if err != nil && !secret.SecretNotExist(err) {
-		return xerrors.Errorf("failed to check for existing keyfile secret: %w", err)
+		return xerrors.Errorf("failed to read keyfile secret %s: %w", secretName, err)
 	}
-	sharedKey := existingData[constants.AgentKeyfileKey]
 
 	var projectKey string
 	if err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -941,8 +930,8 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context,
 			SetField(constants.AgentKeyfileKey, projectKey).
 			SetOwnerReferences(kube.BaseOwnerReference(mdb)).
 			Build()
-		if err := r.reconciler.CreateSecret(ctx, newSecret); err != nil {
-			return xerrors.Errorf("failed to create keyfile secret: %w", err)
+		if err := secret.CreateOrUpdate(ctx, r.reconciler.SecretClient, newSecret); err != nil {
+			return xerrors.Errorf("failed to create/update keyfile secret: %w", err)
 		}
 	}
 	return nil

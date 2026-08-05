@@ -28,6 +28,21 @@ const (
 	ClusterTopologyMultiCluster = "MultiCluster"
 )
 
+// AppDBUserRoles defines required roles for the AppDB user are outlined in the documentation
+// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
+var AppDBUserRoles = []authtypes.Role{
+	{Name: "readWriteAnyDatabase", Database: "admin"},
+	{Name: "dbAdminAnyDatabase", Database: "admin"},
+	{Name: "clusterMonitor", Database: "admin"},
+	// Allows user to do db.fsyncLock required by CLOUDP-78890
+	// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+	{Name: "backup", Database: "admin"},
+	{Name: "restore", Database: "admin"},
+	// Allows user to do db.fsyncLock required by CLOUDP-78890
+	// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+	{Name: "hostManager", Database: "admin"},
+}
+
 type AppDBSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	Version string `json:"version"`
@@ -198,8 +213,6 @@ func (m *AppDBSpec) GetAuthOptions() authtypes.Options {
 	}
 }
 
-// GetAuthUsers returns a list of all scram users for this deployment.
-// in this case it is just the Ops Manager user for the AppDB.
 func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	passwordSecretName := m.GetOpsManagerUserPasswordSecretName()
 	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
@@ -207,40 +220,9 @@ func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	}
 	return []authtypes.User{
 		{
-			Username: util.OpsManagerMongoDBUserName,
-			Database: util.DefaultUserDatabase,
-			// required roles for the AppDB user are outlined in the documentation
-			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
-			Roles: []authtypes.Role{
-				{
-					Name:     "readWriteAnyDatabase",
-					Database: "admin",
-				},
-				{
-					Name:     "dbAdminAnyDatabase",
-					Database: "admin",
-				},
-				{
-					Name:     "clusterMonitor",
-					Database: "admin",
-				},
-				// Enables backup and restoration roles
-				// https://docs.mongodb.com/manual/reference/built-in-roles/#backup-and-restoration-roles
-				{
-					Name:     "backup",
-					Database: "admin",
-				},
-				{
-					Name:     "restore",
-					Database: "admin",
-				},
-				// Allows user to do db.fsyncLock required by CLOUDP-78890
-				// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
-				{
-					Name:     "hostManager",
-					Database: "admin",
-				},
-			},
+			Username:                   util.OpsManagerMongoDBUserName,
+			Database:                   util.DefaultUserDatabase,
+			Roles:                      AppDBUserRoles,
 			PasswordSecretKey:          m.GetOpsManagerUserPasswordSecretKey(),
 			PasswordSecretName:         passwordSecretName,
 			ScramCredentialsSecretName: m.OpsManagerUserScramCredentialsName(),
