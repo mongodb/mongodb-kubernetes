@@ -15,7 +15,6 @@ from pytest import fixture, mark
 from tests.conftest import _install_multi_cluster_operator
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
-from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_namespace
 
 
@@ -150,29 +149,6 @@ def test_create_namespaces(
         unmanaged_mdb_ns,
         image_pull_secret_name,
         image_pull_secret_data,
-    )
-
-
-@mark.e2e_multi_cluster_specific_namespaces
-def test_prepare_namespace(
-    multi_cluster_operator_installation_config: Dict[str, str],
-    member_cluster_clients: List[MultiClusterClient],
-    central_cluster_name: str,
-    mdba_ns: str,
-    mdbb_ns: str,
-):
-    prepare_multi_cluster_namespaces(
-        mdba_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-    )
-
-    prepare_multi_cluster_namespaces(
-        mdbb_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
     )
 
 

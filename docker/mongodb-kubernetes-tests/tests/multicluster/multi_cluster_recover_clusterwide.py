@@ -24,7 +24,6 @@ from pytest import fixture, mark
 from tests.conftest import _install_multi_cluster_operator
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
-from . import prepare_multi_cluster_namespaces
 from .conftest import cluster_spec_list, create_service_entries_objects
 from .multi_cluster_clusterwide import create_namespace
 
@@ -184,29 +183,6 @@ def test_delete_cluster_role_and_binding(
 @mark.e2e_multi_cluster_recover_clusterwide
 def test_deploy_operator(install_operator: Operator):
     install_operator.wait_for_operator_ready()
-
-
-@mark.e2e_multi_cluster_recover_clusterwide
-def test_prepare_namespace(
-    multi_cluster_operator_installation_config: Dict[str, str],
-    member_cluster_clients: List[MultiClusterClient],
-    central_cluster_name: str,
-    mdba_ns: str,
-    mdbb_ns: str,
-):
-    prepare_multi_cluster_namespaces(
-        mdba_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-    )
-
-    prepare_multi_cluster_namespaces(
-        mdbb_ns,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-    )
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

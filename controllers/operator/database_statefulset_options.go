@@ -62,6 +62,12 @@ func ServiceName(serviceName string) func(options *construct.DatabaseStatefulSet
 	}
 }
 
+func ServiceAccountName(serviceAccountName string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ServiceAccountName = serviceAccountName
+	}
+}
+
 // CertificateHash will assign the given CertificateHash during StatefulSet construction.
 func CertificateHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
