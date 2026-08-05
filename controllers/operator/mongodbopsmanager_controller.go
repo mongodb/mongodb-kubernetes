@@ -1937,7 +1937,7 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Conte
 	}
 	userName := mongodbUser.Spec.Username
 	pathDB := mongodbUser.Spec.EffectivePathDatabase()
-	authSource := mongodbUser.Spec.AuthSource
+	authSource := mongodbUser.Spec.EffectiveAuthDatabase()
 	password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
 	if err != nil {
 		return "", "", "", "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))

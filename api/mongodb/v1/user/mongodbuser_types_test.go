@@ -46,10 +46,10 @@ func TestMongoDBUserSpec_ValidateSpec(t *testing.T) {
 }
 
 func TestMongoDBUserSpec_EffectiveHelpers(t *testing.T) {
-	t.Run("legacy db used for both auth and path", func(t *testing.T) {
+	t.Run("legacy db used for auth but never for path", func(t *testing.T) {
 		spec := MongoDBUserSpec{Database: "admin"}
 		assert.Equal(t, "admin", spec.EffectiveAuthDatabase())
-		assert.Equal(t, "admin", spec.EffectivePathDatabase())
+		assert.Equal(t, "", spec.EffectivePathDatabase())
 	})
 
 	t.Run("new fields use authSource for auth and defaultDatabase for path", func(t *testing.T) {

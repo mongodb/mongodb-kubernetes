@@ -132,11 +132,9 @@ func (spec MongoDBUserSpec) EffectiveAuthDatabase() string {
 }
 
 // EffectivePathDatabase returns the database placed in the connection string URI path.
-// Returns spec.db if set (deprecated path), otherwise returns spec.defaultDatabase.
+// The deprecated db field never populates the path, preserving pre-existing connection
+// strings for users who have not migrated to authSource/defaultDatabase.
 func (spec MongoDBUserSpec) EffectivePathDatabase() string {
-	if spec.Database != "" {
-		return spec.Database
-	}
 	return spec.DefaultDatabase
 }
 
