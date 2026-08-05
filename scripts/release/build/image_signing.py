@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import subprocess
@@ -138,6 +139,58 @@ def get_image_digest(image_name: str) -> Optional[str]:
         logger.error(f"Failed to get digest for {image_name}: {e.stderr}")
 
 
+def get_platform_manifest_digests(image_name: str) -> List[str]:
+    """
+    Returns the per-platform manifest digests if image_name is a multi-arch manifest list/OCI index, or an
+    empty list otherwise. Buildx attestation manifests (platform "unknown/unknown") are skipped since they
+    are not signed container images.
+
+    :param image_name: The full image name with its tag or digest.
+    :return: A list of platform-specific manifest digests.
+    """
+
+    transport_protocol = "docker://"
+    raw_command = [
+        "docker",
+        "run",
+        "--rm",
+        f"--volume={os.path.expanduser('~')}/.aws:/root/.aws:ro",
+        "quay.io/skopeo/stable:latest",
+        "inspect",
+        "--raw",
+    ]
+
+    if is_ecr_registry(image_name):
+        aws_region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+        ecr_password = get_ecr_login_password(aws_region)
+        raw_command.append(f"--creds=AWS:{ecr_password}")
+
+    raw_command.append(f"{transport_protocol}{image_name}")
+
+    try:
+        result = run_command_with_retries(raw_command)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to get raw manifest for {image_name}: {e.stderr}")
+        return []
+
+    manifest = json.loads(result.stdout)
+    manifest_list_media_types = (
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.oci.image.index.v1+json",
+    )
+    if manifest.get("mediaType") not in manifest_list_media_types:
+        # Single-arch image: nothing to recurse into.
+        return []
+
+    digests = []
+    for entry in manifest.get("manifests", []):
+        platform = entry.get("platform", {})
+        if platform.get("architecture") == "unknown" or platform.get("os") == "unknown":
+            continue
+        digests.append(entry["digest"])
+    return digests
+
+
 def build_cosign_docker_command(additional_args: List[str], cosign_command: List[str]) -> List[str]:
     """
     Common logic to build a cosign command with the garasign cosign image provided by DevProd.
@@ -246,14 +299,45 @@ def verify_signature(repository: str, tag: str):
         "--env",
         f"{public_key_var_name}={kubernetes_operator_public_key}",
     ]
-    cosign_command = ["verify", "--insecure-ignore-tlog=true", f"--key=env://{public_key_var_name}", image]
-    command = build_cosign_docker_command(additional_args, cosign_command)
 
-    try:
+    def verify_ref(image_ref: str) -> None:
+        cosign_command = [
+            "verify",
+            "--insecure-ignore-tlog=true",
+            f"--key=env://{public_key_var_name}",
+            image_ref,
+        ]
+        command = build_cosign_docker_command(additional_args, cosign_command)
         run_command_with_retries(command, retries=10)
+
+    # The top-level image ref (the multi-arch index digest, if applicable) must always
+    # have a valid signature.
+    try:
+        verify_ref(image)
     except subprocess.CalledProcessError as e:
         # Fail the pipeline if verification fails
         raise Exception(f"Failed to verify signature for image {image}")
+
+    # cosign verify has no --recursive flag. Since sign_image signs the top-level
+    # multi-arch image index AND each per-platform image individually (via
+    # --recursive), also verify every platform digest here. A *missing* signature
+    # on a platform digest is only a warning: images signed before recursive
+    # signing was introduced only have a signature on the index, and we don't
+    # want to break verification of those older images. An actual invalid
+    # signature on a platform digest is still a hard failure.
+    for digest in get_platform_manifest_digests(image):
+        platform_ref = f"{repository}@{digest}"
+        try:
+            verify_ref(platform_ref)
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr or ""
+            if "no signatures found" in stderr:
+                logger.warning(
+                    f"No recursive signature found for platform image {platform_ref}. "
+                    "This is expected for images signed before recursive signing was introduced."
+                )
+                continue
+            raise Exception(f"Failed to verify signature for platform image {platform_ref}: {stderr}")
 
     end_time = time.time()
     duration = end_time - start_time
