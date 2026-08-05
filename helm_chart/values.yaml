@@ -47,15 +47,6 @@ operator:
       drop:
       - ALL
 
-  # Create operator service account and roles
-  # if false, then operator RBAC will not be provided by the chart
-  createOperatorServiceAccount: true
-
-  # Set to false to NOT create service accounts and roles for the resources managed by the operator
-  # It might be necessary to disable it to avoid conflicts when
-  # kubectl mongodb plugin is used to configure multi-cluster resources
-  createResourcesServiceAccountsAndRoles: true
-
   # If true, the helm chart will create the ClusterRole and ClusterRoleBinding for the operator to be able to access the ClusterMongoDBRole resources.
   # Whether the operator actually reconciles ClusterMongoDBRole resources is controlled separately via `.spec.watchedResources` in the OperatorConfig CR (which includes `clustermongodbroles` by default).
   # Set to false to not create the ClusterRole and ClusterRoleBinding.

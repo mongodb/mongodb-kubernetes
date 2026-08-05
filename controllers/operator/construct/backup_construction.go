@@ -20,6 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -82,6 +83,7 @@ func backupOptions(memberCluster multicluster.MemberCluster, additionalOpts ...f
 		}
 		opts.Replicas = opsManager.Spec.Backup.Members
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
+		opts.ServiceAccountName = resourcenames.WorkloadOpsManagerServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)
 
 		opts.LoggingConfiguration = opsManager.Spec.Backup.Logging
 

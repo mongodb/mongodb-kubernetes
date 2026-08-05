@@ -1,4 +1,9 @@
-{{ if .Values.operator.createResourcesServiceAccountsAndRoles }}
+{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
+{{- $namePrefix := "mongodb-kubernetes" -}}
+{{- if $memberMode }}
+{{- $namePrefix = printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled is true" .Values.memberCluster.name) -}}
+{{- end }}
+{{- $rbacVersion := .Chart.Version | quote -}}
 
 {{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if .Values.operator.watchNamespace }}
@@ -16,8 +21,12 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-kubernetes-appdb
+  name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -27,8 +36,12 @@ imagePullSecrets:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-kubernetes-database-pods
+  name: {{ $namePrefix }}-database-pods
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -38,8 +51,12 @@ imagePullSecrets:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mongodb-kubernetes-ops-manager
+  name: {{ $namePrefix }}-ops-manager
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -49,8 +66,12 @@ imagePullSecrets:
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-appdb
+  name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 rules:
   - apiGroups:
       - ''
@@ -71,16 +92,19 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mongodb-kubernetes-appdb
+  name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-kubernetes-appdb
+  name: {{ $namePrefix }}-appdb
 subjects:
   - kind: ServiceAccount
-    name: mongodb-kubernetes-appdb
+    name: {{ $namePrefix }}-appdb
     {{ $namespaceBlock }}
 
 {{- end }}
-{{- end }}{{/* if .Values.operator.createResourcesServiceAccountsAndRoles */}}
