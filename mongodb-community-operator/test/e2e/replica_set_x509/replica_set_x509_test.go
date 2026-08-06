@@ -155,8 +155,8 @@ func TestReplicaSetX509(t *testing.T) {
 
 func getValidUser() v1.MongoDBUser {
 	return v1.MongoDBUser{
-		Name:       "CN=my-x509-user,OU=organizationalunit,O=organization",
-		AuthSource: constants.ExternalDB,
+		Name: "CN=my-x509-user,OU=organizationalunit,O=organization",
+		DB:   constants.ExternalDB,
 		Roles: []v1.Role{
 			{
 				DB:   "admin",
@@ -176,8 +176,8 @@ func getValidUser() v1.MongoDBUser {
 
 func getInvalidUser() v1.MongoDBUser {
 	return v1.MongoDBUser{
-		Name:       "CN=my-invalid-x509-user,OU=organizationalunit,O=organization",
-		AuthSource: constants.ExternalDB,
+		Name: "CN=my-invalid-x509-user,OU=organizationalunit,O=organization",
+		DB:   constants.ExternalDB,
 		Roles: []v1.Role{
 			{
 				DB:   "admin",

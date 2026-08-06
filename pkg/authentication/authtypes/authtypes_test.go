@@ -19,3 +19,14 @@ func TestGetLoginString(t *testing.T) {
 	external := User{Username: "CN=rob", AuthSource: constants.ExternalDB}
 	assert.Equal(t, "", external.GetLoginString("password"))
 }
+
+func TestGetPathDatabase(t *testing.T) {
+	assert.Equal(t, "mflix", User{ConnectionStringDatabase: "mflix"}.GetPathDatabase())
+
+	// unset leaves the URI path empty so the driver applies its own default
+	assert.Equal(t, "", User{}.GetPathDatabase())
+
+	// $external authenticates but is not a real database, so it must stay out of the path
+	external := User{AuthSource: constants.ExternalDB, ConnectionStringDatabase: constants.ExternalDB}
+	assert.Equal(t, "", external.GetPathDatabase())
+}
