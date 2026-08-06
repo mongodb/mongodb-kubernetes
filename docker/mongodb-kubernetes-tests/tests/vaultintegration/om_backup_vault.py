@@ -58,7 +58,7 @@ def new_om_s3_store(
     password: Optional[str] = None,
 ) -> Dict:
     return {
-        "uri": mdb.mongo_uri(user_name=user_name, password=password),
+        "uri": mdb.mongo_uri(user_name=user_name, password=password, default_database="admin"),
         "id": s3_id,
         "pathStyleAccessEnabled": path_style_access_enabled,
         "s3BucketEndpoint": s3_endpoint(AWS_REGION),
