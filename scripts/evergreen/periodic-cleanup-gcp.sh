@@ -103,6 +103,22 @@ try_delete() {
     return 1
 }
 
+# gcloud can return success after a paginated list partially fails. Treat
+# permission and partial-request warnings as inventory failures so an empty
+# result cannot be mistaken for a clean project.
+run_gcloud_inventory() {
+    local stderr_file output rc=0
+    stderr_file=$(mktemp)
+    output=$("$@" 2>"${stderr_file}") || rc=$?
+    cat "${stderr_file}" >&2
+    if (( rc != 0 )) || grep -qE "Some requests did not succeed|Required '[^']+' permission" "${stderr_file}"; then
+        rm -f "${stderr_file}"
+        return 1
+    fi
+    rm -f "${stderr_file}"
+    printf '%s' "${output}"
+}
+
 delete_cluster_batch() {
     local location="$1" count
     shift
@@ -127,7 +143,7 @@ clusters_skipped=0
 clusters_failed=0
 cluster_batch_location=""
 cluster_batch_names=()
-if ! cluster_list=$(gcloud container clusters list \
+if ! cluster_list=$(run_gcloud_inventory gcloud container clusters list \
     --project="${MDB_GKE_PROJECT}" \
     --filter="name~^k8s-mdb- AND createTime < ${threshold_timestamp}" \
     --sort-by=location \
@@ -158,7 +174,7 @@ echo "=== DNS managed zones (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
 zones_deleted=0
 zones_skipped=0
 zones_failed=0
-if ! zone_list=$(gcloud dns managed-zones list \
+if ! zone_list=$(run_gcloud_inventory gcloud dns managed-zones list \
     --project="${MDB_GKE_PROJECT}" \
     --filter="name~^mongodb-[a-z0-9] AND creationTime < ${threshold_timestamp}" \
     --format="value(name)"); then
@@ -169,7 +185,7 @@ else
         [[ -z "${zone_name}" ]] && continue
         # DNS zones must be empty before deletion; record-set deletes remain
         # per-record because the CLI does not accept multiple zone names here.
-        if ! rs_list=$(gcloud dns record-sets list --zone="${zone_name}" --project="${MDB_GKE_PROJECT}" --format="value(name,type)"); then
+        if ! rs_list=$(run_gcloud_inventory gcloud dns record-sets list --zone="${zone_name}" --project="${MDB_GKE_PROJECT}" --format="value(name,type)"); then
             echo "  ERROR listing record-sets for zone ${zone_name}"
             overall_failed=1
             zones_failed=$(( zones_failed + 1 ))
@@ -205,7 +221,7 @@ reap_compute_resource() {
     local display="$1" pattern="$2" resource="$3" list_output
     shift 3
     echo "=== ${display} (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
-    if ! list_output=$(gcloud compute "${resource}" list "$@" \
+    if ! list_output=$(run_gcloud_inventory gcloud compute "${resource}" list "$@" \
         --project="${MDB_GKE_PROJECT}" \
         --filter="name~${pattern} AND creationTimestamp < ${threshold_timestamp}" \
         --format="value(name)"); then
@@ -256,7 +272,7 @@ region="${MDB_GKE_REGION}"
 
 echo "  using GCP region: ${region}"
 echo "  listing stale Kubernetes forwarding rules: ${region} (waiting for inventory)"
-if ! regional_forwarding_rule_list=$(gcloud compute forwarding-rules list \
+if ! regional_forwarding_rule_list=$(run_gcloud_inventory gcloud compute forwarding-rules list \
     --regions="${region}" \
     --project="${MDB_GKE_PROJECT}" \
     --filter="${kubernetes_service_filter} AND creationTimestamp < ${threshold_timestamp}" \
@@ -283,7 +299,7 @@ else
     fi
 
     echo "  listing stale Kubernetes target pools: ${region}"
-    if ! regional_target_pool_list=$(gcloud compute target-pools list \
+    if ! regional_target_pool_list=$(run_gcloud_inventory gcloud compute target-pools list \
         --regions="${region}" \
         --project="${MDB_GKE_PROJECT}" \
         --filter="${kubernetes_service_filter} AND creationTimestamp < ${threshold_timestamp}" \
@@ -325,7 +341,7 @@ echo "  target-pool summary: ${gke_target_pools_deleted} ${delete_summary}, ${gk
 echo "=== GKE LB firewall rules (k8s-fw-*, k8s-*-hc) ==="
 fw_deleted=0
 fw_failed=0
-if ! fw_list=$(gcloud compute firewall-rules list \
+if ! fw_list=$(run_gcloud_inventory gcloud compute firewall-rules list \
     --project="${MDB_GKE_PROJECT}" \
     --filter="name~^k8s-fw- OR name~^k8s-.*-hc$" \
     --format="value(name)"); then
@@ -377,7 +393,7 @@ delete_disk_batch() {
 batch_zone=""
 batch_names=()
 echo "  listing detached CSI/PVC disk inventory (waiting for inventory)"
-if ! disk_list=$(gcloud compute disks list \
+if ! disk_list=$(run_gcloud_inventory gcloud compute disks list \
     --project="${MDB_GKE_PROJECT}" \
     --sort-by=zone \
     --filter="name~^pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ AND description~storage.gke.io/created-by AND description~pd.csi.storage.gke.io AND description~kubernetes.io/created-for/pvc/namespace AND description~mongodb AND status=READY AND lastDetachTimestamp < ${threshold_timestamp}" \
@@ -415,7 +431,7 @@ echo "  summary: ${disks_deleted} ${delete_summary}, ${disks_skipped} skipped, $
 echo "=== IAM service accounts (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
 sas_deleted=0
 sas_skipped=0
-if ! sa_list=$(gcloud iam service-accounts list \
+if ! sa_list=$(run_gcloud_inventory gcloud iam service-accounts list \
     --project="${MDB_GKE_PROJECT}" \
     --filter="email~^ext-dns-sa-" \
     --format="value(email)"); then
@@ -427,7 +443,7 @@ else
         # A stale user-managed key is the creation-time proxy for the SA.
         # SAs with no stale user-managed keys are skipped to avoid a race
         # between SA creation and key creation during an in-flight run.
-        if ! sa_key_list=$(gcloud iam service-accounts keys list \
+        if ! sa_key_list=$(run_gcloud_inventory gcloud iam service-accounts keys list \
             --iam-account="${sa_email}" \
             --project="${MDB_GKE_PROJECT}" \
             --filter="keyType=USER_MANAGED AND validAfterTime < ${threshold_timestamp}" \
