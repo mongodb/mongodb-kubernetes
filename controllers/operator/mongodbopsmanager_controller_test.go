@@ -1416,6 +1416,9 @@ func addAppDBTLSResources(ctx context.Context, client client.Client, secretName 
 }
 
 func withExternalAppDBRef(om *omv1.MongoDBOpsManager, ref *omv1.ExternalApplicationDatabaseRef) *omv1.MongoDBOpsManager {
+	if ref.Namespace == "" {
+		ref.Namespace = om.Namespace
+	}
 	om.Spec.ExternalApplicationDatabaseRef = ref
 	return om
 }

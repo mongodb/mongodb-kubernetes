@@ -6,7 +6,6 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -65,16 +64,14 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 		return xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
 	}
 
-	objectKey := kube.ObjectKey(opsManager.Namespace, ref.Name)
-
-	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref, objectKey)
+	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
 	if err != nil {
-		return xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
+		return xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
 	role := refObject.GetRole()
 	if role != mdbv1.RoleAppDB {
-		return xerrors.Errorf("externalApplicationDatabaseRef %s must have spec.role set to %q", objectKey, mdbv1.RoleAppDB)
+		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
 	}
 
 	// TODO maybe other validations e.g. SCRAM, TLS?
@@ -136,10 +133,9 @@ func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(
 		return "", xerrors.Errorf("failed to read shared password secret: %w", err)
 	}
 
-	objectKey := kube.ObjectKey(opsManager.Namespace, ref.Name)
-	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref, objectKey)
+	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
 	if err != nil {
-		return "", xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
+		return "", xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
 	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
@@ -155,10 +151,11 @@ type ExternalAppDB interface {
 	GetRole() string
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalApplicationDatabaseRef, objectKey client.ObjectKey) (ExternalAppDB, error) {
+func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalApplicationDatabaseRef) (ExternalAppDB, error) {
 	switch ref.Kind {
 	case "MongoDB":
 		mongodb := &mdbv1.MongoDB{}
+		objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
 		if err := e.client.Get(ctx, objectKey, mongodb); err != nil {
 			if apiErrors.IsNotFound(err) {
 				return nil, xerrors.Errorf("externalApplicationDatabaseRef points to MongoDB %s which does not exist", objectKey)

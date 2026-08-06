@@ -923,12 +923,11 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 
 	// TODO(CLOUDP-TBD): reflects internal AppDB's TLS setting even in external-AppDB mode —
 	// same deferred TLS/CA parity gap as opsmanager_construction.go's AppDBTlsCAConfigMapName.
+	// Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not fixed here.
 	if reconcilerHelper.opsManager.Spec.ExternalApplicationDatabaseRef == nil {
 		if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
 			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
 		}
-		// TODO(CLOUDP-TBD): same deferred TLS/CA parity gap — GetCAConfigMapName() is computed from
-		// the internal AppDB spec even in external-AppDB mode.
 		if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
 			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
 		}
