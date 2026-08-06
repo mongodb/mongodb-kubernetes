@@ -76,8 +76,6 @@ func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.R
 		return nil, err
 	}
 
-	user.Spec.ApplyDefaults()
-
 	return user, nil
 }
 

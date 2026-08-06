@@ -88,8 +88,10 @@ type MongoDBResourceRef struct {
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
-	// AuthSource is the authentication database for the user.
+	// AuthSource is the authentication database for the user. Defaults to "admin".
 	// +optional
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:=admin
 	AuthSource string `json:"authSource,omitempty"`
 	// DefaultDatabase is the database placed in the connection string URI path.
 	// Ignored when AuthSource is "$external", since it is an auth-only pseudo-database
@@ -102,15 +104,6 @@ type MongoDBUserSpec struct {
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
-}
-
-// ApplyDefaults sets AuthSource to "admin" when unset. DefaultDatabase is left as-is:
-// when empty, the connection string URI path stays empty and the driver defaults to
-// its own database (e.g. "test").
-func (spec *MongoDBUserSpec) ApplyDefaults() {
-	if spec.AuthSource == "" {
-		spec.AuthSource = "admin"
-	}
 }
 
 type MongoDBUserStatus struct {

@@ -49,7 +49,9 @@ spec:
           spec:
             properties:
               authSource:
+                default: admin
                 description: AuthSource is the authentication database for the user.
+                  Defaults to "admin".
                 type: string
               connectionStringSecretName:
                 type: string
