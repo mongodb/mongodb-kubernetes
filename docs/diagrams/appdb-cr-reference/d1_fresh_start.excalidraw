@@ -540,11 +540,11 @@
       "locked": false,
       "fontSize": 16,
       "fontFamily": 2,
-      "text": "User creates MongoDB/MongoDBMulti CR\nspec.role: AppDB",
+      "text": "User creates MongoDB CR (Phase 1)\nspec.role: AppDB, single-cluster",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "r3",
-      "originalText": "User creates MongoDB/MongoDBMulti CR\nspec.role: AppDB",
+      "originalText": "User creates MongoDB CR (Phase 1)\nspec.role: AppDB, single-cluster",
       "lineHeight": 1.15,
       "baseline": 33
     },
