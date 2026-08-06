@@ -594,6 +594,24 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	}, authUsers[1])
 }
 
+func TestMongoDBCommunity_GetAuthUsers_EmptyDBIsNotDefaulted(t *testing.T) {
+	// The admin default lives on the CRD only. Nothing here re-applies it, so an empty
+	// db is passed through untouched rather than coerced.
+	mdb := newReplicaSet(2, "my-rs", "my-namespace")
+	mdb.Spec.Users = []MongoDBUser{{
+		Name:              "my-user",
+		DB:                "",
+		PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
+	}}
+
+	authUsers := mdb.GetAuthUsers()
+
+	require.Len(t, authUsers, 1)
+	assert.Empty(t, authUsers[0].AuthSource)
+	// with no auth database there is no authSource to write
+	assert.NotContains(t, mdb.MongoAuthUserURI(authUsers[0], "pw"), "authSource=")
+}
+
 func TestMongoDBCommunity_MongoAuthUserURI_WithAuthSource(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 	testuser := authtypes.User{
