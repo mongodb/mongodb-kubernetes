@@ -36,6 +36,11 @@ PLUS_PASSWORD_USER_NAME = "mms-user-4"
 PLUS_PASSWORD_SECRET_NAME = "mms-user-4-password"
 PLUS_PASSWORD_USER_PASSWORD = "my:p@ss/w?rd# %[+]!$&'()*,;=~-._"
 
+DIFFERENT_DATABASE_USER_NAME = "mms-user-5"
+DIFFERENT_DATABASE_SECRET_NAME = "mms-user-5-password"
+DIFFERENT_DATABASE_USER_PASSWORD = "my-password-5"
+DIFFERENT_DATABASE_DEFAULT_DATABASE = "myapp"
+
 
 def create_password_secret(namespace: str) -> str:
     create_or_update_secret(
@@ -93,6 +98,13 @@ def space_password_standard_secret(replica_set: MongoDB):
 @fixture(scope="function")
 def plus_password_standard_secret(replica_set: MongoDB):
     secret_name = "{}-{}-{}".format(replica_set.name, PLUS_PASSWORD_USER_NAME, USER_DATABASE)
+    return read_secret(replica_set.namespace, secret_name)
+
+
+@fixture(scope="function")
+def different_database_standard_secret(replica_set: MongoDB):
+    # the connection string secret name is keyed by authSource, not defaultDatabase
+    secret_name = "{}-{}-{}".format(replica_set.name, DIFFERENT_DATABASE_USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
 
 
@@ -338,6 +350,58 @@ def test_plus_password_credentials_can_connect_to_db_with_srv(
 ):
     replica_set.assert_connectivity_from_connection_string(
         plus_password_standard_secret["connectionString.standardSrv"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_create_user_with_different_default_database(replica_set: MongoDB, namespace: str):
+    """authSource and defaultDatabase are independent: this user authenticates against
+    USER_DATABASE ("admin") but has a different defaultDatabase, which must show up in the
+    connection string URI path while authSource remains "admin" in the query parameters."""
+    create_or_update_secret(namespace, DIFFERENT_DATABASE_SECRET_NAME, {"password": DIFFERENT_DATABASE_USER_PASSWORD})
+    resource = MongoDBUser(name=DIFFERENT_DATABASE_USER_NAME, namespace=namespace)
+    resource["spec"] = {
+        "username": DIFFERENT_DATABASE_USER_NAME,
+        "authSource": USER_DATABASE,
+        "defaultDatabase": DIFFERENT_DATABASE_DEFAULT_DATABASE,
+        "mongodbResourceRef": {"name": replica_set.name},
+        "passwordSecretKeyRef": {"name": DIFFERENT_DATABASE_SECRET_NAME, "key": "password"},
+        "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
+    }
+    try_load(resource)
+    resource.update()
+    resource.assert_reaches_phase(Phase.Updated, timeout=150)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_default_database_credentials_secret_is_created(
+    different_database_standard_secret: Dict[str, str],
+):
+    assert "connectionString.standard" in different_database_standard_secret
+    assert "connectionString.standardSrv" in different_database_standard_secret
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        conn = different_database_standard_secret[key]
+        # authSource must reflect the auth database, not the defaultDatabase
+        assert f"authSource={USER_DATABASE}" in conn
+        # the URI path segment must reflect defaultDatabase, not authSource
+        assert f"/{DIFFERENT_DATABASE_DEFAULT_DATABASE}?" in conn
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_default_database_credentials_can_connect_to_db(
+    replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
+):
+    replica_set.assert_connectivity_from_connection_string(
+        different_database_standard_secret["connectionString.standard"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_default_database_credentials_can_connect_to_db_with_srv(
+    replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
+):
+    replica_set.assert_connectivity_from_connection_string(
+        different_database_standard_secret["connectionString.standardSrv"], tls=False
     )
 
 
