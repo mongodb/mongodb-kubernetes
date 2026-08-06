@@ -335,7 +335,7 @@ echo "  forwarding-rule summary: ${gke_forwarding_rules_deleted} ${delete_summar
 echo "  target-pool summary: ${gke_target_pools_deleted} ${delete_summary}, ${gke_target_pools_skipped} skipped, ${gke_target_pools_failed} failed"
 
 # ---------------------------------------------------------------------------
-# 3c. GKE LoadBalancer firewall rules (k8s-fw-*, k8s-*-hc). GKE auto-deletes
+# 3c. GKE LoadBalancer firewall rules (k8s-*). GKE auto-deletes
 #     its own managed rules on cluster delete, but LB Service rules are left
 #     behind and accumulate until the project FIREWALLS quota (500) is
 #     exhausted. These carry the node network tag gke-<cluster>-<hash>-node,
@@ -348,7 +348,7 @@ fw_deleted=0
 fw_failed=0
 if ! fw_list=$(run_gcloud_inventory gcloud compute firewall-rules list \
     --project="${MDB_GKE_PROJECT}" \
-    --filter="(name~^k8s-fw- OR name~^k8s-.*-hc$) AND targetTags.list()~^gke-k8s-mdb-[0-2]-[a-z0-9-]+-[0-9a-f]+-node$ AND creationTimestamp < ${threshold_timestamp}" \
+    --filter="name~^k8s- AND targetTags.list()~^gke-k8s-mdb-[0-2]-[a-z0-9-]+-[0-9a-f]+-node$ AND creationTimestamp < ${threshold_timestamp}" \
     --format="value(name)"); then
     echo "  ERROR listing GKE LB firewall rules"
     overall_failed=1
