@@ -599,7 +599,8 @@ spec:
                     defaultDatabase:
                       description: |-
                         DefaultDatabase is the database placed in the connection string URI path.
-                        Leaves the URI path empty when unset.
+                        Leaves the URI path empty when unset. Ignored when AuthSource is "$external",
+                        since it is an auth-only pseudo-database and must not appear in the URI path.
                       type: string
                     name:
                       description: Name is the username of the user
