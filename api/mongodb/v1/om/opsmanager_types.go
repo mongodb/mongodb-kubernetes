@@ -189,7 +189,9 @@ type ExternalApplicationDatabaseRef struct {
 	Kind string `json:"kind"`
 
 	// Transient fields
-	Namespace string `json:"-"`
+	Namespace       string `json:"-"`
+	IsTLSEnabled    bool   `json:"-"`
+	CAConfigMapName string `json:"-"`
 }
 
 type Logging struct {
@@ -310,16 +312,20 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	return ""
 }
 
-func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
+func (ms MongoDBOpsManagerSpec) GetAppDBCAConfigMapName() string {
 	if ms.ExternalApplicationDatabaseRef != nil {
-		return ""
+		return ms.ExternalApplicationDatabaseRef.CAConfigMapName
 	}
 
-	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
-		return ms.AppDB.Security.TLSConfig.CA
+	return ms.AppDB.GetCAConfigMapName()
+}
+
+func (ms MongoDBOpsManagerSpec) IsAppDBTLSEnabled() bool {
+	if ms.ExternalApplicationDatabaseRef != nil {
+		return ms.ExternalApplicationDatabaseRef.IsTLSEnabled
 	}
 
-	return ""
+	return ms.AppDB.GetSecurity().IsTLSEnabled()
 }
 
 func (ms *MongoDBOpsManagerSpec) IsMultiCluster() bool {

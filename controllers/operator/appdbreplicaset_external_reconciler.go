@@ -6,7 +6,6 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -42,9 +41,14 @@ func (r *OpsManagerReconciler) createNewExternalAppDBReconciler(log *zap.Sugared
 // detach-and-adopt migration of any pre-existing internal AppDB (idempotent, no-op once
 // complete), and establishes a watch on the referenced CR.
 func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (reconcile.Result, error) {
-	if err := e.validateExternalAppDBReference(ctx, opsManager); err != nil {
+	refObject, err := e.validateExternalAppDBReference(ctx, opsManager)
+	if err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error validating externalApplicationDatabaseRef: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
+
+	// Set TLS configuration so that it is easily retrievable later in Ops Manager reconciler
+	opsManager.Spec.ExternalApplicationDatabaseRef.IsTLSEnabled = refObject.IsTLSEnabled()
+	opsManager.Spec.ExternalApplicationDatabaseRef.CAConfigMapName = refObject.GetCAConfigMapName()
 
 	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager); err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error detaching internal AppDB StatefulSet: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
@@ -59,23 +63,23 @@ func (e *ReconcileExternalAppDBReplicaSet) BuildAppDBConnectionURL(ctx context.C
 }
 
 // validateExternalAppDBReference validates that opsManager's spec.externalApplicationDatabaseRef
-func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
+func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (ExternalAppDB, error) {
 	ref := opsManager.Spec.ExternalApplicationDatabaseRef
 	if ref == nil {
-		return xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
+		return nil, xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
 	}
 
 	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
 	if err != nil {
-		return xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
+		return nil, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
 	role := refObject.GetRole()
 	if role != mdbv1.RoleAppDB {
-		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
+		return nil, xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
 	}
 
-	return nil
+	return refObject, nil
 }
 
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
@@ -139,31 +143,6 @@ func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(
 	}
 
 	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
-}
-
-// resolveAppDBTLSConfig returns the CA ConfigMap name and TLS-enabled flag that OpsManager and the
-// Backup Daemon should use to trust the AppDB's TLS certificate. For the internally-managed AppDB it
-// reads opsManager.Spec.AppDB; for an external AppDB it reads the referenced MongoDB CR's security config.
-func resolveAppDBTLSConfig(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager) (caConfigMapName string, tlsEnabled bool, err error) {
-	if opsManager.Spec.ExternalApplicationDatabaseRef == nil {
-		if opsManager.Spec.AppDB == nil {
-			return "", false, nil
-		}
-		return opsManager.Spec.AppDB.GetCAConfigMapName(), opsManager.Spec.AppDB.IsSecurityTLSConfigEnabled(), nil
-	}
-
-	ref := opsManager.Spec.ExternalApplicationDatabaseRef
-	if ref.Kind != "MongoDB" {
-		return "", false, xerrors.Errorf("externalApplicationDatabaseRef.kind %q is not supported", ref.Kind)
-	}
-	mongodb := &mdbv1.MongoDB{}
-	objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
-	if err := c.Get(ctx, objectKey, mongodb); err != nil {
-		return "", false, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s: %w", objectKey, err)
-	}
-
-	refObject := &externalAppDBRefObject{ConnectionStringBuilder: mongodb, DbCommonSpec: mongodb.Spec.DbCommonSpec}
-	return refObject.GetCAConfigMapName(), refObject.IsTLSEnabled(), nil
 }
 
 type externalAppDBRefObject struct {

@@ -92,11 +92,13 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reconciler := newOpsManagerReconcilerForValidation(tt.objects...)
-			err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, tt.om)
+			externalAppDB, err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, tt.om)
 			if tt.expectedError == "" {
 				require.NoError(t, err)
+				require.NotNil(t, externalAppDB)
 			} else {
 				require.EqualError(t, err, tt.expectedError)
+				require.Nil(t, externalAppDB)
 			}
 		})
 	}
