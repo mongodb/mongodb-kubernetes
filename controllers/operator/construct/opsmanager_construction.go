@@ -93,15 +93,6 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 	}
 }
 
-// WithAppDBTLSCAConfigMapName injects the effective AppDB CA ConfigMap name (resolved by the
-// controller from either the internal AppDB spec or an external AppDB's referenced CR) so the
-// OpsManager and Backup Daemon pods mount the correct CA to trust the AppDB's TLS certificate.
-func WithAppDBTLSCAConfigMapName(name string) func(opts *OpsManagerStatefulSetOptions) {
-	return func(opts *OpsManagerStatefulSetOptions) {
-		opts.AppDBTlsCAConfigMapName = name
-	}
-}
-
 func WithVaultConfig(config vault.VaultConfiguration) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.VaultConfig = config
@@ -285,19 +276,6 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	return omSts, nil
 }
 
-// appDBTlsCAConfigMapName returns the AppDB CA ConfigMap name for internal AppDB mode,
-// or empty string when externalApplicationDatabaseRef is set (Spec.AppDB is nil).
-func appDBTlsCAConfigMapName(opsManager *omv1.MongoDBOpsManager) string {
-	// TODO(CLOUDP-TBD): AppDBTlsCAConfigMapName is computed from the internal AppDB spec
-	// even in external-AppDB mode, so OM/BackupDaemon won't trust the external CR's actual
-	// CA. Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not
-	// fixed here.
-	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
-		return ""
-	}
-	return opsManager.Spec.AppDB.GetCAConfigMapName()
-}
-
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
@@ -305,7 +283,7 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
 		OwnerName:               opsManager.Name,
 		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
-		AppDBTlsCAConfigMapName: appDBTlsCAConfigMapName(opsManager),
+		AppDBTlsCAConfigMapName: opsManager.Spec.GetAppDBCAConfigMapName(),
 		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
 		Namespace:               opsManager.Namespace,
 		Labels:                  opsManager.Labels,
