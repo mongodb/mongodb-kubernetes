@@ -69,8 +69,9 @@ func NewTestMongoDB(ctx *TestContext, name string, namespace string) (mdbv1.Mong
 			},
 			Users: []mdbv1.MongoDBUser{
 				{
-					Name:       fmt.Sprintf("%s-user", name),
-					AuthSource: "admin",
+					Name:            fmt.Sprintf("%s-user", name),
+					AuthSource:      "admin",
+					DefaultDatabase: "admin",
 					PasswordSecretRef: v1.SecretKeyReference{
 						Key:  fmt.Sprintf("%s-password", name),
 						Name: fmt.Sprintf("%s-%s-password-secret", name, ctx.ExecutionId),
