@@ -76,7 +76,6 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
         namespace,
         username=mongodb_user.username,
         auth_source="$external",
-        default_database="$external",
         password=mongodb_user.password,
         mongodb_resource=replica_set,
     )
@@ -213,7 +212,6 @@ def user_x509(replica_set: MongoDB, namespace: str) -> MongoDBUser:
         namespace,
         username="CN=x509-testing-user",
         auth_source="$external",
-        default_database="$external",
         mongodb_resource=replica_set,
     )
 

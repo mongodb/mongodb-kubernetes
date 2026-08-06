@@ -6,7 +6,6 @@
   spec:
     username: "uid=mdb0,dc=example,dc=org"
     authSource: "$external"
-    defaultDatabase: "$external"
     mongodbResourceRef:
       name: ldap-sharded-cluster
     roles:

@@ -108,8 +108,11 @@ def generic_user(
     user["spec"] = {
         "username": username,
         "authSource": auth_source,
-        "defaultDatabase": default_database,
     }
+    # $external is an auth-only pseudo-database and must not appear in the connection
+    # string URI path, so defaultDatabase is omitted rather than set to "$external".
+    if auth_source != "$external":
+        user["spec"]["defaultDatabase"] = default_database
 
     if mongodb_resource is not None:
         user["spec"]["mongodbResourceRef"] = {"name": mongodb_resource.name}

@@ -6,7 +6,6 @@ metadata:
 spec:
   username: 'CN=x509-testing-user'
   authSource: '$external'
-  defaultDatabase: '$external'
   mongodbResourceRef:
     name: 'test-tls-base-rs-x509'
   roles:

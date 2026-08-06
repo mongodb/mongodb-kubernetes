@@ -260,7 +260,8 @@ type MongoDBUser struct {
 	AuthSource string `json:"authSource,omitempty"`
 
 	// DefaultDatabase is the database placed in the connection string URI path.
-	// Leaves the URI path empty when unset.
+	// Leaves the URI path empty when unset. Ignored when AuthSource is "$external",
+	// since it is an auth-only pseudo-database and must not appear in the URI path.
 	// +optional
 	DefaultDatabase string `json:"defaultDatabase,omitempty"`
 

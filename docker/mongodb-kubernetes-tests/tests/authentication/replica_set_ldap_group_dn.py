@@ -59,7 +59,6 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
         namespace,
         username=ldap_mongodb_user.uid,
         auth_source="$external",
-        default_database="$external",
         mongodb_resource=replica_set,
         password=ldap_mongodb_user.password,
     )

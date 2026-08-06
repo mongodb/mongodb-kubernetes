@@ -139,7 +139,6 @@ spec:
   users:
   - name: CN=my-x509-user,OU=organizationalunit,O=organization
     authSource: $external
-    defaultDatabase: $external
     roles:
       - name: clusterAdmin
         db: admin
