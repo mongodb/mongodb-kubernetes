@@ -39,7 +39,7 @@ PLUS_PASSWORD_USER_PASSWORD = "my:p@ss/w?rd# %[+]!$&'()*,;=~-._"
 DIFFERENT_DATABASE_USER_NAME = "mms-user-5"
 DIFFERENT_DATABASE_SECRET_NAME = "mms-user-5-password"
 DIFFERENT_DATABASE_USER_PASSWORD = "my-password-5"
-DIFFERENT_DATABASE_DEFAULT_DATABASE = "myapp"
+DIFFERENT_CONNECTION_STRING_DATABASE = "myapp"
 
 
 def create_password_secret(namespace: str) -> str:
@@ -103,7 +103,7 @@ def plus_password_standard_secret(replica_set: MongoDB):
 
 @fixture(scope="function")
 def different_database_standard_secret(replica_set: MongoDB):
-    # the connection string secret name is keyed by authSource, not defaultDatabase
+    # the connection string secret name is keyed by spec.db, not connectionStringDatabase
     secret_name = "{}-{}-{}".format(replica_set.name, DIFFERENT_DATABASE_USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
 
@@ -204,7 +204,7 @@ def test_credentials_secret_is_created(replica_set: MongoDB, standard_secret: Di
     assert "password" in standard_secret
     assert "connectionString.standard" in standard_secret
     assert "connectionString.standardSrv" in standard_secret
-    # authSource in the connection string must match the user's spec.authSource
+    # authSource in the connection string must match the user's spec.db
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
 
@@ -225,7 +225,7 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
     assert "password" in non_admin_standard_secret
     assert "connectionString.standard" in non_admin_standard_secret
     assert "connectionString.standardSrv" in non_admin_standard_secret
-    # authSource in the connection string must match the user's spec.authSource (non-admin database)
+    # authSource in the connection string must match the user's spec.db (non-admin database)
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
 
@@ -262,8 +262,8 @@ def test_create_user_with_space_in_password(replica_set: MongoDB, namespace: str
     resource = MongoDBUser(name=SPACE_PASSWORD_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": SPACE_PASSWORD_USER_NAME,
-        "authSource": USER_DATABASE,
-        "defaultDatabase": USER_DATABASE,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": SPACE_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -310,8 +310,8 @@ def test_create_user_with_plus_in_password(replica_set: MongoDB, namespace: str)
     resource = MongoDBUser(name=PLUS_PASSWORD_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": PLUS_PASSWORD_USER_NAME,
-        "authSource": USER_DATABASE,
-        "defaultDatabase": USER_DATABASE,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": PLUS_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -354,16 +354,16 @@ def test_plus_password_credentials_can_connect_to_db_with_srv(
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_create_user_with_different_default_database(replica_set: MongoDB, namespace: str):
-    """authSource and defaultDatabase are independent: this user authenticates against
-    USER_DATABASE ("admin") but has a different defaultDatabase, which must show up in the
-    connection string URI path while authSource remains "admin" in the query parameters."""
+def test_create_user_with_different_connection_string_database(replica_set: MongoDB, namespace: str):
+    """spec.db and spec.connectionStringDatabase are independent: this user authenticates
+    against USER_DATABASE ("admin") but has a different connectionStringDatabase, which must
+    show up in the connection string URI path while authSource stays "admin" in the query."""
     create_or_update_secret(namespace, DIFFERENT_DATABASE_SECRET_NAME, {"password": DIFFERENT_DATABASE_USER_PASSWORD})
     resource = MongoDBUser(name=DIFFERENT_DATABASE_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": DIFFERENT_DATABASE_USER_NAME,
-        "authSource": USER_DATABASE,
-        "defaultDatabase": DIFFERENT_DATABASE_DEFAULT_DATABASE,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": DIFFERENT_CONNECTION_STRING_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": DIFFERENT_DATABASE_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -374,21 +374,21 @@ def test_create_user_with_different_default_database(replica_set: MongoDB, names
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_different_default_database_credentials_secret_is_created(
+def test_different_connection_string_database_credentials_secret_is_created(
     different_database_standard_secret: Dict[str, str],
 ):
     assert "connectionString.standard" in different_database_standard_secret
     assert "connectionString.standardSrv" in different_database_standard_secret
     for key in ("connectionString.standard", "connectionString.standardSrv"):
         conn = different_database_standard_secret[key]
-        # authSource must reflect the auth database, not the defaultDatabase
+        # authSource must reflect spec.db, not connectionStringDatabase
         assert f"authSource={USER_DATABASE}" in conn
-        # the URI path segment must reflect defaultDatabase, not authSource
-        assert f"/{DIFFERENT_DATABASE_DEFAULT_DATABASE}?" in conn
+        # the URI path segment must reflect connectionStringDatabase, not spec.db
+        assert f"/{DIFFERENT_CONNECTION_STRING_DATABASE}?" in conn
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_different_default_database_credentials_can_connect_to_db(
+def test_different_connection_string_database_credentials_can_connect_to_db(
     replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
 ):
     replica_set.assert_connectivity_from_connection_string(
@@ -397,7 +397,7 @@ def test_different_default_database_credentials_can_connect_to_db(
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_different_default_database_credentials_can_connect_to_db_with_srv(
+def test_different_connection_string_database_credentials_can_connect_to_db_with_srv(
     replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
 ):
     replica_set.assert_connectivity_from_connection_string(

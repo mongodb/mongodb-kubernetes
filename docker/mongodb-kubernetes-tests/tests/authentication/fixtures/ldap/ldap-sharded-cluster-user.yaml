@@ -5,7 +5,7 @@
     name: ldap-user-0
   spec:
     username: "uid=mdb0,dc=example,dc=org"
-    authSource: "$external"
+    db: "$external"
     mongodbResourceRef:
       name: ldap-sharded-cluster
     roles:

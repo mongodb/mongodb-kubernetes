@@ -86,7 +86,7 @@ def new_om_data_store(
 ) -> dict:
     return {
         "id": id,
-        "uri": mdb.mongo_uri(user_name=user_name, password=password, default_database="admin"),
+        "uri": mdb.mongo_uri(user_name=user_name, password=password, connection_string_database="admin"),
         "ssl": mdb.is_tls_enabled(),
         "assignmentEnabled": assignment_enabled,
     }

@@ -12,8 +12,8 @@ spec:
       modes: ["SCRAM"]
   users:
     - name: my-user
-      authSource: admin
-      defaultDatabase: admin
+      db: admin
+      connectionStringDatabase: admin
       passwordSecretRef:
         name: my-user-password
       roles:

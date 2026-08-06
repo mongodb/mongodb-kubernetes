@@ -21,8 +21,8 @@ spec:
         name: my-agent-certificate
   users:
     - name: my-user
-      authSource: admin
-      defaultDatabase: admin
+      db: admin
+      connectionStringDatabase: admin
       passwordSecretRef: # a reference to the secret that will be used to generate the user's password
         name: my-user-password
       roles:
@@ -34,7 +34,7 @@ spec:
           name: readWriteAnyDatabase
       scramCredentialsSecretName: my-scram
     - name: "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization"
-      authSource: "$external"
+      db: "$external"
       roles:
         - name: clusterAdmin
           db: admin

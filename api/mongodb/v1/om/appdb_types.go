@@ -207,9 +207,9 @@ func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	}
 	return []authtypes.User{
 		{
-			Username:        util.OpsManagerMongoDBUserName,
-			AuthSource:      util.DefaultUserDatabase,
-			DefaultDatabase: util.DefaultUserDatabase,
+			Username:                 util.OpsManagerMongoDBUserName,
+			AuthSource:               util.DefaultUserDatabase,
+			ConnectionStringDatabase: util.DefaultUserDatabase,
 			// required roles for the AppDB user are outlined in the documentation
 			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
 			Roles: []authtypes.Role{

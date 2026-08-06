@@ -8,8 +8,7 @@ spec:
     name: my-scram-secret # the name of the secret that stores this user's password
     key: password # the key in the secret that stores the password
   username: my-scram-user
-  authSource: admin
-  defaultDatabase: admin
+  db: admin
   mongodbResourceRef:
     name: my-scram-enabled-replica-set # The name of the MongoDB resource this user will be added to
   roles:

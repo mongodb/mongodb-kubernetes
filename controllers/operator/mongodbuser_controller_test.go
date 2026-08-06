@@ -68,7 +68,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 
 	_, createdUser := ac.Auth.GetUser("my-user", "admin")
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
-	assert.Equal(t, user.Spec.AuthSource, createdUser.Database)
+	assert.Equal(t, user.Spec.Database, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 
 	require.NoError(t, client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), user))
@@ -124,7 +124,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 
 	_, createdUser := ac.Auth.GetUser("my-user", "admin")
 	assert.Equal(t, user.Spec.Username, createdUser.Username)
-	assert.Equal(t, user.Spec.AuthSource, createdUser.Database)
+	assert.Equal(t, user.Spec.Database, createdUser.Database)
 	assert.Equal(t, len(user.Spec.Roles), len(createdUser.Roles))
 
 	// reconcile the same user again and make sure the automation config is not updated, if the user's password is not changed
@@ -240,8 +240,8 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	// change the username and auth database (these are the values used to identify a user)
 	updateUser(ctx, user, client, func(user *userv1.MongoDBUser) {
 		user.Spec.Username = "changed-name"
-		user.Spec.AuthSource = "changed-db"
-		user.Spec.DefaultDatabase = "changed-db"
+		user.Spec.Database = "changed-db"
+		user.Spec.ConnectionStringDatabase = "changed-db"
 	})
 
 	actual, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
@@ -315,7 +315,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetAuthSource(authentication.ExternalDB).SetDefaultDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetConnectionStringDatabase(authentication.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
@@ -336,7 +336,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 }
 
 func AssertAuthModeTest(ctx context.Context, t *testing.T, mode mdbv1.AuthMode) {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetAuthSource(authentication.ExternalDB).SetDefaultDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).SetConnectionStringDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client, _ := defaultUserReconciler(ctx, user)
 	err := client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
@@ -476,7 +476,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 
 func TestConnectionStringSecret_UsesAuthSource_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetAuthSource("mydb").SetDefaultDatabase("mydb").Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").SetConnectionStringDatabase("mydb").Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
@@ -500,7 +500,7 @@ func TestConnectionStringSecret_UsesAuthSource_AsAuthSource(t *testing.T) {
 
 func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetAuthSource(authentication.ExternalDB).SetDefaultDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).SetConnectionStringDatabase(authentication.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableX509().SetName("my-rs").Build())
@@ -528,7 +528,7 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 
 func TestConnectionStringSecret_ScramSHA1_UsesAuthSource_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetAuthSource("mydb").SetDefaultDatabase("mydb").Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").SetConnectionStringDatabase("mydb").Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha1Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().
@@ -612,11 +612,12 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 	err = kubeClient.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
 	require.NoError(t, err)
 
-	// Validate connection string contains expected values
+	// The URI path stays empty because connectionStringDatabase is unset, while
+	// spec.db still drives the authSource parameter.
 	connectionString := string(secret.Data["connectionString.standard"])
 	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
 		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
-		"/admin?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
 	assert.Equal(t, expectedConnectionString, connectionString)
 }
 
@@ -707,7 +708,7 @@ func TestConnectionStringSecret_NotExplicitlyDeleted_OnUserDeletion(t *testing.T
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
 func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetAuthSource(authentication.ExternalDB).SetDefaultDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).SetConnectionStringDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client, omConnectionFactory := defaultUserReconciler(ctx, user)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -799,15 +800,15 @@ func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, a
 }
 
 type MongoDBUserBuilder struct {
-	project             string
-	passwordRef         userv1.SecretKeyRef
-	roles               []userv1.Role
-	username            string
-	authSource          string
-	defaultDatabase     string
-	resourceName        string
-	mongodbResourceName string
-	namespace           string
+	project                  string
+	passwordRef              userv1.SecretKeyRef
+	roles                    []userv1.Role
+	username                 string
+	database                 string
+	connectionStringDatabase string
+	resourceName             string
+	mongodbResourceName      string
+	namespace                string
 }
 
 func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
@@ -830,13 +831,13 @@ func (b *MongoDBUserBuilder) SetNamespace(namespace string) *MongoDBUserBuilder 
 	return b
 }
 
-func (b *MongoDBUserBuilder) SetAuthSource(authSource string) *MongoDBUserBuilder {
-	b.authSource = authSource
+func (b *MongoDBUserBuilder) SetDatabase(database string) *MongoDBUserBuilder {
+	b.database = database
 	return b
 }
 
-func (b *MongoDBUserBuilder) SetDefaultDatabase(db string) *MongoDBUserBuilder {
-	b.defaultDatabase = db
+func (b *MongoDBUserBuilder) SetConnectionStringDatabase(db string) *MongoDBUserBuilder {
+	b.connectionStringDatabase = db
 	return b
 }
 
@@ -873,8 +874,7 @@ func DefaultMongoDBUserBuilder() *MongoDBUserBuilder {
 			Key:  "password",
 		},
 		username:            "my-user",
-		authSource:          "admin",
-		defaultDatabase:     "admin",
+		database:            "admin",
 		mongodbResourceName: mock.TestMongoDBName,
 		namespace:           mock.TestNamespace,
 	}
@@ -894,11 +894,11 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 			Namespace: b.namespace,
 		},
 		Spec: userv1.MongoDBUserSpec{
-			Roles:                b.roles,
-			PasswordSecretKeyRef: b.passwordRef,
-			Username:             b.username,
-			AuthSource:           b.authSource,
-			DefaultDatabase:      b.defaultDatabase,
+			Roles:                    b.roles,
+			PasswordSecretKeyRef:     b.passwordRef,
+			Username:                 b.username,
+			Database:                 b.database,
+			ConnectionStringDatabase: b.connectionStringDatabase,
 			MongoDBResourceRef: userv1.MongoDBResourceRef{
 				Name: b.mongodbResourceName,
 			},

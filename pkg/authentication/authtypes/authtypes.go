@@ -75,8 +75,8 @@ type User struct {
 	// AuthSource is the database used to authenticate this user.
 	AuthSource string
 
-	// DefaultDatabase is the default database placed in the connection string URI path.
-	DefaultDatabase string
+	// ConnectionStringDatabase is the database placed in the connection string URI path.
+	ConnectionStringDatabase string
 
 	// ConnectionStringOptions contains connection string options for this user
 	// These options will be appended at the end of the connection string and
@@ -86,7 +86,7 @@ type User struct {
 
 // GetPathDatabase returns the database to place in the connection string URI path.
 func (u User) GetPathDatabase() string {
-	return u.DefaultDatabase
+	return u.ConnectionStringDatabase
 }
 
 // GetAuthSource returns the database used to authenticate this user (used in AutomationConfig

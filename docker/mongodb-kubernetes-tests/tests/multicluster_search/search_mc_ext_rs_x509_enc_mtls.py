@@ -226,8 +226,8 @@ def x509_mongot_user(namespace: str, central_cluster_client: kubernetes.client.A
     if not try_load(resource):
         resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
         resource["spec"]["username"] = user_dn
-        resource["spec"]["authSource"] = "$external"
-        resource["spec"].pop("defaultDatabase", None)
+        resource["spec"]["db"] = "$external"
+        resource["spec"].pop("connectionStringDatabase", None)
         resource["spec"].pop("passwordSecretKeyRef", None)
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     return resource

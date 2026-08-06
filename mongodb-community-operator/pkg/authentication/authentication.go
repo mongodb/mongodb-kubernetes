@@ -50,19 +50,19 @@ func getRemovedUsersFromSpec(currentMDB mdbv1.MongoDBCommunitySpec, lastAppliedM
 	var deletedUsers []automationconfig.DeletedUser
 
 	for _, mongoDBUser := range currentMDB.Users {
-		if mongoDBUser.AuthSource == constants.ExternalDB {
+		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		m[user{db: mongoDBUser.AuthSource, name: mongoDBUser.Name}] = true
+		m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}] = true
 	}
 
 	for _, mongoDBUser := range lastAppliedMDBSpec.Users {
-		if mongoDBUser.AuthSource == constants.ExternalDB {
+		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		_, ok := m[user{db: mongoDBUser.AuthSource, name: mongoDBUser.Name}]
+		_, ok := m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}]
 		if !ok {
-			deletedUsers = append(deletedUsers, automationconfig.DeletedUser{User: mongoDBUser.Name, Dbs: []string{mongoDBUser.AuthSource}})
+			deletedUsers = append(deletedUsers, automationconfig.DeletedUser{User: mongoDBUser.Name, Dbs: []string{mongoDBUser.DB}})
 		}
 	}
 	return deletedUsers

@@ -73,17 +73,17 @@ func getScramSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppl
 	var secretsToDelete []string
 
 	for _, mongoDBUser := range currentMDBSpec.Users {
-		if mongoDBUser.AuthSource == constants.ExternalDB {
+		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		m[user{db: mongoDBUser.AuthSource, name: mongoDBUser.Name}] = mongoDBUser.GetScramCredentialsSecretName()
+		m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}] = mongoDBUser.GetScramCredentialsSecretName()
 	}
 
 	for _, mongoDBUser := range lastAppliedMDBSpec.Users {
-		if mongoDBUser.AuthSource == constants.ExternalDB {
+		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		currentScramSecretName, ok := m[user{db: mongoDBUser.AuthSource, name: mongoDBUser.Name}]
+		currentScramSecretName, ok := m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}]
 		if !ok { // not used anymore
 			secretsToDelete = append(secretsToDelete, mongoDBUser.GetScramCredentialsSecretName())
 		} else if currentScramSecretName != mongoDBUser.GetScramCredentialsSecretName() { // have changed
@@ -102,17 +102,17 @@ func getConnectionStringSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpe
 	var secretsToDelete []string
 
 	for _, mongoDBUser := range currentMDBSpec.Users {
-		if mongoDBUser.AuthSource == constants.ExternalDB {
+		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		m[user{db: mongoDBUser.AuthSource, name: mongoDBUser.Name}] = mongoDBUser.GetConnectionStringSecretName(resourceName)
+		m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}] = mongoDBUser.GetConnectionStringSecretName(resourceName)
 	}
 
 	for _, mongoDBUser := range lastAppliedMDBSpec.Users {
-		if mongoDBUser.AuthSource == constants.ExternalDB {
+		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		currentConnectionStringSecretName, ok := m[user{db: mongoDBUser.AuthSource, name: mongoDBUser.Name}]
+		currentConnectionStringSecretName, ok := m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}]
 		if !ok { // user was removed
 			secretsToDelete = append(secretsToDelete, mongoDBUser.GetConnectionStringSecretName(resourceName))
 		} else if currentConnectionStringSecretName != mongoDBUser.GetConnectionStringSecretName(resourceName) {

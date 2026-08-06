@@ -11,15 +11,15 @@ import (
 func TestMongoDBUser_ChangedIdentifier(t *testing.T) {
 	before := MongoDBUser{
 		Spec: MongoDBUserSpec{
-			Username:   "before-name",
-			AuthSource: "before-db",
+			Username: "before-name",
+			Database: "before-db",
 		},
 	}
 
 	after := MongoDBUser{
 		Spec: MongoDBUserSpec{
-			Username:   "after-name",
-			AuthSource: "after-db",
+			Username: "after-name",
+			Database: "after-db",
 		},
 		Status: MongoDBUserStatus{
 			Username: "before-name",
@@ -32,8 +32,8 @@ func TestMongoDBUser_ChangedIdentifier(t *testing.T) {
 
 	before = MongoDBUser{
 		Spec: MongoDBUserSpec{
-			Username:   "before-name",
-			AuthSource: "before-db",
+			Username: "before-name",
+			Database: "before-db",
 		},
 		Status: MongoDBUserStatus{
 			Username: "before-name",
