@@ -25,8 +25,7 @@ import (
 type Type string
 
 const (
-	ReplicaSet       Type   = "ReplicaSet"
-	defaultDBForUser string = "admin"
+	ReplicaSet Type = "ReplicaSet"
 )
 
 type Phase string
@@ -314,17 +313,6 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 	return fmt.Sprintf("%s-%s", m.ScramCredentialsSecretName, "scram-credentials")
 }
 
-// ApplyDefaults sets AuthSource to "admin" when unset. DefaultDatabase is left as-is:
-// when empty, the connection string URI path stays empty and the driver defaults to
-// its own database (e.g. "test"). This is also a defensive fallback for local/e2e
-// resources that have not gone through the API server, where the kubebuilder default
-// marker on AuthSource would otherwise apply.
-func (m *MongoDBUser) ApplyDefaults() {
-	if m.AuthSource == "" {
-		m.AuthSource = defaultDBForUser
-	}
-}
-
 // GetConnectionStringSecretName gets the connection string secret name provided by the user or generated
 // from the SCRAM user configuration.
 func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
@@ -580,13 +568,6 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 				Database: r.DB,
 			}
 		}
-
-		// When the MongoDB resource has been fetched from Kubernetes, the User's
-		// authSource/defaultDatabase will be set to "admin" by the CRD's kubebuilder
-		// default, but when running e2e tests, the resource we are working with is
-		// local -- it has not been posted to the Kubernetes API and the defaults were
-		// never applied. This is why the fallback default is applied here too.
-		u.ApplyDefaults()
 
 		users[i] = authtypes.User{
 			Username:                          u.Name,

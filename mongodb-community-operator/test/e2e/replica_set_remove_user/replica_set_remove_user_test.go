@@ -68,7 +68,8 @@ func TestCleanupUsers(t *testing.T) {
 	}
 
 	newUser := mdbv1.MongoDBUser{
-		Name: fmt.Sprintf("%s-user-2", "mdb-0"),
+		Name:       fmt.Sprintf("%s-user-2", "mdb-0"),
+		AuthSource: "admin",
 		PasswordSecretRef: v1.SecretKeyReference{
 			Key:  fmt.Sprintf("%s-password-2", "mdb-0"),
 			Name: fmt.Sprintf("%s-%s-password-secret-2", "mdb-0", testCtx.ExecutionId),
