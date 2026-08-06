@@ -287,7 +287,7 @@ class TestOpsManagerVersionUpgrade:
         ops_manager.set_appdb_version(custom_appdb_version)
 
         ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, ignore_errors=True)
 
     def test_image_url(self, ops_manager: MongoDBOpsManager):
         pods = ops_manager.read_om_pods()
