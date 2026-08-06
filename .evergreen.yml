@@ -20,6 +20,7 @@ include:
   - filename: .evergreen-mco.yml
   - filename: .evergreen-snippets.yml
   - filename: .evergreen-release.yml
+  - filename: .evergreen-release-publish.yml
 
 variables:
   # NOTE: This is a denylist to prevent missing changes that shoudl trigger e2e.
@@ -253,8 +254,11 @@ patch_aliases:
   - alias: "patch-run-cloudqa"
     variant_tags: [ "cloudqa_non_static" ]
     task: ".*"
-  - alias: "release"
-    variant_tags: [ "release" ]
+  - alias: "deprecated-release"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  - alias: "release-publish"
+    variant_tags: [ "release-publish" ]
     task: ".*"
   - alias: "preflight_release_test"
     description: "Release-style preflight only (no image release, no Pyxis submit); patch-only. See EVERGREEN.md."
@@ -292,10 +296,19 @@ github_checks_aliases:
   - variant: ".*"
     task: ".*"
 
-# Triggered on git tag
+# Triggered on git tag. The plain "X.Y.Z" shape is intentionally NOT a trigger:
+# it's applied by the release pipelines themselves as the final, human-facing
+# tag once their trigger tag's pipeline succeeds, and must not re-trigger anything.
 git_tag_aliases:
-  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release" ]
+  # Legacy process (deprecated, still supported): rebuilds and retests images
+  # before publishing. See .evergreen-release.yml.
+  - git_tag: "^old-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  # New process: publishes the already-promoted images for the given commit
+  # without rebuilding or retesting. See .evergreen-release-publish.yml.
+  - git_tag: "^new-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "release-publish" ]
     task: ".*"
 
 tasks:
@@ -632,18 +645,6 @@ tasks:
         vars:
           image_name: ops-manager
 
-  - name: publish_ops_manager
-    commands:
-      - func: clone
-      - func: switch_context
-      - func: setup_building_host
-      - func: quay_login
-      - func: setup_docker_sbom
-      - func: pipeline
-        vars:
-          image_name: ops-manager
-          build_scenario: release
-
   - name: prepare_and_upload_openshift_bundles_for_e2e
     commands:
       - func: clone
@@ -695,6 +696,9 @@ task_groups:
   - name: check_ocp_version_drift_task_group
     setup_group:
       - func: clone
+      - command: github.generate_token
+        params:
+          expansion_name: GH_TOKEN
       - func: setup_openshift_client
       - func: setup_gh
     tasks:
@@ -2136,36 +2140,6 @@ buildvariants:
       - name: rebuild_specific_agent
 
   ### Build variants for manual patch only
-
-  - name: publish_om70_images
-    display_name: publish_om70_images
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch", "github_pr" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: e2e_om70_kind_ubi
-        name: '*'
-      - variant: e2e_static_om70_kind_ubi
-        name: '*'
-    tasks:
-      - name: publish_ops_manager
-      - name: release_agent
-
-  - name: publish_om80_images
-    display_name: publish_om80_images
-    tags: [ "manual_patch" ]
-    allowed_requesters: [ "patch", "github_pr" ]
-    run_on:
-      - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
-    depends_on:
-      - variant: e2e_om80_kind_ubi
-        name: '*'
-      - variant: e2e_static_om80_kind_ubi
-        name: '*'
-    tasks:
-      - name: publish_ops_manager
-      - name: release_agent
 
   - name: migrate_all_agents
     display_name: migrate_all_agents

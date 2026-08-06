@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role
@@ -18,7 +17,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role
@@ -119,7 +117,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role-telemetry
@@ -148,7 +145,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role-binding
@@ -165,7 +161,6 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role-binding
@@ -182,7 +177,6 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-telemetry-cluster-role-binding
@@ -200,7 +194,6 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multicluster

@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"syscall"
+	"time"
 
 	"github.com/blang/semver"
 	"go.uber.org/zap"
@@ -422,7 +423,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// 1. Reconcile AppDB
 	emptyResult, _ := workflow.OK().ReconcileResult()
-	retryResult := reconcile.Result{Requeue: true}
+	retryResult := reconcile.Result{RequeueAfter: time.Second}
 
 	// TODO: make SetupCommonWatchers support opsmanager watcher setup
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
@@ -474,7 +475,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// the AppDB still needs to configure monitoring, now that Ops Manager has been created
 	// we can finish this configuration.
-	if result.Requeue {
+	if result == retryResult {
 		log.Infof("Requeuing reconciliation to configure AppDB monitoring in Ops Manager.")
 		return result, nil
 	}
@@ -841,7 +842,7 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 		construct.WithOpsManagerImage(opsManagerImage),
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
-		construct.WithKmipConfig(ctx, opsManager, memberCluster.Client, log),
+		construct.WithKmipConfig(ctx, opsManager, r.client, log),
 		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
 		construct.WithDebugPort(debugPort),
@@ -961,8 +962,7 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 		construct.WithOpsManagerImage(opsManagerImage),
 		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
-		// TODO KMIP support will not work across clusters
-		construct.WithKmipConfig(ctx, reconcilerHelper.opsManager, memberCluster.Client, log),
+		construct.WithKmipConfig(ctx, reconcilerHelper.opsManager, r.client, log),
 		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
 		construct.WithOMDefaultArchitecture(r.defaultArchitecture),

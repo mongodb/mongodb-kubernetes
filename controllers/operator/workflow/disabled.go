@@ -10,7 +10,7 @@ type disabledStatus struct {
 }
 
 func Disabled() *disabledStatus {
-	return &disabledStatus{okStatus: &okStatus{requeue: false}}
+	return &disabledStatus{okStatus: &okStatus{}}
 }
 
 func (d disabledStatus) Phase() status.Phase {

@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-appdb
@@ -27,7 +26,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-role
@@ -87,7 +85,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-appdb
@@ -104,7 +101,6 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-role-binding
@@ -123,7 +119,6 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-appdb
@@ -133,7 +128,6 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-database-pods
@@ -143,7 +137,6 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-ops-manager

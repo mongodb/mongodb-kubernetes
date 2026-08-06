@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 // SecretCheckResult records the customer-replicated secrets that are missing in a
@@ -30,7 +31,7 @@ func CheckSecretsPresence(
 	ctx context.Context,
 	search *searchv1.MongoDBSearch,
 	central client.Client,
-	members map[string]client.Client,
+	members map[string]kubernetesClient.Client,
 ) []SecretCheckResult {
 	results := make([]SecretCheckResult, 0, len(members)+1)
 	appendIfMissing := func(clusterName string, c client.Client, names []string) {
