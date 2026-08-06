@@ -25,6 +25,10 @@ if ! [[ "${AGE_THRESHOLD_HOURS}" =~ ^[1-9][0-9]*$ ]]; then
     echo "ERROR: AGE_THRESHOLD_HOURS must be a positive integer, got: '${AGE_THRESHOLD_HOURS}'" >&2
     exit 1
 fi
+if [[ ${#AGE_THRESHOLD_HOURS} -gt 4 || ( ${#AGE_THRESHOLD_HOURS} -eq 4 && ${AGE_THRESHOLD_HOURS} -gt 8760 ) ]]; then
+    echo "ERROR: AGE_THRESHOLD_HOURS must not exceed 8760, got: '${AGE_THRESHOLD_HOURS}'" >&2
+    exit 1
+fi
 if ! [[ "${MDB_GKE_REGION}" =~ ^[a-z0-9-]+$ ]]; then
     echo "ERROR: MDB_GKE_REGION must be a valid GCP region, got: '${MDB_GKE_REGION}'" >&2
     exit 1
@@ -135,7 +139,7 @@ delete_cluster_batch() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. GKE clusters matching ^k8s-mdb- (bulk delete per location)
+# 1. Run-scoped GKE clusters matching ^k8s-mdb-[0-2]- (bulk delete per location)
 # ---------------------------------------------------------------------------
 echo "=== GKE clusters (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
 clusters_deleted=0
@@ -145,7 +149,7 @@ cluster_batch_location=""
 cluster_batch_names=()
 if ! cluster_list=$(run_gcloud_inventory gcloud container clusters list \
     --project="${MDB_GKE_PROJECT}" \
-    --filter="name~^k8s-mdb- AND createTime < ${threshold_timestamp}" \
+    --filter="name~^k8s-mdb-[0-2]-[a-z0-9] AND createTime < ${threshold_timestamp}" \
     --sort-by=location \
     --format="value(name,location)"); then
     echo "  ERROR listing stale GKE clusters"
@@ -249,13 +253,13 @@ reap_compute_resource() {
     fi
 }
 
-reap_compute_resource "Forwarding rules" '^om-forwarding-rule' forwarding-rules --global
-reap_compute_resource "Target HTTPS proxies" '^om-lb-proxy' target-https-proxies
-reap_compute_resource "URL maps" '^om-url-map' url-maps
-reap_compute_resource "Backend services" '^om-backend-service' backend-services --global
-reap_compute_resource "Health checks" '^om-healthcheck' health-checks
-reap_compute_resource "SSL certificates" '^om-certificate' ssl-certificates
-reap_compute_resource "Firewall rules" '^fw-ops-manager-hc' firewall-rules
+reap_compute_resource "Forwarding rules" '^om-forwarding-rule-[a-z0-9]' forwarding-rules --global
+reap_compute_resource "Target HTTPS proxies" '^om-lb-proxy-[a-z0-9]' target-https-proxies
+reap_compute_resource "URL maps" '^om-url-map-[a-z0-9]' url-maps
+reap_compute_resource "Backend services" '^om-backend-service-[a-z0-9]' backend-services --global
+reap_compute_resource "Health checks" '^om-healthcheck-[a-z0-9]' health-checks
+reap_compute_resource "SSL certificates" '^om-certificate-[a-z0-9]' ssl-certificates
+reap_compute_resource "Firewall rules" '^fw-ops-manager-hc-[a-z0-9]' firewall-rules
 
 # ---------------------------------------------------------------------------
 # 3b. Regional GKE LoadBalancer forwarding rules and target pools.
@@ -335,15 +339,16 @@ echo "  target-pool summary: ${gke_target_pools_deleted} ${delete_summary}, ${gk
 #     its own managed rules on cluster delete, but LB Service rules are left
 #     behind and accumulate until the project FIREWALLS quota (500) is
 #     exhausted. These carry the node network tag gke-<cluster>-<hash>-node,
-#     so match on that prefix. The clusters they belonged to are already gone,
-#     so there's no creationTimestamp to age-check — delete all matching.
+#     so match on that run-scoped tag shape. Firewall rules retain their
+#     creationTimestamp after the cluster is gone, so protect rules from
+#     in-flight runs too.
 # ---------------------------------------------------------------------------
-echo "=== GKE LB firewall rules (k8s-fw-*, k8s-*-hc) ==="
+echo "=== GKE LB firewall rules (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
 fw_deleted=0
 fw_failed=0
 if ! fw_list=$(run_gcloud_inventory gcloud compute firewall-rules list \
     --project="${MDB_GKE_PROJECT}" \
-    --filter="name~^k8s-fw- OR name~^k8s-.*-hc$" \
+    --filter="(name~^k8s-fw- OR name~^k8s-.*-hc$) AND targetTags.list()~^gke-k8s-mdb-[0-2]-[a-z0-9-]+-[0-9a-f]+-node$ AND creationTimestamp < ${threshold_timestamp}" \
     --format="value(name)"); then
     echo "  ERROR listing GKE LB firewall rules"
     overall_failed=1
@@ -367,8 +372,9 @@ echo "  summary: ${fw_deleted} ${delete_summary}, ${fw_failed} failed"
 
 # ---------------------------------------------------------------------------
 # 3d. Orphaned persistent disks. PVCs with reclaimPolicy: Retain leave disks
-#     after cluster deletion. Match code-snippet PVC namespaces and age-check
-#     by lastDetachTimestamp.
+#     after cluster deletion. Match run-scoped cluster labels and code-snippet
+#     PVC metadata, then age-check by lastDetachTimestamp so a recently
+#     orphaned disk gets the full cleanup grace period.
 # ---------------------------------------------------------------------------
 echo "=== Orphaned persistent disks (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
 disks_deleted=0
@@ -396,7 +402,7 @@ echo "  listing detached CSI/PVC disk inventory (waiting for inventory)"
 if ! disk_list=$(run_gcloud_inventory gcloud compute disks list \
     --project="${MDB_GKE_PROJECT}" \
     --sort-by=zone \
-    --filter="name~^pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ AND description~storage.gke.io/created-by AND description~pd.csi.storage.gke.io AND description~kubernetes.io/created-for/pvc/namespace AND description~mongodb AND status=READY AND lastDetachTimestamp < ${threshold_timestamp}" \
+    --filter="name~^pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ AND labels.goog-k8s-cluster-name~^k8s-mdb-[0-2]-[a-z0-9] AND description~storage.gke.io/created-by AND description~pd.csi.storage.gke.io AND description~kubernetes.io/created-for/pvc/namespace AND description~mongodb AND status=READY AND lastDetachTimestamp < ${threshold_timestamp}" \
     --format="value(name,zone,users)"); then
     echo "  ERROR listing stale detached CSI/PVC disks"
     overall_failed=1
