@@ -1119,10 +1119,10 @@ func getPlaceholderReplacer(appdb omv1.AppDBSpec, memberCluster multicluster.Mem
 		mdbv1.ReplicaSet)
 }
 
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, log *zap.SugaredLogger) bool {
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExistAndValid bool, log *zap.SugaredLogger) bool {
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
 	// TODO this feels insufficient. Shouldn't we check if there is actual change in TLS settings requiring to push sts first? Now it will always publish sts first when TLS enabled
-	automationConfigFirst := !allStatefulSetsExist || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
+	automationConfigFirst := !allStatefulSetsExistAndValid || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
 
 	if r.isChangingVersion(opsManager) {
 		log.Info("Version change in progress, the StatefulSet must be updated first")

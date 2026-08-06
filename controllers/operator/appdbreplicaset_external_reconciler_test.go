@@ -104,8 +104,9 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 
 func validExternalAppDBRef() *omv1.ExternalApplicationDatabaseRef {
 	return &omv1.ExternalApplicationDatabaseRef{
-		Name: "test-om-db",
-		Kind: "MongoDB",
+		Name:      "test-om-db",
+		Kind:      "MongoDB",
+		Namespace: mock.TestNamespace,
 	}
 }
 
