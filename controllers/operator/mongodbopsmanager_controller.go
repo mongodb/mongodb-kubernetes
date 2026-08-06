@@ -429,7 +429,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	appDbReconciler, appDBReconcilerErr := r.createAppDBReconcile(ctx, opsManager, log)
 	if appDBReconcilerErr != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
+		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", appDBReconcilerErr)), log, opsManagerExtraStatusParams)
 	}
 
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
