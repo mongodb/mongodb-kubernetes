@@ -18,7 +18,8 @@ spec:
         name: tls-ca-configmap-name
   users:
     - name: my-user
-      db: admin
+      authSource: admin
+      defaultDatabase: admin
       passwordSecretRef:
         name: my-user-password
       roles:
