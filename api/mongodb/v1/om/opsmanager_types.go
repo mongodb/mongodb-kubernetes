@@ -58,14 +58,18 @@ const (
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBOpsManager resource was created."
 // +kubebuilder:printcolumn:name="Warnings",type="string",JSONPath=".status.warnings",description="Warnings."
 type MongoDBOpsManager struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta   `                        json:",inline"`
+	metav1.ObjectMeta `                        json:"metadata,omitempty"`
 	Spec              MongoDBOpsManagerSpec `json:"spec"`
 	// +optional
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	client kubernetesClient.Client,
+) (mdbv1.ProjectConfig, error) {
 	if om.IsTLSEnabled() {
 		opsManagerCA := om.Spec.GetOpsManagerCA()
 		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
@@ -93,8 +97,8 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 // +k8s:deepcopy-gen=true
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBOpsManagerList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
+	metav1.TypeMeta `                    json:",inline"`
+	metav1.ListMeta `                    json:"metadata"`
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
@@ -304,7 +308,10 @@ func (ms *MongoDBOpsManagerSpec) GetBackupClusterStatusList() []status.OMCluster
 	clusterStatuses := make([]status.OMClusterStatusItem, 0)
 	for _, item := range ms.ClusterSpecList {
 		if item.Backup != nil {
-			clusterStatuses = append(clusterStatuses, status.OMClusterStatusItem{ClusterName: item.ClusterName, Replicas: item.Backup.Members})
+			clusterStatuses = append(
+				clusterStatuses,
+				status.OMClusterStatusItem{ClusterName: item.ClusterName, Replicas: item.Backup.Members},
+			)
 		}
 	}
 	return clusterStatuses
@@ -877,12 +884,20 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility, it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
-func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
+func (om *MongoDBOpsManager) APIKeySecretName(
+	ctx context.Context,
+	client secrets.SecretClientInterface,
+	operatorSecretPath string,
+) (string, error) {
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
-	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
+	_, err := client.ReadSecret(
+		ctx,
+		oldAPIKeySecretNamespacedName,
+		fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName),
+	)
 	if err != nil {
 		if secret.SecretNotExist(err) {
 			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil
@@ -950,7 +965,14 @@ func (om *MongoDBOpsManager) CentralURL() string {
 }
 
 func (om *MongoDBOpsManager) BackupDaemonFQDNs() []string {
-	hostnames, _ := dns.GetDNSNames(om.BackupDaemonStatefulSetName(), om.BackupDaemonServiceName(), om.Namespace, om.Spec.GetClusterDomain(), om.Spec.Backup.Members, nil)
+	hostnames, _ := dns.GetDNSNames(
+		om.BackupDaemonStatefulSetName(),
+		om.BackupDaemonServiceName(),
+		om.Namespace,
+		om.Spec.GetClusterDomain(),
+		om.Spec.Backup.Members,
+		nil,
+	)
 	return hostnames
 }
 
@@ -994,7 +1016,11 @@ func (om *MongoDBOpsManager) GetPreviousVersion() string {
 }
 
 func (om *MongoDBOpsManager) CalculateFeatureCompatibilityVersion() string {
-	return fcv.CalculateFeatureCompatibilityVersion(om.Spec.AppDB.Version, om.Status.AppDbStatus.FeatureCompatibilityVersion, om.Spec.AppDB.FeatureCompatibilityVersion)
+	return fcv.CalculateFeatureCompatibilityVersion(
+		om.Spec.AppDB.Version,
+		om.Status.AppDbStatus.FeatureCompatibilityVersion,
+		om.Spec.AppDB.FeatureCompatibilityVersion,
+	)
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.

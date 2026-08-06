@@ -67,7 +67,11 @@ func NewClusterBuilder() *MongoDBBuilder {
 	return mongodb
 }
 
-func (b *MongoDBBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, annotationsOverride map[string]string, externalDomain *string) *MongoDBBuilder {
+func (b *MongoDBBuilder) ExposedExternally(
+	specOverride *corev1.ServiceSpec,
+	annotationsOverride map[string]string,
+	externalDomain *string,
+) *MongoDBBuilder {
 	b.mdb.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{}
 	b.mdb.Spec.ExternalAccessConfiguration.ExternalDomain = externalDomain
 	if specOverride != nil {

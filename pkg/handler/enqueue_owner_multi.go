@@ -25,14 +25,22 @@ var _ handler.EventHandler = &EnqueueRequestForOwnerMultiCluster{}
 // We cannot reuse the "EnqueueRequestForOwner" because it uses OwnerReference which doesn't work across clusters
 type EnqueueRequestForOwnerMultiCluster struct{}
 
-func (e *EnqueueRequestForOwnerMultiCluster) Create(ctx context.Context, evt event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (e *EnqueueRequestForOwnerMultiCluster) Create(
+	ctx context.Context,
+	evt event.TypedCreateEvent[client.Object],
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	req := getOwnerMDBCRD(evt.Object.GetAnnotations(), evt.Object.GetNamespace())
 	if req != (reconcile.Request{}) {
 		q.Add(req)
 	}
 }
 
-func (e *EnqueueRequestForOwnerMultiCluster) Update(ctx context.Context, evt event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (e *EnqueueRequestForOwnerMultiCluster) Update(
+	ctx context.Context,
+	evt event.TypedUpdateEvent[client.Object],
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	reqs := []reconcile.Request{
 		getOwnerMDBCRD(evt.ObjectOld.GetAnnotations(), evt.ObjectOld.GetNamespace()),
 		getOwnerMDBCRD(evt.ObjectNew.GetAnnotations(), evt.ObjectNew.GetNamespace()),
@@ -45,12 +53,20 @@ func (e *EnqueueRequestForOwnerMultiCluster) Update(ctx context.Context, evt eve
 	}
 }
 
-func (e *EnqueueRequestForOwnerMultiCluster) Delete(ctx context.Context, evt event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (e *EnqueueRequestForOwnerMultiCluster) Delete(
+	ctx context.Context,
+	evt event.TypedDeleteEvent[client.Object],
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	req := getOwnerMDBCRD(evt.Object.GetAnnotations(), evt.Object.GetNamespace())
 	q.Add(req)
 }
 
-func (e *EnqueueRequestForOwnerMultiCluster) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (e *EnqueueRequestForOwnerMultiCluster) Generic(
+	context.Context,
+	event.TypedGenericEvent[client.Object],
+	workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 }
 
 func getOwnerMDBCRD(annotations map[string]string, namespace string) reconcile.Request {

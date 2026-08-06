@@ -670,8 +670,8 @@ type MongoDBSearch struct {
 // +k8s:deepcopy-gen=true
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBSearchList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
+	metav1.TypeMeta `                json:",inline"`
+	metav1.ListMeta `                json:"metadata"`
 	Items           []MongoDBSearch `json:"items"`
 }
 
@@ -1175,7 +1175,10 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 		resolved.JVMFlags = override.JVMFlags
 	}
 	if override.StatefulSetConfiguration != nil {
-		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(resolved.StatefulSetConfiguration, override.StatefulSetConfiguration)
+		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(
+			resolved.StatefulSetConfiguration,
+			override.StatefulSetConfiguration,
+		)
 	}
 	return resolved, nil
 }
@@ -1408,7 +1411,12 @@ func (s *MongoDBSearch) ValidateOperatorPerClusterIndices() error {
 			return fmt.Errorf("running one operator per cluster requires index on every spec.clusters[] entry (missing on %q)", c.Name)
 		}
 		if prev, dup := seen[*c.Index]; dup {
-			return fmt.Errorf("index %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct", *c.Index, prev, c.Name)
+			return fmt.Errorf(
+				"index %d is set on more than one spec.clusters[] entry (%q and %q); pinned indices must be distinct",
+				*c.Index,
+				prev,
+				c.Name,
+			)
 		}
 		seen[*c.Index] = c.Name
 	}

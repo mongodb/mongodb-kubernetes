@@ -72,7 +72,8 @@ func isStatefulSetEqualOnForbiddenFields(existing, desired appsv1.StatefulSet) b
 	selectorsEqual := desired.Spec.Selector == nil || gocmp.Equal(existing.Spec.Selector, desired.Spec.Selector, cmpopts.EquateEmpty())
 	serviceNamesEqual := existing.Spec.ServiceName == desired.Spec.ServiceName
 	podMgmtEqual := desired.Spec.PodManagementPolicy == "" || desired.Spec.PodManagementPolicy == existing.Spec.PodManagementPolicy
-	revHistoryLimitEqual := desired.Spec.RevisionHistoryLimit == nil || reflect.DeepEqual(desired.Spec.RevisionHistoryLimit, existing.Spec.RevisionHistoryLimit)
+	revHistoryLimitEqual := desired.Spec.RevisionHistoryLimit == nil ||
+		reflect.DeepEqual(desired.Spec.RevisionHistoryLimit, existing.Spec.RevisionHistoryLimit)
 
 	if len(existing.Spec.VolumeClaimTemplates) != len(desired.Spec.VolumeClaimTemplates) {
 		return false
@@ -105,7 +106,13 @@ func (s StatefulSetCantBeUpdatedError) Error() string {
 // (the random port will be allocated by Kubernetes) otherwise only one service of type "ClusterIP" is created and it
 // won't be connectible from external (unless pods in statefulset expose themselves to outside using "hostNetwork: true")
 // Function returns the service port number assigned
-func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator kubernetesClient.Client, ns string, log *zap.SugaredLogger, statefulSetToCreate *appsv1.StatefulSet) (*appsv1.StatefulSet, error) {
+func CreateOrUpdateStatefulset(
+	ctx context.Context,
+	getUpdateCreator kubernetesClient.Client,
+	ns string,
+	log *zap.SugaredLogger,
+	statefulSetToCreate *appsv1.StatefulSet,
+) (*appsv1.StatefulSet, error) {
 	log = log.With("statefulset", kube.ObjectKey(ns, statefulSetToCreate.Name))
 	existingStatefulSet, err := getUpdateCreator.GetStatefulSet(ctx, kube.ObjectKey(ns, statefulSetToCreate.Name))
 	if err != nil {
@@ -183,7 +190,12 @@ func AddPVCAnnotation(statefulSetToCreate *appsv1.StatefulSet) error {
 // `expectedGeneration` is the `meta.generation` returned from create/update statefulset API calls.
 // It is used to compare with `status.observedGeneration` to avoid reading stale StatefulSet object.
 // We can rely on `meta.generation` because create/update statefulset API calls are idempotent.
-func GetStatefulSetStatus(ctx context.Context, namespace, name string, expectedGeneration int64, client kubernetesClient.Client) workflow.Status {
+func GetStatefulSetStatus(
+	ctx context.Context,
+	namespace, name string,
+	expectedGeneration int64,
+	client kubernetesClient.Client,
+) workflow.Status {
 	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
 	i := 0
 

@@ -14,7 +14,13 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
-func newEnterpriseSearchSource(version string, topology string, resourceType mdbv1.ResourceType, authModes []string, internalClusterAuth string) EnterpriseResourceSearchSource {
+func newEnterpriseSearchSource(
+	version string,
+	topology string,
+	resourceType mdbv1.ResourceType,
+	authModes []string,
+	internalClusterAuth string,
+) EnterpriseResourceSearchSource {
 	authModesList := make([]mdbv1.AuthMode, len(authModes))
 	for i, mode := range authModes {
 		authModesList[i] = mdbv1.AuthMode(mode)

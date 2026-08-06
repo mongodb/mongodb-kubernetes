@@ -55,8 +55,10 @@ from the newest promoted version.`,
 	cmd.Flags().StringVar(&version, "version", "", "version to encode in the promoted tag")
 	cmd.Flags().StringVar(&registryURL, "registry", "https://quay.io", "target OCI registry base URL")
 	cmd.Flags().StringVar(&repo, "repo", "mongodb/mongodb-kubernetes-operator", "target image repository")
-	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable promoted-{marker} pointer tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite the promoted-{commit}-{version} tag even if it already points at a different digest")
+	cmd.Flags().
+		StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable promoted-{marker} pointer tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
+	cmd.Flags().
+		BoolVar(&force, "force", false, "overwrite the promoted-{commit}-{version} tag even if it already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 
 	MustNotErr(cmd.MarkFlagRequired("image"))
@@ -100,7 +102,8 @@ doesn't steal the "latest" pointer away from the newest promoted version.`,
 	cmd.Flags().StringVar(&buildInfo, "build-info", "build_info.json", "path to build_info.json")
 	cmd.Flags().StringVar(&releaseJSON, "release-json", "release.json", "path to release.json")
 	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to encode in the promoted tags")
-	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable promoted-{marker} pointer tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
+	cmd.Flags().
+		StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable promoted-{marker} pointer tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
 	cmd.Flags().BoolVar(&force, "force", false, "promote every image even if any promoted tag already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 

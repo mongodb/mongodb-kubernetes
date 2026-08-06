@@ -18,7 +18,13 @@ func (l *ldapAuthMechanism) GetName() MechanismName {
 	return LDAPPlain
 }
 
-func (l *ldapAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (l *ldapAuthMechanism) EnableAgentAuthentication(
+	_ context.Context,
+	_ kubernetesClient.Client,
+	conn om.Connection,
+	opts Options,
+	log *zap.SugaredLogger,
+) error {
 	log.Info("Configuring LDAP authentication")
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {

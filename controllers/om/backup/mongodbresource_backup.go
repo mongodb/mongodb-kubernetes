@@ -29,7 +29,17 @@ type ConfigReaderUpdater interface {
 
 // EnsureBackupConfigurationInOpsManager updates the backup configuration based on the MongoDB resource
 // specification.
-func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, projectId string, configReadUpdater ConfigHostReadUpdater, groupConfigReader GroupConfigReader, groupConfigUpdater GroupConfigUpdater, log *zap.SugaredLogger, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
+func EnsureBackupConfigurationInOpsManager(
+	ctx context.Context,
+	mdb ConfigReaderUpdater,
+	secretsReader secrets.SecretClient,
+	projectId string,
+	configReadUpdater ConfigHostReadUpdater,
+	groupConfigReader GroupConfigReader,
+	groupConfigUpdater GroupConfigUpdater,
+	log *zap.SugaredLogger,
+	backupEnableDelay time.Duration,
+) (workflow.Status, []status.Option) {
 	if mdb.GetBackupSpec() == nil {
 		return workflow.OK(), nil
 	}
@@ -55,7 +65,13 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay)
 }
 
-func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
+func ensureGroupConfig(
+	ctx context.Context,
+	mdb ConfigReaderUpdater,
+	secretsReader secrets.SecretClient,
+	reader GroupConfigReader,
+	updater GroupConfigUpdater,
+) error {
 	if mdb.GetBackupSpec() == nil || (mdb.GetBackupSpec().AssignmentLabels == nil && mdb.GetBackupSpec().Encryption == nil) {
 		return nil
 	}
@@ -71,7 +87,9 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 	requiresUpdate := false
 
 	if kmip != nil {
-		desiredPath := util.KMIPClientSecretsHome + "/" + kmip.Client.ClientCertificateSecretName(mdb.GetName()) + kmip.Client.ClientCertificateSecretKeyName()
+		desiredPath := util.KMIPClientSecretsHome + "/" + kmip.Client.ClientCertificateSecretName(
+			mdb.GetName(),
+		) + kmip.Client.ClientCertificateSecretKeyName()
 		if config.KmipClientCertPath == nil || desiredPath != *config.KmipClientCertPath {
 			config.KmipClientCertPath = &desiredPath
 			requiresUpdate = true
@@ -107,7 +125,14 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
-func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
+func ensureBackupConfigStatuses(
+	mdb ConfigReaderUpdater,
+	projectConfigs []*Config,
+	desiredConfig *Config,
+	log *zap.SugaredLogger,
+	configReadUpdater ConfigHostReadUpdater,
+	backupEnableDelay time.Duration,
+) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -148,7 +173,8 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 
 		intermediateStepRequired := desiredStatus != desiredConfig.Status
 		if intermediateStepRequired {
-			result = workflow.Pending("Backup configuration %s requires intermediate step to reach desired status", config.ClusterId).Requeue()
+			result = workflow.Pending("Backup configuration %s requires intermediate step to reach desired status", config.ClusterId).
+				Requeue()
 		}
 
 		desiredConfig.Status = desiredStatus
@@ -196,7 +222,9 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 			if err != nil {
 				return workflow.Failed(err), nil
 			}
-			return workflow.Pending("Backup configuration %s has not yet reached the desired status", updatedConfig.ClusterId).WithRetry(1), statusOpts
+			return workflow.Pending("Backup configuration %s has not yet reached the desired status", updatedConfig.ClusterId).
+					WithRetry(1),
+				statusOpts
 		}
 
 		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
@@ -246,7 +274,12 @@ func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay t
 	return workflow.Pending(BackupEnableDelayPendingMessage)
 }
 
-func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
+func updateSnapshotSchedule(
+	specSnapshotSchedule *mdbv1.SnapshotSchedule,
+	configReadUpdater ConfigHostReadUpdater,
+	config *Config,
+	log *zap.SugaredLogger,
+) error {
 	if specSnapshotSchedule == nil {
 		return nil
 	}

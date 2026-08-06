@@ -114,7 +114,12 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 	return fmt.Sprintf("%s:%s", imageURL, version)
 }
 
-func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture) string {
+func GetOfficialImage(
+	imageUrls ImageUrls,
+	version string,
+	annotations map[string]string,
+	defaultArchitecture architectures.DefaultArchitecture,
+) string {
 	repoUrl := imageUrls[util.MongodbRepoUrlEnv]
 	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
 	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).

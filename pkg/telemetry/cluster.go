@@ -59,7 +59,11 @@ func detectClusterInfos(ctx context.Context, memberClusterMap map[string]ConfigC
 // - kubernetes cluster uid
 // Notes: We are using a non-cached client to ensure we are properly timing out in case we don't have the
 // necessary RBACs.
-func getKubernetesClusterProperty(ctx context.Context, discoveryClient discovery.DiscoveryInterface, uncachedClient kubeclient.Reader) KubernetesClusterUsageSnapshotProperties {
+func getKubernetesClusterProperty(
+	ctx context.Context,
+	discoveryClient discovery.DiscoveryInterface,
+	uncachedClient kubeclient.Reader,
+) KubernetesClusterUsageSnapshotProperties {
 	kubernetesAPIVersion := unknown
 	kubeClusterUUID := getKubernetesClusterUUID(ctx, uncachedClient)
 

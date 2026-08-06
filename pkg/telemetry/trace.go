@@ -17,7 +17,10 @@ import (
 var TRACER = otel.Tracer("mongodb-kubernetes-operator")
 
 // SetupTracingFromParent initializes OpenTelemetry tracing given a remote trace and span.
-func SetupTracingFromParent(ctx context.Context, traceIDHex, parentIDHex, endpoint string) (context.Context, *sdktrace.TracerProvider, error) {
+func SetupTracingFromParent(
+	ctx context.Context,
+	traceIDHex, parentIDHex, endpoint string,
+) (context.Context, *sdktrace.TracerProvider, error) {
 	if traceIDHex == "" || parentIDHex == "" || endpoint == "" {
 		Logger.Debug("tracing environment variables missing, not configuring tracing from a remote span and trace")
 		return ctx, nil, nil

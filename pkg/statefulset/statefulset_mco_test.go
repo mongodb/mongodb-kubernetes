@@ -58,12 +58,18 @@ func TestAddVolumeAndMount_MCO(t *testing.T) {
 		Volume:    CreateVolumeFromConfigMap("mount-name", "config-map"),
 	}
 
-	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})).AddVolumeAndMount(vmd, "container-name")
+	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})).
+		AddVolumeAndMount(vmd, "container-name")
 	sts, err = stsBuilder.Build()
 
 	// assert container was correctly updated with the volumes
 	assert.NoError(t, err, "volume should successfully mount when the container exists")
-	assert.Len(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts, 1, "volume mount should have been added to the container in the stateful set")
+	assert.Len(
+		t,
+		sts.Spec.Template.Spec.Containers[0].VolumeMounts,
+		1,
+		"volume mount should have been added to the container in the stateful set",
+	)
 	assert.Equal(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name, "mount-name")
 	assert.Equal(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath, "mount-path")
 
@@ -73,7 +79,8 @@ func TestAddVolumeAndMount_MCO(t *testing.T) {
 	assert.NotNil(t, sts.Spec.Template.Spec.Volumes[0].ConfigMap, "volume should have been configured from a config map source")
 	assert.Nil(t, sts.Spec.Template.Spec.Volumes[0].Secret, "volume should not have been configured from a secret source")
 
-	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}, {Name: "container-1"}})).AddVolumeAndMount(vmd, "container-0")
+	stsBuilder = defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}, {Name: "container-1"}})).
+		AddVolumeAndMount(vmd, "container-0")
 	sts, err = stsBuilder.Build()
 
 	assert.NoError(t, err, "volume should successfully mount when the container exists")
@@ -88,7 +95,12 @@ func TestAddVolumeAndMount_MCO(t *testing.T) {
 	sts, err = stsBuilder.AddVolumeAndMount(secretVmd, "container-1").Build()
 
 	assert.NoError(t, err, "volume should successfully mount when the container exists")
-	assert.Len(t, sts.Spec.Template.Spec.Containers[1].VolumeMounts, 1, "volume mount should have been added to the container in the stateful set")
+	assert.Len(
+		t,
+		sts.Spec.Template.Spec.Containers[1].VolumeMounts,
+		1,
+		"volume mount should have been added to the container in the stateful set",
+	)
 	assert.Equal(t, sts.Spec.Template.Spec.Containers[1].VolumeMounts[0].Name, "mount-name-secret")
 	assert.Equal(t, sts.Spec.Template.Spec.Containers[1].VolumeMounts[0].MountPath, "mount-path-secret")
 
@@ -108,7 +120,10 @@ func TestMCOAddVolumeClaimTemplates(t *testing.T) {
 	mount := corev1.VolumeMount{
 		Name: "mount-0",
 	}
-	sts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})).AddVolumeClaimTemplates([]corev1.PersistentVolumeClaim{claim}).AddVolumeMounts("container-name", []corev1.VolumeMount{mount}).Build()
+	sts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-name"}})).
+		AddVolumeClaimTemplates([]corev1.PersistentVolumeClaim{claim}).
+		AddVolumeMounts("container-name", []corev1.VolumeMount{mount}).
+		Build()
 
 	assert.NoError(t, err)
 	assert.Len(t, sts.Spec.VolumeClaimTemplates, 1)

@@ -6,9 +6,20 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
-func GetAppDBScaler(opsManager *om.MongoDBOpsManager, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+func GetAppDBScaler(
+	opsManager *om.MongoDBOpsManager,
+	memberClusterName string,
+	memberClusterNum int,
+	prevMembers []multicluster.MemberCluster,
+) interfaces.MultiClusterReplicaSetScaler {
 	if opsManager.Spec.AppDB.IsMultiCluster() {
-		return NewMultiClusterReplicaSetScaler("AppDB", opsManager.Spec.AppDB.ClusterSpecList, memberClusterName, memberClusterNum, prevMembers)
+		return NewMultiClusterReplicaSetScaler(
+			"AppDB",
+			opsManager.Spec.AppDB.ClusterSpecList,
+			memberClusterName,
+			memberClusterNum,
+			prevMembers,
+		)
 	} else {
 		return NewAppDBSingleClusterScaler(opsManager)
 	}

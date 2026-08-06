@@ -156,7 +156,12 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Da
 }
 
 func (a *DefaultOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
-	_, _, err := a.put("admin/backup/daemon/configs/%s/%s", config, url.QueryEscape(config.Machine.MachineHostName), url.QueryEscape(config.Machine.HeadRootDirectory))
+	_, _, err := a.put(
+		"admin/backup/daemon/configs/%s/%s",
+		config,
+		url.QueryEscape(config.Machine.MachineHostName),
+		url.QueryEscape(config.Machine.HeadRootDirectory),
+	)
 	if err != nil {
 		return err
 	}

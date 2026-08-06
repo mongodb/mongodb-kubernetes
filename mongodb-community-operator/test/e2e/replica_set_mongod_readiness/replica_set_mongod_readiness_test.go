@@ -36,7 +36,10 @@ func TestReplicaSet(t *testing.T) {
 	t.Run("Create MongoDB Resource", mongodbtests.CreateMongoDBResource(&mdb, testCtx))
 	t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
 	t.Run("Ensure Agent container is marked as non-ready", func(t *testing.T) {
-		t.Run("Break mongod data files", mongodbtests.ExecInContainer(ctx, &mdb, 0, "mongod", "mkdir /data/tmp; mv /data/WiredTiger.wt /data/tmp"))
+		t.Run(
+			"Break mongod data files",
+			mongodbtests.ExecInContainer(ctx, &mdb, 0, "mongod", "mkdir /data/tmp; mv /data/WiredTiger.wt /data/tmp"),
+		)
 		// Just moving the file doesn't fail the mongod until any data is written - the easiest way is to kill the mongod
 		// and in this case it won't restart
 		t.Run("Kill mongod process", mongodbtests.ExecInContainer(ctx, &mdb, 0, "mongod", "kill 1"))

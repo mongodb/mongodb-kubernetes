@@ -34,7 +34,11 @@ func TestPublish(t *testing.T) {
 	reg := DefaultRegistryConnector(srv.URL)
 
 	t.Run("publish with explicit commit", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest"}, host, reg)
+		result, err := Publish(
+			PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest"},
+			host,
+			reg,
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -123,7 +127,11 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("dry-run returns result without copying", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", DryRun: true}, host, reg)
+		result, err := Publish(
+			PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", DryRun: true},
+			host,
+			reg,
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -228,7 +236,11 @@ func TestPublishRefusesStompedVersionTag(t *testing.T) {
 	})
 
 	t.Run("proceeds with force", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", Force: true}, host, reg)
+		result, err := Publish(
+			PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", Force: true},
+			host,
+			reg,
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

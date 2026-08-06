@@ -75,9 +75,12 @@ func TestStatefulSetArbitraryConfig(t *testing.T) {
 
 	t.Run("Basic tests after update", mongodbtests.BasicFunctionality(ctx, &mdb))
 	t.Run("Test basic connectivity after update", tester.ConnectivitySucceeds())
-	t.Run("Container has been merged by name", mongodbtests.StatefulSetContainerConditionIsTrue(ctx, &mdb, "mongodb-agent", func(container corev1.Container) bool {
-		return container.ReadinessProbe.TimeoutSeconds == 100
-	}))
+	t.Run(
+		"Container has been merged by name",
+		mongodbtests.StatefulSetContainerConditionIsTrue(ctx, &mdb, "mongodb-agent", func(container corev1.Container) bool {
+			return container.ReadinessProbe.TimeoutSeconds == 100
+		}),
+	)
 	t.Run("Tolerations have been added correctly", mongodbtests.StatefulSetConditionIsTrue(ctx, &mdb, func(sts appsv1.StatefulSet) bool {
 		return reflect.DeepEqual(overrideTolerations, sts.Spec.Template.Spec.Tolerations)
 	}))

@@ -41,10 +41,14 @@ func TestReplicaSetArbiter(t *testing.T) {
 	}
 	tests := map[string]args{
 		"Number of Arbiters must be less than number of nodes": {
-			numberOfArbiters:     3,
-			numberOfMembers:      3,
-			expectedErrorMessage: fmt.Sprintf("error validating new Spec: number of arbiters specified (%v) is greater or equal than the number of members in the replicaset (%v). At least one member must not be an arbiter", 3, 3),
-			resourceName:         "mdb0",
+			numberOfArbiters: 3,
+			numberOfMembers:  3,
+			expectedErrorMessage: fmt.Sprintf(
+				"error validating new Spec: number of arbiters specified (%v) is greater or equal than the number of members in the replicaset (%v). At least one member must not be an arbiter",
+				3,
+				3,
+			),
+			resourceName: "mdb0",
 		},
 		"Number of Arbiters must be greater than 0": {
 			numberOfArbiters:     -1,

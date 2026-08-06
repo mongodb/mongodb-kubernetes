@@ -71,7 +71,14 @@ type omMemberClusterChecks struct {
 	om           *omv1.MongoDBOpsManager
 }
 
-func newOMMemberClusterChecks(ctx context.Context, t *testing.T, opsManager *omv1.MongoDBOpsManager, clusterName string, kubeClient client.Client, clusterIndex int) *omMemberClusterChecks {
+func newOMMemberClusterChecks(
+	ctx context.Context,
+	t *testing.T,
+	opsManager *omv1.MongoDBOpsManager,
+	clusterName string,
+	kubeClient client.Client,
+	clusterIndex int,
+) *omMemberClusterChecks {
 	result := omMemberClusterChecks{
 		ctx:          ctx,
 		t:            t,
@@ -263,7 +270,17 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+	reconciler, omClient, _ := defaultTestOmReconciler(
+		ctx,
+		t,
+		nil,
+		"",
+		"",
+		opsManager,
+		memberClusterMap,
+		omConnectionFactory,
+		architectures.NonStatic,
+	)
 
 	// prepare TLS certificates and CA in central cluster
 
@@ -372,7 +389,17 @@ func TestOpsManagerMultiClusterWithKMIP(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	memberClusterMap := getFakeMultiClusterMapWithClusters(clusters, omConnectionFactory)
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+	reconciler, client, _ := defaultTestOmReconciler(
+		ctx,
+		t,
+		nil,
+		"",
+		"",
+		testOm,
+		memberClusterMap,
+		omConnectionFactory,
+		architectures.NonStatic,
+	)
 	addKMIPTestResources(ctx, client, testOm, mdbName, clientCertificatePrefix)
 	configureBackupResources(ctx, client, testOm)
 
@@ -396,7 +423,10 @@ func TestOpsManagerMultiClusterWithKMIP(t *testing.T) {
 		ReadOnly:  true,
 	}
 	expectedCAVolume := statefulset.CreateVolumeFromConfigMap(util.KMIPServerCAName, kmipCAConfigMapName)
-	expectedClientCertVolume := statefulset.CreateVolumeFromSecret(util.KMIPClientSecretNamePrefix+expectedClientCertificateSecretName, expectedClientCertificateSecretName)
+	expectedClientCertVolume := statefulset.CreateVolumeFromSecret(
+		util.KMIPClientSecretNamePrefix+expectedClientCertificateSecretName,
+		expectedClientCertificateSecretName,
+	)
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
@@ -476,7 +506,17 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 	opsManager.Spec.Security.CertificatesSecretsPrefix = "om-prefix"
 	appDB := opsManager.Spec.AppDB
 
-	reconciler, omClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+	reconciler, omClient, _ := defaultTestOmReconciler(
+		ctx,
+		t,
+		nil,
+		"",
+		"",
+		opsManager,
+		memberClusterMap,
+		omConnectionFactory,
+		architectures.NonStatic,
+	)
 
 	// prepare TLS certificates and CA in central cluster
 

@@ -78,8 +78,8 @@ const (
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
 type MongoDB struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta   `              json:",inline"`
+	metav1.ObjectMeta `              json:"metadata,omitempty"`
 	// +optional
 	Status MongoDbStatus `json:"status"`
 	Spec   MongoDbSpec   `json:"spec"`
@@ -260,10 +260,18 @@ func GetLastAdditionalMongodConfigByType(lastSpec *MongoDbSpec, configType Addit
 // GetLastAdditionalMongodConfigByType returns the last successfully achieved AdditionalMongodConfigType for the given component.
 func (m *MongoDB) GetLastAdditionalMongodConfigByType(configType AdditionalMongodConfigType) (*AdditionalMongodConfig, error) {
 	if m.Spec.GetResourceType() == ReplicaSet {
-		panic(errors.Errorf("this method cannot be used from ReplicaSet controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
+		panic(
+			errors.Errorf(
+				"this method cannot be used from ReplicaSet controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state.",
+			),
+		)
 	}
 	if m.Spec.GetResourceType() == ShardedCluster {
-		panic(errors.Errorf("this method cannot be used from ShardedCluster controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state."))
+		panic(
+			errors.Errorf(
+				"this method cannot be used from ShardedCluster controller; use non-method GetLastAdditionalMongodConfigByType and pass lastSpec from the deployment state.",
+			),
+		)
 	}
 	lastSpec, err := m.GetLastSpec()
 	if err != nil || lastSpec == nil {
@@ -337,8 +345,8 @@ type DbSpec interface {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
+	metav1.TypeMeta `          json:",inline"`
+	metav1.ListMeta `          json:"metadata"`
 	Items           []MongoDB `json:"items"`
 }
 
@@ -392,7 +400,7 @@ type DbCommonSpec struct {
 	Agent                       AgentConfig `json:"agent,omitempty"`
 	// +kubebuilder:validation:Format="hostname"
 	ClusterDomain  string `json:"clusterDomain,omitempty"`
-	ConnectionSpec `json:",inline"`
+	ConnectionSpec `            json:",inline"`
 
 	// +kubebuilder:validation:Enum=DEBUG;INFO;WARN;ERROR;FATAL
 	LogLevel LogLevel `json:"logLevel,omitempty"`
@@ -745,7 +753,7 @@ type PrivateCloudConfig struct {
 // note, that the fields are marked as 'omitempty' as otherwise they are shown for AppDB
 // which is not good
 type ConnectionSpec struct {
-	SharedConnectionSpec `json:",inline"`
+	SharedConnectionSpec `       json:",inline"`
 	// Name of the Secret holding credentials information
 	// +kubebuilder:validation:Required
 	Credentials string `json:"credentials"`
@@ -1678,7 +1686,11 @@ func newSecurity() *Security {
 }
 
 // BuildConnectionString returns a string with a connection string for this resource.
-func (m *MongoDB) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDB) BuildConnectionString(
+	username, password string,
+	scheme connectionstring.Scheme,
+	connectionParams map[string]string,
+) string {
 	builder := NewMongoDBConnectionStringBuilder(*m, nil)
 	return builder.BuildConnectionString(username, password, scheme, connectionParams)
 }
@@ -1688,7 +1700,11 @@ func (m *MongoDB) GetAuthenticationModes() []string {
 }
 
 func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
-	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
+	return fcv.CalculateFeatureCompatibilityVersion(
+		m.Spec.Version,
+		m.Status.FeatureCompatibilityVersion,
+		m.Spec.FeatureCompatibilityVersion,
+	)
 }
 
 func (m *MongoDB) ShardNames() []string {
@@ -1776,7 +1792,11 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 	}
 }
 
-func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBConnectionStringBuilder) BuildConnectionString(
+	username, password string,
+	scheme connectionstring.Scheme,
+	connectionParams map[string]string,
+) string {
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()

@@ -28,7 +28,13 @@ import (
 // Enable will configure all of the required Kubernetes resources for X509 to be enabled.
 // The agent password and keyfile contents will be configured and stored in a secret.
 // the user credentials will be generated if not present, or existing credentials will be read.
-func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
+func Enable(
+	ctx context.Context,
+	auth *automationconfig.Auth,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdb authtypes.Configurable,
+	agentCertSecret types.NamespacedName,
+) error {
 	opts := mdb.GetAuthOptions()
 
 	desiredUsers := convertMongoDBResourceUsersToAutomationConfigUsers(mdb)
@@ -42,14 +48,27 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 	return enableClientAuthentication(auth, opts, desiredUsers)
 }
 
-func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
+func ensureAgent(
+	ctx context.Context,
+	auth *automationconfig.Auth,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdb authtypes.Configurable,
+	agentCertSecret types.NamespacedName,
+) error {
 	generatedContents, err := generate.KeyFileContents()
 	if err != nil {
 		return fmt.Errorf("could not generate keyfile contents: %s", err)
 	}
 
 	// ensure that the agent keyfile secret exists or read existing keyfile.
-	agentKeyFile, err := secret.EnsureSecretWithKey(ctx, secretGetUpdateCreateDeleter, mdb.GetAgentKeyfileSecretNamespacedName(), mdb.GetOwnerReferences(), constants.AgentKeyfileKey, generatedContents)
+	agentKeyFile, err := secret.EnsureSecretWithKey(
+		ctx,
+		secretGetUpdateCreateDeleter,
+		mdb.GetAgentKeyfileSecretNamespacedName(),
+		mdb.GetOwnerReferences(),
+		constants.AgentKeyfileKey,
+		generatedContents,
+	)
 	if err != nil {
 		return err
 	}

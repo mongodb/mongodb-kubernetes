@@ -754,7 +754,14 @@ func (m *MongoDBCommunity) MongoURI() string {
 func (m *MongoDBCommunity) MongoSRVURI() string {
 	optionsString := m.GetOptionsString()
 
-	return fmt.Sprintf("mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s", m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Name, optionsString)
+	return fmt.Sprintf(
+		"mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s",
+		m.ServiceName(),
+		m.Namespace,
+		m.Spec.GetClusterDomain(),
+		m.Name,
+		optionsString,
+	)
 }
 
 // MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
@@ -995,8 +1002,8 @@ func (a automationConfigReplicasScaler) ForcedIndividualScaling() bool {
 
 // MongoDBCommunityList contains a list of MongoDB
 type MongoDBCommunityList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta `                   json:",inline"`
+	metav1.ListMeta `                   json:"metadata,omitempty"`
 	Items           []MongoDBCommunity `json:"items"`
 }
 

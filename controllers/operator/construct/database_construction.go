@@ -281,7 +281,12 @@ func (c shardedOptionCfg) hasExternalDomain() bool {
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
-func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ShardOptions(
+	shardNum int,
+	shardSpec *mdbv1.ShardedClusterComponentSpec,
+	memberClusterName string,
+	additionalOpts ...func(options *DatabaseStatefulSetOptions),
+) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
@@ -298,7 +303,11 @@ func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, me
 }
 
 // ConfigServerOptions returns a set of options which will configure a Config Server StatefulSet
-func ConfigServerOptions(configSrvSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func ConfigServerOptions(
+	configSrvSpec *mdbv1.ShardedClusterComponentSpec,
+	memberClusterName string,
+	additionalOpts ...func(options *DatabaseStatefulSetOptions),
+) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
@@ -315,7 +324,11 @@ func ConfigServerOptions(configSrvSpec *mdbv1.ShardedClusterComponentSpec, membe
 }
 
 // MongosOptions returns a set of options which will configure a Mongos StatefulSet
-func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string, additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
+func MongosOptions(
+	mongosSpec *mdbv1.ShardedClusterComponentSpec,
+	memberClusterName string,
+	additionalOpts ...func(options *DatabaseStatefulSetOptions),
+) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
@@ -337,7 +350,11 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 	}
 }
 
-func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+func DatabaseStatefulSet(
+	mdb mdbv1.MongoDB,
+	stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions,
+	log *zap.SugaredLogger,
+) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
 	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 
@@ -360,7 +377,11 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	return dbSts
 }
 
-func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+func DatabaseStatefulSetHelper(
+	mdb databaseStatefulSetSource,
+	stsOpts *DatabaseStatefulSetOptions,
+	log *zap.SugaredLogger,
+) appsv1.StatefulSet {
 	allSources := getAllMongoDBVolumeSources(mdb, *stsOpts, log)
 
 	var extraEnvs []corev1.EnvVar
@@ -416,7 +437,12 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 }
 
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
-func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
+func buildDatabaseStatefulSetConfigurationFunction(
+	mdb databaseStatefulSetSource,
+	podTemplateSpecFunc podtemplatespec.Modification,
+	opts DatabaseStatefulSetOptions,
+	log *zap.SugaredLogger,
+) statefulset.Modification {
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
 		util.OperatorLabelName:  util.OperatorLabelValue,
@@ -478,7 +504,10 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	podTemplateAnnotationFunc := podtemplatespec.NOOP()
 
 	if vault.IsVaultSecretBackend() {
-		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
+		podTemplateAnnotationFunc = podtemplatespec.Apply(
+			podTemplateAnnotationFunc,
+			podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())),
+		)
 	}
 
 	stsName := opts.GetStatefulSetName()
@@ -535,7 +564,10 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		podtemplatespec.WithPodLabels(podLabels),
-		podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
+		podtemplatespec.WithContainerByIndex(
+			0,
+			sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort),
+		),
 		volumesFunc,
 		configurePodSpecSecurityContext,
 		configureImagePullSecrets,
@@ -560,7 +592,9 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	)
 }
 
-func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
+func buildPersistentVolumeClaimsFuncs(
+	opts DatabaseStatefulSetOptions,
+) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
 	var claims map[string]persistentvolumeclaim.Modification
 	var mounts []corev1.VolumeMount
 
@@ -585,7 +619,13 @@ func buildPersistentVolumeClaimsFuncs(opts DatabaseStatefulSetOptions) (map[stri
 	return claims, mounts
 }
 
-func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodSpecWrapper, volumeMounts []corev1.VolumeMount, configureContainerSecurityContext container.Modification, port int32) container.Modification {
+func sharedDatabaseContainerFunc(
+	databaseImage string,
+	podSpecWrapper mdbv1.PodSpecWrapper,
+	volumeMounts []corev1.VolumeMount,
+	configureContainerSecurityContext container.Modification,
+	port int32,
+) container.Modification {
 	return container.Apply(
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(podSpecWrapper)),
 		container.WithPorts([]corev1.ContainerPort{{ContainerPort: port}}),
@@ -637,7 +677,11 @@ func getTLSPrometheusVolumeAndVolumeMount(prom *v1.Prometheus) ([]corev1.Volume,
 
 // getAllMongoDBVolumeSources returns a slice of  MongoDBVolumeSource. These are used to determine which volumes
 // and volume mounts should be added to the StatefulSet.
-func getAllMongoDBVolumeSources(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions, log *zap.SugaredLogger) []MongoDBVolumeSource {
+func getAllMongoDBVolumeSources(
+	mdb databaseStatefulSetSource,
+	databaseOpts DatabaseStatefulSetOptions,
+	log *zap.SugaredLogger,
+) []MongoDBVolumeSource {
 	caVolume := &caVolumeSource{
 		opts:   databaseOpts,
 		logger: log,
@@ -656,7 +700,11 @@ func getAllMongoDBVolumeSources(mdb databaseStatefulSetSource, databaseOpts Data
 }
 
 // getVolumesAndVolumeMounts returns all volumes and mounts required for the StatefulSet.
-func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts DatabaseStatefulSetOptions, agentCertsSecretName, internalClusterAuthSecretName string) ([]corev1.Volume, []corev1.VolumeMount) {
+func getVolumesAndVolumeMounts(
+	mdb databaseStatefulSetSource,
+	databaseOpts DatabaseStatefulSetOptions,
+	agentCertsSecretName, internalClusterAuthSecretName string,
+) ([]corev1.Volume, []corev1.VolumeMount) {
 	var volumesToAdd []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 
@@ -665,7 +713,8 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumesToAdd = append(volumesToAdd, prometheusVolumes...)
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
-	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) ||
+		mdb.GetSecurity().ShouldUseClientCertificates() {
 		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.AgentCertMountPath,
@@ -687,7 +736,10 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	}
 
 	if !vault.IsVaultSecretBackend() {
-		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)))
+		volumesToAdd = append(
+			volumesToAdd,
+			statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)),
+		)
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
@@ -749,12 +801,17 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{""}),
 		container.WithImage(opts.InitDatabaseImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		container.WithCommand(
+			[]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"},
+		),
 		configureContainerSecurityContext,
 	)}
 
 	if opts.HostNameOverrideConfigmapName != "" {
-		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
+		volumes = append(
+			volumes,
+			statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName),
+		)
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
 			{
 				Name:      opts.HostNameOverrideConfigmapName,
@@ -779,7 +836,10 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 }
 
 // buildNonStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for non-static architecture
-func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+func buildNonStaticArchitecturePodTemplateSpec(
+	opts DatabaseStatefulSetOptions,
+	mdb databaseStatefulSetSource,
+) podtemplatespec.Modification {
 	// scripts volume is shared by the init container and the AppDB, so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
@@ -805,7 +865,10 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 	)}
 
 	if opts.HostNameOverrideConfigmapName != "" {
-		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
+		volumes = append(
+			volumes,
+			statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName),
+		)
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
 			{
 				Name:      opts.HostNameOverrideConfigmapName,
@@ -922,7 +985,10 @@ func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMon
 
 	// the following are hardcoded log files where we don't support changing the names
 	envVars = append(envVars, corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")})
-	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")})
+	envVars = append(
+		envVars,
+		corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")},
+	)
 	envVars = append(envVars, corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")})
 
 	return envVars
@@ -1092,12 +1158,24 @@ func newDefaultPodSpec() mdbv1.MongoDbPodSpec {
 }
 
 // GetNonPersistentMongoDBVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the database container.
-func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+func GetNonPersistentMongoDBVolumeMounts(
+	volumes []corev1.Volume,
+	volumeMounts []corev1.VolumeMount,
+) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvcNameData))
 
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, statefulset.WithSubPath(util.PvcNameData)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal)))
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathLogs, statefulset.WithSubPath(util.PvcNameLogs)))
+	volumeMounts = append(
+		volumeMounts,
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, statefulset.WithSubPath(util.PvcNameData)),
+	)
+	volumeMounts = append(
+		volumeMounts,
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal)),
+	)
+	volumeMounts = append(
+		volumeMounts,
+		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathLogs, statefulset.WithSubPath(util.PvcNameLogs)),
+	)
 
 	return volumes, volumeMounts
 }
@@ -1108,12 +1186,21 @@ func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []c
 
 	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
 	// This one is published by the Dockerfile
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+	volumeMounts = append(
+		volumeMounts,
+		statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)),
+	)
 
 	// Runtime data for MMS
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))
+	volumeMounts = append(
+		volumeMounts,
+		statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)),
+	)
 
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+	volumeMounts = append(
+		volumeMounts,
+		statefulset.CreateVolumeMount(util.PvMms, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)),
+	)
 
 	return volumes, volumeMounts
 }

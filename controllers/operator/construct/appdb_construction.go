@@ -97,7 +97,11 @@ func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefu
 }
 
 // appDbPodSpec return the podtemplatespec modification required for the AppDB statefulset.
-func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager, defaultArchitecture architectures.DefaultArchitecture) podtemplatespec.Modification {
+func appDbPodSpec(
+	initContainerImage string,
+	om om.MongoDBOpsManager,
+	defaultArchitecture architectures.DefaultArchitecture,
+) podtemplatespec.Modification {
 	// The following sets almost the exact same values for the containers
 	// But with the addition of a default memory request for the mongod one
 	appdbPodSpec := NewDefaultPodSpecWrapper(*om.Spec.AppDB.PodSpec)
@@ -121,7 +125,12 @@ func appDbPodSpec(initContainerImage string, om om.MongoDBOpsManager, defaultArc
 		// volumes of different containers.
 		initUpdateFunc = func(templateSpec *corev1.PodTemplateSpec) {
 			templateSpec.Spec.InitContainers = []corev1.Container{}
-			podtemplatespec.WithInitContainer(InitAppDbContainerName, buildAppDBInitContainer(initContainerImage, []corev1.VolumeMount{scriptsVolumeMount, hooksVolumeMount}))(templateSpec)
+			podtemplatespec.WithInitContainer(
+				InitAppDbContainerName,
+				buildAppDBInitContainer(initContainerImage, []corev1.VolumeMount{scriptsVolumeMount, hooksVolumeMount}),
+			)(
+				templateSpec,
+			)
 		}
 	}
 
@@ -154,7 +163,11 @@ cp /probes/version-upgrade-hook /hooks/version-upgrade
 
 // getTLSVolumesAndVolumeMounts returns the slices of volumes and volume-mounts
 // that the AppDB STS needs for TLS resources.
-func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, log *zap.SugaredLogger) ([]corev1.Volume, []corev1.VolumeMount) {
+func getTLSVolumesAndVolumeMounts(
+	appDb om.AppDBSpec,
+	podVars *env.PodEnvVars,
+	log *zap.SugaredLogger,
+) ([]corev1.Volume, []corev1.VolumeMount) {
 	if log == nil {
 		log = zap.S()
 	}
@@ -267,7 +280,11 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 
 		if appDB.Prometheus != nil && appDB.Prometheus.TLSSecretRef.Name != "" && opts.PrometheusTLSCertHash != "" {
 			appDBSecretsToInject.PrometheusTLSCertHash = opts.PrometheusTLSCertHash
-			appDBSecretsToInject.PrometheusTLSPath = fmt.Sprintf("%s%s", appDB.Prometheus.TLSSecretRef.Name, certs.OperatorGeneratedCertSuffix)
+			appDBSecretsToInject.PrometheusTLSPath = fmt.Sprintf(
+				"%s%s",
+				appDB.Prometheus.TLSSecretRef.Name,
+				certs.OperatorGeneratedCertSuffix,
+			)
 		}
 
 		modification = podtemplatespec.Apply(
@@ -302,8 +319,16 @@ func customPersistenceConfig(om *om.MongoDBOpsManager) statefulset.Modification 
 
 		// We already have, by default, the data volume mount,
 		// here we also create the logs and journal one, as subpath from the same volume
-		logsVolumeMount := statefulset.CreateVolumeMount(om.Spec.AppDB.DataVolumeName(), util.PvcMountPathLogs, statefulset.WithSubPath(om.Spec.AppDB.LogsVolumeName()))
-		journalVolumeMount := statefulset.CreateVolumeMount(om.Spec.AppDB.DataVolumeName(), util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal))
+		logsVolumeMount := statefulset.CreateVolumeMount(
+			om.Spec.AppDB.DataVolumeName(),
+			util.PvcMountPathLogs,
+			statefulset.WithSubPath(om.Spec.AppDB.LogsVolumeName()),
+		)
+		journalVolumeMount := statefulset.CreateVolumeMount(
+			om.Spec.AppDB.DataVolumeName(),
+			util.PvcMountPathJournal,
+			statefulset.WithSubPath(util.PvcNameJournal),
+		)
 		volumeMounts := []corev1.VolumeMount{journalVolumeMount, logsVolumeMount}
 		return statefulset.Apply(
 			statefulset.WithVolumeClaim(om.Spec.AppDB.DataVolumeName(), pvcModification),
@@ -362,7 +387,15 @@ func ShouldMountSSLMMSCAConfigMap(podVars *env.PodEnvVars) bool {
 }
 
 // AppDbStatefulSet fully constructs the AppDb StatefulSet that is ready to be sent to the Kubernetes API server.
-func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, opts AppDBStatefulSetOptions, scaler interfaces.MultiClusterReplicaSetScaler, updateStrategyType appsv1.StatefulSetUpdateStrategyType, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+func AppDbStatefulSet(
+	opsManager om.MongoDBOpsManager,
+	podVars *env.PodEnvVars,
+	opts AppDBStatefulSetOptions,
+	scaler interfaces.MultiClusterReplicaSetScaler,
+	updateStrategyType appsv1.StatefulSetUpdateStrategyType,
+	defaultArchitecture architectures.DefaultArchitecture,
+	log *zap.SugaredLogger,
+) (appsv1.StatefulSet, error) {
 	appDb := &opsManager.Spec.AppDB
 
 	var podSpec *corev1.PodTemplateSpec
@@ -376,12 +409,21 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		originalLen := len(podSpec.Spec.Containers)
 		podSpec.Spec.Containers = removeContainerByName(podSpec.Spec.Containers, monitoringAgentContainerName)
 		if len(podSpec.Spec.Containers) < originalLen {
-			log.Warnf("Removed deprecated container %q from user-supplied podTemplateSpec; monitoring is now handled by the single automation agent", monitoringAgentContainerName)
+			log.Warnf(
+				"Removed deprecated container %q from user-supplied podTemplateSpec; monitoring is now handled by the single automation agent",
+				monitoringAgentContainerName,
+			)
 		}
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	automationAgentCommand := AutomationAgentCommand(
+		architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture),
+		ShouldEnableMonitoring(podVars),
+		opsManager.Spec.AppDB.GetAgentLogLevel(),
+		opsManager.Spec.AppDB.GetAgentLogFile(),
+		opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours(),
+	)
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -393,7 +435,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
 
-	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
+	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap(
+		"automation-config-goal-version",
+		opsManager.Spec.AppDB.AutomationConfigConfigMapName(),
+	)
 	acVersionMount := corev1.VolumeMount{
 		Name:      acVersionConfigMapVolume.Name,
 		ReadOnly:  true,
@@ -409,7 +454,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	keyFileNsName := appDb.GetAgentKeyfileSecretNamespacedName()
 	keyFileVolume := statefulset.CreateVolumeFromEmptyDir(keyFileNsName.Name)
-	keyFileVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
+	keyFileVolumeMount := statefulset.CreateVolumeMount(
+		keyFileVolume.Name,
+		"/var/lib/mongodb-mms-automation/authentication",
+		statefulset.WithReadOnly(false),
+	)
 
 	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeMount, tmpVolumeMount}
 
@@ -417,7 +466,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	if appDb.NeedsAutomationConfigVolume() {
 		automationConfigVolume := statefulset.CreateVolumeFromSecret("automation-config", appDb.AutomationConfigSecretName())
 		automationConfigVolumeFunc = podtemplatespec.WithVolume(automationConfigVolume)
-		automationConfigVolumeMount := statefulset.CreateVolumeMount(automationConfigVolume.Name, "/var/lib/automation/config", statefulset.WithReadOnly(true))
+		automationConfigVolumeMount := statefulset.CreateVolumeMount(
+			automationConfigVolume.Name,
+			"/var/lib/automation/config",
+			statefulset.WithReadOnly(true),
+		)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, automationConfigVolumeMount)
 	}
 	mongodVolumeMounts := []corev1.VolumeMount{mongodHealthStatusVolumeMount, keyFileVolumeMount, tmpVolumeMount}
@@ -439,8 +492,14 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	if withInitContainers {
 		mongodVolumeMounts = append(mongodVolumeMounts, hooksVolumeMount)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, scriptsVolumeMount)
-		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
-		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
+		upgradeInitContainer = podtemplatespec.WithInitContainer(
+			appdbVersionUpgradeHookName,
+			appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""),
+		)
+		readinessInitContainer = podtemplatespec.WithInitContainer(
+			AppDBReadinessProbeContainerName,
+			appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""),
+		)
 	} else {
 		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
 		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
@@ -495,8 +554,19 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				podtemplatespec.WithVolume(tmpVolume),
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithVolume(acVersionConfigMapVolume),
-				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(appDb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, opts.AgentImage, automationAgentCommand)),
-				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers)),
+				podtemplatespec.WithContainer(
+					util.AgentContainerName,
+					appdbMongodbAgentContainer(
+						appDb.AutomationConfigSecretName(),
+						mongodbAgentVolumeMounts,
+						opts.AgentImage,
+						automationAgentCommand,
+					),
+				),
+				podtemplatespec.WithContainer(
+					util.MongodbContainerName,
+					appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers),
+				),
 				withStaticContainerModification,
 				upgradeInitContainer,
 				readinessInitContainer,

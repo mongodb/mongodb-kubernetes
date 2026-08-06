@@ -12,7 +12,12 @@ import (
 )
 
 // cleanupPemSecret cleans up the old pem secret generated for the agent certificate.
-func (r *ReplicaSetReconciler) cleanupPemSecret(ctx context.Context, currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, namespace string) {
+func (r *ReplicaSetReconciler) cleanupPemSecret(
+	ctx context.Context,
+	currentMDBSpec mdbv1.MongoDBCommunitySpec,
+	lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec,
+	namespace string,
+) {
 	if currentMDBSpec.GetAgentAuthMode() == lastAppliedMDBSpec.GetAgentAuthMode() {
 		return
 	}
@@ -33,7 +38,12 @@ func (r *ReplicaSetReconciler) cleanupPemSecret(ctx context.Context, currentMDBS
 }
 
 // cleanupScramSecrets cleans up old scram secrets based on the last successful applied mongodb spec.
-func (r *ReplicaSetReconciler) cleanupScramSecrets(ctx context.Context, currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, namespace string) {
+func (r *ReplicaSetReconciler) cleanupScramSecrets(
+	ctx context.Context,
+	currentMDBSpec mdbv1.MongoDBCommunitySpec,
+	lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec,
+	namespace string,
+) {
 	secretsToDelete := getScramSecretsToDelete(currentMDBSpec, lastAppliedMDBSpec)
 
 	for _, s := range secretsToDelete {
@@ -49,7 +59,13 @@ func (r *ReplicaSetReconciler) cleanupScramSecrets(ctx context.Context, currentM
 }
 
 // cleanupConnectionStringSecrets cleans up old scram secrets based on the last successful applied mongodb spec.
-func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(ctx context.Context, currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, namespace string, resourceName string) {
+func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(
+	ctx context.Context,
+	currentMDBSpec mdbv1.MongoDBCommunitySpec,
+	lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec,
+	namespace string,
+	resourceName string,
+) {
 	secretsToDelete := getConnectionStringSecretsToDelete(currentMDBSpec, lastAppliedMDBSpec, resourceName)
 
 	for _, s := range secretsToDelete {
@@ -93,7 +109,11 @@ func getScramSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppl
 	return secretsToDelete
 }
 
-func getConnectionStringSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, resourceName string) []string {
+func getConnectionStringSecretsToDelete(
+	currentMDBSpec mdbv1.MongoDBCommunitySpec,
+	lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec,
+	resourceName string,
+) []string {
 	type user struct {
 		db   string
 		name string

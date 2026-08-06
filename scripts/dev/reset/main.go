@@ -61,7 +61,13 @@ func waitForBackupPodDeletion(kubeClient *kubernetes.Clientset, namespace string
 }
 
 // deleteDynamicResources deletes a list of dynamic resources
-func deleteDynamicResources(ctx context.Context, dynamicClient dynamic.Interface, namespace string, resources []DynamicResource, collectError func(error, string)) {
+func deleteDynamicResources(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	namespace string,
+	resources []DynamicResource,
+	collectError func(error, string),
+) {
 	for _, resource := range resources {
 		err := dynamicClient.Resource(resource.GVR).Namespace(namespace).DeleteCollection(ctx, deleteOptionsNoGrace, v1.ListOptions{})
 		collectError(err, fmt.Sprintf("failed to delete %s", resource.ResourceName))
@@ -162,7 +168,13 @@ func resetContext(ctx context.Context, contextName string, deleteCRD bool, colle
 
 // removeIstioConfig removes Istio sidecar injection label and PeerAuthentication from the namespace.
 // This prevents Istio artifacts from a multi-cluster run from leaking into subsequent single-cluster tests.
-func removeIstioConfig(ctx context.Context, kubeClient *kubernetes.Clientset, dynamicClient dynamic.Interface, namespace string, collectError func(error, string)) {
+func removeIstioConfig(
+	ctx context.Context,
+	kubeClient *kubernetes.Clientset,
+	dynamicClient dynamic.Interface,
+	namespace string,
+	collectError func(error, string),
+) {
 	// Remove istio-injection label from namespace
 	ns, err := kubeClient.CoreV1().Namespaces().Get(ctx, namespace, v1.GetOptions{})
 	if err == nil && ns.Labels["istio-injection"] != "" {
@@ -328,7 +340,9 @@ func resetNamespace(ctx context.Context, contextName string, namespace string, d
 	collectError(err, "failed to list mongodb users")
 	if err == nil {
 		for _, customRole := range list.Items {
-			_, err := dynamicClient.Resource(userGVR).Namespace(namespace).Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
+			_, err := dynamicClient.Resource(userGVR).
+				Namespace(namespace).
+				Patch(ctx, customRole.GetName(), types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`), v1.PatchOptions{})
 			collectError(err, fmt.Sprintf("failed to patch custom role %s", customRole.GetName()))
 		}
 	}

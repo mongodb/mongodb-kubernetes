@@ -58,8 +58,23 @@ func TestReplicaSetX509(t *testing.T) {
 		cert, root, dir := createCerts(ctx, t, &mdb)
 		defer os.RemoveAll(dir)
 
-		t.Run("Connectivity Fails without certs", tester.ConnectivityFails(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0])), WithTls(ctx, mdb)))
-		t.Run("Connectivity Fails with invalid certs", tester.ConnectivityFails(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
+		t.Run(
+			"Connectivity Fails without certs",
+			tester.ConnectivityFails(WithURI(mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0])), WithTls(ctx, mdb)),
+		)
+		t.Run(
+			"Connectivity Fails with invalid certs",
+			tester.ConnectivityFails(
+				WithURI(
+					fmt.Sprintf(
+						"%s&tlsCAFile=%s&tlsCertificateKeyFile=%s",
+						mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]),
+						root,
+						cert,
+					),
+				),
+			),
+		)
 	})
 
 	t.Run("Connection with valid certificate", func(t *testing.T) {
@@ -77,7 +92,19 @@ func TestReplicaSetX509(t *testing.T) {
 
 		t.Run("Basic tests", mongodbtests.BasicFunctionalityX509(ctx, &mdb))
 		t.Run("Agent certificate secrets configured", mongodbtests.AgentX509SecretsExists(ctx, &mdb))
-		t.Run("Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
+		t.Run(
+			"Connectivity Succeeds",
+			tester.ConnectivitySucceeds(
+				WithURI(
+					fmt.Sprintf(
+						"%s&tlsCAFile=%s&tlsCertificateKeyFile=%s",
+						mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]),
+						root,
+						cert,
+					),
+				),
+			),
+		)
 	})
 
 	t.Run("Rotate agent certificate", func(t *testing.T) {
@@ -113,7 +140,19 @@ func TestReplicaSetX509(t *testing.T) {
 
 		assert.NotEqual(t, finalAgentPem.Data, initialAgentPem.Data)
 
-		t.Run("Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
+		t.Run(
+			"Connectivity Succeeds",
+			tester.ConnectivitySucceeds(
+				WithURI(
+					fmt.Sprintf(
+						"%s&tlsCAFile=%s&tlsCertificateKeyFile=%s",
+						mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]),
+						root,
+						cert,
+					),
+				),
+			),
+		)
 	})
 
 	t.Run("Transition to also allow SCRAM", func(t *testing.T) {
@@ -132,7 +171,19 @@ func TestReplicaSetX509(t *testing.T) {
 
 		t.Run("Basic tests", mongodbtests.BasicFunctionalityX509(ctx, &mdb))
 		t.Run("Agent certificate secrets configured", mongodbtests.AgentX509SecretsExists(ctx, &mdb))
-		t.Run("Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
+		t.Run(
+			"Connectivity Succeeds",
+			tester.ConnectivitySucceeds(
+				WithURI(
+					fmt.Sprintf(
+						"%s&tlsCAFile=%s&tlsCertificateKeyFile=%s",
+						mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]),
+						root,
+						cert,
+					),
+				),
+			),
+		)
 	})
 
 	t.Run("Transition to SCRAM agent", func(t *testing.T) {
@@ -149,7 +200,19 @@ func TestReplicaSetX509(t *testing.T) {
 		users := mdb.GetAuthUsers()
 
 		t.Run("Basic tests", mongodbtests.BasicFunctionality(ctx, &mdb))
-		t.Run("Connectivity Succeeds", tester.ConnectivitySucceeds(WithURI(fmt.Sprintf("%s&tlsCAFile=%s&tlsCertificateKeyFile=%s", mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]), root, cert))))
+		t.Run(
+			"Connectivity Succeeds",
+			tester.ConnectivitySucceeds(
+				WithURI(
+					fmt.Sprintf(
+						"%s&tlsCAFile=%s&tlsCertificateKeyFile=%s",
+						mongodbtests.GetConnectionStringForUser(ctx, mdb, users[0]),
+						root,
+						cert,
+					),
+				),
+			),
+		)
 	})
 }
 

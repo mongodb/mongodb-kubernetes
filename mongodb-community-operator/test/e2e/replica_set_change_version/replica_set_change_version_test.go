@@ -57,20 +57,32 @@ func TestReplicaSetUpgradeVersion(t *testing.T) {
 	t.Run("MongoDB is reachable while minor version is upgraded", func(t *testing.T) {
 		defer tester.StartBackgroundConnectivityTest(t, time.Second*10)()
 		t.Run("Test Minor Version can be upgraded", mongodbtests.ChangeVersion(ctx, &mdb, upgradedMDBVersion))
-		t.Run("StatefulSet has OnDelete update strategy", mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.OnDeleteStatefulSetStrategyType))
+		t.Run(
+			"StatefulSet has OnDelete update strategy",
+			mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.OnDeleteStatefulSetStrategyType),
+		)
 		t.Run("Stateful Set Reaches Ready State, after Upgrading", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
 		t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 2))
 	})
 
-	t.Run("StatefulSet has RollingUpgrade restart strategy", mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.RollingUpdateStatefulSetStrategyType))
+	t.Run(
+		"StatefulSet has RollingUpgrade restart strategy",
+		mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.RollingUpdateStatefulSetStrategyType),
+	)
 
 	// Upgrade patch version to upgradedWithIncreasedPatchMDBVersion
 	t.Run("MongoDB is reachable while patch version is upgraded", func(t *testing.T) {
 		defer tester.StartBackgroundConnectivityTest(t, time.Second*10)()
 		t.Run("Test Patch Version can be upgraded", mongodbtests.ChangeVersion(ctx, &mdb, upgradedWithIncreasedPatchMDBVersion))
-		t.Run("StatefulSet has OnDelete restart strategy", mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.OnDeleteStatefulSetStrategyType))
+		t.Run(
+			"StatefulSet has OnDelete restart strategy",
+			mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.OnDeleteStatefulSetStrategyType),
+		)
 		t.Run("Stateful Set Reaches Ready State, after upgrading", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
 		t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 3))
 	})
-	t.Run("StatefulSet has RollingUpgrade restart strategy", mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.RollingUpdateStatefulSetStrategyType))
+	t.Run(
+		"StatefulSet has RollingUpgrade restart strategy",
+		mongodbtests.StatefulSetHasUpdateStrategy(ctx, &mdb, appsv1.RollingUpdateStatefulSetStrategyType),
+	)
 }

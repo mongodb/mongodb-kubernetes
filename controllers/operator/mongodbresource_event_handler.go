@@ -29,7 +29,11 @@ type ResourceEventHandler struct {
 	deleter Deleter
 }
 
-func (h *ResourceEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *ResourceEventHandler) Delete(
+	ctx context.Context,
+	e event.TypedDeleteEvent[client.Object],
+	_ workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	objectKey := kube.ObjectKey(e.Object.GetNamespace(), e.Object.GetName())
 	logger := zap.S().With("resource", objectKey)
 

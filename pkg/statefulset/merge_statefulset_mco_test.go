@@ -51,7 +51,10 @@ func TestGetLabelSelectorRequirementByKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := merge.LabelSelectorRequirementByKey(tt.args.labelSelectorRequirements, tt.args.key); !reflect.DeepEqual(got, tt.want) {
+			if got := merge.LabelSelectorRequirementByKey(tt.args.labelSelectorRequirements, tt.args.key); !reflect.DeepEqual(
+				got,
+				tt.want,
+			) {
 				t.Errorf("getLabelSelectorRequirementByKey() = %v, want %v", got, tt.want)
 			}
 		})

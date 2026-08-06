@@ -176,7 +176,11 @@ func validateLBConfig(s *MongoDBSearch) v1.ValidationResult {
 			return v1.ValidationError("spec.clusters[%d].loadBalancer must have exactly one of 'managed' or 'unmanaged' set", i)
 		}
 		if lb.Managed != nil && lb.Unmanaged != nil {
-			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed and spec.clusters[%d].loadBalancer.unmanaged are mutually exclusive", i, i)
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed and spec.clusters[%d].loadBalancer.unmanaged are mutually exclusive",
+				i,
+				i,
+			)
 		}
 		if lb.Managed != nil {
 			managedCount++
@@ -185,10 +189,16 @@ func validateLBConfig(s *MongoDBSearch) v1.ValidationResult {
 		}
 	}
 	if withLB > 0 && withLB != len(s.Spec.Clusters) {
-		return v1.ValidationError("spec.clusters[].loadBalancer must be set on every cluster or on none; %d of %d clusters set it", withLB, len(s.Spec.Clusters))
+		return v1.ValidationError(
+			"spec.clusters[].loadBalancer must be set on every cluster or on none; %d of %d clusters set it",
+			withLB,
+			len(s.Spec.Clusters),
+		)
 	}
 	if managedCount > 0 && unmanagedCount > 0 {
-		return v1.ValidationError("spec.clusters[].loadBalancer mode must be the same on every cluster; managed and unmanaged cannot be mixed")
+		return v1.ValidationError(
+			"spec.clusters[].loadBalancer mode must be the same on every cluster; managed and unmanaged cannot be mixed",
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -200,7 +210,11 @@ func validateUnmanagedLBConfig(s *MongoDBSearch) v1.ValidationResult {
 			continue
 		}
 		if c.LoadBalancer.Unmanaged.Endpoint == "" {
-			return v1.ValidationError("spec.clusters[%d].loadBalancer.unmanaged.endpoint must be specified when spec.clusters[%d].loadBalancer.unmanaged is configured", i, i)
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.unmanaged.endpoint must be specified when spec.clusters[%d].loadBalancer.unmanaged is configured",
+				i,
+				i,
+			)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -217,7 +231,10 @@ func validateManagedLBExternalHostname(s *MongoDBSearch) v1.ValidationResult {
 			continue
 		}
 		if c.LoadBalancer.Managed.ExternalHostname == "" {
-			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source", i)
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed.externalHostname must be specified when using managed load balancer with an external MongoDB source",
+				i,
+			)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -236,10 +253,17 @@ func validateRouterHostname(s *MongoDBSearch) v1.ValidationResult {
 			continue
 		}
 		if c.LoadBalancer.Managed.RouterHostname == "" {
-			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.routerHostname must be specified when using managed load balancer with an external sharded MongoDB source", i)
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed.routerHostname must be specified when using managed load balancer with an external sharded MongoDB source",
+				i,
+			)
 		}
 		if strings.Contains(c.LoadBalancer.Managed.RouterHostname, ShardNamePlaceholder) {
-			return v1.ValidationError("spec.clusters[%d].loadBalancer.managed.routerHostname must not contain %s; it is the shard-agnostic endpoint for mongos", i, ShardNamePlaceholder)
+			return v1.ValidationError(
+				"spec.clusters[%d].loadBalancer.managed.routerHostname must not contain %s; it is the shard-agnostic endpoint for mongos",
+				i,
+				ShardNamePlaceholder,
+			)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -269,7 +293,11 @@ func validateUnmanagedEndpointTemplate(s *MongoDBSearch) v1.ValidationResult {
 		// endpoint, so the template is required and must carry more than the placeholder.
 		if s.IsExternalSourceSharded() {
 			if !hasTemplate {
-				return v1.ValidationError("%s must contain at least one %s placeholder to differentiate between shards", path, ShardNamePlaceholder)
+				return v1.ValidationError(
+					"%s must contain at least one %s placeholder to differentiate between shards",
+					path,
+					ShardNamePlaceholder,
+				)
 			}
 			if isPlaceholderOnly(endpoint) {
 				return v1.ValidationError("%s must contain more than just the %s placeholder", path, ShardNamePlaceholder)
@@ -411,7 +439,13 @@ func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
 		for oi, o := range c.ShardOverrides {
 			for i, flag := range o.JVMFlags {
 				if reason := invalidJVMFlagReason(flag); reason != "" {
-					return v1.ValidationError("MongoDBSearch resource is invalid, spec.clusters[%d].shardOverrides[%d].jvmFlags[%d] %s", ci, oi, i, reason)
+					return v1.ValidationError(
+						"MongoDBSearch resource is invalid, spec.clusters[%d].shardOverrides[%d].jvmFlags[%d] %s",
+						ci,
+						oi,
+						i,
+						reason,
+					)
 				}
 			}
 		}
@@ -488,11 +522,15 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	}
 
 	if s.Spec.Source.PasswordSecretRef != nil {
-		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.passwordSecretRef cannot both be set")
+		return v1.ValidationError(
+			"x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.passwordSecretRef cannot both be set",
+		)
 	}
 
 	if s.Spec.Source.Username != nil {
-		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
+		return v1.ValidationError(
+			"x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set",
+		)
 	}
 
 	return v1.ValidationSuccess()
@@ -762,7 +800,9 @@ func validateShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 	}
 
 	if !s.IsExternalSourceSharded() {
-		return v1.ValidationError("spec.clusters[].shardOverrides is only supported for external sharded sources (spec.source.external.shardedCluster)")
+		return v1.ValidationError(
+			"spec.clusters[].shardOverrides is only supported for external sharded sources (spec.source.external.shardedCluster)",
+		)
 	}
 
 	declared := make(map[string]struct{})
@@ -777,13 +817,18 @@ func validateShardOverrides(s *MongoDBSearch) v1.ValidationResult {
 				if _, ok := declared[name]; !ok {
 					return v1.ValidationError(
 						"spec.clusters[%d].shardOverrides[%d] references unknown shardName %q; it must exist in spec.source.external.shardedCluster.shards",
-						ci, oi, name,
+						ci,
+						oi,
+						name,
 					)
 				}
 				if first, dup := seen[name]; dup {
 					return v1.ValidationError(
 						"spec.clusters[%d]: shardName %q appears in more than one shardOverrides entry (entries %d and %d); a shard may be overridden at most once per cluster",
-						ci, name, first, oi,
+						ci,
+						name,
+						first,
+						oi,
 					)
 				}
 				seen[name] = oi

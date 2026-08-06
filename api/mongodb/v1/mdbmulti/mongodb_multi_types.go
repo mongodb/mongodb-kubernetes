@@ -48,8 +48,8 @@ const (
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBMultiCluster resource was created."
 type MongoDBMultiCluster struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta   `                   json:",inline"`
+	metav1.ObjectMeta `                   json:"metadata,omitempty"`
 	// +optional
 	Status MongoDBMultiStatus `json:"status"`
 	Spec   MongoDBMultiSpec   `json:"spec"`
@@ -80,7 +80,16 @@ func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) 
 	}
 
 	for _, spec := range clusterSpecList {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName))...)
+		hostnames = append(
+			hostnames,
+			dns.GetMultiClusterProcessHostnames(
+				m.Name,
+				m.Namespace,
+				m.ClusterNum(spec.ClusterName),
+				spec.Members,
+				m.Spec.GetClusterDomain(),
+				m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName),
+			)...)
 	}
 	return hostnames, nil
 }
@@ -188,8 +197,8 @@ func (m *MongoDBMultiCluster) GetKind() string {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MongoDBMultiClusterList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
+	metav1.TypeMeta `                      json:",inline"`
+	metav1.ListMeta `                      json:"metadata"`
 	Items           []MongoDBMultiCluster `json:"items"`
 }
 
@@ -632,10 +641,23 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 //
 // Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
 // to complete.
-func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBMultiCluster) BuildConnectionString(
+	username, password string,
+	scheme connectionstring.Scheme,
+	connectionParams map[string]string,
+) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
+		hostnames = append(
+			hostnames,
+			dns.GetMultiClusterProcessHostnames(
+				m.Name,
+				m.Namespace,
+				m.ClusterNum(spec.ClusterName),
+				spec.Members,
+				m.Spec.GetClusterDomain(),
+				nil,
+			)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).
@@ -684,5 +706,9 @@ func (m *MongoDBMultiCluster) IsInChangeVersion() bool {
 }
 
 func (m *MongoDBMultiCluster) CalculateFeatureCompatibilityVersion() string {
-	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
+	return fcv.CalculateFeatureCompatibilityVersion(
+		m.Spec.Version,
+		m.Status.FeatureCompatibilityVersion,
+		m.Spec.FeatureCompatibilityVersion,
+	)
 }

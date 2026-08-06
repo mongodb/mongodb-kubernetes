@@ -45,12 +45,22 @@ func GetMultiServiceExternalDomain(stsName, externalDomain string, clusterNum, p
 }
 
 // GetMultiClusterProcessHostnames returns the agent hostnames, which they should be registered in OM in multi-cluster mode.
-func GetMultiClusterProcessHostnames(stsName, namespace string, clusterNum, members int, clusterDomain string, externalDomain *string) []string {
+func GetMultiClusterProcessHostnames(
+	stsName, namespace string,
+	clusterNum, members int,
+	clusterDomain string,
+	externalDomain *string,
+) []string {
 	hostnames, _ := GetMultiClusterProcessHostnamesAndPodNames(stsName, namespace, clusterNum, members, clusterDomain, externalDomain)
 	return hostnames
 }
 
-func GetMultiClusterProcessHostnamesAndPodNames(stsName, namespace string, clusterNum, members int, clusterDomain string, externalDomain *string) ([]string, []string) {
+func GetMultiClusterProcessHostnamesAndPodNames(
+	stsName, namespace string,
+	clusterNum, members int,
+	clusterDomain string,
+	externalDomain *string,
+) ([]string, []string) {
 	hostnames := make([]string, 0)
 	podNames := make([]string, 0)
 
@@ -62,7 +72,14 @@ func GetMultiClusterProcessHostnamesAndPodNames(stsName, namespace string, clust
 	return hostnames, podNames
 }
 
-func GetMultiClusterPodServiceFQDN(stsName string, namespace string, clusterNum int, externalDomain *string, podNum int, clusterDomain string) string {
+func GetMultiClusterPodServiceFQDN(
+	stsName string,
+	namespace string,
+	clusterNum int,
+	externalDomain *string,
+	podNum int,
+	clusterDomain string,
+) string {
 	if externalDomain != nil {
 		return GetMultiServiceExternalDomain(stsName, *externalDomain, clusterNum, podNum)
 	}
@@ -87,7 +104,12 @@ func GetDnsForStatefulSet(set appsv1.StatefulSet, clusterDomain string, external
 
 // GetDnsForStatefulSetReplicasSpecified is similar to GetDnsForStatefulSet but expects the number of replicas to be specified
 // (important for scale-down operations to support hostnames for old statefulset)
-func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterDomain string, replicas int, externalDomain *string) ([]string, []string) {
+func GetDnsForStatefulSetReplicasSpecified(
+	set appsv1.StatefulSet,
+	clusterDomain string,
+	replicas int,
+	externalDomain *string,
+) ([]string, []string) {
 	if replicas == 0 {
 		replicas = int(*set.Spec.Replicas)
 	}
@@ -97,7 +119,11 @@ func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterDomain
 // GetDNSNames returns hostnames and names of pods in stateful set, it's less preferable than "GetDnsForStatefulSet" and
 // should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
 // resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
-func GetDNSNames(statefulSetName, service, namespace, clusterDomain string, replicas int, externalDomain *string) (hostnames, names []string) {
+func GetDNSNames(
+	statefulSetName, service, namespace, clusterDomain string,
+	replicas int,
+	externalDomain *string,
+) (hostnames, names []string) {
 	names = make([]string, replicas)
 	hostnames = make([]string, replicas)
 

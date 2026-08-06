@@ -110,7 +110,20 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	// These OM changes must be overriden
 	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = util.Int32Ref(2)
 	(*d.getReplicaSetByName("configSrv")).addMember(
-		NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, mdbv1.NewStandaloneBuilder().Build().GetSpec(), "", nil, "", architectures.NonStatic), "", automationconfig.MemberOptions{},
+		NewMongodProcess(
+			"foo",
+			"bar",
+			"fake-mongoDBImage",
+			false,
+			&mdbv1.AdditionalMongodConfig{},
+			mdbv1.NewStandaloneBuilder().Build().GetSpec(),
+			"",
+			nil,
+			"",
+			architectures.NonStatic,
+		),
+		"",
+		automationconfig.MemberOptions{},
 	)
 	(*d.getReplicaSetByName("cluster-2")).setMembers(d.getReplicaSetByName("cluster-2").Members()[0:2])
 
@@ -527,5 +540,11 @@ func TestRemoveShardedClusterByName(t *testing.T) {
 
 	// Then check that the sharded cluster and all replica sets were removed
 	shards2 := createShards("otherShard")
-	checkShardedClusterRemoved(t, d, NewShardedCluster("otherCluster", configRs2.Rs.Name(), shards2), createConfigSrvRs("otherConfigSrv", false), shards2)
+	checkShardedClusterRemoved(
+		t,
+		d,
+		NewShardedCluster("otherCluster", configRs2.Rs.Name(), shards2),
+		createConfigSrvRs("otherConfigSrv", false),
+		shards2,
+	)
 }

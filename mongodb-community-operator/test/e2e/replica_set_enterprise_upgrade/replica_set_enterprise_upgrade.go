@@ -43,7 +43,10 @@ func DeployEnterpriseAndUpgradeTest(ctx context.Context, t *testing.T, versionsT
 			t.Run(fmt.Sprintf("Upgrading to %s", versionsToBeTested[i]), mongodbtests.ChangeVersion(ctx, &mdb, versionsToBeTested[i]))
 			t.Run("Stateful Set Reaches Ready State, after Upgrading", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
 			t.Run("MongoDB Reaches Running Phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
-			t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, i+1))
+			t.Run(
+				"AutomationConfig's version has been increased",
+				mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, i+1),
+			)
 		})
 	}
 }

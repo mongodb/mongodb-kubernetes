@@ -63,7 +63,18 @@ func TestMergeReplicaSet(t *testing.T) {
 
 	// Now the deployment "gets updated" from external - new node is added and one is removed - this should be fixed
 	// by merge
-	newProcess := NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil, "", architectures.NonStatic)
+	newProcess := NewMongodProcess(
+		"foo",
+		"bar",
+		"fake-mongoDBImage",
+		false,
+		&mdbv1.AdditionalMongodConfig{},
+		&mdbv1.NewStandaloneBuilder().Build().Spec,
+		"",
+		nil,
+		"",
+		architectures.NonStatic,
+	)
 
 	d.getProcesses()[0]["processType"] = ProcessTypeMongos                            // this will be overriden
 	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20              // this will be left as-is
@@ -522,9 +533,21 @@ func TestConfigureMonitoringTls(t *testing.T) {
 	}
 
 	expectedMonitoringVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{
+			"hostname":         "my-rs-0.some.host",
+			"name":             MonitoringAgentDefaultVersion,
+			"additionalParams": expectedAdditionalParams,
+		},
+		map[string]interface{}{
+			"hostname":         "my-rs-1.some.host",
+			"name":             MonitoringAgentDefaultVersion,
+			"additionalParams": expectedAdditionalParams,
+		},
+		map[string]interface{}{
+			"hostname":         "my-rs-2.some.host",
+			"name":             MonitoringAgentDefaultVersion,
+			"additionalParams": expectedAdditionalParams,
+		},
 	}
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
@@ -546,9 +569,21 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 		"sslTrustedServerCertificates": util.CAFilePathInContainer,
 	}
 	expectedMonitoringVersionsWithTls := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]interface{}{
+			"hostname":         "my-rs-0.some.host",
+			"name":             MonitoringAgentDefaultVersion,
+			"additionalParams": expectedAdditionalParams,
+		},
+		map[string]interface{}{
+			"hostname":         "my-rs-1.some.host",
+			"name":             MonitoringAgentDefaultVersion,
+			"additionalParams": expectedAdditionalParams,
+		},
+		map[string]interface{}{
+			"hostname":         "my-rs-2.some.host",
+			"name":             MonitoringAgentDefaultVersion,
+			"additionalParams": expectedAdditionalParams,
+		},
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
 
@@ -644,7 +679,13 @@ func checkReplicaSetCheckExtraProcesses(t *testing.T, d Deployment, expectedRs R
 	}
 	assert.Equalf(t, len(expectedRs.Processes), found, "Not all  %s replicaSet processes are found!", expectedRs.Rs.Name())
 	if checkExtraProcesses {
-		assert.Equalf(t, len(expectedRs.Processes), totalMongods, "Some excessive mongod processes are found for %s replicaSet!", expectedRs.Rs.Name())
+		assert.Equalf(
+			t,
+			len(expectedRs.Processes),
+			totalMongods,
+			"Some excessive mongod processes are found for %s replicaSet!",
+			expectedRs.Rs.Name(),
+		)
 	}
 }
 
@@ -684,7 +725,13 @@ func checkMongoSProcesses(t *testing.T, allProcesses []Process, expectedMongosPr
 	assert.Equal(t, len(expectedMongosProcesses), totalMongoses, "Some excessive mongos processes are found!")
 }
 
-func checkShardedClusterRemoved(t *testing.T, d Deployment, sc ShardedCluster, configRs ReplicaSetWithProcesses, shards []ReplicaSetWithProcesses) {
+func checkShardedClusterRemoved(
+	t *testing.T,
+	d Deployment,
+	sc ShardedCluster,
+	configRs ReplicaSetWithProcesses,
+	shards []ReplicaSetWithProcesses,
+) {
 	assert.Nil(t, d.getShardedClusterByName(sc.Name()))
 
 	checkReplicaSetRemoved(t, d, configRs)
@@ -757,7 +804,18 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 }
 
 func createStandalone() Process {
-	return NewMongodProcess("merchantsStandalone", "mongo1.some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
+	return NewMongodProcess(
+		"merchantsStandalone",
+		"mongo1.some.host",
+		"fake-mongoDBImage",
+		false,
+		&mdbv1.AdditionalMongodConfig{},
+		defaultMongoDBVersioned("3.6.3"),
+		"",
+		nil,
+		"",
+		architectures.NonStatic,
+	)
 }
 
 func createMongosProcesses(num int, name, clusterName string) []Process {
@@ -765,7 +823,18 @@ func createMongosProcesses(num int, name, clusterName string) []Process {
 
 	for i := 0; i < num; i++ {
 		idx := strconv.Itoa(i)
-		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
+		mongosProcesses[i] = NewMongosProcess(
+			name+idx,
+			"mongoS"+idx+".some.host",
+			"fake-mongoDBImage",
+			false,
+			&mdbv1.AdditionalMongodConfig{},
+			defaultMongoDBVersioned("3.6.3"),
+			"",
+			nil,
+			"",
+			architectures.NonStatic,
+		)
 		if clusterName != "" {
 			mongosProcesses[i].setCluster(clusterName)
 		}
@@ -781,7 +850,18 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
+		rsMembers[i] = NewMongodProcess(
+			fmt.Sprintf("%s-%d", rsName, i),
+			fmt.Sprintf("%s-%d.some.host", rsName, i),
+			"fake-mongoDBImage",
+			false,
+			&mdbv1.AdditionalMongodConfig{},
+			defaultMongoDBVersioned("3.6.3"),
+			"",
+			nil,
+			"",
+			architectures.NonStatic,
+		)
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers
@@ -791,7 +871,18 @@ func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
 	for i := 0; i < count; i++ {
-		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3-ent"), "", nil, "", architectures.NonStatic)
+		rsMembers[i] = NewMongodProcess(
+			fmt.Sprintf("%s-%d", rsName, i),
+			fmt.Sprintf("%s-%d.some.host", rsName, i),
+			"fake-mongoDBImage",
+			false,
+			&mdbv1.AdditionalMongodConfig{},
+			defaultMongoDBVersioned("3.6.3-ent"),
+			"",
+			nil,
+			"",
+			architectures.NonStatic,
+		)
 		// Note that we don't specify the replicaset config for process
 	}
 	return rsMembers

@@ -88,7 +88,14 @@ type UserOptions struct {
 
 // Configure will configure all the specified authentication Mechanisms. We need to ensure we wait for
 // the agents to reach ready state after each operation as prematurely updating the automation config can cause the agents to get stuck.
-func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, isRecovering bool, log *zap.SugaredLogger) error {
+func Configure(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	conn om.Connection,
+	opts Options,
+	isRecovering bool,
+	log *zap.SugaredLogger,
+) error {
 	log.Infow("ensuring correct deployment mechanisms", "ProcessNames", opts.ProcessNames, "Mechanisms", opts.Mechanisms)
 
 	// In case we're recovering, we can push all changes at once, because the mechanism is triggered after 20min by default.
@@ -157,7 +164,14 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 
 // Disable disables all authentication mechanisms, and waits for the agents to reach goal state. It is still required to provide
 // automation agent username, password and keyfile contents to ensure a valid Automation Config.
-func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, deleteUsers bool, log *zap.SugaredLogger) error {
+func Disable(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	conn om.Connection,
+	opts Options,
+	deleteUsers bool,
+	log *zap.SugaredLogger,
+) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -274,7 +288,13 @@ func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap
 
 // enableAgentAuthentication determines which agent authentication mechanism should be configured
 // and enables it in Ops Manager
-func enableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func enableAgentAuthentication(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	conn om.Connection,
+	opts Options,
+	log *zap.SugaredLogger,
+) error {
 	ac, err := conn.ReadAutomationConfig()
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
@@ -381,7 +401,15 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 }
 
 // ensureAgentAuthenticationIsConfigured will configure the agent authentication settings based on the desiredAgentAuthMechanism
-func ensureAgentAuthenticationIsConfigured(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, ac *om.AutomationConfig, mechanism Mechanism, log *zap.SugaredLogger) error {
+func ensureAgentAuthenticationIsConfigured(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	conn om.Connection,
+	opts Options,
+	ac *om.AutomationConfig,
+	mechanism Mechanism,
+	log *zap.SugaredLogger,
+) error {
 	if mechanism.IsAgentAuthenticationConfigured(ac, opts) {
 		log.Infof("Agent authentication mechanism %s is already configured", mechanism.GetName())
 		return nil
@@ -393,7 +421,13 @@ func ensureAgentAuthenticationIsConfigured(ctx context.Context, client kubernete
 
 // ensureDeploymentMechanisms configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mechanisms MechanismList, opts Options, log *zap.SugaredLogger) error {
+func ensureDeploymentMechanisms(
+	conn om.Connection,
+	ac *om.AutomationConfig,
+	mechanisms MechanismList,
+	opts Options,
+	log *zap.SugaredLogger,
+) error {
 	mechanismsToEnable := make([]Mechanism, 0)
 	for _, mechanism := range mechanisms {
 		if !mechanism.IsDeploymentAuthenticationConfigured(ac, opts) {
@@ -420,7 +454,12 @@ func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mec
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, log *zap.SugaredLogger) error {
+func ensureDeploymentMechanismsAreDisabled(
+	conn om.Connection,
+	ac *om.AutomationConfig,
+	mechanismsToDisable MechanismList,
+	log *zap.SugaredLogger,
+) error {
 	deploymentMechanismsToDisable := make([]Mechanism, 0)
 	for _, mechanism := range mechanismsToDisable {
 		if mechanism.IsDeploymentAuthenticationEnabled(ac) {

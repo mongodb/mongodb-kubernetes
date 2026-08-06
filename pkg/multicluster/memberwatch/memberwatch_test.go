@@ -150,7 +150,9 @@ func TestShouldAddFailedClusterAnnotation(t *testing.T) {
 			out:         false,
 		},
 		{
-			annotations: map[string]string{failedcluster.FailedClusterAnnotation: getFailedClusterList([]string{"cluster1", "cluster2", "cluster4"})},
+			annotations: map[string]string{
+				failedcluster.FailedClusterAnnotation: getFailedClusterList([]string{"cluster1", "cluster2", "cluster4"}),
+			},
 			clusterName: "cluster3",
 			out:         true,
 		},

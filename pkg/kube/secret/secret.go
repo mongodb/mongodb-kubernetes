@@ -123,7 +123,13 @@ func HasAllKeys(secret corev1.Secret, keys ...string) bool {
 
 // EnsureSecretWithKey makes sure the Secret with the given name has a key with the given value if the key is not already present.
 // if the key is present, it will return the existing value associated with this key.
-func EnsureSecretWithKey(ctx context.Context, secretGetUpdateCreateDeleter GetUpdateCreateDeleter, nsName types.NamespacedName, ownerReferences []metav1.OwnerReference, key, value string) (string, error) {
+func EnsureSecretWithKey(
+	ctx context.Context,
+	secretGetUpdateCreateDeleter GetUpdateCreateDeleter,
+	nsName types.NamespacedName,
+	ownerReferences []metav1.OwnerReference,
+	key, value string,
+) (string, error) {
 	existingSecret, err0 := secretGetUpdateCreateDeleter.GetSecret(ctx, nsName)
 	if err0 != nil {
 		if SecretNotExist(err0) {
@@ -145,7 +151,12 @@ func EnsureSecretWithKey(ctx context.Context, secretGetUpdateCreateDeleter GetUp
 }
 
 // CopySecret copies secret object(data) from one cluster client to another, the from and to cluster-client can belong to the same or different clusters
-func CopySecret(ctx context.Context, fromClient Getter, toClient GetUpdateCreator, sourceSecretNsName, destNsName types.NamespacedName) error {
+func CopySecret(
+	ctx context.Context,
+	fromClient Getter,
+	toClient GetUpdateCreator,
+	sourceSecretNsName, destNsName types.NamespacedName,
+) error {
 	s, err := fromClient.GetSecret(ctx, sourceSecretNsName)
 	if err != nil {
 		return err

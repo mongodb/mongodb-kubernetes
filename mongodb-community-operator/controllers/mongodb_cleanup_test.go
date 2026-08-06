@@ -144,7 +144,15 @@ func TestReplicaSetReconcilerCleanupPemSecret(t *testing.T) {
 	err := createAgentCertPemSecret(ctx, client, mdb, "CERT", "KEY", "")
 	assert.NoError(t, err)
 
-	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	r := NewReconciler(
+		mgr,
+		"fake-mongodbRepoUrl",
+		"fake-mongodbImage",
+		"ubi8",
+		"fake-agentImage",
+		"fake-versionUpgradeHookImage",
+		"fake-readinessProbeImage",
+	)
 
 	secret, err := r.client.GetSecret(ctx, mdb.AgentCertificatePemSecretNamespacedName())
 	assert.NoError(t, err)

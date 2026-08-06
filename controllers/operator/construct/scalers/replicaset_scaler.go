@@ -17,7 +17,13 @@ type MultiClusterReplicaSetScaler struct {
 	scalerDescription string
 }
 
-func NewMultiClusterReplicaSetScaler(scalerDescription string, clusterSpecList mdbv1.ClusterSpecList, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) *MultiClusterReplicaSetScaler {
+func NewMultiClusterReplicaSetScaler(
+	scalerDescription string,
+	clusterSpecList mdbv1.ClusterSpecList,
+	memberClusterName string,
+	memberClusterNum int,
+	prevMembers []multicluster.MemberCluster,
+) *MultiClusterReplicaSetScaler {
 	return &MultiClusterReplicaSetScaler{
 		scalerDescription: scalerDescription,
 		clusterSpecList:   clusterSpecList,
@@ -146,7 +152,17 @@ func (s *MultiClusterReplicaSetScaler) ScalerDescription() string {
 }
 
 func (s *MultiClusterReplicaSetScaler) String() string {
-	return fmt.Sprintf("{MultiClusterReplicaSetScaler (%s): still scaling: %t (finishing this reconcile: %t), clusterName=%s, clusterIdx=%d, current/target replicas:%d/%d, "+
-		"replicas this reconciliation: %d, scaling first time: %t}", s.scalerDescription, s.CurrentReplicas() != s.TargetReplicas(), scale.ReplicasThisReconciliation(s) == s.TargetReplicas(), s.memberClusterName, s.memberClusterNum,
-		s.CurrentReplicas(), s.TargetReplicas(), scale.ReplicasThisReconciliation(s), s.ScalingFirstTime())
+	return fmt.Sprintf(
+		"{MultiClusterReplicaSetScaler (%s): still scaling: %t (finishing this reconcile: %t), clusterName=%s, clusterIdx=%d, current/target replicas:%d/%d, "+
+			"replicas this reconciliation: %d, scaling first time: %t}",
+		s.scalerDescription,
+		s.CurrentReplicas() != s.TargetReplicas(),
+		scale.ReplicasThisReconciliation(s) == s.TargetReplicas(),
+		s.memberClusterName,
+		s.memberClusterNum,
+		s.CurrentReplicas(),
+		s.TargetReplicas(),
+		scale.ReplicasThisReconciliation(s),
+		s.ScalingFirstTime(),
+	)
 }

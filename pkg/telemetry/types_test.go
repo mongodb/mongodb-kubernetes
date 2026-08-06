@@ -79,7 +79,15 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 
 	// Assert all expected keys are present in the result map
 	for _, key := range expectedKeys {
-		assert.Contains(t, result, key, "Expected key %s to be present in the result map. Expected keys: %v, Actual keys: %v", key, expectedKeys, actualKeys)
+		assert.Contains(
+			t,
+			result,
+			key,
+			"Expected key %s to be present in the result map. Expected keys: %v, Actual keys: %v",
+			key,
+			expectedKeys,
+			actualKeys,
+		)
 	}
 
 	// Ensure AuthenticationModes field is not in the map (it's marked with json:"-")

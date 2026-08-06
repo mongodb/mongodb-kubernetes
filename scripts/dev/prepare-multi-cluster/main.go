@@ -119,21 +119,42 @@ func main() {
 		if cfg.clusterType == clusterTypeKind && kindKubeconfig != "" {
 			kubeconfigPath = kindKubeconfig
 		}
-		createKubeconfigSecret(ctx, clients[cfg.testPodCluster], cfg.testPodCluster, cfg.namespace, kubeconfigPath, collectErrorFor(cfg.testPodCluster))
+		createKubeconfigSecret(
+			ctx,
+			clients[cfg.testPodCluster],
+			cfg.testPodCluster,
+			cfg.namespace,
+			kubeconfigPath,
+			collectErrorFor(cfg.testPodCluster),
+		)
 	}()
 
 	// Project ConfigMap in central cluster
 	phase3wg.Add(1)
 	go func() {
 		defer phase3wg.Done()
-		createProjectConfigMap(ctx, clients[cfg.centralCluster], cfg.centralCluster, cfg.namespace, cfg, collectErrorFor(cfg.centralCluster))
+		createProjectConfigMap(
+			ctx,
+			clients[cfg.centralCluster],
+			cfg.centralCluster,
+			cfg.namespace,
+			cfg,
+			collectErrorFor(cfg.centralCluster),
+		)
 	}()
 
 	// Credentials Secret in central cluster
 	phase3wg.Add(1)
 	go func() {
 		defer phase3wg.Done()
-		createCredentialsSecret(ctx, clients[cfg.centralCluster], cfg.centralCluster, cfg.namespace, cfg, collectErrorFor(cfg.centralCluster))
+		createCredentialsSecret(
+			ctx,
+			clients[cfg.centralCluster],
+			cfg.centralCluster,
+			cfg.namespace,
+			cfg,
+			collectErrorFor(cfg.centralCluster),
+		)
 	}()
 
 	phase3wg.Wait()
@@ -314,7 +335,13 @@ func runParallel(clusters []string, fn func(string)) {
 }
 
 // Phase 1: Override kubeconfig for KIND clusters
-func overrideKindKubeconfig(ctx context.Context, cfg config, clients map[string]*kubernetes.Clientset, allClusters []string, collectError func(error, string)) string {
+func overrideKindKubeconfig(
+	ctx context.Context,
+	cfg config,
+	clients map[string]*kubernetes.Clientset,
+	allClusters []string,
+	collectError func(error, string),
+) string {
 	// Load the kubeconfig file
 	kubeconfigBytes, err := os.ReadFile(cfg.kubeconfigPath)
 	if err != nil {
@@ -380,7 +407,12 @@ func overrideKindKubeconfig(ctx context.Context, cfg config, clients map[string]
 }
 
 // Phase 2: Ensure namespace exists with labels and annotations
-func ensureNamespace(ctx context.Context, client *kubernetes.Clientset, cluster, namespace, taskID string, collectError func(error, string)) {
+func ensureNamespace(
+	ctx context.Context,
+	client *kubernetes.Clientset,
+	cluster, namespace, taskID string,
+	collectError func(error, string),
+) {
 	evgTaskURL := "https://evergreen.mongodb.com/task/" + taskID
 
 	ns := &corev1.Namespace{
@@ -450,7 +482,12 @@ func labelNamespaceIstio(ctx context.Context, client *kubernetes.Clientset, clus
 
 // applyPeerAuthentication ensures a PeerAuthentication resource exists with STRICT mTLS
 // using the dynamic client, since PeerAuthentication is an Istio CRD with no typed Go client.
-func applyPeerAuthentication(ctx context.Context, dynClient dynamic.Interface, cluster, namespace string, collectError func(error, string)) {
+func applyPeerAuthentication(
+	ctx context.Context,
+	dynClient dynamic.Interface,
+	cluster, namespace string,
+	collectError func(error, string),
+) {
 	peerAuthGVR := schema.GroupVersionResource{
 		Group:    "security.istio.io",
 		Version:  "v1beta1",
@@ -524,7 +561,12 @@ func ensureServiceAccount(ctx context.Context, client *kubernetes.Clientset, clu
 }
 
 // Phase 3: Create ClusterRoleBinding
-func ensureClusterRoleBinding(ctx context.Context, client *kubernetes.Clientset, cluster, namespace string, collectError func(error, string)) {
+func ensureClusterRoleBinding(
+	ctx context.Context,
+	client *kubernetes.Clientset,
+	cluster, namespace string,
+	collectError func(error, string),
+) {
 	crbName := fmt.Sprintf("operator-multi-cluster-tests-role-binding-%s", namespace)
 
 	crb := &rbacv1.ClusterRoleBinding{
@@ -565,7 +607,12 @@ func ensureClusterRoleBinding(ctx context.Context, client *kubernetes.Clientset,
 }
 
 // Phase 3: Create kubeconfig secret for test pod
-func createKubeconfigSecret(ctx context.Context, client *kubernetes.Clientset, cluster, namespace, kubeconfigPath string, collectError func(error, string)) {
+func createKubeconfigSecret(
+	ctx context.Context,
+	client *kubernetes.Clientset,
+	cluster, namespace, kubeconfigPath string,
+	collectError func(error, string),
+) {
 	secretName := kubeconfigSecretName
 
 	// Delete existing
@@ -595,7 +642,13 @@ func createKubeconfigSecret(ctx context.Context, client *kubernetes.Clientset, c
 }
 
 // Phase 3: Create project ConfigMap
-func createProjectConfigMap(ctx context.Context, client *kubernetes.Clientset, cluster, namespace string, cfg config, collectError func(error, string)) {
+func createProjectConfigMap(
+	ctx context.Context,
+	client *kubernetes.Clientset,
+	cluster, namespace string,
+	cfg config,
+	collectError func(error, string),
+) {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      projectConfigMapName,
@@ -627,7 +680,13 @@ func createProjectConfigMap(ctx context.Context, client *kubernetes.Clientset, c
 }
 
 // Phase 3: Create credentials Secret
-func createCredentialsSecret(ctx context.Context, client *kubernetes.Clientset, cluster, namespace string, cfg config, collectError func(error, string)) {
+func createCredentialsSecret(
+	ctx context.Context,
+	client *kubernetes.Clientset,
+	cluster, namespace string,
+	cfg config,
+	collectError func(error, string),
+) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      credentialsSecretName,
@@ -724,7 +783,13 @@ func findExistingTokenSecret(ctx context.Context, client *kubernetes.Clientset, 
 }
 
 // Phase 5: Create multi-cluster config secret
-func createMultiClusterConfigSecret(ctx context.Context, client *kubernetes.Clientset, cfg config, tokens map[string]string, collectError func(error, string)) {
+func createMultiClusterConfigSecret(
+	ctx context.Context,
+	client *kubernetes.Clientset,
+	cfg config,
+	tokens map[string]string,
+	collectError func(error, string),
+) {
 	secretName := multiClusterSecretName
 
 	// Delete existing
@@ -823,7 +888,11 @@ func setupKubectlMongodb(cfg config) error {
 		if err != nil {
 			return fmt.Errorf("failed to read pre-compiled binary: %v", err)
 		}
-		return os.WriteFile(cfg.kubeconfigCreatorPath, data, 0o755) //nolint:gosec // executable binary requires world-executable permissions
+		return os.WriteFile(
+			cfg.kubeconfigCreatorPath,
+			data,
+			0o755,
+		) //nolint:gosec // executable binary requires world-executable permissions
 	}
 
 	// Build from source
@@ -839,7 +908,13 @@ func setupKubectlMongodb(cfg config) error {
 	}
 	env = append(env, fmt.Sprintf("GOOS=%s", goos), fmt.Sprintf("GOARCH=%s", goarch))
 
-	cmd := exec.Command("go", "build", "-o", cfg.kubeconfigCreatorPath, "main.go") //nolint:gosec // developer script, inputs are trusted CLI config
+	cmd := exec.Command(
+		"go",
+		"build",
+		"-o",
+		cfg.kubeconfigCreatorPath,
+		"main.go",
+	) //nolint:gosec // developer script, inputs are trusted CLI config
 	cmd.Dir = cmdDir
 	cmd.Env = env
 	cmd.Stdout = os.Stdout

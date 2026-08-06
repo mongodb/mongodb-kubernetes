@@ -34,7 +34,15 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLS(t *testing.T) {
 	err = createTLSConfigMap(ctx, client, mdb)
 	assert.NoError(t, err)
 
-	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	r := NewReconciler(
+		mgr,
+		"fake-mongodbRepoUrl",
+		"fake-mongodbImage",
+		"ubi8",
+		"fake-agentImage",
+		"fake-versionUpgradeHookImage",
+		"fake-readinessProbeImage",
+	)
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
 	assertReconciliationSuccessful(t, res, err)
 
@@ -42,7 +50,14 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLS(t *testing.T) {
 	err = mgr.GetClient().Get(ctx, types.NamespacedName{Name: mdb.Name, Namespace: mdb.Namespace}, &sts)
 	assert.NoError(t, err)
 
-	assertStatefulSetVolumesAndVolumeMounts(t, sts, mdb.TLSOperatorCASecretNamespacedName().Name, mdb.TLSOperatorSecretNamespacedName().Name, "", "")
+	assertStatefulSetVolumesAndVolumeMounts(
+		t,
+		sts,
+		mdb.TLSOperatorCASecretNamespacedName().Name,
+		mdb.TLSOperatorSecretNamespacedName().Name,
+		"",
+		"",
+	)
 }
 
 func TestStatefulSetIsCorrectlyConfiguredWithTLSAndX509(t *testing.T) {
@@ -61,7 +76,15 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLSAndX509(t *testing.T) {
 	err = createAgentCertSecret(ctx, client, mdb, crt, key, "")
 	assert.NoError(t, err)
 
-	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	r := NewReconciler(
+		mgr,
+		"fake-mongodbRepoUrl",
+		"fake-mongodbImage",
+		"ubi8",
+		"fake-agentImage",
+		"fake-versionUpgradeHookImage",
+		"fake-readinessProbeImage",
+	)
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
 	assertReconciliationSuccessful(t, res, err)
 
@@ -74,7 +97,14 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLSAndX509(t *testing.T) {
 	err = mgr.GetClient().Get(ctx, mdb.AgentCertificatePemSecretNamespacedName(), &s)
 	assert.NoError(t, err)
 
-	assertStatefulSetVolumesAndVolumeMounts(t, sts, mdb.TLSOperatorCASecretNamespacedName().Name, mdb.TLSOperatorSecretNamespacedName().Name, "", mdb.AgentCertificatePemSecretNamespacedName().Name)
+	assertStatefulSetVolumesAndVolumeMounts(
+		t,
+		sts,
+		mdb.TLSOperatorCASecretNamespacedName().Name,
+		mdb.TLSOperatorSecretNamespacedName().Name,
+		"",
+		mdb.AgentCertificatePemSecretNamespacedName().Name,
+	)
 
 	// If we deactivate X509 for the agent, we expect the certificates to be unmounted.
 	mdb.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{"SCRAM"}
@@ -88,10 +118,24 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLSAndX509(t *testing.T) {
 	err = mgr.GetClient().Get(ctx, types.NamespacedName{Name: mdb.Name, Namespace: mdb.Namespace}, &sts)
 	assert.NoError(t, err)
 
-	assertStatefulSetVolumesAndVolumeMounts(t, sts, mdb.TLSOperatorCASecretNamespacedName().Name, mdb.TLSOperatorSecretNamespacedName().Name, "", "")
+	assertStatefulSetVolumesAndVolumeMounts(
+		t,
+		sts,
+		mdb.TLSOperatorCASecretNamespacedName().Name,
+		mdb.TLSOperatorSecretNamespacedName().Name,
+		"",
+		"",
+	)
 }
 
-func assertStatefulSetVolumesAndVolumeMounts(t *testing.T, sts appsv1.StatefulSet, expectedTLSCASecretName string, expectedTLSOperatorSecretName string, expectedPromTLSSecretName string, expectedAgentCertSecretName string) {
+func assertStatefulSetVolumesAndVolumeMounts(
+	t *testing.T,
+	sts appsv1.StatefulSet,
+	expectedTLSCASecretName string,
+	expectedTLSOperatorSecretName string,
+	expectedPromTLSSecretName string,
+	expectedAgentCertSecretName string,
+) {
 	prometheusTLSEnabled := expectedPromTLSSecretName != ""
 	agentX509Enabled := expectedAgentCertSecretName != ""
 
@@ -230,7 +274,15 @@ func TestStatefulSetIsCorrectlyConfiguredWithPrometheusTLS(t *testing.T) {
 	err = createTLSConfigMap(ctx, cli, mdb)
 	assert.NoError(t, err)
 
-	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	r := NewReconciler(
+		mgr,
+		"fake-mongodbRepoUrl",
+		"fake-mongodbImage",
+		"ubi8",
+		"fake-agentImage",
+		"fake-versionUpgradeHookImage",
+		"fake-readinessProbeImage",
+	)
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
 	assertReconciliationSuccessful(t, res, err)
 
@@ -238,7 +290,14 @@ func TestStatefulSetIsCorrectlyConfiguredWithPrometheusTLS(t *testing.T) {
 	err = mgr.GetClient().Get(ctx, types.NamespacedName{Name: mdb.Name, Namespace: mdb.Namespace}, &sts)
 	assert.NoError(t, err)
 
-	assertStatefulSetVolumesAndVolumeMounts(t, sts, mdb.TLSOperatorCASecretNamespacedName().Name, mdb.TLSOperatorSecretNamespacedName().Name, mdb.PrometheusTLSOperatorSecretNamespacedName().Name, "")
+	assertStatefulSetVolumesAndVolumeMounts(
+		t,
+		sts,
+		mdb.TLSOperatorCASecretNamespacedName().Name,
+		mdb.TLSOperatorSecretNamespacedName().Name,
+		mdb.PrometheusTLSOperatorSecretNamespacedName().Name,
+		"",
+	)
 }
 
 func TestStatefulSetIsCorrectlyConfiguredWithTLSAfterChangingExistingVolumes(t *testing.T) {
@@ -259,7 +318,15 @@ func TestStatefulSetIsCorrectlyConfiguredWithTLSAfterChangingExistingVolumes(t *
 	err = createTLSConfigMap(ctx, cli, mdb)
 	assert.NoError(t, err)
 
-	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	r := NewReconciler(
+		mgr,
+		"fake-mongodbRepoUrl",
+		"fake-mongodbImage",
+		"ubi8",
+		"fake-agentImage",
+		"fake-versionUpgradeHookImage",
+		"fake-readinessProbeImage",
+	)
 	res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
 	assertReconciliationSuccessful(t, res, err)
 
@@ -383,7 +450,15 @@ func TestTLSOperatorSecret(t *testing.T) {
 		err = createTLSConfigMap(ctx, c, mdb)
 		assert.NoError(t, err)
 
-		r := NewReconciler(kubeClient.NewManagerWithClient(c), "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+		r := NewReconciler(
+			kubeClient.NewManagerWithClient(c),
+			"fake-mongodbRepoUrl",
+			"fake-mongodbImage",
+			"ubi8",
+			"fake-agentImage",
+			"fake-versionUpgradeHookImage",
+			"fake-readinessProbeImage",
+		)
 
 		err = r.ensureTLSResources(ctx, mdb)
 		assert.NoError(t, err)
@@ -391,7 +466,12 @@ func TestTLSOperatorSecret(t *testing.T) {
 		// Operator-managed secret should have been created and contains the
 		// concatenated certificate and key.
 		expectedCertificateKey := "CERT\nKEY"
-		certificateKey, err := secret.ReadKey(ctx, c, tlsOperatorSecretFileName(expectedCertificateKey), mdb.TLSOperatorSecretNamespacedName())
+		certificateKey, err := secret.ReadKey(
+			ctx,
+			c,
+			tlsOperatorSecretFileName(expectedCertificateKey),
+			mdb.TLSOperatorSecretNamespacedName(),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedCertificateKey, certificateKey)
 	})
@@ -413,7 +493,15 @@ func TestTLSOperatorSecret(t *testing.T) {
 		err = k8sclient.CreateSecret(ctx, s)
 		assert.NoError(t, err)
 
-		r := NewReconciler(kubeClient.NewManagerWithClient(k8sclient), "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+		r := NewReconciler(
+			kubeClient.NewManagerWithClient(k8sclient),
+			"fake-mongodbRepoUrl",
+			"fake-mongodbImage",
+			"ubi8",
+			"fake-agentImage",
+			"fake-versionUpgradeHookImage",
+			"fake-readinessProbeImage",
+		)
 
 		err = r.ensureTLSResources(ctx, mdb)
 		assert.NoError(t, err)
@@ -421,7 +509,12 @@ func TestTLSOperatorSecret(t *testing.T) {
 		// Operator-managed secret should have been updated with the concatenated
 		// certificate and key.
 		expectedCertificateKey := "CERT\nKEY"
-		certificateKey, err := secret.ReadKey(ctx, k8sclient, tlsOperatorSecretFileName(expectedCertificateKey), mdb.TLSOperatorSecretNamespacedName())
+		certificateKey, err := secret.ReadKey(
+			ctx,
+			k8sclient,
+			tlsOperatorSecretFileName(expectedCertificateKey),
+			mdb.TLSOperatorSecretNamespacedName(),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedCertificateKey, certificateKey)
 	})
@@ -456,7 +549,15 @@ func TestPemSupport(t *testing.T) {
 		err = createTLSConfigMap(ctx, c, mdb)
 		assert.NoError(t, err)
 
-		r := NewReconciler(kubeClient.NewManagerWithClient(c), "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+		r := NewReconciler(
+			kubeClient.NewManagerWithClient(c),
+			"fake-mongodbRepoUrl",
+			"fake-mongodbImage",
+			"ubi8",
+			"fake-agentImage",
+			"fake-versionUpgradeHookImage",
+			"fake-readinessProbeImage",
+		)
 
 		err = r.ensureTLSResources(ctx, mdb)
 		assert.NoError(t, err)
@@ -464,7 +565,12 @@ func TestPemSupport(t *testing.T) {
 		// Operator-managed secret should have been created and contains the
 		// concatenated certificate and key.
 		expectedCertificateKey := "CERT\nKEY"
-		certificateKey, err := secret.ReadKey(ctx, c, tlsOperatorSecretFileName(expectedCertificateKey), mdb.TLSOperatorSecretNamespacedName())
+		certificateKey, err := secret.ReadKey(
+			ctx,
+			c,
+			tlsOperatorSecretFileName(expectedCertificateKey),
+			mdb.TLSOperatorSecretNamespacedName(),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedCertificateKey, certificateKey)
 	})
@@ -476,7 +582,15 @@ func TestPemSupport(t *testing.T) {
 		err = createTLSConfigMap(ctx, c, mdb)
 		assert.NoError(t, err)
 
-		r := NewReconciler(kubeClient.NewManagerWithClient(c), "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+		r := NewReconciler(
+			kubeClient.NewManagerWithClient(c),
+			"fake-mongodbRepoUrl",
+			"fake-mongodbImage",
+			"ubi8",
+			"fake-agentImage",
+			"fake-versionUpgradeHookImage",
+			"fake-readinessProbeImage",
+		)
 
 		err = r.ensureTLSResources(ctx, mdb)
 		assert.NoError(t, err)
@@ -484,7 +598,12 @@ func TestPemSupport(t *testing.T) {
 		// Operator-managed secret should have been created and contains the
 		// concatenated certificate and key.
 		expectedCertificateKey := "CERT\nKEY"
-		certificateKey, err := secret.ReadKey(ctx, c, tlsOperatorSecretFileName(expectedCertificateKey), mdb.TLSOperatorSecretNamespacedName())
+		certificateKey, err := secret.ReadKey(
+			ctx,
+			c,
+			tlsOperatorSecretFileName(expectedCertificateKey),
+			mdb.TLSOperatorSecretNamespacedName(),
+		)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedCertificateKey, certificateKey)
 	})
@@ -496,11 +615,23 @@ func TestPemSupport(t *testing.T) {
 		err = createTLSConfigMap(ctx, c, mdb)
 		assert.NoError(t, err)
 
-		r := NewReconciler(kubeClient.NewManagerWithClient(c), "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+		r := NewReconciler(
+			kubeClient.NewManagerWithClient(c),
+			"fake-mongodbRepoUrl",
+			"fake-mongodbImage",
+			"ubi8",
+			"fake-agentImage",
+			"fake-versionUpgradeHookImage",
+			"fake-readinessProbeImage",
+		)
 
 		err = r.ensureTLSResources(ctx, mdb)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), `if all of "tls.crt", "tls.key" and "tls.pem" are present in the secret, the entry for "tls.pem" must be equal to the concatenation of "tls.crt" with "tls.key"`)
+		assert.Contains(
+			t,
+			err.Error(),
+			`if all of "tls.crt", "tls.key" and "tls.pem" are present in the secret, the entry for "tls.pem" must be equal to the concatenation of "tls.crt" with "tls.key"`,
+		)
 	})
 }
 
@@ -535,7 +666,9 @@ func TestTLSConfigReferencesToCACertAreValidated(t *testing.T) {
 		"Failure if reference to CA cert is missing": {
 			caConfigMap:         nil,
 			caCertificateSecret: nil,
-			expectedError:       errors.New("TLS field requires a reference to the CA certificate which signed the server certificates. Neither secret (field caCertificateSecretRef) not configMap (field CaConfigMap) reference present"),
+			expectedError: errors.New(
+				"TLS field requires a reference to the CA certificate which signed the server certificates. Neither secret (field caCertificateSecretRef) not configMap (field CaConfigMap) reference present",
+			),
 		},
 	}
 	for testName, tc := range tests {
@@ -548,7 +681,15 @@ func TestTLSConfigReferencesToCACertAreValidated(t *testing.T) {
 
 			assert.NoError(t, err)
 
-			r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+			r := NewReconciler(
+				mgr,
+				"fake-mongodbRepoUrl",
+				"fake-mongodbImage",
+				"ubi8",
+				"fake-agentImage",
+				"fake-versionUpgradeHookImage",
+				"fake-readinessProbeImage",
+			)
 
 			_, err = r.validateTLSConfig(ctx, mdb)
 			if tc.expectedError != nil {
@@ -574,7 +715,15 @@ func createTLSConfigMap(ctx context.Context, c k8sClient.Client, mdb mdbv1.Mongo
 	return c.Create(ctx, &configMap)
 }
 
-func createTLSSecretWithNamespaceAndName(ctx context.Context, c k8sClient.Client, namespace string, name string, crt string, key string, pem string) error {
+func createTLSSecretWithNamespaceAndName(
+	ctx context.Context,
+	c k8sClient.Client,
+	namespace string,
+	name string,
+	crt string,
+	key string,
+	pem string,
+) error {
 	sBuilder := secret.Builder().
 		SetName(name).
 		SetNamespace(namespace).
@@ -602,15 +751,35 @@ func createAgentCertSecret(ctx context.Context, c k8sClient.Client, mdb mdbv1.Mo
 	return createTLSSecretWithNamespaceAndName(ctx, c, mdb.Namespace, mdb.AgentCertificateSecretNamespacedName().Name, crt, key, pem)
 }
 
-func createAgentCertPemSecret(ctx context.Context, c k8sClient.Client, mdb mdbv1.MongoDBCommunity, crt string, key string, pem string) error {
+func createAgentCertPemSecret(
+	ctx context.Context,
+	c k8sClient.Client,
+	mdb mdbv1.MongoDBCommunity,
+	crt string,
+	key string,
+	pem string,
+) error {
 	return createTLSSecretWithNamespaceAndName(ctx, c, mdb.Namespace, mdb.AgentCertificatePemSecretNamespacedName().Name, crt, key, pem)
 }
 
-func createPrometheusTLSSecret(ctx context.Context, c k8sClient.Client, mdb mdbv1.MongoDBCommunity, crt string, key string, pem string) error {
+func createPrometheusTLSSecret(
+	ctx context.Context,
+	c k8sClient.Client,
+	mdb mdbv1.MongoDBCommunity,
+	crt string,
+	key string,
+	pem string,
+) error {
 	return createTLSSecretWithNamespaceAndName(ctx, c, mdb.Namespace, mdb.Spec.Prometheus.TLSSecretRef.Name, crt, key, pem)
 }
 
-func createUserPasswordSecret(ctx context.Context, c k8sClient.Client, mdb mdbv1.MongoDBCommunity, userPasswordSecretName string, password string) error {
+func createUserPasswordSecret(
+	ctx context.Context,
+	c k8sClient.Client,
+	mdb mdbv1.MongoDBCommunity,
+	userPasswordSecretName string,
+	password string,
+) error {
 	sBuilder := secret.Builder().
 		SetName(userPasswordSecretName).
 		SetNamespace(mdb.Namespace).

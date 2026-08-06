@@ -113,7 +113,12 @@ type mockedStatusWriter struct {
 	parent mockedClient
 }
 
-func (m mockedStatusWriter) Create(ctx context.Context, obj k8sClient.Object, _ k8sClient.Object, _ ...k8sClient.SubResourceCreateOption) error {
+func (m mockedStatusWriter) Create(
+	ctx context.Context,
+	obj k8sClient.Object,
+	_ k8sClient.Object,
+	_ ...k8sClient.SubResourceCreateOption,
+) error {
 	return m.parent.Create(ctx, obj)
 }
 
@@ -121,7 +126,12 @@ func (m mockedStatusWriter) Update(ctx context.Context, obj k8sClient.Object, _ 
 	return m.parent.Update(ctx, obj)
 }
 
-func (m mockedStatusWriter) Patch(ctx context.Context, obj k8sClient.Object, patch k8sClient.Patch, _ ...k8sClient.SubResourcePatchOption) error {
+func (m mockedStatusWriter) Patch(
+	ctx context.Context,
+	obj k8sClient.Object,
+	patch k8sClient.Patch,
+	_ ...k8sClient.SubResourcePatchOption,
+) error {
 	return m.parent.Patch(ctx, obj, patch)
 }
 

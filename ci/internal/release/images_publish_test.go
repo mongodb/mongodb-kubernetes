@@ -61,7 +61,12 @@ func TestPublishImagesHardFailsOnMissingPromotedTag(t *testing.T) {
 
 	images := []ReleaseImage{
 		{Name: "operator", StagingRepo: opStaging, ReleaseRepo: prodHost + "/mongodb/mongodb-kubernetes", Version: "1.9.2", IsAnchor: true},
-		{Name: "readiness-probe", StagingRepo: stagingHost + "/staging/mongodb-kubernetes-readinessprobe", ReleaseRepo: prodHost + "/mongodb/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
+		{
+			Name:        "readiness-probe",
+			StagingRepo: stagingHost + "/staging/mongodb-kubernetes-readinessprobe",
+			ReleaseRepo: prodHost + "/mongodb/mongodb-kubernetes-readinessprobe",
+			Version:     "1.0.24",
+		},
 	}
 
 	_, err := PublishImages(images, "abc1234", "latest", false, false, insecureConnect)

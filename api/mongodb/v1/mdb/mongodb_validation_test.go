@@ -119,7 +119,11 @@ func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
 		},
 	}
 	_, err := validator.ValidateCreate(ctx, rs)
-	assert.Errorf(t, err, "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
+	assert.Errorf(
+		t,
+		err,
+		"spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes",
+	)
 }
 
 func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
@@ -257,14 +261,23 @@ func TestScramSha1AuthValidation(t *testing.T) {
 			ErrorExpected: true,
 		},
 		"Valid MongoDB with SCRAM-SHA-1": {
-			MongoDB:       NewReplicaSetBuilder().EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build(),
+			MongoDB: NewReplicaSetBuilder().EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).
+				EnableAgentAuth(util.MONGODBCR).
+				Build(),
 			ErrorExpected: false,
 		},
 	}
 	for testName, testConfig := range tests {
 		t.Run(testName, func(t *testing.T) {
 			validationResult := scramSha1AuthValidation(testConfig.MongoDB.Spec.DbCommonSpec)
-			assert.Equal(t, testConfig.ErrorExpected, v1.ValidationSuccess() != validationResult, "Expected %v, got %v", testConfig.ErrorExpected, validationResult)
+			assert.Equal(
+				t,
+				testConfig.ErrorExpected,
+				v1.ValidationSuccess() != validationResult,
+				"Expected %v, got %v",
+				testConfig.ErrorExpected,
+				validationResult,
+			)
 		})
 	}
 }

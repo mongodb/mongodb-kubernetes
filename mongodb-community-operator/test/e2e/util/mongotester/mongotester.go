@@ -64,11 +64,20 @@ func FromResource(ctx context.Context, t *testing.T, mdb mdbv1.MongoDBCommunity,
 	if len(users) == 1 {
 		user := users[0]
 		passwordSecret := corev1.Secret{}
-		err := e2eutil.TestClient.Get(ctx, types.NamespacedName{Name: user.PasswordSecretRef.Name, Namespace: mdb.Namespace}, &passwordSecret)
+		err := e2eutil.TestClient.Get(
+			ctx,
+			types.NamespacedName{Name: user.PasswordSecretRef.Name, Namespace: mdb.Namespace},
+			&passwordSecret,
+		)
 		if err != nil {
 			return nil, err
 		}
-		t.Logf("Configuring SCRAM username: %s and password from secret %s for MongoDB: %s", user.Name, user.PasswordSecretRef.Name, mdb.NamespacedName())
+		t.Logf(
+			"Configuring SCRAM username: %s and password from secret %s for MongoDB: %s",
+			user.Name,
+			user.PasswordSecretRef.Name,
+			mdb.NamespacedName(),
+		)
 		clientOpts = WithScram(user.Name, string(passwordSecret.Data[user.PasswordSecretRef.Key])).ApplyOption(clientOpts...)
 	}
 
@@ -153,7 +162,11 @@ func (m *Tester) EnsureAuthenticationIsConfigured(tries int, opts ...OptionAppli
 	}
 }
 
-func (m *Tester) EnsureAuthenticationWithAuthIsConfigured(tries int, enabledMechanisms primitive.A, opts ...OptionApplier) func(t *testing.T) {
+func (m *Tester) EnsureAuthenticationWithAuthIsConfigured(
+	tries int,
+	enabledMechanisms primitive.A,
+	opts ...OptionApplier,
+) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("Ensure keyFile authentication is configured", m.HasKeyfileAuth(tries, opts...))
 		t.Run(fmt.Sprintf("%q is configured", enabledMechanisms), m.ScramWithAuthIsConfigured(tries, enabledMechanisms, opts...))
@@ -253,24 +266,30 @@ func (m *Tester) connectivityCheck(shouldSucceed bool, opts ...OptionApplier) fu
 
 		attempts := 0
 		// There can be a short time before the user can auth as the user
-		err := wait.PollUntilContextTimeout(ctx, connectivityOpts.IntervalTime, connectivityOpts.TimeoutTime, false, func(ctx context.Context) (done bool, err error) {
-			attempts++
-			collection := m.mongoClient.Database(connectivityOpts.Database).Collection(connectivityOpts.Collection)
-			_, err = collection.InsertOne(ctx, bson.M{"name": "pi", "value": 3.14159})
-			if err != nil && shouldSucceed {
-				t.Logf("Was not able to connect, when we should have been able to!")
-				return false, nil
-			}
-			if err == nil && !shouldSucceed {
-				t.Logf("Was successfully able to connect, when we should not have been able to!")
-				return false, nil
-			}
-			// this information is only useful if we needed more than one attempt.
-			if attempts >= 2 {
-				t.Logf("Connectivity check was successful after %d attempt(s)", attempts)
-			}
-			return true, nil
-		})
+		err := wait.PollUntilContextTimeout(
+			ctx,
+			connectivityOpts.IntervalTime,
+			connectivityOpts.TimeoutTime,
+			false,
+			func(ctx context.Context) (done bool, err error) {
+				attempts++
+				collection := m.mongoClient.Database(connectivityOpts.Database).Collection(connectivityOpts.Collection)
+				_, err = collection.InsertOne(ctx, bson.M{"name": "pi", "value": 3.14159})
+				if err != nil && shouldSucceed {
+					t.Logf("Was not able to connect, when we should have been able to!")
+					return false, nil
+				}
+				if err == nil && !shouldSucceed {
+					t.Logf("Was successfully able to connect, when we should not have been able to!")
+					return false, nil
+				}
+				// this information is only useful if we needed more than one attempt.
+				if attempts >= 2 {
+					t.Logf("Connectivity check was successful after %d attempt(s)", attempts)
+				}
+				return true, nil
+			},
+		)
 		if err != nil {
 			t.Fatal(fmt.Errorf("error during connectivity check: %s", err))
 		}
@@ -313,14 +332,20 @@ func (m *Tester) WaitForRotatedCertificate(mdb mdbv1.MongoDBCommunity, initialCe
 func (m *Tester) EnsureMongodConfig(selector string, expected interface{}) func(*testing.T) {
 	return func(t *testing.T) {
 		connectivityOpts := defaults()
-		err := wait.PollUntilContextTimeout(m.ctx, connectivityOpts.IntervalTime, connectivityOpts.TimeoutTime, false, func(ctx context.Context) (done bool, err error) {
-			opts, err := m.getCommandLineOptions()
-			assert.NoError(t, err)
+		err := wait.PollUntilContextTimeout(
+			m.ctx,
+			connectivityOpts.IntervalTime,
+			connectivityOpts.TimeoutTime,
+			false,
+			func(ctx context.Context) (done bool, err error) {
+				opts, err := m.getCommandLineOptions()
+				assert.NoError(t, err)
 
-			parsed := objx.New(bsonToMap(opts)).Get("parsed").ObjxMap()
+				parsed := objx.New(bsonToMap(opts)).Get("parsed").ObjxMap()
 
-			return expected == parsed.Get(selector).Data(), nil
-		})
+				return expected == parsed.Get(selector).Data(), nil
+			},
+		)
 
 		assert.NoError(t, err)
 	}
@@ -410,7 +435,14 @@ func (m *Tester) PrometheusEndpointIsReachable(username, password string, useTls
 			// Verify that the Prometheus port is enabled and responding with 200
 			// on every Pod.
 			for idx = 0; idx < m.resource.Spec.Members; idx++ {
-				url := fmt.Sprintf("%s://%s-%d.%s-svc.%s.svc.cluster.local:9216/metrics", scheme, m.resource.Name, idx, m.resource.Name, m.resource.Namespace)
+				url := fmt.Sprintf(
+					"%s://%s-%d.%s-svc.%s.svc.cluster.local:9216/metrics",
+					scheme,
+					m.resource.Name,
+					idx,
+					m.resource.Name,
+					m.resource.Namespace,
+				)
 				req, err := http.NewRequest("GET", url, nil)
 				assert.NoError(t, err)
 				req.SetBasicAuth(username, password)

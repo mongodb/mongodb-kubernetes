@@ -40,7 +40,13 @@ func ForSecretToExist(ctx context.Context, cmName string, retryInterval, timeout
 }
 
 // ForMongoDBToReachPhase waits until the given MongoDB resource reaches the expected phase
-func ForMongoDBToReachPhase(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDBCommunity, phase mdbv1.Phase, retryInterval, timeout time.Duration) error {
+func ForMongoDBToReachPhase(
+	ctx context.Context,
+	t *testing.T,
+	mdb *mdbv1.MongoDBCommunity,
+	phase mdbv1.Phase,
+	retryInterval, timeout time.Duration,
+) error {
 	return waitForMongoDBCondition(ctx, mdb, retryInterval, timeout, func(db mdbv1.MongoDBCommunity) bool {
 		t.Logf("current phase: %s, waiting for phase: %s", db.Status.Phase, phase)
 		return db.Status.Phase == phase
@@ -48,7 +54,13 @@ func ForMongoDBToReachPhase(ctx context.Context, t *testing.T, mdb *mdbv1.MongoD
 }
 
 // ForMongoDBMessageStatus waits until the given MongoDB resource gets the expected message status
-func ForMongoDBMessageStatus(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDBCommunity, retryInterval, timeout time.Duration, message string) error {
+func ForMongoDBMessageStatus(
+	ctx context.Context,
+	t *testing.T,
+	mdb *mdbv1.MongoDBCommunity,
+	retryInterval, timeout time.Duration,
+	message string,
+) error {
 	return waitForMongoDBCondition(ctx, mdb, retryInterval, timeout, func(db mdbv1.MongoDBCommunity) bool {
 		t.Logf("current message: %s, waiting for message: %s", db.Status.Message, message)
 		return db.Status.Message == message
@@ -56,7 +68,12 @@ func ForMongoDBMessageStatus(ctx context.Context, t *testing.T, mdb *mdbv1.Mongo
 }
 
 // waitForMongoDBCondition polls and waits for a given condition to be true
-func waitForMongoDBCondition(ctx context.Context, mdb *mdbv1.MongoDBCommunity, retryInterval, timeout time.Duration, condition func(mdbv1.MongoDBCommunity) bool) error {
+func waitForMongoDBCondition(
+	ctx context.Context,
+	mdb *mdbv1.MongoDBCommunity,
+	retryInterval, timeout time.Duration,
+	condition func(mdbv1.MongoDBCommunity) bool,
+) error {
 	mdbNew := mdbv1.MongoDBCommunity{}
 	return wait.PollUntilContextTimeout(ctx, retryInterval, timeout, false, func(ctx context.Context) (done bool, err error) {
 		err = e2eutil.TestClient.Get(ctx, mdb.NamespacedName(), &mdbNew)
@@ -70,14 +87,24 @@ func waitForMongoDBCondition(ctx context.Context, mdb *mdbv1.MongoDBCommunity, r
 
 // ForDeploymentToExist waits until a Deployment of the given name exists
 // using the provided retryInterval and timeout
-func ForDeploymentToExist(ctx context.Context, deployName string, retryInterval, timeout time.Duration, namespace string) (appsv1.Deployment, error) {
+func ForDeploymentToExist(
+	ctx context.Context,
+	deployName string,
+	retryInterval, timeout time.Duration,
+	namespace string,
+) (appsv1.Deployment, error) {
 	deploy := appsv1.Deployment{}
 	return deploy, waitForRuntimeObjectToExist(ctx, deployName, retryInterval, timeout, &deploy, namespace)
 }
 
 // ForStatefulSetToExist waits until a StatefulSet of the given name exists
 // using the provided retryInterval and timeout
-func ForStatefulSetToExist(ctx context.Context, stsName string, retryInterval, timeout time.Duration, namespace string) (appsv1.StatefulSet, error) {
+func ForStatefulSetToExist(
+	ctx context.Context,
+	stsName string,
+	retryInterval, timeout time.Duration,
+	namespace string,
+) (appsv1.StatefulSet, error) {
 	sts := appsv1.StatefulSet{}
 	return sts, waitForRuntimeObjectToExist(ctx, stsName, retryInterval, timeout, &sts, namespace)
 }
@@ -91,7 +118,13 @@ func ForStatefulSetToBeDeleted(ctx context.Context, stsName string, retryInterva
 
 // ForStatefulSetToHaveUpdateStrategy waits until all replicas of the StatefulSet with the given name
 // have reached the ready status
-func ForStatefulSetToHaveUpdateStrategy(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDBCommunity, strategy appsv1.StatefulSetUpdateStrategyType, opts ...Configuration) error {
+func ForStatefulSetToHaveUpdateStrategy(
+	ctx context.Context,
+	t *testing.T,
+	mdb *mdbv1.MongoDBCommunity,
+	strategy appsv1.StatefulSetUpdateStrategyType,
+	opts ...Configuration,
+) error {
 	options := newOptions(opts...)
 	return waitForStatefulSetCondition(ctx, t, mdb, options, func(sts appsv1.StatefulSet) bool {
 		return sts.Spec.UpdateStrategy.Type == strategy
@@ -134,7 +167,14 @@ func ForStatefulSetToBeReadyAfterScaleDown(ctx context.Context, t *testing.T, md
 	})
 }
 
-func waitForStatefulSetConditionWithSpecificSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDBCommunity, statefulSetType StatefulSetType, waitOpts Options, condition func(set appsv1.StatefulSet) bool) error {
+func waitForStatefulSetConditionWithSpecificSts(
+	ctx context.Context,
+	t *testing.T,
+	mdb *mdbv1.MongoDBCommunity,
+	statefulSetType StatefulSetType,
+	waitOpts Options,
+	condition func(set appsv1.StatefulSet) bool,
+) error {
 	_, err := ForStatefulSetToExist(ctx, mdb.Name, waitOpts.RetryInterval, waitOpts.Timeout, mdb.Namespace)
 	if err != nil {
 		return fmt.Errorf("error waiting for stateful set to be created: %s", err)
@@ -145,19 +185,38 @@ func waitForStatefulSetConditionWithSpecificSts(ctx context.Context, t *testing.
 	if statefulSetType == ArbitersStatefulSet {
 		name = mdb.ArbiterNamespacedName()
 	}
-	return wait.PollUntilContextTimeout(ctx, waitOpts.RetryInterval, waitOpts.Timeout, false, func(ctx context.Context) (done bool, err error) {
-		err = e2eutil.TestClient.Get(ctx, name, &sts)
-		if err != nil {
-			return false, err
-		}
-		t.Logf("Waiting for %s to have %d replicas. Current ready replicas: %d, Current updated replicas: %d, Current generation: %d, Observed Generation: %d\n",
-			name, *sts.Spec.Replicas, sts.Status.ReadyReplicas, sts.Status.UpdatedReplicas, sts.Generation, sts.Status.ObservedGeneration)
-		ready := condition(sts)
-		return ready, nil
-	})
+	return wait.PollUntilContextTimeout(
+		ctx,
+		waitOpts.RetryInterval,
+		waitOpts.Timeout,
+		false,
+		func(ctx context.Context) (done bool, err error) {
+			err = e2eutil.TestClient.Get(ctx, name, &sts)
+			if err != nil {
+				return false, err
+			}
+			t.Logf(
+				"Waiting for %s to have %d replicas. Current ready replicas: %d, Current updated replicas: %d, Current generation: %d, Observed Generation: %d\n",
+				name,
+				*sts.Spec.Replicas,
+				sts.Status.ReadyReplicas,
+				sts.Status.UpdatedReplicas,
+				sts.Generation,
+				sts.Status.ObservedGeneration,
+			)
+			ready := condition(sts)
+			return ready, nil
+		},
+	)
 }
 
-func waitForStatefulSetCondition(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDBCommunity, waitOpts Options, condition func(set appsv1.StatefulSet) bool) error {
+func waitForStatefulSetCondition(
+	ctx context.Context,
+	t *testing.T,
+	mdb *mdbv1.MongoDBCommunity,
+	waitOpts Options,
+	condition func(set appsv1.StatefulSet) bool,
+) error {
 	// uses members statefulset
 	return waitForStatefulSetConditionWithSpecificSts(ctx, t, mdb, MembersStatefulSet, waitOpts, condition)
 }
@@ -191,7 +250,13 @@ func ForPodPhase(ctx context.Context, t *testing.T, timeout time.Duration, pod c
 
 // waitForRuntimeObjectToExist waits until a runtime.Object of the given name exists
 // using the provided retryInterval and timeout provided.
-func waitForRuntimeObjectToExist(ctx context.Context, name string, retryInterval, timeout time.Duration, obj client.Object, namespace string) error {
+func waitForRuntimeObjectToExist(
+	ctx context.Context,
+	name string,
+	retryInterval, timeout time.Duration,
+	obj client.Object,
+	namespace string,
+) error {
 	return wait.PollUntilContextTimeout(ctx, retryInterval, timeout, false, func(ctx context.Context) (done bool, err error) {
 		return runtimeObjectExists(ctx, name, obj, namespace)
 	})
@@ -199,7 +264,13 @@ func waitForRuntimeObjectToExist(ctx context.Context, name string, retryInterval
 
 // waitForRuntimeObjectToBeDeleted waits until a runtime.Object of the given name is deleted
 // using the provided retryInterval and timeout provided.
-func waitForRuntimeObjectToBeDeleted(ctx context.Context, name string, retryInterval, timeout time.Duration, obj client.Object, namespace string) error {
+func waitForRuntimeObjectToBeDeleted(
+	ctx context.Context,
+	name string,
+	retryInterval, timeout time.Duration,
+	obj client.Object,
+	namespace string,
+) error {
 	return wait.PollUntilContextTimeout(ctx, retryInterval, timeout, false, func(ctx context.Context) (done bool, err error) {
 		exists, err := runtimeObjectExists(ctx, name, obj, namespace)
 		return !exists, err

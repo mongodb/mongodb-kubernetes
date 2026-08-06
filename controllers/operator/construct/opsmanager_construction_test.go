@@ -96,14 +96,24 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 	assert.Equal(t, "-DFakeOptionEnabled", envVarsNoLimitsOrReqs[0].Value)
 }
 
-func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func createOpsManagerStatefulset(
+	ctx context.Context,
+	om *omv1.MongoDBOpsManager,
+	additionalOpts ...func(*OpsManagerStatefulSetOptions),
+) (appsv1.StatefulSet, error) {
 	client, _ := mock.NewDefaultFakeClient()
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
 		KubeClient:  client,
 	}
 
-	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S(), additionalOpts...)
+	omSts, err := OpsManagerStatefulSet(
+		ctx,
+		secretsClient,
+		om,
+		multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient),
+		zap.S(),
+		additionalOpts...)
 	return omSts, err
 }
 
@@ -159,7 +169,13 @@ func TestBuildJvmParamsEnvVars_FromDefaultPodSpec(t *testing.T) {
 		KubeClient:  client,
 	}
 
-	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S())
+	omSts, err := OpsManagerStatefulSet(
+		ctx,
+		secretsClient,
+		om,
+		multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient),
+		zap.S(),
+	)
 	assert.NoError(t, err)
 	template := omSts.Spec.Template
 

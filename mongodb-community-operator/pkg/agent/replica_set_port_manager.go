@@ -29,8 +29,18 @@ type ReplicaSetPortManager struct {
 	currentACProcesses []automationconfig.Process
 }
 
-func NewReplicaSetPortManager(log *zap.SugaredLogger, expectedPort int, currentPodStates []agent.PodState, currentACProcesses []automationconfig.Process) *ReplicaSetPortManager {
-	return &ReplicaSetPortManager{log: log, expectedPort: expectedPort, currentPodStates: currentPodStates, currentACProcesses: currentACProcesses}
+func NewReplicaSetPortManager(
+	log *zap.SugaredLogger,
+	expectedPort int,
+	currentPodStates []agent.PodState,
+	currentACProcesses []automationconfig.Process,
+) *ReplicaSetPortManager {
+	return &ReplicaSetPortManager{
+		log:                log,
+		expectedPort:       expectedPort,
+		currentPodStates:   currentPodStates,
+		currentACProcesses: currentACProcesses,
+	}
 }
 
 // GetPortsModification returns automation config modification function to be used in config builder.

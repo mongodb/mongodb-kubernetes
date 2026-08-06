@@ -154,8 +154,16 @@ func TestSetIntersection(t *testing.T) {
 	leftNotIdentifiable := []someId{oneLeft, twoLeft}
 	rightNotIdentifiable := []someId{oneRight, twoRight, threeRight}
 
-	assert.Equal(t, [][]identifiable.Identifiable{pair(oneLeft, oneRight), pair(twoLeft, twoRight)}, identifiable.SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable))
-	assert.Equal(t, [][]identifiable.Identifiable{pair(oneRight, oneLeft), pair(twoRight, twoLeft)}, identifiable.SetIntersectionGeneric(rightNotIdentifiable, leftNotIdentifiable))
+	assert.Equal(
+		t,
+		[][]identifiable.Identifiable{pair(oneLeft, oneRight), pair(twoLeft, twoRight)},
+		identifiable.SetIntersectionGeneric(leftNotIdentifiable, rightNotIdentifiable),
+	)
+	assert.Equal(
+		t,
+		[][]identifiable.Identifiable{pair(oneRight, oneLeft), pair(twoRight, twoLeft)},
+		identifiable.SetIntersectionGeneric(rightNotIdentifiable, leftNotIdentifiable),
+	)
 
 	leftNotIdentifiable = []someId{oneLeft, twoLeft}
 	rightNotIdentifiable = []someId{oneLeft, twoLeft}
@@ -193,9 +201,13 @@ func TestTransformToMap(t *testing.T) {
 		str string
 		int int
 	}
-	assert.Equal(t, map[string]int{"a": 0, "b": 1, "c": 2}, TransformToMap([]tmpStruct{{"a", 0}, {"b", 1}, {"c", 2}}, func(v tmpStruct, idx int) (string, int) {
-		return v.str, v.int
-	}))
+	assert.Equal(
+		t,
+		map[string]int{"a": 0, "b": 1, "c": 2},
+		TransformToMap([]tmpStruct{{"a", 0}, {"b", 1}, {"c", 2}}, func(v tmpStruct, idx int) (string, int) {
+			return v.str, v.int
+		}),
+	)
 }
 
 // TestIsURL tests the ParseURL function with various inputs.

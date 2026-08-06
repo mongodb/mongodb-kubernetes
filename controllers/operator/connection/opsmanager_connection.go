@@ -22,7 +22,16 @@ import (
 // tagNamespace controls whether the calling controller's namespace is added as a tag on the OM project.
 // Pass false for controllers where multiple namespaces share one project (e.g. MongoDBUser), because
 // Ops Manager enforces a hard limit of 10 tags per project and each namespace would otherwise consume one slot.
-func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, tagNamespace bool, log *zap.SugaredLogger) (om.Connection, string, error) {
+func PrepareOpsManagerConnection(
+	ctx context.Context,
+	client secrets.SecretClient,
+	projectConfig mdbv1.ProjectConfig,
+	credentials mdbv1.Credentials,
+	connectionFunc om.ConnectionFactory,
+	namespace string,
+	tagNamespace bool,
+	log *zap.SugaredLogger,
+) (om.Connection, string, error) {
 	omProject, conn, err := project.ReadOrCreateProject(projectConfig, credentials, connectionFunc, log)
 	if err != nil {
 		return nil, "", xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
@@ -88,7 +97,14 @@ func EnsureTagAdded(conn om.Connection, project *om.Project, tag string, log *za
 // With this we Pre-seed the target project's Automation Config from the prior project
 // before any pod mutation, so agents switching to the new GROUP_ID find the
 // same topology and auth.key already in place.
-func EnsureTargetAutomationConfigSeeded(targetConn om.Connection, sourceProjectID string, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, log *zap.SugaredLogger) error {
+func EnsureTargetAutomationConfigSeeded(
+	targetConn om.Connection,
+	sourceProjectID string,
+	projectConfig mdbv1.ProjectConfig,
+	credentials mdbv1.Credentials,
+	connectionFunc om.ConnectionFactory,
+	log *zap.SugaredLogger,
+) error {
 	if sourceProjectID == "" || sourceProjectID == targetConn.GroupID() {
 		return nil
 	}

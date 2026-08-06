@@ -125,7 +125,11 @@ func TestPredicatesForMultiClusterSearchResource(t *testing.T) {
 		{"Create/partial name-only fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: partialName}) }},
 		{"Create/partial ns-only fails", false, func() bool { return p.CreateFunc(event.CreateEvent{Object: partialNs}) }},
 		// Update
-		{"Update/both labeled passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: labeled}) }},
+		{
+			"Update/both labeled passes",
+			true,
+			func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: labeled}) },
+		},
 		{"Update/newly labeled passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: labeled}) }},
 		{"Update/label removed passes", true, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: labeled, ObjectNew: plain}) }},
 		{"Update/both plain fails", false, func() bool { return p.UpdateFunc(event.UpdateEvent{ObjectOld: plain, ObjectNew: plain}) }},

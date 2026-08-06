@@ -41,7 +41,12 @@ func shortCommit(commit string) string {
 // commit-tagged source image is missing), so a broken merge build does not
 // silently promote a partial image set. connect resolves a Registry for an image's
 // host; the CLI passes DefaultRegistryConnector and tests inject a fake.
-func PromoteImages(images []ReleaseImage, commit, latestMarker string, force, dryRun bool, connect RegistryConnector) ([]ImagesPromoteResult, error) {
+func PromoteImages(
+	images []ReleaseImage,
+	commit, latestMarker string,
+	force, dryRun bool,
+	connect RegistryConnector,
+) ([]ImagesPromoteResult, error) {
 	if commit == "" {
 		return nil, errors.New("commit is required")
 	}
@@ -81,7 +86,10 @@ func PromoteImages(images []ReleaseImage, commit, latestMarker string, force, dr
 		prep = append(prep, prepared{img: img, reg: reg, host: host, repoPath: path, srcRef: srcRef, versionTag: versionTag})
 	}
 	if len(conflicts) > 0 && !force {
-		return nil, fmt.Errorf("refusing to promote images; tag conflicts found (use --force if the tags needs overwriting):\n%s", strings.Join(conflicts, "\n"))
+		return nil, fmt.Errorf(
+			"refusing to promote images; tag conflicts found (use --force if the tags needs overwriting):\n%s",
+			strings.Join(conflicts, "\n"),
+		)
 	}
 
 	results := make([]ImagesPromoteResult, 0, len(images))

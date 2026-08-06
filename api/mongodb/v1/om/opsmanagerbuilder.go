@@ -20,7 +20,11 @@ func NewOpsManagerBuilder() *OpsManagerBuilder {
 }
 
 func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
-	return NewOpsManagerBuilder().SetName("default-om").SetVersion("4.4.1").SetAppDbMembers(3).SetAppDbPodSpec(*DefaultAppDbBuilder().Build().PodSpec).SetAppDbVersion("4.2.20")
+	return NewOpsManagerBuilder().SetName("default-om").
+		SetVersion("4.4.1").
+		SetAppDbMembers(3).
+		SetAppDbPodSpec(*DefaultAppDbBuilder().Build().PodSpec).
+		SetAppDbVersion("4.2.20")
 }
 
 func NewOpsManagerBuilderFromResource(resource MongoDBOpsManager) *OpsManagerBuilder {

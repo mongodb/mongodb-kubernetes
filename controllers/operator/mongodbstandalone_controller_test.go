@@ -36,7 +36,11 @@ import (
 
 func TestCreateOmProcess(t *testing.T) {
 	const mongodbImage = "quay.io/mongodb/mongodb-enterprise-server"
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
+	sts := construct.DatabaseStatefulSet(
+		*DefaultReplicaSetBuilder().SetName("dublin").Build(),
+		construct.StandaloneOptions(construct.GetPodEnvOptions()),
+		zap.S(),
+	)
 	process := createProcess(mongodbImage, false, sts, util.AgentContainerName, DefaultStandaloneBuilder().Build(), architectures.NonStatic)
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
@@ -47,7 +51,11 @@ func TestCreateOmProcess(t *testing.T) {
 func TestCreateOmProcesStatic(t *testing.T) {
 	const mongodbImage = "quay.io/mongodb/mongodb-enterprise-server"
 
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
+	sts := construct.DatabaseStatefulSet(
+		*DefaultReplicaSetBuilder().SetName("dublin").Build(),
+		construct.StandaloneOptions(construct.GetPodEnvOptions()),
+		zap.S(),
+	)
 	process := createProcess(mongodbImage, false, sts, util.AgentContainerName, DefaultStandaloneBuilder().Build(), architectures.Static)
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
@@ -60,7 +68,15 @@ func TestOnAddStandalone(t *testing.T) {
 	st := DefaultStandaloneBuilder().SetVersion("4.1.0").SetService("mysvc").Build()
 	st.Status.FeatureCompatibilityVersion = "4.1"
 
-	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(
+		ctx,
+		nil,
+		"",
+		"",
+		om.NewEmptyMockedOmConnection,
+		st,
+		architectures.NonStatic,
+	)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
@@ -98,7 +114,11 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 	require.Len(t, sts.Spec.Template.Spec.InitContainers, 1)
 	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:@sha256:MONGODB_INIT_DATABASE", sts.Spec.Template.Spec.InitContainers[0].Image)
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-init-database:@sha256:MONGODB_INIT_DATABASE",
+		sts.Spec.Template.Spec.InitContainers[0].Image,
+	)
 	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-database:@sha256:MONGODB_DATABASE", sts.Spec.Template.Spec.Containers[0].Image)
 }
 
@@ -113,7 +133,15 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
-	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, imageUrlsMock, "", "", om.NewEmptyMockedOmConnection, st, architectures.Static)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(
+		ctx,
+		imageUrlsMock,
+		"",
+		"",
+		om.NewEmptyMockedOmConnection,
+		st,
+		architectures.Static,
+	)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
 	})
@@ -147,7 +175,19 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 		},
 	})
 
-	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newStandaloneReconciler(
+		ctx,
+		kubeClient,
+		nil,
+		"fake-initDatabaseNonStaticImageVersion",
+		"fake-databaseNonStaticImageVersion",
+		false,
+		false,
+		false,
+		"",
+		architectures.NonStatic,
+		omConnectionFactory.GetConnectionFunc,
+	)
 
 	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
 	// this affects Get interceptor func, blocking automatically marking sts as ready
@@ -162,7 +202,15 @@ func TestAddDeleteStandalone(t *testing.T) {
 	// First we need to create a standalone
 	st := DefaultStandaloneBuilder().SetVersion("4.0.0").Build()
 
-	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(
+		ctx,
+		nil,
+		"",
+		"",
+		om.NewEmptyMockedOmConnection,
+		st,
+		architectures.NonStatic,
+	)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
@@ -185,7 +233,15 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 	stBuilder.Spec.Security = nil
 	st := stBuilder.Build()
 
-	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", omConnectionFactoryFuncSettingVersion(), st, architectures.NonStatic)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(
+		ctx,
+		nil,
+		"",
+		"",
+		omConnectionFactoryFuncSettingVersion(),
+		st,
+		architectures.NonStatic,
+	)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
@@ -212,7 +268,15 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().Build()
 
-	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", omConnectionFactoryFuncSettingVersion(), st, architectures.NonStatic)
+	reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(
+		ctx,
+		nil,
+		"",
+		"",
+		omConnectionFactoryFuncSettingVersion(),
+		st,
+		architectures.NonStatic,
+	)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
@@ -280,8 +344,12 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, s, kubeClient)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {
+			kube.ObjectKey(mock.TestNamespace, s.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}: {
+			kube.ObjectKey(mock.TestNamespace, s.Name),
+		},
 	}
 
 	actual := reconciler.resourceWatcher.GetWatchedResources()
@@ -331,7 +399,15 @@ func TestStandaloneRoleAnnotationIsSet(t *testing.T) {
 	}
 
 	st := DefaultStandaloneBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
-	reconciler, client, omConnectionFactory := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
+	reconciler, client, omConnectionFactory := defaultStandaloneReconciler(
+		ctx,
+		nil,
+		"",
+		"",
+		om.NewEmptyMockedOmConnection,
+		st,
+		architectures.NonStatic,
+	)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, client)
 
@@ -359,10 +435,29 @@ func TestStandaloneRoleAnnotationIsSet(t *testing.T) {
 // defaultStandaloneReconciler is the standalone reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation,
 // so it's possible to call 'reconcileAppDB()' on it right away
-func defaultStandaloneReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+func defaultStandaloneReconciler(
+	ctx context.Context,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string,
+	omConnectionFactoryFunc om.ConnectionFactory,
+	rs *mdbv1.MongoDB,
+	arch architectures.DefaultArchitecture,
+) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newStandaloneReconciler(
+		ctx,
+		kubeClient,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		false,
+		false,
+		false,
+		"",
+		arch,
+		omConnectionFactory.GetConnectionFunc,
+	), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
@@ -444,7 +539,18 @@ func createDeploymentFromStandalone(st *mdbv1.MongoDB) om.Deployment {
 	d := om.NewDeployment()
 	sts := construct.DatabaseStatefulSet(*st, construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, st.Spec.GetClusterDomain(), nil)
-	process := om.NewMongodProcess(st.Name, hostnames[0], "fake-mongoDBImage", false, st.Spec.AdditionalMongodConfig, st.GetSpec(), "", nil, st.Status.FeatureCompatibilityVersion, architectures.NonStatic)
+	process := om.NewMongodProcess(
+		st.Name,
+		hostnames[0],
+		"fake-mongoDBImage",
+		false,
+		st.Spec.AdditionalMongodConfig,
+		st.GetSpec(),
+		"",
+		nil,
+		st.Status.FeatureCompatibilityVersion,
+		architectures.NonStatic,
+	)
 
 	lastConfig, err := st.GetLastAdditionalMongodConfigByType(mdbv1.StandaloneConfig)
 	if err != nil {

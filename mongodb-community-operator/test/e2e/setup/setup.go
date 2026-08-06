@@ -55,7 +55,14 @@ func Setup(ctx context.Context, t *testing.T) *e2eutil.TestContext {
 	return testCtx
 }
 
-func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, useX509 bool, userX509Cert bool, additionalHelmArgs ...HelmArg) (*e2eutil.TestContext, TestConfig) {
+func SetupWithTLS(
+	ctx context.Context,
+	t *testing.T,
+	resourceName string,
+	useX509 bool,
+	userX509Cert bool,
+	additionalHelmArgs ...HelmArg,
+) (*e2eutil.TestContext, TestConfig) {
 	textCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +84,13 @@ func SetupWithTLS(ctx context.Context, t *testing.T, resourceName string, useX50
 	return textCtx, config
 }
 
-func SetupWithTestConfig(ctx context.Context, t *testing.T, testConfig TestConfig, withTLS, defaultOperator bool, resourceName string) *e2eutil.TestContext {
+func SetupWithTestConfig(
+	ctx context.Context,
+	t *testing.T,
+	testConfig TestConfig,
+	withTLS, defaultOperator bool,
+	resourceName string,
+) *e2eutil.TestContext {
 	testCtx, err := e2eutil.NewContext(ctx, t, env.ReadBoolOrDefault(performCleanupEnv, false)) // nolint:forbidigo
 	if err != nil {
 		t.Fatal(err)
@@ -154,9 +167,17 @@ func extractRegistryNameAndVersion(fullImage string) (string, string, string) {
 }
 
 // getHelmArgs returns a map of helm arguments that are required to install the operator.
-func getHelmArgs(testConfig TestConfig, watchNamespace string, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) map[string]string {
+func getHelmArgs(
+	testConfig TestConfig,
+	watchNamespace string,
+	withTLS bool,
+	defaultOperator bool,
+	additionalHelmArgs ...HelmArg,
+) map[string]string {
 	agentRegistry, agentName, agentVersion := extractRegistryNameAndVersion(testConfig.AgentImage)
-	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(testConfig.VersionUpgradeHookImage)
+	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(
+		testConfig.VersionUpgradeHookImage,
+	)
 	readinessProbeRegistry, readinessProbeName, readinessProbeVersion := extractRegistryNameAndVersion(testConfig.ReadinessProbeImage)
 	helmArgs := make(map[string]string)
 
@@ -196,7 +217,9 @@ func getHelmArgs(testConfig TestConfig, watchNamespace string, withTLS bool, def
 // getMCOHelmArgs returns a map of helm arguments that were used to install mco with the mco chart
 func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, additionalHelmArgs ...HelmArg) map[string]string {
 	agentRegistry, agentName, agentVersion := extractRegistryNameAndVersion(testConfig.AgentImage)
-	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(testConfig.VersionUpgradeHookImage)
+	versionUpgradeHookRegistry, versionUpgradeHookName, versionUpgradeHookVersion := extractRegistryNameAndVersion(
+		testConfig.VersionUpgradeHookImage,
+	)
 	readinessProbeRegistry, readinessProbeName, readinessProbeVersion := extractRegistryNameAndVersion(testConfig.ReadinessProbeImage)
 	helmArgs := make(map[string]string)
 
@@ -232,7 +255,14 @@ func getMCOHelmArgs(testConfig TestConfig, watchNamespace string, additionalHelm
 }
 
 // DeployMCKOperator installs all resources required by the operator using helm.
-func DeployMCKOperator(ctx context.Context, t *testing.T, config TestConfig, withTLS bool, defaultOperator bool, additionalHelmArgs ...HelmArg) error {
+func DeployMCKOperator(
+	ctx context.Context,
+	t *testing.T,
+	config TestConfig,
+	withTLS bool,
+	defaultOperator bool,
+	additionalHelmArgs ...HelmArg,
+) error {
 	e2eutil.OperatorNamespace = config.Namespace
 
 	if config.LocalOperator {
@@ -355,7 +385,13 @@ func hasDeploymentRequiredReplicas(dep *appsv1.Deployment) wait.ConditionWithCon
 }
 
 // InstallCommunityOperatorViaHelm installs the community operator using the public MongoDB Helm chart.
-func InstallCommunityOperatorViaHelm(ctx context.Context, t *testing.T, config TestConfig, namespace string, additionalHelmArgs ...HelmArg) error {
+func InstallCommunityOperatorViaHelm(
+	ctx context.Context,
+	t *testing.T,
+	config TestConfig,
+	namespace string,
+	additionalHelmArgs ...HelmArg,
+) error {
 	e2eutil.OperatorNamespace = config.Namespace
 
 	// Uninstall any existing chart with the same name

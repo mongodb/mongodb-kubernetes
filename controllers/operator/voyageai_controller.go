@@ -100,7 +100,13 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 		secret := &corev1.Secret{}
 		err := r.kubeClient.Get(ctx, types.NamespacedName{Name: secretName, Namespace: vai.Namespace}, secret)
 		if apierrors.IsNotFound(err) {
-			return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Pending("TLS certificate secret %q not found", secretName), log)
+			return commoncontroller.UpdateStatus(
+				ctx,
+				r.kubeClient,
+				vai,
+				workflow.Pending("TLS certificate secret %q not found", secretName),
+				log,
+			)
 		} else if err != nil {
 			return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("failed to get TLS certificate secret %q: %w", secretName, err)), log)
 		}
@@ -108,11 +114,23 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 
 	dep, err := r.ensureDeployment(ctx, vai, log)
 	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("failed to ensure Deployment: %w", err)), log)
+		return commoncontroller.UpdateStatus(
+			ctx,
+			r.kubeClient,
+			vai,
+			workflow.Failed(xerrors.Errorf("failed to ensure Deployment: %w", err)),
+			log,
+		)
 	}
 
 	if err := r.ensureService(ctx, vai, log); err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.Failed(xerrors.Errorf("failed to ensure Service: %w", err)), log)
+		return commoncontroller.UpdateStatus(
+			ctx,
+			r.kubeClient,
+			vai,
+			workflow.Failed(xerrors.Errorf("failed to ensure Service: %w", err)),
+			log,
+		)
 	}
 
 	log.Info("VoyageAI reconciliation complete")
@@ -128,7 +146,11 @@ func (r *VoyageAIReconciler) Reconcile(ctx context.Context, request reconcile.Re
 	return commoncontroller.UpdateStatus(ctx, r.kubeClient, vai, workflow.OK(), log, vaiv1.NewVoyageAIVersionOption(vai.Spec.Version))
 }
 
-func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.VoyageAI, log *zap.SugaredLogger) (*appsv1.Deployment, error) {
+func (r *VoyageAIReconciler) ensureDeployment(
+	ctx context.Context,
+	vai *vaiv1.VoyageAI,
+	log *zap.SugaredLogger,
+) (*appsv1.Deployment, error) {
 	image := r.voyageAIContainerImage(vai)
 	labels := voyageAILabels(vai)
 	podLabels := voyageAIPodLabels(vai)
@@ -367,17 +389,36 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 
 		if dp.HealthMonitoring != nil {
 			hm := dp.HealthMonitoring
-			envs = append(envs,
+			envs = append(
+				envs,
 				corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__CHECK_INTERVAL", Value: int32ToFloatString(hm.CheckIntervalSeconds)},
-				corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__MAX_CONSECUTIVE_TIMEOUTS", Value: int32ToString(hm.MaxConsecutiveTimeouts)},
-				corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__ACTIVE_CHECK_INTERVAL", Value: int32ToString(hm.ActiveCheckIntervalSeconds)},
-				corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__ACTIVE_CHECK_TIMEOUT", Value: int32ToString(hm.ActiveCheckTimeoutSeconds)},
+				corev1.EnvVar{
+					Name:  "DATA_PARALLEL__HEALTH_MONITORING__MAX_CONSECUTIVE_TIMEOUTS",
+					Value: int32ToString(hm.MaxConsecutiveTimeouts),
+				},
+				corev1.EnvVar{
+					Name:  "DATA_PARALLEL__HEALTH_MONITORING__ACTIVE_CHECK_INTERVAL",
+					Value: int32ToString(hm.ActiveCheckIntervalSeconds),
+				},
+				corev1.EnvVar{
+					Name:  "DATA_PARALLEL__HEALTH_MONITORING__ACTIVE_CHECK_TIMEOUT",
+					Value: int32ToString(hm.ActiveCheckTimeoutSeconds),
+				},
 				corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__MAX_RESTART_ATTEMPTS", Value: int32ToString(hm.MaxRestartAttempts)},
-				corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__RESTART_COOLDOWN", Value: int32ToFloatString(hm.RestartCooldownSeconds)},
+				corev1.EnvVar{
+					Name:  "DATA_PARALLEL__HEALTH_MONITORING__RESTART_COOLDOWN",
+					Value: int32ToFloatString(hm.RestartCooldownSeconds),
+				},
 			)
 
 			if hm.EnableActiveChecks != nil {
-				envs = append(envs, corev1.EnvVar{Name: "DATA_PARALLEL__HEALTH_MONITORING__ENABLE_ACTIVE_CHECKS", Value: strconv.FormatBool(*hm.EnableActiveChecks)})
+				envs = append(
+					envs,
+					corev1.EnvVar{
+						Name:  "DATA_PARALLEL__HEALTH_MONITORING__ENABLE_ACTIVE_CHECKS",
+						Value: strconv.FormatBool(*hm.EnableActiveChecks),
+					},
+				)
 			}
 		}
 	}
@@ -518,7 +559,8 @@ func AddVoyageAIController(ctx context.Context, mgr manager.Manager, imageReposi
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}). // nolint:forbidigo
+		WithOptions(controller.Options{MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}).
+		// nolint:forbidigo
 		For(&vaiv1.VoyageAI{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToVoyageAI)).
 		Owns(&appsv1.Deployment{}).

@@ -183,7 +183,12 @@ func TestMongoDB_ConnectionURL_NotSecure(t *testing.T) {
 		cnx)
 
 	// Connection parameters. The default one is overridden
-	cnx = rs.BuildConnectionString("", "", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"})
+	cnx = rs.BuildConnectionString(
+		"",
+		"",
+		connectionstring.SchemeMongoDB,
+		map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"},
+	)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017,test-mdb-2.test-mdb-svc.testNS.svc.cluster.local:27017/"+
 		"?connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
@@ -271,7 +276,12 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 
 	// Caller can override any connection parameters, e.g."authMechanism"
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-1"})
+	cnx = rs.BuildConnectionString(
+		"the_user",
+		"the_passwd",
+		connectionstring.SchemeMongoDB,
+		map[string]string{"authMechanism": "SCRAM-SHA-1"},
+	)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
 		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
@@ -508,7 +518,9 @@ func TestUpdateStatus_DoesNotSetProjectIdWhenOptionAbsent(t *testing.T) {
 func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	mdb := MongoDB{Spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
-	mdb.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": "30000"}}}
+	mdb.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{
+		object: map[string]interface{}{"net": map[string]interface{}{"port": "30000"}},
+	}
 
 	marshal, err := json.Marshal(mdb.Spec)
 	assert.NoError(t, err)

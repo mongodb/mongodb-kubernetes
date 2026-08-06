@@ -49,7 +49,11 @@ func TestMandatorySingleClusterFieldsAreSpecified(t *testing.T) {
 	scSingle.Spec.MongosCount = 0
 	_, err := validator.ValidateCreate(ctx, scSingle)
 	require.Error(t, err)
-	assert.Equal(t, "The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount", err.Error())
+	assert.Equal(
+		t,
+		"The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount",
+		err.Error(),
+	)
 }
 
 func TestShardOverridesAreCorrect(t *testing.T) {
@@ -464,7 +468,13 @@ func assertWarningExists(t *testing.T, warnings status.Warnings, expectedWarning
 
 	// If not found, print the list of warnings and fail the test
 	if !found {
-		assert.Fail(t, "Expected warning not found", "Expected warning: %q, but it was not found in warnings: %v", expectedWarning, warnings)
+		assert.Fail(
+			t,
+			"Expected warning not found",
+			"Expected warning: %q, but it was not found in warnings: %v",
+			expectedWarning,
+			warnings,
+		)
 	}
 }
 

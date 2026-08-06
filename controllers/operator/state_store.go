@@ -122,7 +122,14 @@ func (s *StateStore[S]) getDataValue(key string, obj any) (bool, error) {
 
 func (s *StateStore[S]) setDataValue(key string, value any) error {
 	if jsonBytes, err := json.Marshal(value); err != nil {
-		return xerrors.Errorf("cannot marshal deployment state %s/%s key %s from the value: %v: %w", s.namespace, s.getStateConfigMapName(), key, value, err)
+		return xerrors.Errorf(
+			"cannot marshal deployment state %s/%s key %s from the value: %v: %w",
+			s.namespace,
+			s.getStateConfigMapName(),
+			key,
+			value,
+			err,
+		)
 	} else {
 		s.data[key] = string(jsonBytes)
 	}

@@ -30,7 +30,10 @@ func (m MongoDBOpsManagerValidator) ValidateCreate(_ context.Context, obj runtim
 	return nil, obj.(*MongoDBOpsManager).ProcessValidationsWebhook()
 }
 
-func (m MongoDBOpsManagerValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+func (m MongoDBOpsManagerValidator) ValidateUpdate(
+	_ context.Context,
+	oldObj, newObj runtime.Object,
+) (warnings admission.Warnings, err error) {
 	return nil, newObj.(*MongoDBOpsManager).ProcessValidationsWebhook()
 }
 
@@ -49,7 +52,10 @@ func errorNotConfigurableForAppDB(field string) v1.ValidationResult {
 func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	_, err := versionutil.StringToSemverVersion(os.Version)
 	if err != nil {
-		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.version: %s", os.Version, err), status.OpsManager)
+		return v1.OpsManagerResourceValidationError(
+			fmt.Sprintf("'%s' is an invalid value for spec.version: %s", os.Version, err),
+			status.OpsManager,
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -58,7 +64,10 @@ func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	version := os.AppDB.GetMongoDBVersion()
 	_, err := semver.Make(version)
 	if err != nil {
-		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err), status.AppDb)
+		return v1.OpsManagerResourceValidationError(
+			fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err),
+			status.AppDb,
+		)
 	}
 
 	return v1.ValidationSuccess()
@@ -114,7 +123,11 @@ func s3StoreMongodbUserSpecifiedNoMongoResource(os MongoDBOpsManagerSpec) v1.Val
 	for _, config := range os.Backup.S3Configs {
 		if config.MongoDBUserRef != nil && config.MongoDBResourceRef == nil {
 			return v1.OpsManagerResourceValidationError(
-				fmt.Sprintf("'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: %s)", config.Name), status.OpsManager,
+				fmt.Sprintf(
+					"'mongodbResourceRef' must be specified if 'mongodbUserRef' is configured (S3 Store: %s)",
+					config.Name,
+				),
+				status.OpsManager,
 			)
 		}
 	}
@@ -127,7 +140,10 @@ func kmipValidation(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	}
 
 	if _, _, err := net.SplitHostPort(os.Backup.Encryption.Kmip.Server.URL); err != nil {
-		return v1.OpsManagerResourceValidationError(fmt.Sprintf("kmip url can not be splitted into host and port, see %v", err), status.OpsManager)
+		return v1.OpsManagerResourceValidationError(
+			fmt.Sprintf("kmip url can not be splitted into host and port, see %v", err),
+			status.OpsManager,
+		)
 	}
 
 	if len(os.Backup.Encryption.Kmip.Server.CA) == 0 {
@@ -140,7 +156,10 @@ func kmipValidation(os MongoDBOpsManagerSpec) v1.ValidationResult {
 func validateEmptyClusterSpecListSingleCluster(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if !os.AppDB.IsMultiCluster() {
 		if len(os.AppDB.ClusterSpecList) > 0 {
-			return v1.OpsManagerResourceValidationError("Single cluster AppDB deployment should have empty clusterSpecList", status.OpsManager)
+			return v1.OpsManagerResourceValidationError(
+				"Single cluster AppDB deployment should have empty clusterSpecList",
+				status.OpsManager,
+			)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -149,7 +168,10 @@ func validateEmptyClusterSpecListSingleCluster(os MongoDBOpsManagerSpec) v1.Vali
 func validateTopologyIsSpecified(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if len(os.ClusterSpecList) > 0 {
 		if !os.IsMultiCluster() {
-			return v1.OpsManagerResourceValidationError("Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList", status.OpsManager)
+			return v1.OpsManagerResourceValidationError(
+				"Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList",
+				status.OpsManager,
+			)
 		}
 	}
 	return v1.ValidationSuccess()
@@ -163,7 +185,10 @@ func featureCompatibilityVersionValidation(os MongoDBOpsManagerSpec) v1.Validati
 func validateClusterSpecList(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if os.IsMultiCluster() {
 		if len(os.ClusterSpecList) == 0 {
-			return v1.OpsManagerResourceValidationError("At least one ClusterSpecList entry must be specified for MultiCluster mode OM", status.OpsManager)
+			return v1.OpsManagerResourceValidationError(
+				"At least one ClusterSpecList entry must be specified for MultiCluster mode OM",
+				status.OpsManager,
+			)
 		}
 		if os.Backup != nil && os.Backup.Enabled {
 			backupMembersConfigured := false
@@ -174,7 +199,10 @@ func validateClusterSpecList(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				}
 			}
 			if !backupMembersConfigured {
-				return v1.OpsManagerResourceValidationError("At least one ClusterSpecList item must have backup members configured", status.OpsManager)
+				return v1.OpsManagerResourceValidationError(
+					"At least one ClusterSpecList item must have backup members configured",
+					status.OpsManager,
+				)
 			}
 		}
 	}
@@ -236,7 +264,11 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 		for _, config := range backup.S3Configs {
 			if config.IRSAEnabled {
 				if config.S3SecretRef != nil {
-					return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
+					return v1.OpsManagerResourceValidationWarning(
+						"'s3SecretRef' must not be specified if using IRSA (S3 Store: %s)",
+						status.OpsManager,
+						config.Name,
+					)
 				}
 			} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
@@ -250,7 +282,11 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 		for _, oplogStoreConfig := range backup.S3OplogStoreConfigs {
 			if oplogStoreConfig.IRSAEnabled {
 				if oplogStoreConfig.S3SecretRef != nil {
-					return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+					return v1.OpsManagerResourceValidationWarning(
+						"'s3SecretRef' must not be specified if using IRSA (S3 OpLog Store: %s)",
+						status.OpsManager,
+						oplogStoreConfig.Name,
+					)
 				}
 			} else if oplogStoreConfig.S3SecretRef == nil || oplogStoreConfig.S3SecretRef.Name == "" {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
@@ -265,7 +301,10 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 
 func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	if len(os.AppDB.MonitoringAgent.StartupParameters) > 0 {
-		return v1.OpsManagerResourceValidationWarning("spec.appDB.monitoringAgent.startupOptions is deprecated and has no effect; the monitoring agent now runs inside the automation agent. Configure agent options, including log level and rotation, via spec.appDB.agent and remove spec.appDB.monitoringAgent from your configuration", status.AppDb)
+		return v1.OpsManagerResourceValidationWarning(
+			"spec.appDB.monitoringAgent.startupOptions is deprecated and has no effect; the monitoring agent now runs inside the automation agent. Configure agent options, including log level and rotation, via spec.appDB.agent and remove spec.appDB.monitoringAgent from your configuration",
+			status.AppDb,
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -276,7 +315,10 @@ func warnMonitoringAgentContainer(os MongoDBOpsManagerSpec) v1.ValidationResult 
 	}
 	for _, c := range os.AppDB.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers {
 		if c.Name == "mongodb-agent-monitoring" {
-			return v1.OpsManagerResourceValidationWarning("spec.appDB.podSpec.podTemplate contains a deprecated 'mongodb-agent-monitoring' container; it will be removed automatically — remove it from your configuration", status.AppDb)
+			return v1.OpsManagerResourceValidationWarning(
+				"spec.appDB.podSpec.podTemplate contains a deprecated 'mongodb-agent-monitoring' container; it will be removed automatically — remove it from your configuration",
+				status.AppDb,
+			)
 		}
 	}
 	return v1.ValidationSuccess()

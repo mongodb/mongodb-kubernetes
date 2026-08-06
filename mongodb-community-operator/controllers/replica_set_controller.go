@@ -67,7 +67,10 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-func NewReconciler(mgr manager.Manager, mongodbRepoUrl, mongodbImage, mongodbImageType, agentImage, versionUpgradeHookImage, readinessProbeImage string) *ReplicaSetReconciler {
+func NewReconciler(
+	mgr manager.Manager,
+	mongodbRepoUrl, mongodbImage, mongodbImageType, agentImage, versionUpgradeHookImage, readinessProbeImage string,
+) *ReplicaSetReconciler {
 	mgrClient := mgr.GetClient()
 	secretWatcher := watch.New()
 	configMapWatcher := watch.New()
@@ -93,7 +96,12 @@ func findMdbcForSearch(ctx context.Context, rawObj k8sClient.Object) []reconcile
 		return nil
 	}
 	return []reconcile.Request{
-		{NamespacedName: types.NamespacedName{Namespace: mdbSearch.GetMongoDBResourceRef().Namespace, Name: mdbSearch.GetMongoDBResourceRef().Name}},
+		{
+			NamespacedName: types.NamespacedName{
+				Namespace: mdbSearch.GetMongoDBResourceRef().Namespace,
+				Name:      mdbSearch.GetMongoDBResourceRef().Name,
+			},
+		},
 	}
 }
 
@@ -363,7 +371,11 @@ func (r *ReplicaSetReconciler) deployStatefulSet(ctx context.Context, mdb mdbv1.
 
 // deployAutomationConfig deploys the AutomationConfig for the MongoDBCommunity resource.
 // The returned boolean indicates whether or not that Agents have all reached goal state.
-func (r *ReplicaSetReconciler) deployAutomationConfig(ctx context.Context, mdb mdbv1.MongoDBCommunity, lastAppliedSpec *mdbv1.MongoDBCommunitySpec) (bool, error) {
+func (r *ReplicaSetReconciler) deployAutomationConfig(
+	ctx context.Context,
+	mdb mdbv1.MongoDBCommunity,
+	lastAppliedSpec *mdbv1.MongoDBCommunitySpec,
+) (bool, error) {
 	r.log.Infof("Creating/Updating AutomationConfig")
 
 	sts, err := r.client.GetStatefulSet(ctx, mdb.NamespacedName())
@@ -440,7 +452,11 @@ func (r *ReplicaSetReconciler) shouldRunInOrder(ctx context.Context, mdb mdbv1.M
 // deployMongoDBReplicaSet will ensure that both the AutomationConfig secret and backing StatefulSet
 // have been successfully created. A boolean is returned indicating if the process is complete
 // and an error if there was one.
-func (r *ReplicaSetReconciler) deployMongoDBReplicaSet(ctx context.Context, mdb mdbv1.MongoDBCommunity, lastAppliedSpec *mdbv1.MongoDBCommunitySpec) (bool, error) {
+func (r *ReplicaSetReconciler) deployMongoDBReplicaSet(
+	ctx context.Context,
+	mdb mdbv1.MongoDBCommunity,
+	lastAppliedSpec *mdbv1.MongoDBCommunitySpec,
+) (bool, error) {
 	return functions.RunSequentially(r.shouldRunInOrder(ctx, mdb),
 		func() (bool, error) {
 			return r.deployAutomationConfig(ctx, mdb, lastAppliedSpec)
@@ -480,13 +496,28 @@ func (r *ReplicaSetReconciler) ensureService(ctx context.Context, mdb mdbv1.Mong
 // createProcessPortManager is a helper method for creating new ReplicaSetPortManager.
 // ReplicaSetPortManager needs current automation config and current pod state and the code for getting them
 // was extracted here as it is used in ensureService and buildAutomationConfig.
-func (r *ReplicaSetReconciler) createProcessPortManager(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*mcoagent.ReplicaSetPortManager, error) {
-	currentAC, err := automationconfig.ReadFromSecret(ctx, r.client, types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace})
+func (r *ReplicaSetReconciler) createProcessPortManager(
+	ctx context.Context,
+	mdb mdbv1.MongoDBCommunity,
+) (*mcoagent.ReplicaSetPortManager, error) {
+	currentAC, err := automationconfig.ReadFromSecret(
+		ctx,
+		r.client,
+		types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("could not read existing automation config: %s", err)
 	}
 
-	currentPodStates, err := agent.GetAllDesiredMembersAndArbitersPodState(ctx, mdb.NamespacedName(), r.client, mdb.StatefulSetReplicasThisReconciliation(), mdb.StatefulSetArbitersThisReconciliation(), currentAC.Version, r.log)
+	currentPodStates, err := agent.GetAllDesiredMembersAndArbitersPodState(
+		ctx,
+		mdb.NamespacedName(),
+		r.client,
+		mdb.StatefulSetReplicasThisReconciliation(),
+		mdb.StatefulSetArbitersThisReconciliation(),
+		currentAC.Version,
+		r.log,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get all pods goal state: %w", err)
 	}
@@ -522,20 +553,37 @@ func (r *ReplicaSetReconciler) createOrUpdateStatefulSet(ctx context.Context, md
 
 // ensureAutomationConfig makes sure the AutomationConfig secret has been successfully created. The automation config
 // that was updated/created is returned.
-func (r ReplicaSetReconciler) ensureAutomationConfig(mdb mdbv1.MongoDBCommunity, ctx context.Context, lastAppliedSpec *mdbv1.MongoDBCommunitySpec) (automationconfig.AutomationConfig, error) {
+func (r ReplicaSetReconciler) ensureAutomationConfig(
+	mdb mdbv1.MongoDBCommunity,
+	ctx context.Context,
+	lastAppliedSpec *mdbv1.MongoDBCommunitySpec,
+) (automationconfig.AutomationConfig, error) {
 	ac, err := r.buildAutomationConfig(ctx, mdb, lastAppliedSpec)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not build automation config: %s", err)
 	}
 
-	return automationconfig.EnsureSecret(ctx, r.client, types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace}, mdb.GetOwnerReferences(), ac)
+	return automationconfig.EnsureSecret(
+		ctx,
+		r.client,
+		types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace},
+		mdb.GetOwnerReferences(),
+		ac,
+	)
 }
 
-func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth automationconfig.Auth, currentAc automationconfig.AutomationConfig, modifications ...automationconfig.Modification) (automationconfig.AutomationConfig, error) {
+func buildAutomationConfig(
+	mdb mdbv1.MongoDBCommunity,
+	isEnterprise bool,
+	auth automationconfig.Auth,
+	currentAc automationconfig.AutomationConfig,
+	modifications ...automationconfig.Modification,
+) (automationconfig.AutomationConfig, error) {
 	domain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain())        // nolint:forbidigo
 	arbiterDomain := getDomain(mdb.ServiceName(), mdb.Namespace, mdb.Spec.GetClusterDomain()) // nolint:forbidigo
 
-	zap.S().Debugw("AutomationConfigMembersThisReconciliation", "mdb.AutomationConfigMembersThisReconciliation()", mdb.AutomationConfigMembersThisReconciliation())
+	zap.S().
+		Debugw("AutomationConfigMembersThisReconciliation", "mdb.AutomationConfigMembersThisReconciliation()", mdb.AutomationConfigMembersThisReconciliation())
 
 	arbitersCount := mdb.AutomationConfigArbitersThisReconciliation()
 	if mdb.AutomationConfigMembersThisReconciliation() < mdb.Spec.Members {
@@ -571,7 +619,12 @@ func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth a
 		AddModifications(getMongodConfigModification(mdb)).
 		AddModifications(modifications...).
 		AddProcessModification(func(_ int, p *automationconfig.Process) {
-			automationconfig.ConfigureAgentConfiguration(mdb.Spec.AgentConfiguration.SystemLog, mdb.Spec.AgentConfiguration.LogRotate, mdb.Spec.AgentConfiguration.AuditLogRotate, p)
+			automationconfig.ConfigureAgentConfiguration(
+				mdb.Spec.AgentConfiguration.SystemLog,
+				mdb.Spec.AgentConfiguration.LogRotate,
+				mdb.Spec.AgentConfiguration.AuditLogRotate,
+				p,
+			)
 		}).
 		Build()
 }
@@ -658,7 +711,11 @@ func getCustomRolesModification(mdb mdbv1.MongoDBCommunity) (automationconfig.Mo
 	}, nil
 }
 
-func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdbv1.MongoDBCommunity, lastAppliedSpec *mdbv1.MongoDBCommunitySpec) (automationconfig.AutomationConfig, error) {
+func (r ReplicaSetReconciler) buildAutomationConfig(
+	ctx context.Context,
+	mdb mdbv1.MongoDBCommunity,
+	lastAppliedSpec *mdbv1.MongoDBCommunitySpec,
+) (automationconfig.AutomationConfig, error) {
 	tlsModification, err := getTLSConfigModification(ctx, r.client, r.client, mdb)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not configure TLS modification: %s", err)
@@ -669,7 +726,11 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not configure custom roles: %s", err)
 	}
 
-	currentAC, err := automationconfig.ReadFromSecret(ctx, r.client, types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace})
+	currentAC, err := automationconfig.ReadFromSecret(
+		ctx,
+		r.client,
+		types.NamespacedName{Name: mdb.AutomationConfigSecretName(), Namespace: mdb.Namespace},
+	)
 	if err != nil {
 		return automationconfig.AutomationConfig{}, fmt.Errorf("could not read existing automation config: %s", err)
 	}
@@ -781,7 +842,11 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDo
 		return automationconfig.NOOP()
 	}
 
-	searchConfigParameters := searchcontroller.GetMongodConfigParameters(search, clusterDomain, searchcontroller.ResolveSingleClusterIndex(search))
+	searchConfigParameters := searchcontroller.GetMongodConfigParameters(
+		search,
+		clusterDomain,
+		searchcontroller.ResolveSingleClusterIndex(search),
+	)
 	return func(ac *automationconfig.AutomationConfig) {
 		for i := range ac.Processes {
 			err := mergo.Merge(&ac.Processes[i].Args26, objx.New(searchConfigParameters), mergo.WithOverride)
@@ -794,8 +859,18 @@ func getMongodConfigSearchModification(search *searchv1.MongoDBSearch, clusterDo
 
 // buildStatefulSetModificationFunction takes a MongoDB resource and converts it into
 // the corresponding stateful set
-func buildStatefulSetModificationFunction(mdb mdbv1.MongoDBCommunity, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string) statefulset.Modification {
-	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage)
+func buildStatefulSetModificationFunction(
+	mdb mdbv1.MongoDBCommunity,
+	mongodbImage, agentImage, versionUpgradeHookImage, readinessProbeImage string,
+) statefulset.Modification {
+	commonModification := construct.BuildMongoDBReplicaSetStatefulSetModificationFunction(
+		&mdb,
+		&mdb,
+		mongodbImage,
+		agentImage,
+		versionUpgradeHookImage,
+		readinessProbeImage,
+	)
 	return statefulset.Apply(
 		commonModification,
 		statefulset.WithOwnerReference(mdb.GetOwnerReferences()),

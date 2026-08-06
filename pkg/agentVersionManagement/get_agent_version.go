@@ -151,7 +151,12 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 	}
 
 	if !supportsStatic {
-		return "", xerrors.Errorf("Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s", omVersion, om6StaticContainersSupport, om7StaticContainersSupport)
+		return "", xerrors.Errorf(
+			"Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s",
+			omVersion,
+			om6StaticContainersSupport,
+			om7StaticContainersSupport,
+		)
 	}
 
 	version, err := m.getAgentVersionFromOpsManager(conn)

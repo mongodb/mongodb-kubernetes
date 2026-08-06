@@ -55,7 +55,9 @@ func mandatorySingleClusterFieldsAreSpecified(m MongoDB) v1.ValidationResult {
 	if m.Spec.MongodsPerShardCount == 0 ||
 		m.Spec.MongosCount == 0 ||
 		m.Spec.ConfigServerCount == 0 {
-		return v1.ValidationError("The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount")
+		return v1.ValidationError(
+			"The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount",
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -138,7 +140,10 @@ func validateShardOverrideClusterSpecList(clusterSpecList []ClusterSpecItemOverr
 	for _, clusterSpec := range clusterSpecList {
 		// Note that it is okay for a shard override clusterSpecList to have Members = 0
 		if clusterSpec.ClusterName == "" {
-			return true, v1.ValidationError("shard override for shards %+v has an empty clusterName in clusterSpecList, this field must be specified", shardNames)
+			return true, v1.ValidationError(
+				"shard override for shards %+v has an empty clusterName in clusterSpecList, this field must be specified",
+				shardNames,
+			)
 		}
 		// This check is performed for overrides cluster spec lists as well
 		if len(clusterSpec.MemberConfig) > 0 && clusterSpec.Members != nil &&
@@ -163,7 +168,10 @@ func shardOverridesShardNamesUnique(m MongoDB) v1.ValidationResult {
 	for _, shardOverride := range m.Spec.ShardOverrides {
 		for _, shardName := range shardOverride.ShardNames {
 			if idSet[shardName] && shardName != "" {
-				return v1.ValidationError("spec.shardOverride[*].shardNames elements must be unique in shardOverrides, shardName %s is a duplicate", shardName)
+				return v1.ValidationError(
+					"spec.shardOverride[*].shardNames elements must be unique in shardOverrides, shardName %s is a duplicate",
+					shardName,
+				)
 			}
 			idSet[shardName] = true
 		}
@@ -175,7 +183,12 @@ func shardOverridesShardNamesCorrectValues(m MongoDB) v1.ValidationResult {
 	for _, shardOverride := range m.Spec.ShardOverrides {
 		for _, shardName := range shardOverride.ShardNames {
 			if !validateShardName(shardName, m.Spec.ShardCount, m.Name) {
-				return v1.ValidationError("name %s is incorrect, it must follow the following format: %s-{shard index} with shardIndex < %d (shardCount)", shardName, m.Name, m.Spec.ShardCount)
+				return v1.ValidationError(
+					"name %s is incorrect, it must follow the following format: %s-{shard index} with shardIndex < %d (shardCount)",
+					shardName,
+					m.Name,
+					m.Spec.ShardCount,
+				)
 			}
 		}
 	}
@@ -244,19 +257,31 @@ func noIgnoredFieldUsed(m MongoDB) []v1.ValidationResult {
 
 	for _, clusterSpec := range m.Spec.ShardSpec.ClusterSpecList {
 		if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-			appendValidationWarning(&warnings, "spec.shard.clusterSpecList.podSpec.podTemplate", "spec.shard.clusterSpecList.statefulSetConfiguration")
+			appendValidationWarning(
+				&warnings,
+				"spec.shard.clusterSpecList.podSpec.podTemplate",
+				"spec.shard.clusterSpecList.statefulSetConfiguration",
+			)
 		}
 	}
 
 	for _, clusterSpec := range m.Spec.ConfigSrvSpec.ClusterSpecList {
 		if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-			appendValidationWarning(&warnings, "spec.configSrv.clusterSpecList.podSpec.podTemplate", "spec.configSrv.clusterSpecList.statefulSetConfiguration")
+			appendValidationWarning(
+				&warnings,
+				"spec.configSrv.clusterSpecList.podSpec.podTemplate",
+				"spec.configSrv.clusterSpecList.statefulSetConfiguration",
+			)
 		}
 	}
 
 	for _, clusterSpec := range m.Spec.MongosSpec.ClusterSpecList {
 		if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-			appendValidationWarning(&warnings, "spec.mongos.clusterSpecList.podSpec.podTemplate", "spec.mongos.clusterSpecList.statefulSetConfiguration")
+			appendValidationWarning(
+				&warnings,
+				"spec.mongos.clusterSpecList.podSpec.podTemplate",
+				"spec.mongos.clusterSpecList.statefulSetConfiguration",
+			)
 		}
 	}
 
@@ -275,7 +300,11 @@ func noIgnoredFieldUsed(m MongoDB) []v1.ValidationResult {
 
 		for _, clusterSpec := range shardOverride.ClusterSpecList {
 			if clusterSpec.PodSpec != nil && clusterSpec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-				appendValidationWarning(&warnings, "spec.shardOverrides.clusterSpecList.podSpec.podTemplate", "spec.shardOverrides.clusterSpecList.statefulSetConfiguration")
+				appendValidationWarning(
+					&warnings,
+					"spec.shardOverrides.clusterSpecList.podSpec.podTemplate",
+					"spec.shardOverrides.clusterSpecList.statefulSetConfiguration",
+				)
 			}
 		}
 	}

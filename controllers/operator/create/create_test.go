@@ -40,11 +40,18 @@ func init() {
 
 func TestBuildService(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	svc := BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, ptr.To("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
-		Type:           corev1.ServiceTypeClusterIP,
-		Port:           2000,
-		LoadBalancerIP: "loadbalancerip",
-	})
+	svc := BuildService(
+		kube.ObjectKey(mock.TestNamespace, "my-svc"),
+		mdb,
+		ptr.To("label"),
+		nil,
+		2000,
+		omv1.MongoDBOpsManagerServiceDefinition{
+			Type:           corev1.ServiceTypeClusterIP,
+			Port:           2000,
+			LoadBalancerIP: "loadbalancerip",
+		},
+	)
 
 	// BuildService does not set OwnerReferences; callers are responsible for setting them
 	// explicitly (single-cluster) or leaving them nil (multi-cluster).
@@ -59,11 +66,18 @@ func TestBuildService(t *testing.T) {
 	assert.True(t, svc.Spec.PublishNotReadyAddresses)
 
 	// test podName label not nil
-	svc = BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, ptr.To("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
-		Type:           corev1.ServiceTypeClusterIP,
-		Port:           2000,
-		LoadBalancerIP: "loadbalancerip",
-	})
+	svc = BuildService(
+		kube.ObjectKey(mock.TestNamespace, "my-svc"),
+		mdb,
+		nil,
+		ptr.To("podName"),
+		2000,
+		omv1.MongoDBOpsManagerServiceDefinition{
+			Type:           corev1.ServiceTypeClusterIP,
+			Port:           2000,
+			LoadBalancerIP: "loadbalancerip",
+		},
+	)
 
 	assert.Empty(t, svc.OwnerReferences)
 	assert.Equal(t, mock.TestNamespace, svc.Namespace)
@@ -107,7 +121,12 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 	svc, err := fakeClient.GetService(ctx, kube.ObjectKey(testOm.Namespace, testOm.SvcName()))
 	assert.NoError(t, err, "Internal service exists")
 
-	assert.Equal(t, svc.Spec.Type, corev1.ServiceTypeClusterIP, "The operator creates a ClusterIP service if explicitly requested to do so.")
+	assert.Equal(
+		t,
+		svc.Spec.Type,
+		corev1.ServiceTypeClusterIP,
+		"The operator creates a ClusterIP service if explicitly requested to do so.",
+	)
 	assert.Equal(t, svc.Spec.ClusterIP, "0.0.12.0", "The operator configures the requested ClusterIP for the service")
 
 	assert.Len(t, svc.Spec.Ports, 2, "Backup port should have been added to existing internal service")
@@ -595,7 +614,12 @@ func TestDatabaseInKubernetes_ExternalServicesWithExternalDomainHaveAdditionalBa
 	service2.Name = "mdb-1-svc-external"
 	expectedServices := []corev1.Service{service1, service2}
 
-	testDatabaseInKubernetesExternalServices(ctx, t, mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("example.com")}, expectedServices)
+	testDatabaseInKubernetesExternalServices(
+		ctx,
+		t,
+		mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("example.com")},
+		expectedServices,
+	)
 }
 
 func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testing.T) {
@@ -794,7 +818,12 @@ func TestDatabaseInKubernetes_ExternalServicesWithPlaceholders_WithExternalDomai
 	testDatabaseInKubernetesExternalServices(ctx, t, externalAccessConfiguration, []corev1.Service{service1, service2})
 }
 
-func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T, externalAccessConfiguration mdbv1.ExternalAccessConfiguration, expectedServices []corev1.Service) {
+func testDatabaseInKubernetesExternalServices(
+	ctx context.Context,
+	t *testing.T,
+	externalAccessConfiguration mdbv1.ExternalAccessConfiguration,
+	expectedServices []corev1.Service,
+) {
 	log := zap.S()
 	fakeClient, _ := mock.NewDefaultFakeClient()
 	mdb := mdbv1.NewReplicaSetBuilder().
@@ -870,7 +899,10 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	require.Errorf(t, err, "expected no shard service")
 }
 
-func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.MongoDB) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
+func createShardSpecAndDefaultCluster(
+	client kubernetesClient.Client,
+	sc *mdbv1.MongoDB,
+) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
 	shardSpec := sc.Spec.ShardSpec.DeepCopy()
 	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
@@ -880,7 +912,12 @@ func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.
 		},
 	}
 
-	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
+	return shardSpec, multicluster.GetLegacyCentralMemberCluster(
+		sc.Spec.MongodsPerShardCount,
+		0,
+		client,
+		secrets.SecretClient{KubeClient: client},
+	)
 }
 
 func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
@@ -905,8 +942,19 @@ func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *
 
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	mongosSpec := createMongosSpec(mdb)
-	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
-	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
+	sts := construct.DatabaseStatefulSet(
+		*mdb,
+		construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()),
+		log,
+	)
+	mutatedSts, err := DatabaseInKubernetes(
+		ctx,
+		kubeClient,
+		*mdb,
+		sts,
+		construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName),
+		log,
+	)
 	assert.NoError(t, err)
 	assert.NotNil(t, mutatedSts)
 }
@@ -1039,7 +1087,12 @@ func createStatefulSet(name, namespace, size1, size2, size3 string) *appsv1.Stat
 	}
 }
 
-func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, namespace string, ordinal int32) *corev1.PersistentVolumeClaim {
+func createPVCFromTemplate(
+	pvcTemplate corev1.PersistentVolumeClaim,
+	stsName string,
+	namespace string,
+	ordinal int32,
+) *corev1.PersistentVolumeClaim {
 	pvcName := fmt.Sprintf("%s-%s-%d", pvcTemplate.Name, stsName, ordinal)
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1147,7 +1200,14 @@ func TestResourceStorageHasChanged(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, resourceStorageHasChanged(tt.args.existingPVC, tt.args.toCreatePVC), "resourceStorageHasChanged(%v, %v)", tt.args.existingPVC, tt.args.toCreatePVC)
+			assert.Equalf(
+				t,
+				tt.want,
+				resourceStorageHasChanged(tt.args.existingPVC, tt.args.toCreatePVC),
+				"resourceStorageHasChanged(%v, %v)",
+				tt.args.existingPVC,
+				tt.args.toCreatePVC,
+			)
 		})
 	}
 }

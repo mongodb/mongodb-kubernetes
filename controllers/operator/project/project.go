@@ -31,12 +31,28 @@ type Reader interface {
 
 // ReadConfigAndCredentials returns the ProjectConfig and Credentials for a given resource which are
 // used to communicate with Ops Manager.
-func ReadConfigAndCredentials(ctx context.Context, cmGetter configmap.Getter, secretGetter secrets.SecretClient, reader Reader, log *zap.SugaredLogger) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
-	projectConfig, err := ReadProjectConfig(ctx, cmGetter, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
+func ReadConfigAndCredentials(
+	ctx context.Context,
+	cmGetter configmap.Getter,
+	secretGetter secrets.SecretClient,
+	reader Reader,
+	log *zap.SugaredLogger,
+) (mdbv1.ProjectConfig, mdbv1.Credentials, error) {
+	projectConfig, err := ReadProjectConfig(
+		ctx,
+		cmGetter,
+		kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()),
+		reader.GetName(),
+	)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading project %w", err)
 	}
-	credsConfig, err := ReadCredentials(ctx, secretGetter, kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()), log)
+	credsConfig, err := ReadCredentials(
+		ctx,
+		secretGetter,
+		kube.ObjectKey(reader.GetCredentialsSecretNamespace(), reader.GetCredentialsSecretName()),
+		log,
+	)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, mdbv1.Credentials{}, xerrors.Errorf("error reading Credentials secret: %w", err)
 	}
@@ -57,7 +73,12 @@ duplicated groups/organizations creation. So if for example the standalone and t
 configMap are created in parallel - this function will be invoked sequentially and the second caller will see the group
 created on the first call
 */
-func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+func ReadOrCreateProject(
+	config mdbv1.ProjectConfig,
+	credentials mdbv1.Credentials,
+	connectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+) (*om.Project, om.Connection, error) {
 	projectName := config.ProjectName
 	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
@@ -149,7 +170,12 @@ func findProject(projectName string, organization *om.Organization, conn om.Conn
 // findProjectInsideOrganization looks up a project by name inside an organization and returns the project if it was the only one found by that name.
 // If no project was found, the function returns a nil project to indicate that no such project exists.
 // In all other cases, a non nil error is returned.
-func findProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
+func findProjectInsideOrganization(
+	conn om.Connection,
+	projectName string,
+	organization *om.Organization,
+	log *zap.SugaredLogger,
+) (*om.Project, error) {
 	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
 	if err != nil {
 		if v, ok := err.(*apierror.Error); ok {
@@ -215,7 +241,12 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 	return "", nil
 }
 
-func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
+func tryCreateProject(
+	organization *om.Organization,
+	projectName, orgId string,
+	conn om.Connection,
+	log *zap.SugaredLogger,
+) (*om.Project, error) {
 	// We can face the following scenario: for the project "foo" with 'orgId=""' the organization "foo" already exists
 	// - so we need to reuse its orgId instead of creating the new Organization with the same name (OM API is quite
 	// poor here - it may create duplicates)

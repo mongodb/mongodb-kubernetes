@@ -132,6 +132,7 @@ formatters:
     - gci
     - gofmt
     - gofumpt
+    - golines
   settings:
     gci:
       # Section configuration to compare against.
@@ -151,5 +152,16 @@ formatters:
       # Module path which contains the source code being formatted.
       # Default: ""
       module-path: github.com/mongodb/mongodb-kubernetes
+    golines:
+      # Target maximum line length. golines only breaks where Go syntax allows a clean
+      # split (params, call args, composite literal elements, method chains), so long
+      # string literals, comments and +kubebuilder markers are left untouched.
+      # Default: 100
+      max-len: 140
+      # Default: 4
+      tab-len: 4
+      # Comments are prose, not code: leave author line breaks alone.
+      # Default: false
+      shorten-comments: false
   exclusions:
     generated: lax

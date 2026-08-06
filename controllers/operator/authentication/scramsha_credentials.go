@@ -47,12 +47,18 @@ func isPasswordChanged(user *om.MongoDBUser, password string, acUser *om.MongoDB
 		// is actually changed
 		newScramSha256Creds, err := computeScramShaCreds(user.Username, password, sha256Salt, ScramSha256)
 		if err != nil {
-			return false, xerrors.Errorf("error generating scramSha256 creds to verify with already present user on automation config %w", err)
+			return false, xerrors.Errorf(
+				"error generating scramSha256 creds to verify with already present user on automation config %w",
+				err,
+			)
 		}
 
 		newScramSha1Creds, err := computeScramShaCreds(user.Username, password, sha1Salt, MongoDBCR)
 		if err != nil {
-			return false, xerrors.Errorf("error generating scramSha1 creds to verify with already present user on automation config %w", err)
+			return false, xerrors.Errorf(
+				"error generating scramSha1 creds to verify with already present user on automation config %w",
+				err,
+			)
 		}
 		return !newScramSha256Creds.Equals(*acUser.ScramSha256Creds) || !newScramSha1Creds.Equals(*acUser.ScramSha1Creds), nil
 	}
@@ -158,7 +164,11 @@ func hmacIteration(hashConstructor func() hash.Hash, input, salt []byte, iterati
 	// incorrect salt size will pass validation, but the credentials will be invalid. i.e. it will not
 	// be possible to auth with the password provided to create the credentials.
 	if len(salt) != hashSize-rfc5802MandatedSaltSize {
-		return nil, xerrors.Errorf("salt should have a size of %v bytes, but instead has a size of %v bytes", hashSize-rfc5802MandatedSaltSize, len(salt))
+		return nil, xerrors.Errorf(
+			"salt should have a size of %v bytes, but instead has a size of %v bytes",
+			hashSize-rfc5802MandatedSaltSize,
+			len(salt),
+		)
 	}
 
 	startKey := append(salt, 0, 0, 0, 1)
@@ -206,7 +216,12 @@ func generateStoredKey(hashConstructor func() hash.Hash, clientKey []byte) ([]by
 	return h.Sum(nil), nil
 }
 
-func generateSecrets(hashConstructor func() hash.Hash, password string, salt []byte, iterationCount int) (storedKey, serverKey []byte, err error) {
+func generateSecrets(
+	hashConstructor func() hash.Hash,
+	password string,
+	salt []byte,
+	iterationCount int,
+) (storedKey, serverKey []byte, err error) {
 	saltedPassword, err := generateSaltedPassword(hashConstructor, password, salt, iterationCount)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("error generating salted password: %w", err)
@@ -230,7 +245,11 @@ func generateSecrets(hashConstructor func() hash.Hash, password string, salt []b
 	return storedKey, serverKey, err
 }
 
-func generateB64EncodedSecrets(hashConstructor func() hash.Hash, password, b64EncodedSalt string, iterationCount int) (storedKey, serverKey string, err error) {
+func generateB64EncodedSecrets(
+	hashConstructor func() hash.Hash,
+	password, b64EncodedSalt string,
+	iterationCount int,
+) (storedKey, serverKey string, err error) {
 	salt, err := base64.StdEncoding.DecodeString(b64EncodedSalt)
 	if err != nil {
 		return "", "", xerrors.Errorf("error decoding salt: %w", err)
@@ -247,7 +266,12 @@ func generateB64EncodedSecrets(hashConstructor func() hash.Hash, password, b64En
 }
 
 // password should be encrypted in the case of SCRAM-SHA-1 and unencrypted in the case of SCRAM-SHA-256
-func computeScramCredentials(hashConstructor func() hash.Hash, iterationCount int, base64EncodedSalt string, password string) (*om.ScramShaCreds, error) {
+func computeScramCredentials(
+	hashConstructor func() hash.Hash,
+	iterationCount int,
+	base64EncodedSalt string,
+	password string,
+) (*om.ScramShaCreds, error) {
 	storedKey, serverKey, err := generateB64EncodedSecrets(hashConstructor, password, base64EncodedSalt, iterationCount)
 	if err != nil {
 		return nil, xerrors.Errorf("error generating SCRAM-SHA keys: %w", err)

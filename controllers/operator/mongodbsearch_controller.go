@@ -107,7 +107,10 @@ func newPrepareSearch(operatorClusterName string) prepareSearchFuncs {
 		},
 		shouldSkipCluster: func(search *searchv1.MongoDBSearch, log *zap.SugaredLogger) bool {
 			if !search.LocalizeToCluster(operatorClusterName) {
-				log.Infof("spec.clusters does not list this operator's cluster %q; skipping (another operator owns this CR)", operatorClusterName)
+				log.Infof(
+					"spec.clusters does not list this operator's cluster %q; skipping (another operator owns this CR)",
+					operatorClusterName,
+				)
 				return true
 			}
 			return false
@@ -203,19 +206,35 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 
 	searchSource, err := r.getSourceMongoDBForSearch(ctx, r.kubeClient, mdbSearch, log)
 	if err != nil {
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)), log)
+		return commoncontroller.UpdateStatus(
+			ctx,
+			r.kubeClient,
+			mdbSearch,
+			workflow.Failed(xerrors.Errorf("Waiting for MongoDB source: %s", err)),
+			log,
+		)
 	}
 
 	if mdbSearch.IsWireprotoEnabled() {
 		log.Info("Enabling the mongot wireproto server as required by annotation")
 		// the keyfile secret is necessary for wireproto authentication
-		r.watch.AddWatchedResourceIfNotAdded(searchSource.KeyfileSecretName(), mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(
+			searchSource.KeyfileSecretName(),
+			mdbSearch.Namespace,
+			watch.Secret,
+			mdbSearch.NamespacedName(),
+		)
 	}
 
 	r.registerTLSResourceWatches(mdbSearch, searchSource)
 
 	if mdbSearch.Spec.AutoEmbedding != nil {
-		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(
+			mdbSearch.Spec.AutoEmbedding.EmbeddingModelAPIKeySecret.Name,
+			mdbSearch.Namespace,
+			watch.Secret,
+			mdbSearch.NamespacedName(),
+		)
 	}
 
 	// Watch the dedicated keyFilePassword secrets so correcting a wrong password (without a cert/key
@@ -239,9 +258,21 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		// A concurrent writer bumped the ConfigMap between read and update; retry
 		// instead of marking the CR Failed over a transient race.
 		if apierrors.IsConflict(err) {
-			return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Pending("Search state was modified concurrently, re-queuing").Requeue(), log)
+			return commoncontroller.UpdateStatus(
+				ctx,
+				r.kubeClient,
+				mdbSearch,
+				workflow.Pending("Search state was modified concurrently, re-queuing").Requeue(),
+				log,
+			)
 		}
-		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, workflow.Failed(xerrors.Errorf("failed to read or repair search state: %w", err)), log)
+		return commoncontroller.UpdateStatus(
+			ctx,
+			r.kubeClient,
+			mdbSearch,
+			workflow.Failed(xerrors.Errorf("failed to read or repair search state: %w", err)),
+			log,
+		)
 	}
 
 	reconcileHelper := searchcontroller.NewMongoDBSearchReconcileHelper(
@@ -290,7 +321,12 @@ func (r *MongoDBSearchReconciler) surfaceMissingSecrets(
 	}
 }
 
-func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(ctx context.Context, kubeClient client.Client, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
+func (r *MongoDBSearchReconciler) getSourceMongoDBForSearch(
+	ctx context.Context,
+	kubeClient client.Client,
+	search *searchv1.MongoDBSearch,
+	log *zap.SugaredLogger,
+) (searchcontroller.SearchSourceDBResource, error) {
 	return getSearchSource(ctx, kubeClient, r.watch, search, log)
 }
 
@@ -319,7 +355,12 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 			errs = errors.Join(errs, err)
 		}
 		if errs != nil {
-			log.Warnf("Failed to clean up resources of deleted MongoDBSearch %s on cluster %q: %v", search.NamespacedName(), clusterName, errs)
+			log.Warnf(
+				"Failed to clean up resources of deleted MongoDBSearch %s on cluster %q: %v",
+				search.NamespacedName(),
+				clusterName,
+				errs,
+			)
 		}
 	}
 
@@ -331,12 +372,54 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 // resources. The state ConfigMap is deliberately absent: it lives on the
 // central cluster only, and a hub whose own cluster is member-registered would
 // otherwise delete the live central state — see deleteLocalSearchResources.
-func deleteMemberSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+func deleteMemberSearchResources(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+	clusterName string,
+	log *zap.SugaredLogger,
+) error {
 	errs := errors.Join(
-		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "StatefulSet", searchMongotComponent, &appsv1.StatefulSetList{}, log),
-		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "headless Service", searchMongotComponent, &corev1.ServiceList{}, log),
-		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "proxy Service", searchProxyComponent, &corev1.ServiceList{}, log),
-		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchMongotComponent, &corev1.ConfigMapList{}, log),
+		searchcontroller.DeleteAllOwnedResources(
+			ctx,
+			c,
+			search,
+			clusterName,
+			"StatefulSet",
+			searchMongotComponent,
+			&appsv1.StatefulSetList{},
+			log,
+		),
+		searchcontroller.DeleteAllOwnedResources(
+			ctx,
+			c,
+			search,
+			clusterName,
+			"headless Service",
+			searchMongotComponent,
+			&corev1.ServiceList{},
+			log,
+		),
+		searchcontroller.DeleteAllOwnedResources(
+			ctx,
+			c,
+			search,
+			clusterName,
+			"proxy Service",
+			searchProxyComponent,
+			&corev1.ServiceList{},
+			log,
+		),
+		searchcontroller.DeleteAllOwnedResources(
+			ctx,
+			c,
+			search,
+			clusterName,
+			"ConfigMap",
+			searchMongotComponent,
+			&corev1.ConfigMapList{},
+			log,
+		),
 		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "Secret", searchMongotComponent, &corev1.SecretList{}, log),
 	)
 	for _, s := range []struct{ kind, name string }{
@@ -352,7 +435,13 @@ func deleteMemberSearchResources(ctx context.Context, c kubernetesClient.Client,
 
 // deleteLocalSearchResources additionally deletes the central state ConfigMap:
 // it runs only when THIS operator's own cluster was removed from spec.clusters.
-func deleteLocalSearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+func deleteLocalSearchResources(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+	clusterName string,
+	log *zap.SugaredLogger,
+) error {
 	stateCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      searchcontroller.SearchStateCMName(search),
@@ -363,10 +452,34 @@ func deleteLocalSearchResources(ctx context.Context, c kubernetesClient.Client, 
 	return errors.Join(deleteMemberSearchResources(ctx, c, search, clusterName, log), stateErr)
 }
 
-func deleteEnvoySearchResources(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, clusterName string, log *zap.SugaredLogger) error {
+func deleteEnvoySearchResources(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+	clusterName string,
+	log *zap.SugaredLogger,
+) error {
 	return errors.Join(
-		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "Deployment", searchProxyComponent, &appsv1.DeploymentList{}, log),
-		searchcontroller.DeleteAllOwnedResources(ctx, c, search, clusterName, "ConfigMap", searchProxyComponent, &corev1.ConfigMapList{}, log),
+		searchcontroller.DeleteAllOwnedResources(
+			ctx,
+			c,
+			search,
+			clusterName,
+			"Deployment",
+			searchProxyComponent,
+			&appsv1.DeploymentList{},
+			log,
+		),
+		searchcontroller.DeleteAllOwnedResources(
+			ctx,
+			c,
+			search,
+			clusterName,
+			"ConfigMap",
+			searchProxyComponent,
+			&corev1.ConfigMapList{},
+			log,
+		),
 	)
 }
 
@@ -486,7 +599,10 @@ func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSea
 	}
 }
 
-func (r *MongoDBSearchReconciler) registerTLSResourceWatches(mdbSearch *searchv1.MongoDBSearch, searchSource searchcontroller.SearchSourceDBResource) {
+func (r *MongoDBSearchReconciler) registerTLSResourceWatches(
+	mdbSearch *searchv1.MongoDBSearch,
+	searchSource searchcontroller.SearchSourceDBResource,
+) {
 	if tlsSourceConfig := searchSource.TLSConfig(); tlsSourceConfig != nil {
 		for wType, resources := range tlsSourceConfig.ResourcesToWatch {
 			for _, resource := range resources {
@@ -501,7 +617,12 @@ func (r *MongoDBSearchReconciler) registerTLSResourceWatches(mdbSearch *searchv1
 		for _, cluster := range mdbSearch.Spec.Clusters {
 			for _, shardName := range shardedSource.GetShardNames() {
 				sourceSecretNsName := mdbSearch.TLSSecretForClusterShard(cluster.ResolveIndex(), shardName)
-				r.watch.AddWatchedResourceIfNotAdded(sourceSecretNsName.Name, sourceSecretNsName.Namespace, watch.Secret, mdbSearch.NamespacedName())
+				r.watch.AddWatchedResourceIfNotAdded(
+					sourceSecretNsName.Name,
+					sourceSecretNsName.Namespace,
+					watch.Secret,
+					mdbSearch.NamespacedName(),
+				)
 			}
 		}
 		return
@@ -516,7 +637,13 @@ func (r *MongoDBSearchReconciler) registerTLSResourceWatches(mdbSearch *searchv1
 
 // getSearchSource resolves the source database for a MongoDBSearch resource.
 // Shared by both the main search controller and the Envoy controller.
-func getSearchSource(ctx context.Context, kubeClient client.Client, watcher *watch.ResourceWatcher, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) (searchcontroller.SearchSourceDBResource, error) {
+func getSearchSource(
+	ctx context.Context,
+	kubeClient client.Client,
+	watcher *watch.ResourceWatcher,
+	search *searchv1.MongoDBSearch,
+	log *zap.SugaredLogger,
+) (searchcontroller.SearchSourceDBResource, error) {
 	if search.IsExternalMongoDBSource() {
 		externalSpec := search.Spec.Source.ExternalMongoDBSource
 		if search.IsExternalSourceSharded() {

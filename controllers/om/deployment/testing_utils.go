@@ -33,7 +33,15 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 	}
 
 	d.MergeReplicaSet(
-		replicaset.BuildFromStatefulSet(mongoDBImage, forceEnterprise, sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion, "", architectures.NonStatic),
+		replicaset.BuildFromStatefulSet(
+			mongoDBImage,
+			forceEnterprise,
+			sts,
+			rs.GetSpec(),
+			rs.Status.FeatureCompatibilityVersion,
+			"",
+			architectures.NonStatic,
+		),
 		rs.Spec.AdditionalMongodConfig.ToMap(),
 		lastConfig.ToMap(),
 		zap.S(),

@@ -50,7 +50,13 @@ type MongoDBUserReconciler struct {
 	backupEnableDelay             time.Duration
 }
 
-func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, backupEnableDelay time.Duration) *MongoDBUserReconciler {
+func newMongoDBUserReconciler(
+	ctx context.Context,
+	kubeClient client.Client,
+	omFunc om.ConnectionFactory,
+	memberClustersMap map[string]client.Client,
+	backupEnableDelay time.Duration,
+) *MongoDBUserReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -70,7 +76,11 @@ func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omF
 	}
 }
 
-func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
+func (r *MongoDBUserReconciler) getUser(
+	ctx context.Context,
+	request reconcile.Request,
+	log *zap.SugaredLogger,
+) (*userv1.MongoDBUser, error) {
 	user := &userv1.MongoDBUser{}
 	if _, err := r.GetResource(ctx, request, user, log); err != nil {
 		return nil, err
@@ -111,7 +121,10 @@ func (r *MongoDBUserReconciler) getMongoDB(ctx context.Context, user userv1.Mong
 }
 
 // getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
-func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context, user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
+func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(
+	ctx context.Context,
+	user userv1.MongoDBUser,
+) (connectionstring.ConnectionStringBuilder, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try single cluster, sharded single/multi-cluster resource
@@ -181,7 +194,12 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 			if controllerutil.ContainsFinalizer(user, util.UserFinalizer) {
 				controllerutil.RemoveFinalizer(user, util.UserFinalizer)
 				if err := r.client.Update(ctx, user); err != nil {
-					return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
+					return r.updateStatus(
+						ctx,
+						user,
+						workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)),
+						log,
+					)
 				}
 				return r.updateStatus(ctx, user, workflow.Pending("Finalizer will be removed. MongoDB resource not found"), log)
 			}
@@ -205,7 +223,16 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(
+		ctx,
+		r.SecretClient,
+		projectConfig,
+		credsConfig,
+		r.omConnectionFactory,
+		user.Namespace,
+		false,
+		log,
+	)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
@@ -246,7 +273,16 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 		return err
 	}
 
-	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
+	_, _, err = connection.PrepareOpsManagerConnection(
+		ctx,
+		r.SecretClient,
+		projectConfig,
+		credsConfig,
+		r.omConnectionFactory,
+		user.Namespace,
+		false,
+		log,
+	)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -285,8 +321,18 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(
+		user.Spec.Username,
+		password,
+		connectionstring.SchemeMongoDB,
+		map[string]string{"authSource": user.Spec.Database},
+	)
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(
+		user.Spec.Username,
+		password,
+		connectionstring.SchemeMongoDBSRV,
+		map[string]string{"authSource": user.Spec.Database},
+	)
 
 	memberClusterSecret := secret.Builder().
 		SetName(secretName).
@@ -311,9 +357,24 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
-func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
-	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), backupEnableDelay)
-	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
+func AddMongoDBUserController(
+	ctx context.Context,
+	mgr manager.Manager,
+	memberClustersMap map[string]cluster.Cluster,
+	backupEnableDelay time.Duration,
+) error {
+	reconciler := newMongoDBUserReconciler(
+		ctx,
+		mgr.GetClient(),
+		om.NewOpsManagerConnection,
+		multicluster.ClustersMapToClientMap(memberClustersMap),
+		backupEnableDelay,
+	)
+	c, err := controller.New(
+		util.MongoDbUserController,
+		mgr,
+		controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)},
+	) // nolint:forbidigo
 	if err != nil {
 		return err
 	}
@@ -366,7 +427,12 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 	return user, nil
 }
 
-func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (res reconcile.Result, e error) {
+func (r *MongoDBUserReconciler) handleScramShaUser(
+	ctx context.Context,
+	user *userv1.MongoDBUser,
+	conn om.Connection,
+	log *zap.SugaredLogger,
+) (res reconcile.Result, e error) {
 	// watch the password secret in order to trigger reconciliation if the
 	// password is updated
 	if user.Spec.PasswordSecretKeyRef.Name != "" {
@@ -431,7 +497,12 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
-func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) handleExternalAuthUser(
+	ctx context.Context,
+	user *userv1.MongoDBUser,
+	conn om.Connection,
+	log *zap.SugaredLogger,
+) (reconcile.Result, error) {
 	shouldRetry := false
 	updateFunction := func(ac *om.AutomationConfig) error {
 		if !externalAuthMechanismsAvailable(ac.Auth.DeploymentAuthMechanisms) {
@@ -509,7 +580,12 @@ func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string,
 	return finalAnnotations, nil
 }
 
-func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) preDeletionCleanup(
+	ctx context.Context,
+	user *userv1.MongoDBUser,
+	conn om.Connection,
+	log *zap.SugaredLogger,
+) (reconcile.Result, error) {
 	log.Info("Performing pre deletion cleanup before deleting MongoDBUser")
 
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -523,7 +599,12 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	secretKey := kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName())
 	for clusterName, c := range r.memberClusterSecretClientsMap {
 		if err := c.DeleteSecret(ctx, secretKey); err != nil && !apiErrors.IsNotFound(err) {
-			return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to delete connection string secret from member cluster %s: %w", clusterName, err)), log)
+			return r.updateStatus(
+				ctx,
+				user,
+				workflow.Failed(xerrors.Errorf("Failed to delete connection string secret from member cluster %s: %w", clusterName, err)),
+				log,
+			)
 		}
 	}
 
@@ -532,7 +613,12 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	}
 
 	if err := r.client.Update(ctx, user); err != nil {
-		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)), log)
+		return r.updateStatus(
+			ctx,
+			user,
+			workflow.Failed(xerrors.Errorf("Failed to update the user with the removed finalizer: %w", err)),
+			log,
+		)
 	}
 	return r.updateStatus(ctx, user, workflow.OK(), log)
 }

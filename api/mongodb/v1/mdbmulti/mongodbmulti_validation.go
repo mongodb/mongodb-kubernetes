@@ -19,7 +19,10 @@ func (m MongoDBMultiClusterValidator) ValidateCreate(_ context.Context, obj runt
 	return nil, obj.(*MongoDBMultiCluster).ProcessValidationsOnReconcile(nil)
 }
 
-func (m MongoDBMultiClusterValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+func (m MongoDBMultiClusterValidator) ValidateUpdate(
+	_ context.Context,
+	oldObj, newObj runtime.Object,
+) (warnings admission.Warnings, err error) {
 	return nil, newObj.(*MongoDBMultiCluster).ProcessValidationsOnReconcile(oldObj.(*MongoDBMultiCluster))
 }
 

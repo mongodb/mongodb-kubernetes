@@ -53,7 +53,10 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 	assert.Equal(t, expectedContainer, container)
 }
 
-func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.MongoDB) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
+func createShardSpecAndDefaultCluster(
+	client kubernetesClient.Client,
+	sc *mdbv1.MongoDB,
+) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
 	shardSpec := sc.Spec.ShardSpec.DeepCopy()
 	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
 		{
@@ -62,7 +65,12 @@ func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.
 		},
 	}
 
-	return shardSpec, multicluster.GetLegacyCentralMemberCluster(sc.Spec.MongodsPerShardCount, 0, client, secrets.SecretClient{KubeClient: client})
+	return shardSpec, multicluster.GetLegacyCentralMemberCluster(
+		sc.Spec.MongodsPerShardCount,
+		0,
+		client,
+		secrets.SecretClient{KubeClient: client},
+	)
 }
 
 func createConfigSrvSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
@@ -123,7 +131,11 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 			DatabaseStatefulSet(*sc, ShardOptions(0, shardSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)), zap.S())
 		})
 		assert.Panics(t, func() {
-			DatabaseStatefulSet(*sc, ConfigServerOptions(configServerSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)), zap.S())
+			DatabaseStatefulSet(
+				*sc,
+				ConfigServerOptions(configServerSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)),
+				zap.S(),
+			)
 		})
 		assert.Panics(t, func() {
 			DatabaseStatefulSet(*sc, MongosOptions(mongosSpec, memberCluster.Name, WithDefaultArchitecture(architectures.Static)), zap.S())
@@ -233,13 +245,28 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	assert.Len(t, envVars, 6)
 
 	logFileAutomationAgentEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "log.file")}
-	logFileAutomationAgentVerboseEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "log-verbose.file")}
-	logFileAutomationAgentDefaultEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")}
-	logFileAutomationAgentVerboseDefaultEnvVar := corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")}
+	logFileAutomationAgentVerboseEnvVar := corev1.EnvVar{
+		Name:  LogFileAutomationAgentVerboseEnv,
+		Value: path.Join(util.PvcMountPathLogs, "log-verbose.file"),
+	}
+	logFileAutomationAgentDefaultEnvVar := corev1.EnvVar{
+		Name:  LogFileAutomationAgentEnv,
+		Value: path.Join(util.PvcMountPathLogs, "automation-agent.log"),
+	}
+	logFileAutomationAgentVerboseDefaultEnvVar := corev1.EnvVar{
+		Name:  LogFileAutomationAgentVerboseEnv,
+		Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log"),
+	}
 	logFileMongoDBAuditEnvVar := corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: path.Join(util.PvcMountPathLogs, "audit.log")}
-	logFileMongoDBAuditDefaultEnvVar := corev1.EnvVar{Name: LogFileMongoDBAuditEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb-audit.log")}
+	logFileMongoDBAuditDefaultEnvVar := corev1.EnvVar{
+		Name:  LogFileMongoDBAuditEnv,
+		Value: path.Join(util.PvcMountPathLogs, "mongodb-audit.log"),
+	}
 	logFileMongoDBEnvVar := corev1.EnvVar{Name: LogFileMongoDBEnv, Value: path.Join(util.PvcMountPathLogs, "mongodb.log")}
-	logFileAgentMonitoringEnvVar := corev1.EnvVar{Name: LogFileAgentMonitoringEnv, Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log")}
+	logFileAgentMonitoringEnvVar := corev1.EnvVar{
+		Name:  LogFileAgentMonitoringEnv,
+		Value: path.Join(util.PvcMountPathLogs, "monitoring-agent.log"),
+	}
 	logFileAgentBackupEnvVar := corev1.EnvVar{Name: LogFileAgentBackupEnv, Value: path.Join(util.PvcMountPathLogs, "backup-agent.log")}
 
 	numberOfLogFilesInEnvVars := 6
@@ -278,7 +305,10 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 	})
 
 	t.Run("all log files are default", func(t *testing.T) {
-		envVars = logConfigurationToEnvVars(map[string]string{"other": "value"}, mdbv1.NewEmptyAdditionalMongodConfig().AddOption("other", "value"))
+		envVars = logConfigurationToEnvVars(
+			map[string]string{"other": "value"},
+			mdbv1.NewEmptyAdditionalMongodConfig().AddOption("other", "value"),
+		)
 		assert.Len(t, envVars, numberOfLogFilesInEnvVars)
 		assert.Contains(t, envVars, logFileAutomationAgentDefaultEnvVar)
 		assert.Contains(t, envVars, logFileAutomationAgentVerboseDefaultEnvVar)
@@ -309,14 +339,30 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 
 	t.Run("empty automation log file is falling back to default names", func(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": ""})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
+		assert.Contains(
+			t,
+			envVars,
+			corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")},
+		)
+		assert.Contains(
+			t,
+			envVars,
+			corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")},
+		)
 	})
 
 	t.Run("not set logFile cause falling back to default names", func(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")})
+		assert.Contains(
+			t,
+			envVars,
+			corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent.log")},
+		)
+		assert.Contains(
+			t,
+			envVars,
+			corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: path.Join(util.PvcMountPathLogs, "automation-agent-verbose.log")},
+		)
 	})
 }
 
@@ -361,7 +407,11 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(tt.annotations).Build()
-			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.DefaultArchitecture(tt.defaultArchitecture))), zap.S())
+			sts := DatabaseStatefulSet(
+				*mdb,
+				ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.DefaultArchitecture(tt.defaultArchitecture))),
+				zap.S(),
+			)
 
 			agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
 				return container.Name == util.AgentContainerName

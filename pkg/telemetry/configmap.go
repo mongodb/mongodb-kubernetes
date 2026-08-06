@@ -121,7 +121,13 @@ func createInitialConfigmap(namespace string) (string, *corev1.ConfigMap) {
 
 // isTimestampOlderThanConfiguredFrequency is used to get the timestamp from the ConfigMap and check whether it's time to
 // send the data to atlas.
-func isTimestampOlderThanConfiguredFrequency(ctx context.Context, k8sClient kubeclient.Client, namespace string, OperatorConfigMapTelemetryConfigMapName string, et EventType) (bool, error) {
+func isTimestampOlderThanConfiguredFrequency(
+	ctx context.Context,
+	k8sClient kubeclient.Client,
+	namespace string,
+	OperatorConfigMapTelemetryConfigMapName string,
+	et EventType,
+) (bool, error) {
 	durationStr := env.ReadOrDefault(SendFrequency, DefaultSendFrequencyStr) // nolint:forbidigo
 	duration, err := time.ParseDuration(durationStr)
 	if err != nil || duration < 10*time.Minute {
@@ -159,7 +165,14 @@ func isTimestampOlderThanConfiguredFrequency(ctx context.Context, k8sClient kube
 }
 
 // updateTelemetryConfigMapPayload updates the configmap with the current collected telemetry data
-func updateTelemetryConfigMapPayload(ctx context.Context, k8sClient kubeclient.Client, events []Event, namespace string, OperatorConfigMapTelemetryConfigMapName string, eventType EventType) error {
+func updateTelemetryConfigMapPayload(
+	ctx context.Context,
+	k8sClient kubeclient.Client,
+	events []Event,
+	namespace string,
+	OperatorConfigMapTelemetryConfigMapName string,
+	eventType EventType,
+) error {
 	cm := &corev1.ConfigMap{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: OperatorConfigMapTelemetryConfigMapName, Namespace: namespace}, cm)
 	if err != nil {
@@ -185,7 +198,13 @@ func updateTelemetryConfigMapPayload(ctx context.Context, k8sClient kubeclient.C
 }
 
 // updateTelemetryConfigMapTimeStamp updates the configmap with the current timestamp
-func updateTelemetryConfigMapTimeStamp(ctx context.Context, k8sClient kubeclient.Client, namespace string, OperatorConfigMapTelemetryConfigMapName string, eventType EventType) error {
+func updateTelemetryConfigMapTimeStamp(
+	ctx context.Context,
+	k8sClient kubeclient.Client,
+	namespace string,
+	OperatorConfigMapTelemetryConfigMapName string,
+	eventType EventType,
+) error {
 	cm := &corev1.ConfigMap{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: OperatorConfigMapTelemetryConfigMapName, Namespace: namespace}, cm)
 	if err != nil {

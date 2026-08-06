@@ -152,8 +152,20 @@ func TestBuildCDSJSON_SingleShard_WithTLS(t *testing.T) {
 
 func TestBuildCDSJSON_MultipleShards(t *testing.T) {
 	routes := []envoyRoute{
-		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "s0.ns.svc.cluster.local", UpstreamHosts: []string{"m0.ns.svc.cluster.local"}, UpstreamPort: 27028},
-		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "s1.ns.svc.cluster.local", UpstreamHosts: []string{"m1.ns.svc.cluster.local"}, UpstreamPort: 27028},
+		{
+			Name:          "mdb-sh-0",
+			NameSafe:      "mdb_sh_0",
+			SNIHostname:   "s0.ns.svc.cluster.local",
+			UpstreamHosts: []string{"m0.ns.svc.cluster.local"},
+			UpstreamPort:  27028,
+		},
+		{
+			Name:          "mdb-sh-1",
+			NameSafe:      "mdb_sh_1",
+			SNIHostname:   "s1.ns.svc.cluster.local",
+			UpstreamHosts: []string{"m1.ns.svc.cluster.local"},
+			UpstreamPort:  27028,
+		},
 	}
 	result, err := buildCDSJSON(routes, false, testCAKeyName())
 	require.NoError(t, err)
@@ -221,9 +233,27 @@ func TestBuildLDSJSON_SingleShard_WithTLS(t *testing.T) {
 
 func TestBuildLDSJSON_MultipleShards_WithTLS(t *testing.T) {
 	routes := []envoyRoute{
-		{Name: "mdb-sh-0", NameSafe: "mdb_sh_0", SNIHostname: "shard0.ns.svc.cluster.local", UpstreamHosts: []string{"mongot0.ns.svc.cluster.local"}, UpstreamPort: 27028},
-		{Name: "mdb-sh-1", NameSafe: "mdb_sh_1", SNIHostname: "shard1.ns.svc.cluster.local", UpstreamHosts: []string{"mongot1.ns.svc.cluster.local"}, UpstreamPort: 27028},
-		{Name: "mdb-sh-2", NameSafe: "mdb_sh_2", SNIHostname: "shard2.ns.svc.cluster.local", UpstreamHosts: []string{"mongot2.ns.svc.cluster.local"}, UpstreamPort: 27028},
+		{
+			Name:          "mdb-sh-0",
+			NameSafe:      "mdb_sh_0",
+			SNIHostname:   "shard0.ns.svc.cluster.local",
+			UpstreamHosts: []string{"mongot0.ns.svc.cluster.local"},
+			UpstreamPort:  27028,
+		},
+		{
+			Name:          "mdb-sh-1",
+			NameSafe:      "mdb_sh_1",
+			SNIHostname:   "shard1.ns.svc.cluster.local",
+			UpstreamHosts: []string{"mongot1.ns.svc.cluster.local"},
+			UpstreamPort:  27028,
+		},
+		{
+			Name:          "mdb-sh-2",
+			NameSafe:      "mdb_sh_2",
+			SNIHostname:   "shard2.ns.svc.cluster.local",
+			UpstreamHosts: []string{"mongot2.ns.svc.cluster.local"},
+			UpstreamPort:  27028,
+		},
 	}
 
 	result, err := buildLDSJSON(routes, true, testCAKeyName(), nil)
@@ -374,8 +404,16 @@ func TestBuildCluster_UsesTypedExtensionProtocolOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify deprecated fields are NOT set
-	assert.Nil(t, cluster.Http2ProtocolOptions, "deprecated Http2ProtocolOptions should not be set on Cluster")           //nolint:staticcheck
-	assert.Nil(t, cluster.CommonHttpProtocolOptions, "deprecated CommonHttpProtocolOptions should not be set on Cluster") //nolint:staticcheck
+	assert.Nil(
+		t,
+		cluster.Http2ProtocolOptions,
+		"deprecated Http2ProtocolOptions should not be set on Cluster",
+	) //nolint:staticcheck
+	assert.Nil(
+		t,
+		cluster.CommonHttpProtocolOptions,
+		"deprecated CommonHttpProtocolOptions should not be set on Cluster",
+	) //nolint:staticcheck
 
 	// Verify TypedExtensionProtocolOptions is set
 	require.Contains(t, cluster.TypedExtensionProtocolOptions, "envoy.extensions.upstreams.http.v3.HttpProtocolOptions")

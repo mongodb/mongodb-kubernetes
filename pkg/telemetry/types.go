@@ -74,7 +74,7 @@ func (u DeploymentUsageSnapshotProperties) ConvertToFlatMap() (map[string]any, e
 }
 
 type SearchDeploymentUsageSnapshotProperties struct {
-	DeploymentUsageSnapshotProperties `json:",inline"`
+	DeploymentUsageSnapshotProperties `     json:",inline"`
 	IsAutoEmbeddingEnabled            bool `json:"isAutoEmbeddingEnabled"`
 }
 

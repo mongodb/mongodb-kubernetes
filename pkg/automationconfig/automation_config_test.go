@@ -463,7 +463,15 @@ func TestAreEqual(t *testing.T) {
 
 	t.Run("Automation Configs with different values are not equal", func(t *testing.T) {
 		areEqual, err := AreEqual(
-			createAutomationConfig("name0", "differentVersion", "domain0", Options{DownloadBase: "downloadBase1"}, Auth{Disabled: false}, 2, 2),
+			createAutomationConfig(
+				"name0",
+				"differentVersion",
+				"domain0",
+				Options{DownloadBase: "downloadBase1"},
+				Auth{Disabled: false},
+				2,
+				2,
+			),
 			createAutomationConfig("name0", "mdbVersion0", "domain0", Options{DownloadBase: "downloadBase0"}, Auth{Disabled: true}, 5, 2),
 		)
 
@@ -474,11 +482,21 @@ func TestAreEqual(t *testing.T) {
 	t.Run("Automation Configs with nil and zero values are not equal", func(t *testing.T) {
 		votes := 1
 		priority := "0.0"
-		firstBuilder := NewBuilder().SetName("name0").SetMongoDBVersion("mdbVersion0").SetOptions(Options{DownloadBase: "downloadBase0"}).SetDomain("domain0").SetMembers(2).SetAuth(Auth{Disabled: true})
+		firstBuilder := NewBuilder().SetName("name0").
+			SetMongoDBVersion("mdbVersion0").
+			SetOptions(Options{DownloadBase: "downloadBase0"}).
+			SetDomain("domain0").
+			SetMembers(2).
+			SetAuth(Auth{Disabled: true})
 		firstBuilder.SetMemberOptions([]MemberOptions{{Votes: &votes, Priority: &priority}})
 		firstAc, _ := firstBuilder.Build()
 		firstAc.Version = 2
-		secondBuilder := NewBuilder().SetName("name0").SetMongoDBVersion("mdbVersion0").SetOptions(Options{DownloadBase: "downloadBase0"}).SetDomain("domain0").SetMembers(2).SetAuth(Auth{Disabled: true})
+		secondBuilder := NewBuilder().SetName("name0").
+			SetMongoDBVersion("mdbVersion0").
+			SetOptions(Options{DownloadBase: "downloadBase0"}).
+			SetDomain("domain0").
+			SetMembers(2).
+			SetAuth(Auth{Disabled: true})
 		secondBuilder.SetMemberOptions([]MemberOptions{{Votes: &votes, Priority: nil}})
 		secondAc, _ := secondBuilder.Build()
 		secondAc.Version = 2

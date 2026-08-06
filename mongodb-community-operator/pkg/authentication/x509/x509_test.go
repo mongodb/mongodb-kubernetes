@@ -146,7 +146,9 @@ func Test_convertMongoDBResourceUsersToAutomationConfigUsers(t *testing.T) {
 	}{
 		{
 			name: "Only x.509 users",
-			args: args{mdb: buildX509Configurable("mongodb", mocks.BuildX509MongoDBUser("my-user-1"), mocks.BuildX509MongoDBUser("my-user-2"))},
+			args: args{
+				mdb: buildX509Configurable("mongodb", mocks.BuildX509MongoDBUser("my-user-1"), mocks.BuildX509MongoDBUser("my-user-2")),
+			},
 			want: []automationconfig.MongoDBUser{
 				{
 					Mechanisms: []string{},
@@ -184,12 +186,16 @@ func Test_convertMongoDBResourceUsersToAutomationConfigUsers(t *testing.T) {
 		},
 		{
 			name: "Only SCRAM users",
-			args: args{mdb: buildX509Configurable("mongodb", mocks.BuildScramMongoDBUser("my-user-1"), mocks.BuildScramMongoDBUser("my-user-2"))},
+			args: args{
+				mdb: buildX509Configurable("mongodb", mocks.BuildScramMongoDBUser("my-user-1"), mocks.BuildScramMongoDBUser("my-user-2")),
+			},
 			want: nil,
 		},
 		{
 			name: "X.509 and SCRAM users",
-			args: args{mdb: buildX509Configurable("mongodb", mocks.BuildX509MongoDBUser("my-user-1"), mocks.BuildScramMongoDBUser("my-user-2"))},
+			args: args{
+				mdb: buildX509Configurable("mongodb", mocks.BuildX509MongoDBUser("my-user-1"), mocks.BuildScramMongoDBUser("my-user-2")),
+			},
 			want: []automationconfig.MongoDBUser{
 				{
 					Mechanisms: []string{},

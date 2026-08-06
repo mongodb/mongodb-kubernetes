@@ -30,7 +30,13 @@ type PodState struct {
 
 // AllReachedGoalState returns whether the agents associated with a given StatefulSet have reached goal state.
 // it achieves this by reading the Pod annotations and checking to see if they have reached the expected config versions.
-func AllReachedGoalState(ctx context.Context, sts appsv1.StatefulSet, podGetter pod.Getter, desiredMemberCount, targetConfigVersion int, log *zap.SugaredLogger) (bool, error) {
+func AllReachedGoalState(
+	ctx context.Context,
+	sts appsv1.StatefulSet,
+	podGetter pod.Getter,
+	desiredMemberCount, targetConfigVersion int,
+	log *zap.SugaredLogger,
+) (bool, error) {
 	// AllReachedGoalState does not use desiredArbitersCount for backwards compatibility
 	podStates, err := GetAllDesiredMembersAndArbitersPodState(ctx, types.NamespacedName{
 		Namespace: sts.Namespace,
@@ -67,7 +73,13 @@ func AllReachedGoalState(ctx context.Context, sts appsv1.StatefulSet, podGetter 
 // GetAllDesiredMembersAndArbitersPodState returns states of all desired pods in a replica set.
 // Pod names to search for are calculated using desiredMemberCount and desiredArbitersCount. Each pod is then checked if it exists
 // or if it reached goal state vs targetConfigVersion.
-func GetAllDesiredMembersAndArbitersPodState(ctx context.Context, namespacedName types.NamespacedName, podGetter pod.Getter, desiredMembersCount, desiredArbitersCount, targetConfigVersion int, log *zap.SugaredLogger) ([]PodState, error) {
+func GetAllDesiredMembersAndArbitersPodState(
+	ctx context.Context,
+	namespacedName types.NamespacedName,
+	podGetter pod.Getter,
+	desiredMembersCount, desiredArbitersCount, targetConfigVersion int,
+	log *zap.SugaredLogger,
+) ([]PodState, error) {
 	podStates := make([]PodState, desiredMembersCount+desiredArbitersCount)
 
 	membersPodNames := statefulSetPodNames(namespacedName.Name, desiredMembersCount)
@@ -111,7 +123,12 @@ func ReachedGoalState(pod corev1.Pod, targetConfigVersion int, log *zap.SugaredL
 		return false
 	}
 	if cast.ToInt(currentAgentVersion) != targetConfigVersion {
-		log.Debugf("The Agent in the Pod '%s' hasn't reached the goal state yet (goal: %d, agent: %s)", pod.Name, targetConfigVersion, currentAgentVersion)
+		log.Debugf(
+			"The Agent in the Pod '%s' hasn't reached the goal state yet (goal: %d, agent: %s)",
+			pod.Name,
+			targetConfigVersion,
+			currentAgentVersion,
+		)
 		return false
 	}
 	return true

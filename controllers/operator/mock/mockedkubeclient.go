@@ -56,13 +56,19 @@ func NewDefaultFakeClient(objects ...client.Object) (kubernetesClient.Client, *o
 }
 
 // NewDefaultFakeClientWithOMConnectionFactory is the same as NewDefaultFakeClient, but you can pass omConnectionFactory from outside.
-func NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory *om.CachedOMConnectionFactory, objects ...client.Object) kubernetesClient.Client {
+func NewDefaultFakeClientWithOMConnectionFactory(
+	omConnectionFactory *om.CachedOMConnectionFactory,
+	objects ...client.Object,
+) kubernetesClient.Client {
 	return NewEmptyFakeClientWithInterceptor(omConnectionFactory, append(objects, GetDefaultResources()...)...)
 }
 
 // NewEmptyFakeClientWithInterceptor initializes empty fake kube client with interceptor for automatically marking statefulsets as ready.
 // It doesn't add any default resources, but adds passed objects if any.
-func NewEmptyFakeClientWithInterceptor(omConnectionFactory *om.CachedOMConnectionFactory, objects ...client.Object) kubernetesClient.Client {
+func NewEmptyFakeClientWithInterceptor(
+	omConnectionFactory *om.CachedOMConnectionFactory,
+	objects ...client.Object,
+) kubernetesClient.Client {
 	fakeClientBuilder := NewEmptyFakeClientBuilder()
 	if len(objects) > 0 {
 		fakeClientBuilder.WithObjects(objects...)
@@ -106,20 +112,35 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{}, &vaiv1.VoyageAI{})
+	builder.WithStatusSubresource(
+		&mdbv1.MongoDB{},
+		&mdbmulti.MongoDBMultiCluster{},
+		&omv1.MongoDBOpsManager{},
+		&user.MongoDBUser{},
+		&searchv1.MongoDBSearch{},
+		&mdbcv1.MongoDBCommunity{},
+		&rolev1.ClusterMongoDBRole{},
+		&vaiv1.VoyageAI{},
+	)
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
-	return builder.WithScheme(s).WithObjectTracker(ot).WithIndex(&searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, func(obj client.Object) []string {
-		mdbSearch := obj.(*searchv1.MongoDBSearch)
-		resourceRef := mdbSearch.GetMongoDBResourceRef()
-		if resourceRef == nil {
-			return []string{}
-		}
-		return []string{resourceRef.Namespace + "/" + resourceRef.Name}
-	})
+	return builder.WithScheme(s).
+		WithObjectTracker(ot).
+		WithIndex(&searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, func(obj client.Object) []string {
+			mdbSearch := obj.(*searchv1.MongoDBSearch)
+			resourceRef := mdbSearch.GetMongoDBResourceRef()
+			if resourceRef == nil {
+				return []string{}
+			}
+			return []string{resourceRef.Namespace + "/" + resourceRef.Name}
+		})
 }
 
-func GetFakeClientInterceptorGetFunc(omConnectionFactory *om.CachedOMConnectionFactory, markStsAsReady bool, addOMHosts bool) func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+func GetFakeClientInterceptorGetFunc(
+	omConnectionFactory *om.CachedOMConnectionFactory,
+	markStsAsReady bool,
+	addOMHosts bool,
+) func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	return func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 		if err := c.Get(ctx, key, obj, opts...); err != nil {
 			return err
@@ -252,7 +273,14 @@ func markStatefulSetsReady(set *appsv1.StatefulSet, addOMHosts bool, omConn om.C
 			hostnames := mockedOMConnection.Hostnames
 			if hostnames == nil {
 				if val, ok := set.Annotations[handler.MongoDBMultiResourceAnnotation]; ok {
-					hostnames = dns.GetMultiClusterProcessHostnames(val, set.Namespace, multicluster.MustGetClusterNumFromMultiStsName(set.Name), int(*set.Spec.Replicas), "cluster.local", nil)
+					hostnames = dns.GetMultiClusterProcessHostnames(
+						val,
+						set.Namespace,
+						multicluster.MustGetClusterNumFromMultiStsName(set.Name),
+						int(*set.Spec.Replicas),
+						"cluster.local",
+						nil,
+					)
 				} else {
 					// We also "register" automation agents.
 					// So far we don't support custom cluster name

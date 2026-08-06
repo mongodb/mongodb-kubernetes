@@ -85,11 +85,13 @@ version.`,
 
 	// Staging and production must share the --registry host; the host in
 	// --staging-image is only used to derive the repo path.
-	cmd.Flags().StringVar(&stagingImage, "staging-image", "", "staging image repo, e.g. quay.io/mongodb/staging/mongodb-kubernetes (required)")
+	cmd.Flags().
+		StringVar(&stagingImage, "staging-image", "", "staging image repo, e.g. quay.io/mongodb/staging/mongodb-kubernetes (required)")
 	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to publish (default: latest promoted)")
 	cmd.Flags().StringVar(&registryURL, "registry", "https://quay.io", "production OCI registry base URL")
 	cmd.Flags().StringVar(&prodRepo, "prod-repo", "mongodb/mongodb-kubernetes-operator", "production image repository")
-	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
+	cmd.Flags().
+		StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite the :{version} production tag even if it already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 
@@ -162,7 +164,8 @@ published version.`,
 	cmd.Flags().StringVar(&buildInfo, "build-info", "build_info.json", "path to build_info.json")
 	cmd.Flags().StringVar(&releaseJSON, "release-json", "release.json", "path to release.json")
 	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to publish")
-	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
+	cmd.Flags().
+		StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
 	cmd.Flags().BoolVar(&force, "force", false, "publish every image even if any production tag already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
 

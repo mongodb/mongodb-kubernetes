@@ -561,7 +561,10 @@ func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int)
 	if err != nil {
 		return nil, err
 	}
-	response := &ProjectsResponse{Groups: oc.OrganizationsWithGroups[org], OMPaginated: OMPaginated{TotalCount: len(oc.OrganizationsWithGroups[org])}}
+	response := &ProjectsResponse{
+		Groups:      oc.OrganizationsWithGroups[org],
+		OMPaginated: OMPaginated{TotalCount: len(oc.OrganizationsWithGroups[org])},
+	}
 	return response, nil
 }
 

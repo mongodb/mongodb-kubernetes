@@ -40,13 +40,28 @@ const (
 
 // CreateOrUpdatePEMSecretWithPreviousCert creates a PEM secret from the original secretName.
 // Additionally, this method verifies if there already exists a PEM secret, and it will merge them to be able to keep the newest and the previous certificate.
-func CreateOrUpdatePEMSecretWithPreviousCert(ctx context.Context, secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, certificateKey string, certificateValue string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
+func CreateOrUpdatePEMSecretWithPreviousCert(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	secretNamespacedName types.NamespacedName,
+	certificateKey string,
+	certificateValue string,
+	ownerReferences []metav1.OwnerReference,
+	podType certDestination,
+) error {
 	path, err := getVaultBasePath(secretClient, podType)
 	if err != nil {
 		return err
 	}
 
-	secretData, err := updateSecretDataWithPreviousCert(ctx, secretClient, getOperatorGeneratedSecret(secretNamespacedName), certificateKey, certificateValue, path)
+	secretData, err := updateSecretDataWithPreviousCert(
+		ctx,
+		secretClient,
+		getOperatorGeneratedSecret(secretNamespacedName),
+		certificateKey,
+		certificateValue,
+		path,
+	)
 	if err != nil {
 		return err
 	}
@@ -55,7 +70,14 @@ func CreateOrUpdatePEMSecretWithPreviousCert(ctx context.Context, secretClient s
 }
 
 // CreateOrUpdatePEMSecret creates a PEM secret from the original secretName.
-func CreateOrUpdatePEMSecret(ctx context.Context, secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, secretData map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
+func CreateOrUpdatePEMSecret(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	secretNamespacedName types.NamespacedName,
+	secretData map[string]string,
+	ownerReferences []metav1.OwnerReference,
+	podType certDestination,
+) error {
 	operatorGeneratedSecret := getOperatorGeneratedSecret(secretNamespacedName)
 
 	path, err := getVaultBasePath(secretClient, podType)
@@ -74,7 +96,14 @@ func CreateOrUpdatePEMSecret(ctx context.Context, secretClient secrets.SecretCli
 
 // updateSecretDataWithPreviousCert receives the new TLS certificate and returns the data for the new concatenated Pem Secret
 // This method read the existing -pem secret and creates the secret data such that it keeps the previous TLS certificate
-func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.SecretClient, operatorGeneratedSecret types.NamespacedName, certificateKey string, certificateValue string, basePath string) (map[string]string, error) {
+func updateSecretDataWithPreviousCert(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	operatorGeneratedSecret types.NamespacedName,
+	certificateKey string,
+	certificateValue string,
+	basePath string,
+) (map[string]string, error) {
 	newData := map[string]string{certificateKey: certificateValue}
 	newLatestHash := certificateKey
 
@@ -172,7 +201,13 @@ func VerifyTLSSecretForStatefulSet(secretData map[string][]byte, opts Options) (
 
 // VerifyAndEnsureCertificatesForStatefulSet ensures that the provided certificates are correct.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) error {
+func VerifyAndEnsureCertificatesForStatefulSet(
+	ctx context.Context,
+	secretReadClient, secretWriteClient secrets.SecretClient,
+	secretName string,
+	opts Options,
+	log *zap.SugaredLogger,
+) error {
 	var err error
 	var secretData map[string][]byte
 	var s corev1.Secret
@@ -180,7 +215,9 @@ func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadCl
 
 	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
-		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", databaseSecretPath, opts.Namespace, secretName))
+		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(
+			fmt.Sprintf("%s/%s/%s", databaseSecretPath, opts.Namespace, secretName),
+		)
 		if err != nil {
 			return err
 		}
@@ -207,7 +244,15 @@ func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadCl
 	}
 
 	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
-	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), secretHash, data, opts.OwnerReference, Database)
+	return CreateOrUpdatePEMSecretWithPreviousCert(
+		ctx,
+		secretWriteClient,
+		kube.ObjectKey(opts.Namespace, secretName),
+		secretHash,
+		data,
+		opts.OwnerReference,
+		Database,
+	)
 }
 
 // getPodNames returns the pod names based on the Cert Options provided.
@@ -283,7 +328,10 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 				}
 				pemFile := enterprisepem.NewFileFromData(value)
 				if !pemFile.IsValid() {
-					return fmt.Sprintf("The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.", name), false
+					return fmt.Sprintf(
+						"The Secret %s containing certificates is not valid. Entries must contain a certificate and a private key.",
+						name,
+					), false
 				}
 			}
 		}
@@ -299,7 +347,12 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
+	ctx context.Context,
+	secretReadClient, secretWriteClient secrets.SecretClient,
+	secret types.NamespacedName,
+	log *zap.SugaredLogger,
+) error {
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
@@ -307,7 +360,9 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 
 	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
-		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
+		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(
+			fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name),
+		)
 		if err != nil {
 			return err
 		}
@@ -334,7 +389,13 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the
 // required SSL certs for a StatefulSet object exist.
-func EnsureSSLCertsForStatefulSet(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, ms mdbv1.Security, opts Options, log *zap.SugaredLogger) workflow.Status {
+func EnsureSSLCertsForStatefulSet(
+	ctx context.Context,
+	secretReadClient, secretWriteClient secrets.SecretClient,
+	ms mdbv1.Security,
+	opts Options,
+	log *zap.SugaredLogger,
+) workflow.Status {
 	if !ms.IsTLSEnabled() {
 		// if there's no SSL certs to generate, return
 		return workflow.OK()
@@ -350,7 +411,14 @@ func EnsureSSLCertsForStatefulSet(ctx context.Context, secretReadClient, secretW
 //
 // For Prometheus we *only accept* certificates of type `corev1.SecretTypeTLS`
 // so they always need to be concatenated into PEM-format.
-func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.SecretClient, namespace string, prom *v1.Prometheus, podType certDestination, log *zap.SugaredLogger) (string, error) {
+func EnsureTLSCertsForPrometheus(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	namespace string,
+	prom *v1.Prometheus,
+	podType certDestination,
+	log *zap.SugaredLogger,
+) (string, error) {
 	if prom == nil || prom.TLSSecretRef.Name == "" {
 		return "", nil
 	}
@@ -404,7 +472,15 @@ func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.Secre
 	// we can improve this function by providing the Secret Data contents,
 	// instead of `secretClient`.
 	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretClient, namespace, prom.TLSSecretRef.Name, secretPath, log)
-	err = CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), secretHash, data, []metav1.OwnerReference{}, podType)
+	err = CreateOrUpdatePEMSecretWithPreviousCert(
+		ctx,
+		secretClient,
+		kube.ObjectKey(namespace, prom.TLSSecretRef.Name),
+		secretHash,
+		data,
+		[]metav1.OwnerReference{},
+		podType,
+	)
 	if err != nil {
 		return "", xerrors.Errorf("error creating hashed Secret: %w", err)
 	}
@@ -414,7 +490,13 @@ func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.Secre
 
 // ValidateSelfManagedSSLCertsForStatefulSet ensures that a stateful set using
 // user-provided certificates has all of the relevant certificates in place.
-func ValidateSelfManagedSSLCertsForStatefulSet(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secretName string, opts Options, log *zap.SugaredLogger) workflow.Status {
+func ValidateSelfManagedSSLCertsForStatefulSet(
+	ctx context.Context,
+	secretReadClient, secretWriteClient secrets.SecretClient,
+	secretName string,
+	opts Options,
+	log *zap.SugaredLogger,
+) workflow.Status {
 	// A "Certs" attribute has been provided
 	// This means that the customer has provided with a secret name they have
 	// already populated with the certs and keys for this deployment.
@@ -422,7 +504,9 @@ func ValidateSelfManagedSSLCertsForStatefulSet(ctx context.Context, secretReadCl
 	// in which case, we'll keep reconciling until the object is created and is correct.
 	err := VerifyAndEnsureCertificatesForStatefulSet(ctx, secretReadClient, secretWriteClient, secretName, opts, log)
 	if err != nil {
-		return workflow.Failed(xerrors.Errorf("The secret object '%s' does not contain all the valid certificates needed: %w", secretName, err))
+		return workflow.Failed(
+			xerrors.Errorf("The secret object '%s' does not contain all the valid certificates needed: %w", secretName, err),
+		)
 	}
 
 	secretName = fmt.Sprintf("%s-pem", secretName)

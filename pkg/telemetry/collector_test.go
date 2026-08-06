@@ -1129,7 +1129,14 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			ctx := context.Background()
 
 			beforeCallTimestamp := time.Now()
-			events := collectDeploymentsSnapshot(ctx, mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
+			events := collectDeploymentsSnapshot(
+				ctx,
+				mgr,
+				testOperatorUUID,
+				testDatabaseStaticImage,
+				testDatabaseNonStaticImage,
+				architectures.NonStatic,
+			)
 			afterCallTimestamp := time.Now()
 
 			require.Len(t, events, len(test.expectedEventsWithProperties), "expected and collected events count don't match")
@@ -1297,8 +1304,20 @@ func TestAddSearchEvents(t *testing.T) {
 	operatorUUID := "test-operator-uuid"
 	now := time.Now()
 
-	mdbStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-static", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}}}
-	mdbNonStatic := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "mdb-nonstatic", Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)}}}
+	mdbStatic := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "default",
+			Name:        "mdb-static",
+			Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
+		},
+	}
+	mdbNonStatic := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   "default",
+			Name:        "mdb-nonstatic",
+			Annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)},
+		},
+	}
 	community := &mcov1.MongoDBCommunity{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "community-db"}}
 
 	testCases := []struct {
@@ -1310,7 +1329,12 @@ func TestAddSearchEvents(t *testing.T) {
 		{
 			name: "External source",
 			searchItems: []searchv1.MongoDBSearch{
-				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-external"), Name: "search-external", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{}}}},
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-external"), Name: "search-external", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{}},
+					},
+				},
 			},
 			events: []SearchDeploymentUsageSnapshotProperties{{
 				DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
@@ -1326,8 +1350,18 @@ func TestAddSearchEvents(t *testing.T) {
 		{
 			name: "Enterprise static and non-static",
 			searchItems: []searchv1.MongoDBSearch{
-				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-static"), Name: "search-static", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}}}},
-				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-nonstatic"), Name: "search-nonstatic", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}}}},
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-static"), Name: "search-static", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-nonstatic"), Name: "search-nonstatic", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}},
+					},
+				},
 			},
 			events: []SearchDeploymentUsageSnapshotProperties{
 				{
@@ -1358,7 +1392,12 @@ func TestAddSearchEvents(t *testing.T) {
 		{
 			name: "Community source",
 			searchItems: []searchv1.MongoDBSearch{
-				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}}}},
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-community"), Name: "search-community", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "community-db"}},
+					},
+				},
 			},
 			events: []SearchDeploymentUsageSnapshotProperties{{
 				DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
@@ -1378,14 +1417,22 @@ func TestAddSearchEvents(t *testing.T) {
 			name: "Auto embedding",
 			searchItems: []searchv1.MongoDBSearch{
 				{
-					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-auto-embedding-enabled"), Name: "search-auto-embedding-enabled", Namespace: "default"},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       types.UID("search-auto-embedding-enabled"),
+						Name:      "search-auto-embedding-enabled",
+						Namespace: "default",
+					},
 					Spec: searchv1.MongoDBSearchSpec{
 						Source:        &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-static"}},
 						AutoEmbedding: &searchv1.EmbeddingConfig{},
 					},
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-auto-embedding-disabled"), Name: "search-auto-embedding-disabled", Namespace: "default"},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       types.UID("search-auto-embedding-disabled"),
+						Name:      "search-auto-embedding-disabled",
+						Namespace: "default",
+					},
 					Spec: searchv1.MongoDBSearchSpec{
 						Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb-nonstatic"}},
 					},
@@ -1422,7 +1469,12 @@ func TestAddSearchEvents(t *testing.T) {
 		{
 			name: "Missing underlying resource (skipped)",
 			searchItems: []searchv1.MongoDBSearch{
-				{ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"}, Spec: searchv1.MongoDBSearchSpec{Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}}}},
+				{
+					ObjectMeta: metav1.ObjectMeta{UID: types.UID("search-missing"), Name: "search-missing", Namespace: "default"},
+					Spec: searchv1.MongoDBSearchSpec{
+						Source: &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "does-not-exist"}},
+					},
+				},
 			},
 			events: []SearchDeploymentUsageSnapshotProperties{},
 		},

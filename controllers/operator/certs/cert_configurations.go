@@ -199,7 +199,9 @@ func AppDBReplicaSetConfig(om *omv1.MongoDBOpsManager) Options {
 	}
 
 	if mdb.GetSecurity().TLSConfig != nil {
-		opts.additionalCertificateDomains = append(opts.additionalCertificateDomains, mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
+		opts.additionalCertificateDomains = append(
+			opts.additionalCertificateDomains,
+			mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
 	}
 
 	return opts
@@ -219,7 +221,9 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 	}
 
 	if mdb.GetSecurity().TLSConfig != nil {
-		opts.additionalCertificateDomains = append(opts.additionalCertificateDomains, mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
+		opts.additionalCertificateDomains = append(
+			opts.additionalCertificateDomains,
+			mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
 	}
 
 	return opts

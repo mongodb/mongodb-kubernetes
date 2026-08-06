@@ -102,7 +102,14 @@ type TLSSourceConfig struct {
 // sizing is the resolved per-(cluster, shard) ClusterSpec — see
 // MongoDBSearch.ResolveSizingForClusterShard — read for Replicas / Persistence /
 // ResourceRequirements / JVMFlags / StatefulSetConfiguration.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+func CreateSearchStatefulSetFunc(
+	mdbSearch *searchv1.MongoDBSearch,
+	sizing searchv1.ClusterSpec,
+	stsName, namespace, svcName, configMapName string,
+	labels map[string]string,
+	searchImage string,
+	usePerPodConfig bool,
+) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -115,7 +122,11 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 
 	var mongotConfigVolumeMount corev1.VolumeMount
 	if usePerPodConfig {
-		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotPerPodConfigDirPath, statefulset.WithReadOnly(true))
+		mongotConfigVolumeMount = statefulset.CreateVolumeMount(
+			mongotConfigVolumeName,
+			MongotPerPodConfigDirPath,
+			statefulset.WithReadOnly(true),
+		)
 	} else {
 		mongotConfigVolumeMount = statefulset.CreateVolumeMount(mongotConfigVolumeName, MongotConfigPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotConfigFilename))
 	}
@@ -126,7 +137,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 	}
 
 	defaultPersistenceConfig := v1.PersistenceConfig{Storage: util.DefaultMongodStorageSize}
-	dataVolumeClaim := statefulset.WithVolumeClaim(dataVolumeName, construct.PvcFunc(dataVolumeName, persistenceConfig, defaultPersistenceConfig, nil))
+	dataVolumeClaim := statefulset.WithVolumeClaim(
+		dataVolumeName,
+		construct.PvcFunc(dataVolumeName, persistenceConfig, defaultPersistenceConfig, nil),
+	)
 
 	podSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -163,7 +177,10 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
 				nodeAffinityModification(sizing.NodeAffinity),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithContainer(
+					MongotContainerName,
+					mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig),
+				),
 			),
 		),
 	}
@@ -221,7 +238,12 @@ func PasswordAuthModification(mdbSearch *searchv1.MongoDBSearch) statefulset.Mod
 	sourceUserPasswordVolumeName := "password"
 	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
 	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
-	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(
+		sourceUserPasswordVolumeName,
+		MongotSourceUserPasswordPath,
+		statefulset.WithReadOnly(true),
+		statefulset.WithSubPath(sourceUserPasswordSecretKey.Key),
+	)
 
 	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 		podtemplatespec.WithVolume(sourceUserPasswordVolume),
@@ -235,7 +257,12 @@ func PasswordAuthModification(mdbSearch *searchv1.MongoDBSearch) statefulset.Mod
 func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modification {
 	keyfileVolumeName := "keyfile"
 	keyfileVolume := statefulset.CreateVolumeFromSecret(keyfileVolumeName, keyfileSecretName)
-	keyfileVolumeMount := statefulset.CreateVolumeMount(keyfileVolumeName, MongotKeyfilePath, statefulset.WithReadOnly(true), statefulset.WithSubPath(MongotKeyfileFilename))
+	keyfileVolumeMount := statefulset.CreateVolumeMount(
+		keyfileVolumeName,
+		MongotKeyfilePath,
+		statefulset.WithReadOnly(true),
+		statefulset.WithSubPath(MongotKeyfileFilename),
+	)
 
 	return statefulset.Apply(
 		statefulset.WithPodSpecTemplate(
@@ -286,7 +313,13 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
+func mongodbSearchContainer(
+	mdbSearch *searchv1.MongoDBSearch,
+	perCluster searchv1.ClusterSpec,
+	volumeMounts []corev1.VolumeMount,
+	searchImage string,
+	usePerPodConfig bool,
+) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
 
@@ -324,11 +357,19 @@ sed -i "s/%s/$HOSTNAME/" %s
 func mongotPerPodConfigStartCommand(jvmFlags string) string {
 	// Copy the role-specific config from the read-only ConfigMap mount to writable /tmp,
 	// replace the server-name placeholder with the actual pod hostname, then start mongot.
-	return fmt.Sprintf(`ROLE=$(cat "%s/$HOSTNAME")
+	return fmt.Sprintf(
+		`ROLE=$(cat "%s/$HOSTNAME")
 cp "%s/config-${ROLE}.yml" %s
 sed -i "s/%s/$HOSTNAME/" %s
 /mongot-community/mongot --config %s %s`,
-		MongotPerPodConfigDirPath, MongotPerPodConfigDirPath, TempMongotConfigPath, ServerNamePlaceholder, TempMongotConfigPath, TempMongotConfigPath, jvmFlags)
+		MongotPerPodConfigDirPath,
+		MongotPerPodConfigDirPath,
+		TempMongotConfigPath,
+		ServerNamePlaceholder,
+		TempMongotConfigPath,
+		TempMongotConfigPath,
+		jvmFlags,
+	)
 }
 
 func mongotLivenessProbe(search *searchv1.MongoDBSearch) func(*corev1.Probe) {

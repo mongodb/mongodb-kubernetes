@@ -9,7 +9,12 @@ import (
 // TestIsReadyState checks that Primary, Secondary, Arbiter, and Undefined always result
 // in Ready State.
 func TestIsReadyStateNotPrimaryNorSecondary(t *testing.T) {
-	status := []replicationStatus{replicationStatusUndefined, replicationStatusPrimary, replicationStatusSecondary, replicationStatusArbiter}
+	status := []replicationStatus{
+		replicationStatusUndefined,
+		replicationStatusPrimary,
+		replicationStatusSecondary,
+		replicationStatusArbiter,
+	}
 
 	for i := range status {
 		h := processStatus{ReplicaStatus: &status[i]}
