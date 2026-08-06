@@ -5,7 +5,7 @@ metadata:
   name: my-ldap-user
 spec:
   username: my-ldap-user
-  authSource: $external
+  db: $external
   mongodbResourceRef:
     name: my-ldap-enabled-replica-set # The name of the MongoDB resource this user will be added to
   roles:

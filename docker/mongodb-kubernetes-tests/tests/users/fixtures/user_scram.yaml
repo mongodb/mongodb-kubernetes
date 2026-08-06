@@ -9,8 +9,8 @@ spec:
     # Match to metadata.name of the User Secret
     key: password
   username: "username"
-  authSource: "admin"
-  defaultDatabase: "admin"
+  db: "admin"
+  connectionStringDatabase: "admin"
   mongodbResourceRef:
     name: "my-replica-set"
     # Match to MongoDB resource using authenticaiton

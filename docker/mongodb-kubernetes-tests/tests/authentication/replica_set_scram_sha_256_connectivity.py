@@ -108,7 +108,7 @@ def plus_password_standard_secret(replica_set: MongoDB):
 
 @fixture(scope="function")
 def different_database_standard_secret(replica_set: MongoDB):
-    # the connection string secret name is keyed by authSource, not defaultDatabase
+    # the connection string secret name is keyed by spec.db, not connectionStringDatabase
     secret_name = "{}-{}-{}".format(replica_set.name, DIFFERENT_DATABASE_USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
 
@@ -209,7 +209,7 @@ def test_credentials_secret_is_created(replica_set: MongoDB, standard_secret: Di
     assert "password" in standard_secret
     assert "connectionString.standard" in standard_secret
     assert "connectionString.standardSrv" in standard_secret
-    # authSource in the connection string must match the user's spec.authSource
+    # authSource in the connection string must match the user's spec.db
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in standard_secret["connectionString.standardSrv"]
@@ -232,7 +232,7 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
     assert "password" in non_admin_standard_secret
     assert "connectionString.standard" in non_admin_standard_secret
     assert "connectionString.standardSrv" in non_admin_standard_secret
-    # authSource in the connection string must match the user's spec.authSource (non-admin database)
+    # authSource in the connection string must match the user's spec.db (non-admin database)
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
@@ -265,8 +265,8 @@ def test_create_user_with_space_in_password(replica_set: MongoDB, namespace: str
     resource = MongoDBUser(name=SPACE_PASSWORD_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": SPACE_PASSWORD_USER_NAME,
-        "authSource": USER_DATABASE,
-        "defaultDatabase": USER_DATABASE,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": SPACE_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -307,8 +307,8 @@ def test_create_user_with_plus_in_password(replica_set: MongoDB, namespace: str)
     resource = MongoDBUser(name=PLUS_PASSWORD_USER_NAME, namespace=namespace)
     resource["spec"] = {
         "username": PLUS_PASSWORD_USER_NAME,
-        "authSource": USER_DATABASE,
-        "defaultDatabase": USER_DATABASE,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": PLUS_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],

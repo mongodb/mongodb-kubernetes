@@ -32,14 +32,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
-	// TODO(KUBE-121): NewTestMongoDB now sets spec.authSource/spec.defaultDatabase, but this
-	// test creates its MongoDBUser against the currently-released Community Helm chart's CRD
-	// (installed via InstallCommunityOperatorViaHelm), which does not have these fields yet.
-	// The resource is created and submitted before DeployMCKOperator installs the new CRD,
-	// so this now fails with a strict decoding error for the new fields. Needs a dedicated
-	// legacy-field MongoDBUser fixture for the pre-upgrade step, mirroring how
-	// operator_upgrade_replica_set.go was fixed on the Enterprise side.
-	t.Skip("KUBE-121: MongoDBUser fixture needs a legacy-field variant for the pre-upgrade CRD")
 	ctx := context.Background()
 	resourceName := "mdb0"
 	testConfig := setup.LoadTestConfigFromEnv()

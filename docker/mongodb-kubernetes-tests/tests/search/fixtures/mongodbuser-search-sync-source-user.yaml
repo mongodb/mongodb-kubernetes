@@ -4,8 +4,8 @@ metadata:
   name: search-sync-source-user
 spec:
   username: search-sync-source
-  authSource: admin
-  defaultDatabase: admin
+  db: admin
+  connectionStringDatabase: admin
   mongodbResourceRef:
     name: mdb-rs
   passwordSecretKeyRef:

@@ -5,7 +5,7 @@ metadata:
   name: my-sharded-cluster-x509-user
 spec:
   username: CN=my-sharded-cluster-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US
-  authSource: $external
+  db: $external
   mongodbResourceRef:
     name: my-replica-set
   roles:

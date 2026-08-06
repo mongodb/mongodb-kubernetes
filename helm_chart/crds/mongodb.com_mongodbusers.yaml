@@ -48,18 +48,18 @@ spec:
             type: object
           spec:
             properties:
-              authSource:
-                default: admin
-                description: AuthSource is the authentication database for the user.
-                  Defaults to "admin".
+              connectionStringDatabase:
+                description: |-
+                  ConnectionStringDatabase is the database placed in the connection string URI path.
+                  Leaves the URI path empty when unset. Ignored when Database is "$external",
+                  since it is an auth only pseudo database and must not appear in the URI path.
                 type: string
               connectionStringSecretName:
                 type: string
-              defaultDatabase:
-                description: |-
-                  DefaultDatabase is the database placed in the connection string URI path.
-                  Ignored when AuthSource is "$external", since it is an auth-only pseudo-database
-                  and must not appear in the URI path.
+              db:
+                default: admin
+                description: Database is the authentication database for the user.
+                  Defaults to "admin".
                 type: string
               mongodbResourceRef:
                 properties:

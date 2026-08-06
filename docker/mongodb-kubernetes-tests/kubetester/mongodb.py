@@ -331,13 +331,13 @@ class MongoDB(CustomObject, MongoDBCommon):
         user_name: Optional[str] = None,
         password: Optional[str] = None,
         auth_source: str = "",
-        default_database: str = "",
+        connection_string_database: str = "",
     ) -> str:
         """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'.
 
         auth_source defaults to "admin" to mirror the operator's own default for
-        spec.authSource. default_database is not defaulted: the operator leaves the URI
-        path empty when spec.defaultDatabase is unset.
+        spec.db. connection_string_database is not defaulted: the operator leaves the URI
+        path empty when spec.connectionStringDatabase is unset.
         """
         proto = "mongodb://"
         auth = ""
@@ -364,7 +364,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)
-        return proto + auth + hosts + "/" + default_database + "?" + joined_params
+        return proto + auth + hosts + "/" + connection_string_database + "?" + joined_params
 
     def get_members(self) -> int:
         return self["spec"]["members"]

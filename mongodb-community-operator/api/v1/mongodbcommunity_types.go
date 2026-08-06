@@ -253,17 +253,17 @@ type MongoDBUser struct {
 	// Name is the username of the user
 	Name string `json:"name"`
 
-	// AuthSource is the authentication database for the user. Defaults to "admin".
+	// DB is the authentication database for the user. Defaults to "admin".
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=admin
-	AuthSource string `json:"authSource,omitempty"`
+	DB string `json:"db,omitempty"`
 
-	// DefaultDatabase is the database placed in the connection string URI path.
-	// Leaves the URI path empty when unset. Ignored when AuthSource is "$external",
-	// since it is an auth-only pseudo-database and must not appear in the URI path.
+	// ConnectionStringDatabase is the database placed in the connection string URI path.
+	// Leaves the URI path empty when unset. Ignored when DB is "$external",
+	// since it is an auth only pseudo database and must not appear in the URI path.
 	// +optional
-	DefaultDatabase string `json:"defaultDatabase,omitempty"`
+	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
 	// +optional
@@ -320,7 +320,7 @@ func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 		return m.ConnectionStringSecretName
 	}
 
-	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.AuthSource, m.Name))
+	return normalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
@@ -571,8 +571,8 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 
 		users[i] = authtypes.User{
 			Username:                          u.Name,
-			AuthSource:                        u.AuthSource,
-			DefaultDatabase:                   u.DefaultDatabase,
+			AuthSource:                        u.DB,
+			ConnectionStringDatabase:          u.ConnectionStringDatabase,
 			Roles:                             roles,
 			ConnectionStringSecretName:        u.GetConnectionStringSecretName(m.Name),
 			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
@@ -580,7 +580,7 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
 		}
 
-		if u.AuthSource != constants.ExternalDB {
+		if u.DB != constants.ExternalDB {
 			users[i].ScramCredentialsSecretName = u.GetScramCredentialsSecretName()
 			users[i].PasswordSecretKey = u.GetPasswordSecretKey()
 			users[i].PasswordSecretName = u.PasswordSecretRef.Name

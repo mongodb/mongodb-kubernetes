@@ -240,9 +240,9 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 	}{
 		{
 			MongoDBUser{
-				Name:            "mdb-0",
-				AuthSource:      "admin",
-				DefaultDatabase: "admin",
+				Name:                     "mdb-0",
+				DB:                       "admin",
+				ConnectionStringDatabase: "admin",
 				Roles: []Role{
 					// roles on testing db for general connectivity
 					{
@@ -269,9 +269,9 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 		},
 		{
 			MongoDBUser{
-				Name:            "mdb-1",
-				AuthSource:      "admin",
-				DefaultDatabase: "admin",
+				Name:                     "mdb-1",
+				DB:                       "admin",
+				ConnectionStringDatabase: "admin",
 				Roles: []Role{
 					// roles on testing db for general connectivity
 					{
@@ -311,8 +311,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "mdb-0",
-				AuthSource:                 "admin",
-				DefaultDatabase:            "admin",
+				DB:                         "admin",
+				ConnectionStringDatabase:   "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-admin-mdb-0",
@@ -320,8 +320,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "?_normalize/_-username/?@with/[]?no]?/:allowed:chars[only?",
-				AuthSource:                 "admin",
-				DefaultDatabase:            "admin",
+				DB:                         "admin",
+				ConnectionStringDatabase:   "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-admin-normalize-username-with-no-allowed-chars-only",
@@ -329,8 +329,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "AppUser",
-				AuthSource:                 "Administrators",
-				DefaultDatabase:            "Administrators",
+				DB:                         "Administrators",
+				ConnectionStringDatabase:   "Administrators",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-administrators-appuser",
@@ -338,8 +338,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                       "mdb-0",
-				AuthSource:                 "admin",
-				DefaultDatabase:            "admin",
+				DB:                         "admin",
+				ConnectionStringDatabase:   "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 				ConnectionStringSecretName: "connection-string-secret",
 			},
@@ -348,8 +348,8 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 		{
 			MongoDBUser{
 				Name:                            "mdb-2",
-				AuthSource:                      "admin",
-				DefaultDatabase:                 "admin",
+				DB:                              "admin",
+				ConnectionStringDatabase:        "admin",
 				ScramCredentialsSecretName:      "scram-credential-secret-name-2",
 				ConnectionStringSecretName:      "connection-string-secret-2",
 				ConnectionStringSecretNamespace: "other-namespace",
@@ -365,9 +365,9 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 
 func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	testuser := authtypes.User{
-		Username:        "testuser",
-		AuthSource:      "admin",
-		DefaultDatabase: "admin",
+		Username:                 "testuser",
+		AuthSource:               "admin",
+		ConnectionStringDatabase: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 
@@ -418,7 +418,7 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", DefaultDatabase: "admin"}
+	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", ConnectionStringDatabase: "admin"}
 	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 
@@ -433,9 +433,9 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 
 func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	testuser := authtypes.User{
-		Username:        "testuser",
-		AuthSource:      "admin",
-		DefaultDatabase: "admin",
+		Username:                 "testuser",
+		AuthSource:               "admin",
+		ConnectionStringDatabase: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 
@@ -486,7 +486,7 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", DefaultDatabase: "admin"}
+	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", ConnectionStringDatabase: "admin"}
 	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 
@@ -529,10 +529,10 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	mdb := newReplicaSet(3, "mdb", "mongodb")
 	mdb.Spec.Users = []MongoDBUser{
 		{
-			Name:              "my-user",
-			AuthSource:        "admin",
-			DefaultDatabase:   "admin",
-			PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
+			Name:                     "my-user",
+			DB:                       "admin",
+			ConnectionStringDatabase: "admin",
+			PasswordSecretRef:        rootv1.SecretKeyReference{Name: "my-user-password"},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -544,10 +544,10 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 			AdditionalConnectionStringConfig: rootv1.MapWrapper{},
 		},
 		{
-			Name:              "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
-			AuthSource:        "$external",
-			DefaultDatabase:   "$external",
-			PasswordSecretRef: rootv1.SecretKeyReference{},
+			Name:                     "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
+			DB:                       "$external",
+			ConnectionStringDatabase: "$external",
+			PasswordSecretRef:        rootv1.SecretKeyReference{},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -563,9 +563,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	authUsers := mdb.GetAuthUsers()
 
 	assert.Equal(t, authtypes.User{
-		Username:        "my-user",
-		AuthSource:      "admin",
-		DefaultDatabase: "admin",
+		Username:                 "my-user",
+		AuthSource:               "admin",
+		ConnectionStringDatabase: "admin",
 		Roles: []authtypes.Role{{
 			Database: "admin",
 			Name:     "readWriteAnyDatabase",
@@ -578,9 +578,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		ConnectionStringOptions:         nil,
 	}, authUsers[0])
 	assert.Equal(t, authtypes.User{
-		Username:        "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
-		AuthSource:      "$external",
-		DefaultDatabase: "$external",
+		Username:                 "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
+		AuthSource:               "$external",
+		ConnectionStringDatabase: "$external",
 		Roles: []authtypes.Role{{
 			Database: "admin",
 			Name:     "readWriteAnyDatabase",
@@ -597,9 +597,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 func TestMongoDBCommunity_MongoAuthUserURI_WithAuthSource(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 	testuser := authtypes.User{
-		Username:        "testuser",
-		DefaultDatabase: "myapp",
-		AuthSource:      "admin",
+		Username:                 "testuser",
+		ConnectionStringDatabase: "myapp",
+		AuthSource:               "admin",
 	}
 	uri := mdb.MongoAuthUserURI(testuser, "password")
 	assert.Contains(t, uri, "/myapp?")

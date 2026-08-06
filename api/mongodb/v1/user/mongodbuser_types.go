@@ -88,16 +88,16 @@ type MongoDBResourceRef struct {
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
-	// AuthSource is the authentication database for the user. Defaults to "admin".
+	// Database is the authentication database for the user. Defaults to "admin".
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=admin
-	AuthSource string `json:"authSource,omitempty"`
-	// DefaultDatabase is the database placed in the connection string URI path.
-	// Ignored when AuthSource is "$external", since it is an auth-only pseudo-database
-	// and must not appear in the URI path.
+	Database string `json:"db,omitempty"`
+	// ConnectionStringDatabase is the database placed in the connection string URI path.
+	// Leaves the URI path empty when unset. Ignored when Database is "$external",
+	// since it is an auth only pseudo database and must not appear in the URI path.
 	// +optional
-	DefaultDatabase string `json:"defaultDatabase,omitempty"`
+	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
 	// +optional
 	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
 	// +optional
@@ -136,7 +136,7 @@ func (u *MongoDBUser) ChangedIdentifier() bool {
 	if u.Status.Username == "" || u.Status.Database == "" {
 		return false
 	}
-	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.AuthSource
+	return u.Status.Username != u.Spec.Username || u.Status.Database != u.Spec.Database
 }
 
 func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
@@ -151,7 +151,7 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 	if phase == status.PhaseRunning {
 		u.Status.Phase = status.PhaseUpdated
 		u.Status.Roles = u.Spec.Roles
-		u.Status.Database = u.Spec.AuthSource
+		u.Status.Database = u.Spec.Database
 		u.Status.Username = u.Spec.Username
 	}
 }
@@ -165,7 +165,7 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 		resourceRef = u.Spec.MongoDBResourceRef.Name + "-"
 	}
 
-	database := u.Spec.AuthSource
+	database := u.Spec.Database
 	if database == "$external" {
 		database = strings.TrimPrefix(database, "$")
 	}

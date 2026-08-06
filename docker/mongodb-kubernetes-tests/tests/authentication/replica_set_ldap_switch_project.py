@@ -76,7 +76,7 @@ def user_ldap(replica_set: MongoDB, namespace: str, ldap_mongodb_users: List[LDA
     user = generic_user(
         namespace,
         username=mongodb_user.username,
-        auth_source="$external",
+        db="$external",
         password=mongodb_user.password,
         mongodb_resource=replica_set,
     )

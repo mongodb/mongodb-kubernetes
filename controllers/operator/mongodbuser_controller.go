@@ -220,7 +220,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to add finalizer: %w", err)), log)
 	}
 
-	if user.Spec.AuthSource == authentication.ExternalDB {
+	if user.Spec.Database == authentication.ExternalDB {
 		return r.handleExternalAuthUser(ctx, user, conn, log)
 	} else {
 		return r.handleScramShaUser(ctx, user, conn, log)
@@ -255,7 +255,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	var err error
 	var password string
 
-	if user.Spec.AuthSource != authentication.ExternalDB {
+	if user.Spec.Database != authentication.ExternalDB {
 		password, err = user.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			log.Debug("User does not have a configured password.")
@@ -279,8 +279,8 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	authSource := user.Spec.AuthSource
-	pathDB := user.Spec.DefaultDatabase
+	authSource := user.Spec.Database
+	pathDB := user.Spec.ConnectionStringDatabase
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, authSource, pathDB, connectionstring.SchemeMongoDB, nil)
 	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, authSource, pathDB, connectionstring.SchemeMongoDBSRV, nil)
 
@@ -342,7 +342,7 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 // password should be provided.
 func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationConfig) (om.MongoDBUser, error) {
 	user := om.MongoDBUser{
-		Database:                   spec.AuthSource,
+		Database:                   spec.Database,
 		Username:                   spec.Username,
 		Roles:                      []*om.Role{},
 		AuthenticationRestrictions: []string{},
@@ -350,7 +350,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 	}
 
 	// only specify password if we're dealing with non-x509 users
-	if spec.AuthSource != authentication.ExternalDB {
+	if spec.Database != authentication.ExternalDB {
 		if err := authentication.ConfigureScramCredentials(&user, password, ac); err != nil {
 			return om.MongoDBUser{}, xerrors.Errorf("error generating SCRAM credentials: %w", err)
 		}
@@ -509,7 +509,7 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	log.Info("Performing pre deletion cleanup before deleting MongoDBUser")
 
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
-		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.AuthSource)
+		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
 		return nil
 	}, log)
 	if err != nil {

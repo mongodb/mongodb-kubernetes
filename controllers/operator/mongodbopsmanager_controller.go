@@ -79,7 +79,7 @@ const (
 type S3ConfigGetter interface {
 	GetAuthenticationModes() []string
 	GetResourceName() string
-	BuildConnectionString(username, password, authSource, defaultDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string
+	BuildConnectionString(username, password, authSource, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string
 }
 
 // OpsManagerReconciler is a controller implementation.
@@ -1936,8 +1936,8 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Conte
 		return "", "", "", "", workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", mongodbUserObjectKey, err))
 	}
 	userName := mongodbUser.Spec.Username
-	pathDB := mongodbUser.Spec.DefaultDatabase
-	authSource := mongodbUser.Spec.AuthSource
+	pathDB := mongodbUser.Spec.ConnectionStringDatabase
+	authSource := mongodbUser.Spec.Database
 	password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
 	if err != nil {
 		return "", "", "", "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
@@ -1980,8 +1980,8 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err))
 		}
 		userName = mongodbUser.Spec.Username
-		authSource = mongodbUser.Spec.AuthSource
-		pathDB = mongodbUser.Spec.DefaultDatabase
+		authSource = mongodbUser.Spec.Database
+		pathDB = mongodbUser.Spec.ConnectionStringDatabase
 		password, err = mongodbUser.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))

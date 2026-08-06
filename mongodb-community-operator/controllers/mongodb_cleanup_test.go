@@ -16,8 +16,8 @@ import (
 
 func TestReplicaSetReconcilerCleanupScramSecrets(t *testing.T) {
 	lastApplied := newScramReplicaSet(mdbv1.MongoDBUser{
-		Name:       "testUser",
-		AuthSource: "admin",
+		Name: "testUser",
+		DB:   "admin",
 		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
@@ -33,16 +33,16 @@ func TestReplicaSetReconcilerCleanupScramSecrets(t *testing.T) {
 	t.Run("new user new secret", func(t *testing.T) {
 		current := newScramReplicaSet(
 			mdbv1.MongoDBUser{
-				Name:       "testUser",
-				AuthSource: "admin",
+				Name: "testUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
 				ScramCredentialsSecretName: "scram-credentials",
 			},
 			mdbv1.MongoDBUser{
-				Name:       "newUser",
-				AuthSource: "admin",
+				Name: "newUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
@@ -57,8 +57,8 @@ func TestReplicaSetReconcilerCleanupScramSecrets(t *testing.T) {
 
 	t.Run("old user new secret", func(t *testing.T) {
 		current := newScramReplicaSet(mdbv1.MongoDBUser{
-			Name:       "testUser",
-			AuthSource: "admin",
+			Name: "testUser",
+			DB:   "admin",
 			PasswordSecretRef: v1.SecretKeyReference{
 				Name: "password-secret-name",
 			},
@@ -74,16 +74,16 @@ func TestReplicaSetReconcilerCleanupScramSecrets(t *testing.T) {
 	t.Run("removed one user and changed secret of the other", func(t *testing.T) {
 		lastApplied = newScramReplicaSet(
 			mdbv1.MongoDBUser{
-				Name:       "testUser",
-				AuthSource: "admin",
+				Name: "testUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
 				ScramCredentialsSecretName: "scram-credentials",
 			},
 			mdbv1.MongoDBUser{
-				Name:       "anotherUser",
-				AuthSource: "admin",
+				Name: "anotherUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
@@ -92,8 +92,8 @@ func TestReplicaSetReconcilerCleanupScramSecrets(t *testing.T) {
 		)
 
 		current := newScramReplicaSet(mdbv1.MongoDBUser{
-			Name:       "testUser",
-			AuthSource: "admin",
+			Name: "testUser",
+			DB:   "admin",
 			PasswordSecretRef: v1.SecretKeyReference{
 				Name: "password-secret-name",
 			},
@@ -166,8 +166,8 @@ func TestReplicaSetReconcilerCleanupPemSecret(t *testing.T) {
 
 func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 	lastApplied := newScramReplicaSet(mdbv1.MongoDBUser{
-		Name:       "testUser",
-		AuthSource: "admin",
+		Name: "testUser",
+		DB:   "admin",
 		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
@@ -183,16 +183,16 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 	t.Run("new user does not require existing user cleanup", func(t *testing.T) {
 		current := newScramReplicaSet(
 			mdbv1.MongoDBUser{
-				Name:       "testUser",
-				AuthSource: "admin",
+				Name: "testUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
 				ConnectionStringSecretName: "connection-string-secret",
 			},
 			mdbv1.MongoDBUser{
-				Name:       "newUser",
-				AuthSource: "admin",
+				Name: "newUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
@@ -207,8 +207,8 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 
 	t.Run("old user new secret", func(t *testing.T) {
 		current := newScramReplicaSet(mdbv1.MongoDBUser{
-			Name:       "testUser",
-			AuthSource: "admin",
+			Name: "testUser",
+			DB:   "admin",
 			PasswordSecretRef: v1.SecretKeyReference{
 				Name: "password-secret-name",
 			},
@@ -224,16 +224,16 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 	t.Run("removed one user and changed secret of the other", func(t *testing.T) {
 		lastApplied = newScramReplicaSet(
 			mdbv1.MongoDBUser{
-				Name:       "testUser",
-				AuthSource: "admin",
+				Name: "testUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
 				ConnectionStringSecretName: "connection-string-secret",
 			},
 			mdbv1.MongoDBUser{
-				Name:       "anotherUser",
-				AuthSource: "admin",
+				Name: "anotherUser",
+				DB:   "admin",
 				PasswordSecretRef: v1.SecretKeyReference{
 					Name: "password-secret-name",
 				},
@@ -242,8 +242,8 @@ func TestReplicaSetReconcilerCleanupConnectionStringSecrets(t *testing.T) {
 		)
 
 		current := newScramReplicaSet(mdbv1.MongoDBUser{
-			Name:       "testUser",
-			AuthSource: "admin",
+			Name: "testUser",
+			DB:   "admin",
 			PasswordSecretRef: v1.SecretKeyReference{
 				Name: "password-secret-name",
 			},

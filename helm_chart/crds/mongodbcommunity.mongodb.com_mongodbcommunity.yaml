@@ -574,10 +574,11 @@ spec:
                       nullable: true
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
-                    authSource:
-                      default: admin
-                      description: AuthSource is the authentication database for the
-                        user. Defaults to "admin".
+                    connectionStringDatabase:
+                      description: |-
+                        ConnectionStringDatabase is the database placed in the connection string URI path.
+                        Leaves the URI path empty when unset. Ignored when DB is "$external",
+                        since it is an auth only pseudo database and must not appear in the URI path.
                       type: string
                     connectionStringSecretAnnotations:
                       additionalProperties:
@@ -596,11 +597,10 @@ spec:
                         of the secret object created by the operator which exposes
                         the connection strings for the user.
                       type: string
-                    defaultDatabase:
-                      description: |-
-                        DefaultDatabase is the database placed in the connection string URI path.
-                        Leaves the URI path empty when unset. Ignored when AuthSource is "$external",
-                        since it is an auth-only pseudo-database and must not appear in the URI path.
+                    db:
+                      default: admin
+                      description: DB is the authentication database for the user.
+                        Defaults to "admin".
                       type: string
                     name:
                       description: Name is the username of the user
