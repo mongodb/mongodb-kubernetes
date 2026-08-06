@@ -82,7 +82,7 @@ func RunShared(m *testing.M, opts ...Option) int {
 
 	if err := testEnv.Environment.Stop(); err != nil && code == 0 {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to stop the envtest control plane: %v\n", err)
-		code = 1
+		return 1
 	}
 	return code
 }

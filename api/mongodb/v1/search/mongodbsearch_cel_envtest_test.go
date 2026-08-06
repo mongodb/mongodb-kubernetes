@@ -2,7 +2,6 @@ package search_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 
@@ -32,9 +31,9 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
 
-	newSearch := func(name string, clusters ...searchv1.ClusterSpec) *searchv1.MongoDBSearch {
+	newSearch := func(clusters ...searchv1.ClusterSpec) *searchv1.MongoDBSearch {
 		return &searchv1.MongoDBSearch{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "test-cel-", Namespace: "default"},
 			Spec:       searchv1.MongoDBSearchSpec{Clusters: clusters},
 		}
 	}
@@ -88,9 +87,9 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 			errorContains: "clusters[].name is immutable for an existing cluster index",
 		},
 	}
-	for i, tc := range tests {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			search := newSearch(fmt.Sprintf("case-%d", i), tc.create...)
+			search := newSearch(tc.create...)
 			err := k8sClient.Create(ctx, search)
 
 			if tc.update != nil {
