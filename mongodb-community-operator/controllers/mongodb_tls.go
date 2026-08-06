@@ -86,7 +86,12 @@ func (r *ReplicaSetReconciler) validateTLSConfig(ctx context.Context, mdb mdbv1.
 
 // getTLSConfigModification creates a modification function which enables TLS in the automation config.
 // It will also ensure that the combined cert-key secret is created.
-func getTLSConfigModification(ctx context.Context, cmGetter configmap.Getter, secretGetter secret.Getter, mdb mdbv1.MongoDBCommunity) (automationconfig.Modification, error) {
+func getTLSConfigModification(
+	ctx context.Context,
+	cmGetter configmap.Getter,
+	secretGetter secret.Getter,
+	mdb mdbv1.MongoDBCommunity,
+) (automationconfig.Modification, error) {
 	if !mdb.Spec.Security.TLS.Enabled {
 		return automationconfig.NOOP(), nil
 	}
@@ -142,7 +147,12 @@ func getPemOrConcatenatedCrtAndKey(ctx context.Context, getter secret.Getter, se
 	certKey := getCertAndKey(ctx, getter, secretName)
 	pem := getPem(ctx, getter, secretName)
 	if certKey == "" && pem == "" {
-		return "", fmt.Errorf(`neither "%s" nor the pair "%s"/"%s" were present in the TLS secret`, tlsSecretPemName, tlsSecretCertName, tlsSecretKeyName)
+		return "", fmt.Errorf(
+			`neither "%s" nor the pair "%s"/"%s" were present in the TLS secret`,
+			tlsSecretPemName,
+			tlsSecretCertName,
+			tlsSecretKeyName,
+		)
 	}
 	if certKey == "" {
 		return pem, nil
@@ -151,7 +161,15 @@ func getPemOrConcatenatedCrtAndKey(ctx context.Context, getter secret.Getter, se
 		return certKey, nil
 	}
 	if certKey != pem {
-		return "", fmt.Errorf(`if all of "%s", "%s" and "%s" are present in the secret, the entry for "%s" must be equal to the concatenation of "%s" with "%s"`, tlsSecretCertName, tlsSecretKeyName, tlsSecretPemName, tlsSecretPemName, tlsSecretCertName, tlsSecretKeyName)
+		return "", fmt.Errorf(
+			`if all of "%s", "%s" and "%s" are present in the secret, the entry for "%s" must be equal to the concatenation of "%s" with "%s"`,
+			tlsSecretCertName,
+			tlsSecretKeyName,
+			tlsSecretPemName,
+			tlsSecretPemName,
+			tlsSecretCertName,
+			tlsSecretKeyName,
+		)
 	}
 	return certKey, nil
 }
@@ -173,7 +191,9 @@ func getCaCrt(ctx context.Context, cmGetter configmap.Getter, secretGetter secre
 	}
 
 	if caData == nil {
-		return "", fmt.Errorf("TLS field requires a reference to the CA certificate which signed the server certificates. Neither secret (field caCertificateSecretRef) not configMap (field CaConfigMap) reference present")
+		return "", fmt.Errorf(
+			"TLS field requires a reference to the CA certificate which signed the server certificates. Neither secret (field caCertificateSecretRef) not configMap (field CaConfigMap) reference present",
+		)
 	}
 
 	if cert, ok := caData[tlsCACertName]; !ok || cert == "" {
@@ -185,7 +205,13 @@ func getCaCrt(ctx context.Context, cmGetter configmap.Getter, secretGetter secre
 
 // ensureCASecret will create or update the operator managed Secret containing
 // the CA certficate from the user provided Secret or ConfigMap.
-func ensureCASecret(ctx context.Context, cmGetter configmap.Getter, secretGetter secret.Getter, getUpdateCreator secret.GetUpdateCreator, mdb mdbv1.MongoDBCommunity) error {
+func ensureCASecret(
+	ctx context.Context,
+	cmGetter configmap.Getter,
+	secretGetter secret.Getter,
+	getUpdateCreator secret.GetUpdateCreator,
+	mdb mdbv1.MongoDBCommunity,
+) error {
 	cert, err := getCaCrt(ctx, cmGetter, secretGetter, mdb)
 	if err != nil {
 		return err
@@ -343,7 +369,11 @@ func buildTLSPrometheus(mdb mdbv1.MongoDBCommunity) podtemplatespec.Modification
 	// The same key-certificate pair is used for all servers
 	tlsSecretVolume := statefulset.CreateVolumeFromSecret("prom-tls-secret", mdb.PrometheusTLSOperatorSecretNamespacedName().Name)
 
-	tlsSecretVolumeMount := statefulset.CreateVolumeMount(tlsSecretVolume.Name, tlsPrometheusSecretMountPath, statefulset.WithReadOnly(true))
+	tlsSecretVolumeMount := statefulset.CreateVolumeMount(
+		tlsSecretVolume.Name,
+		tlsPrometheusSecretMountPath,
+		statefulset.WithReadOnly(true),
+	)
 
 	// MongoDB expects both key and certificate to be provided in a single PEM file
 	// We are using a secret format where they are stored in separate fields, tls.crt and tls.key

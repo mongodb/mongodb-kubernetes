@@ -355,7 +355,12 @@ func createKubeConfigSecret(ctx context.Context, centralClusterClient kubernetes
 		},
 	}
 
-	fmt.Printf("Creating KubeConfig secret %s/%s in cluster %s\n", flags.CentralClusterNamespace, kubeConfigSecret.Name, flags.CentralCluster)
+	fmt.Printf(
+		"Creating KubeConfig secret %s/%s in cluster %s\n",
+		flags.CentralClusterNamespace,
+		kubeConfigSecret.Name,
+		flags.CentralCluster,
+	)
 	_, err := centralClusterClient.CoreV1().Secrets(flags.CentralClusterNamespace).Create(ctx, &kubeConfigSecret, metav1.CreateOptions{})
 
 	if !errors.IsAlreadyExists(err) && err != nil {
@@ -568,7 +573,10 @@ func buildRoleBinding(role rbacv1.Role, serviceAccount string, serviceAccountNam
 }
 
 // buildClusterRoleBinding creates the ClusterRoleBinding which binds the ClusterRole to the given ServiceAccount.
-func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, serviceAccountName, serviceAccountNamespace, clusterRoleBindingName string) rbacv1.ClusterRoleBinding {
+func buildClusterRoleBinding(
+	clusterRole rbacv1.ClusterRole,
+	serviceAccountName, serviceAccountNamespace, clusterRoleBindingName string,
+) rbacv1.ClusterRoleBinding {
 	return rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   clusterRoleBindingName,
@@ -590,7 +598,14 @@ func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, serviceAccountName,
 }
 
 // createRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required.
-func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceAccountNamespace, namespace string, clusterScoped, telemetryClusterRoles bool, mongodbRolesClusterRole bool, clusterType clusterType) error {
+func createRoles(
+	ctx context.Context,
+	c KubeClient,
+	serviceAccountName, serviceAccountNamespace, namespace string,
+	clusterScoped, telemetryClusterRoles bool,
+	mongodbRolesClusterRole bool,
+	clusterType clusterType,
+) error {
 	var err error
 
 	if telemetryClusterRoles {
@@ -686,7 +701,14 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 	return nil
 }
 
-func createClusterRoleBinding(ctx context.Context, c KubeClient, serviceAccountName string, serviceAccountNamespace string, clusterRoleBindingName string, clusterRole rbacv1.ClusterRole) error {
+func createClusterRoleBinding(
+	ctx context.Context,
+	c KubeClient,
+	serviceAccountName string,
+	serviceAccountNamespace string,
+	clusterRoleBindingName string,
+	clusterRole rbacv1.ClusterRole,
+) error {
 	clusterRoleBinding := buildClusterRoleBinding(clusterRole, serviceAccountName, serviceAccountNamespace, clusterRoleBindingName)
 	_, err := c.RbacV1().ClusterRoleBindings().Create(ctx, &clusterRoleBinding, metav1.CreateOptions{})
 	if err != nil {
@@ -830,7 +852,11 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 
 // getAllMemberClusterServiceAccountSecretTokens returns a slice of secrets that should all be
 // copied in the central cluster for the operator to use.
-func getAllMemberClusterServiceAccountSecretTokens(ctx context.Context, clientSetMap map[string]KubeClient, flags Flags) (map[string]corev1.Secret, error) {
+func getAllMemberClusterServiceAccountSecretTokens(
+	ctx context.Context,
+	clientSetMap map[string]KubeClient,
+	flags Flags,
+) (map[string]corev1.Secret, error) {
 	allSecrets := map[string]corev1.Secret{}
 
 	for _, cluster := range flags.MemberClusters {
@@ -870,7 +896,13 @@ func getAllMemberClusterServiceAccountSecretTokens(ctx context.Context, clientSe
 	return allSecrets, nil
 }
 
-func getServiceAccount(ctx context.Context, lister kubernetes.Interface, namespace string, name string, memberClusterName string) (*corev1.ServiceAccount, error) {
+func getServiceAccount(
+	ctx context.Context,
+	lister kubernetes.Interface,
+	namespace string,
+	name string,
+	memberClusterName string,
+) (*corev1.ServiceAccount, error) {
 	sa, err := lister.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get service account %s/%s in member cluster %s: %w", namespace, name, memberClusterName, err)
@@ -913,7 +945,12 @@ func copySecret(ctx context.Context, src, dst KubeClient, namespace, name string
 	return nil
 }
 
-func createServiceAccount(ctx context.Context, c KubeClient, serviceAccountName, namespace string, imagePullSecrets string) (corev1.ServiceAccount, error) {
+func createServiceAccount(
+	ctx context.Context,
+	c KubeClient,
+	serviceAccountName, namespace string,
+	imagePullSecrets string,
+) (corev1.ServiceAccount, error) {
 	sa := corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceAccountName,
@@ -1011,15 +1048,30 @@ func createDatabaseRoles(ctx context.Context, client KubeClient, f Flags) error 
 func copyDatabaseRoles(ctx context.Context, src, dst KubeClient, namespace string) error {
 	appdbSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, AppdbServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", AppdbServiceAccount, namespace, err)
+		return xerrors.Errorf(
+			"failed retrieving service account %s, from ns: %s from source cluster: %w",
+			AppdbServiceAccount,
+			namespace,
+			err,
+		)
 	}
 	dbpodsSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, DatabasePodsServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", DatabasePodsServiceAccount, namespace, err)
+		return xerrors.Errorf(
+			"failed retrieving service account %s, from ns: %s from source cluster: %w",
+			DatabasePodsServiceAccount,
+			namespace,
+			err,
+		)
 	}
 	opsManagerSA, err := src.CoreV1().ServiceAccounts(namespace).Get(ctx, OpsManagerServiceAccount, metav1.GetOptions{})
 	if err != nil {
-		return xerrors.Errorf("failed retrieving service account %s, from ns: %s from source cluster: %w", OpsManagerServiceAccount, namespace, err)
+		return xerrors.Errorf(
+			"failed retrieving service account %s, from ns: %s from source cluster: %w",
+			OpsManagerServiceAccount,
+			namespace,
+			err,
+		)
 	}
 	appdbR, err := src.RbacV1().Roles(namespace).Get(ctx, AppdbRole, metav1.GetOptions{})
 	if err != nil {

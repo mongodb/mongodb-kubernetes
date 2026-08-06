@@ -86,7 +86,14 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired), "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			assert.Equalf(
+				t,
+				tt.want,
+				isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired),
+				"isStatefulSetEqualOnForbiddenFields(%v, %v)",
+				tt.existing,
+				tt.desired,
+			)
 		})
 	}
 }
@@ -206,7 +213,14 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired), "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			assert.Equalf(
+				t,
+				tt.want,
+				isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired),
+				"isVolumeClaimEqualOnForbiddenFields(%v, %v)",
+				tt.existing,
+				tt.desired,
+			)
 		})
 	}
 }
@@ -279,7 +293,14 @@ func TestGetStatefulSetStatus(t *testing.T) {
 }
 
 // createStatefulSet creates a StatefulSet with specific generation and status for testing purposes
-func createStatefulSet(name, namespace string, generation int64, observedGeneration int64, replicas int32, readyReplicas int32, updatedReplicas int32) *v1.StatefulSet {
+func createStatefulSet(
+	name, namespace string,
+	generation int64,
+	observedGeneration int64,
+	replicas int32,
+	readyReplicas int32,
+	updatedReplicas int32,
+) *v1.StatefulSet {
 	return &v1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,

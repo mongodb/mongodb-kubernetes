@@ -136,10 +136,20 @@ func TestMongodbContainer_SignalHandling(t *testing.T) {
 			if tt.isStatic {
 				assert.Contains(t, commandScript, "trap cleanup SIGTERM", "Static architecture should include signal trap")
 				assert.Contains(t, commandScript, "cleanup() {", "Static architecture should include cleanup function")
-				assert.Contains(t, commandScript, "mongod -f /data/automation-mongod.conf &", "Static architecture should run mongod in background")
+				assert.Contains(
+					t,
+					commandScript,
+					"mongod -f /data/automation-mongod.conf &",
+					"Static architecture should run mongod in background",
+				)
 				assert.Contains(t, commandScript, "wait \"$MONGOD_PID\"", "Static architecture should wait for mongod process")
 				assert.Contains(t, commandScript, "termination_timeout_seconds", "Static architecture should include timeout configuration")
-				assert.Contains(t, commandScript, "while [ -e \"/proc/${MONGOD_PID}\" ]", "Static architecture should include robust process waiting")
+				assert.Contains(
+					t,
+					commandScript,
+					"while [ -e \"/proc/${MONGOD_PID}\" ]",
+					"Static architecture should include robust process waiting",
+				)
 				assert.Contains(t, commandScript, "kill -15 \"$MONGOD_PID\"", "Static architecture should send SIGTERM to mongod")
 			} else {
 				assert.NotContains(t, commandScript, "trap cleanup SIGTERM", "Non-static architecture should not include signal trap")
@@ -147,7 +157,12 @@ func TestMongodbContainer_SignalHandling(t *testing.T) {
 				assert.Contains(t, commandScript, "exec mongod -f /data/automation-mongod.conf", "Non-static architecture should exec mongod")
 			}
 
-			assert.Contains(t, commandScript, "Waiting for config and keyfile files to be created by the agent", "Should wait for agent files")
+			assert.Contains(
+				t,
+				commandScript,
+				"Waiting for config and keyfile files to be created by the agent",
+				"Should wait for agent files",
+			)
 			assert.Contains(t, commandScript, "Starting mongod...", "Should start mongod")
 		})
 	}

@@ -73,7 +73,13 @@ type HostClusterReader interface {
 
 // StopBackupIfEnabled tries to find backup configuration for specified resource (can be Replica Set or Sharded Cluster -
 // Ops Manager doesn't backup Standalones) and disable it.
-func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader HostClusterReader, name string, resourceType MongoDbResourceType, log *zap.SugaredLogger) error {
+func StopBackupIfEnabled(
+	readUpdater ConfigHostReadUpdater,
+	hostClusterReader HostClusterReader,
+	name string,
+	resourceType MongoDbResourceType,
+	log *zap.SugaredLogger,
+) error {
 	response, err := readUpdater.ReadBackupConfigs()
 	if err != nil {
 		// If the operator can't read BackupConfigs, it might indicate that the Pods were removed before establishing

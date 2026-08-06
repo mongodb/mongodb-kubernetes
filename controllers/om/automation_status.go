@@ -129,8 +129,14 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 	}
 
 	if len(goalsNotAchievedMap) > 0 {
-		return false, fmt.Sprintf("%d processes waiting to reach automation config goal state (version=%d): %s, %d processes reached goal state: %s",
-			len(goalsNotAchievedMap), as.GoalVersion, goalsNotAchievedMsgList, len(goalsAchievedMsgList), goalsAchievedMsgList)
+		return false, fmt.Sprintf(
+			"%d processes waiting to reach automation config goal state (version=%d): %s, %d processes reached goal state: %s",
+			len(goalsNotAchievedMap),
+			as.GoalVersion,
+			goalsNotAchievedMsgList,
+			len(goalsAchievedMsgList),
+			goalsAchievedMsgList,
+		)
 	} else if len(goalsAchievedMap) == 0 {
 		return true, "there were no processes in automation config matched with the processes to wait for"
 	} else {

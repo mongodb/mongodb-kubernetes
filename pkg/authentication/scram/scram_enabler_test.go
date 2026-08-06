@@ -97,7 +97,12 @@ func TestScramAutomationConfig(t *testing.T) {
 }
 
 // configureInAutomationConfig updates the provided auth struct and fully configures Scram authentication.
-func configureInAutomationConfig(auth *automationconfig.Auth, agentPassword, agentKeyFile string, users []automationconfig.MongoDBUser, opts authtypes.Options) error {
+func configureInAutomationConfig(
+	auth *automationconfig.Auth,
+	agentPassword, agentKeyFile string,
+	users []automationconfig.MongoDBUser,
+	opts authtypes.Options,
+) error {
 	err := enableAgentAuthentication(auth, agentPassword, agentKeyFile, opts)
 	if err != nil {
 		return err

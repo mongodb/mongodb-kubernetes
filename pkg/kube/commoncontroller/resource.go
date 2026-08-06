@@ -14,7 +14,13 @@ import (
 )
 
 // GetResource populates the provided runtime.Object with some additional error handling
-func GetResource(ctx context.Context, kubeClient kubernetesClient.Client, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
+func GetResource(
+	ctx context.Context,
+	kubeClient kubernetesClient.Client,
+	request reconcile.Request,
+	resource v1.CustomResourceReadWriter,
+	log *zap.SugaredLogger,
+) (reconcile.Result, error) {
 	err := kubeClient.Get(ctx, request.NamespacedName, resource)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {

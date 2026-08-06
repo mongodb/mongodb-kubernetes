@@ -56,16 +56,46 @@ func mergeExistingScheduleWithSpec(existingSnapshotSchedule SnapshotSchedule, sp
 	snapshotSchedule := SnapshotSchedule{}
 	snapshotSchedule.ClusterID = existingSnapshotSchedule.ClusterID
 	snapshotSchedule.GroupID = existingSnapshotSchedule.GroupID
-	snapshotSchedule.ClusterCheckpointIntervalMin = pickFirstIfNotNil(specSnapshotSchedule.ClusterCheckpointIntervalMin, existingSnapshotSchedule.ClusterCheckpointIntervalMin)
-	snapshotSchedule.DailySnapshotRetentionDays = pickFirstIfNotNil(specSnapshotSchedule.DailySnapshotRetentionDays, existingSnapshotSchedule.DailySnapshotRetentionDays)
-	snapshotSchedule.FullIncrementalDayOfWeek = pickFirstIfNotNil(specSnapshotSchedule.FullIncrementalDayOfWeek, existingSnapshotSchedule.FullIncrementalDayOfWeek)
-	snapshotSchedule.MonthlySnapshotRetentionMonths = pickFirstIfNotNil(specSnapshotSchedule.MonthlySnapshotRetentionMonths, existingSnapshotSchedule.MonthlySnapshotRetentionMonths)
-	snapshotSchedule.PointInTimeWindowHours = pickFirstIfNotNil(specSnapshotSchedule.PointInTimeWindowHours, existingSnapshotSchedule.PointInTimeWindowHours)
-	snapshotSchedule.ReferenceHourOfDay = pickFirstIfNotNil(specSnapshotSchedule.ReferenceHourOfDay, existingSnapshotSchedule.ReferenceHourOfDay)
-	snapshotSchedule.ReferenceMinuteOfHour = pickFirstIfNotNil(specSnapshotSchedule.ReferenceMinuteOfHour, existingSnapshotSchedule.ReferenceMinuteOfHour)
-	snapshotSchedule.SnapshotIntervalHours = pickFirstIfNotNil(specSnapshotSchedule.SnapshotIntervalHours, existingSnapshotSchedule.SnapshotIntervalHours)
-	snapshotSchedule.SnapshotRetentionDays = pickFirstIfNotNil(specSnapshotSchedule.SnapshotRetentionDays, existingSnapshotSchedule.SnapshotRetentionDays)
-	snapshotSchedule.WeeklySnapshotRetentionWeeks = pickFirstIfNotNil(specSnapshotSchedule.WeeklySnapshotRetentionWeeks, existingSnapshotSchedule.WeeklySnapshotRetentionWeeks)
+	snapshotSchedule.ClusterCheckpointIntervalMin = pickFirstIfNotNil(
+		specSnapshotSchedule.ClusterCheckpointIntervalMin,
+		existingSnapshotSchedule.ClusterCheckpointIntervalMin,
+	)
+	snapshotSchedule.DailySnapshotRetentionDays = pickFirstIfNotNil(
+		specSnapshotSchedule.DailySnapshotRetentionDays,
+		existingSnapshotSchedule.DailySnapshotRetentionDays,
+	)
+	snapshotSchedule.FullIncrementalDayOfWeek = pickFirstIfNotNil(
+		specSnapshotSchedule.FullIncrementalDayOfWeek,
+		existingSnapshotSchedule.FullIncrementalDayOfWeek,
+	)
+	snapshotSchedule.MonthlySnapshotRetentionMonths = pickFirstIfNotNil(
+		specSnapshotSchedule.MonthlySnapshotRetentionMonths,
+		existingSnapshotSchedule.MonthlySnapshotRetentionMonths,
+	)
+	snapshotSchedule.PointInTimeWindowHours = pickFirstIfNotNil(
+		specSnapshotSchedule.PointInTimeWindowHours,
+		existingSnapshotSchedule.PointInTimeWindowHours,
+	)
+	snapshotSchedule.ReferenceHourOfDay = pickFirstIfNotNil(
+		specSnapshotSchedule.ReferenceHourOfDay,
+		existingSnapshotSchedule.ReferenceHourOfDay,
+	)
+	snapshotSchedule.ReferenceMinuteOfHour = pickFirstIfNotNil(
+		specSnapshotSchedule.ReferenceMinuteOfHour,
+		existingSnapshotSchedule.ReferenceMinuteOfHour,
+	)
+	snapshotSchedule.SnapshotIntervalHours = pickFirstIfNotNil(
+		specSnapshotSchedule.SnapshotIntervalHours,
+		existingSnapshotSchedule.SnapshotIntervalHours,
+	)
+	snapshotSchedule.SnapshotRetentionDays = pickFirstIfNotNil(
+		specSnapshotSchedule.SnapshotRetentionDays,
+		existingSnapshotSchedule.SnapshotRetentionDays,
+	)
+	snapshotSchedule.WeeklySnapshotRetentionWeeks = pickFirstIfNotNil(
+		specSnapshotSchedule.WeeklySnapshotRetentionWeeks,
+		existingSnapshotSchedule.WeeklySnapshotRetentionWeeks,
+	)
 
 	return snapshotSchedule
 }

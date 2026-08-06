@@ -111,7 +111,10 @@ type VaultClient struct {
 }
 
 func readVaultConfig(ctx context.Context, client *kubernetes.Clientset) VaultConfiguration {
-	cm, err := client.CoreV1().ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, "secret-configuration", v1.GetOptions{}) // nolint:forbidigo
+	cm, err := client.CoreV1().
+		ConfigMaps(env.ReadOrPanic(util.CurrentNamespace)).
+		Get(ctx, "secret-configuration", v1.GetOptions{})
+		// nolint:forbidigo
 	if err != nil {
 		panic(xerrors.Errorf("error reading vault configmap: %w", err))
 	}
@@ -137,7 +140,10 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 	}
 	var secret *corev1.Secret
 	var err error
-	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{}) // nolint:forbidigo
+	secret, err = client.CoreV1().
+		Secrets(env.ReadOrPanic(util.CurrentNamespace)).
+		Get(ctx, tlsSecretRef, v1.GetOptions{})
+		// nolint:forbidigo
 	if err != nil {
 		return xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
 	}

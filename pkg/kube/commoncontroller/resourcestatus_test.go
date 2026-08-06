@@ -26,7 +26,11 @@ func TestStatusSubresourcePatchPaths(t *testing.T) {
 	}{
 		{name: "status root", fullPath: "/status", want: []string{"/status"}},
 		{name: "nested substatus", fullPath: "/status/loadBalancer", want: []string{"/status", "/status/loadBalancer"}},
-		{name: "deeply nested substatus", fullPath: "/status/opsManager/backup", want: []string{"/status", "/status/opsManager", "/status/opsManager/backup"}},
+		{
+			name:     "deeply nested substatus",
+			fullPath: "/status/opsManager/backup",
+			want:     []string{"/status", "/status/opsManager", "/status/opsManager/backup"},
+		},
 		{name: "empty path", fullPath: "", want: nil},
 		{name: "bare slash never patches the document root", fullPath: "/", want: nil},
 	}

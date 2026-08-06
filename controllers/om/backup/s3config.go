@@ -99,7 +99,14 @@ type S3Credentials struct {
 	SecretKey string `json:"awsSecretKey"`
 }
 
-func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri string, s3CustomCertificates []S3CustomCertificate, bucket S3Bucket, s3Creds *S3Credentials) S3Config {
+func NewS3Config(
+	opsManager *omv1.MongoDBOpsManager,
+	s3Config omv1.S3Config,
+	uri string,
+	s3CustomCertificates []S3CustomCertificate,
+	bucket S3Bucket,
+	s3Creds *S3Credentials,
+) S3Config {
 	authMode := IAM
 	cred := S3Credentials{}
 

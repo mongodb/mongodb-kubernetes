@@ -47,7 +47,13 @@ type ClientSecret struct {
 // for all existing MongoDB resources before proceeding. This could be a critical thing when the major version OM upgrade
 // happens and all existing MongoDBs are required to get agents upgraded (otherwise the "You need to upgrade the
 // automation agent before publishing other changes" error happens for automation config pushes from the Operator)
-func UpgradeAllIfNeeded(ctx context.Context, cs ClientSecret, omConnectionFactory om.ConnectionFactory, watchNamespace []string, isMulti bool) {
+func UpgradeAllIfNeeded(
+	ctx context.Context,
+	cs ClientSecret,
+	omConnectionFactory om.ConnectionFactory,
+	watchNamespace []string,
+	isMulti bool,
+) {
 	mux.Lock()
 	defer mux.Unlock()
 
@@ -91,7 +97,13 @@ type dbCommonWithNamespace struct {
 	mdbv1.DbCommonSpec
 }
 
-func doUpgrade(ctx context.Context, cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdbs []dbCommonWithNamespace) error {
+func doUpgrade(
+	ctx context.Context,
+	cmGetter configmap.Getter,
+	secretGetter secrets.SecretClient,
+	factory om.ConnectionFactory,
+	mdbs []dbCommonWithNamespace,
+) error {
 	for _, mdb := range mdbs {
 		log := zap.S().With(string(mdb.ResourceType), mdb.objectKey)
 		conn, err := connectToMongoDB(ctx, cmGetter, secretGetter, factory, mdb, log)
@@ -106,11 +118,18 @@ func doUpgrade(ctx context.Context, cmGetter configmap.Getter, secretGetter secr
 		}
 		version, err := conn.UpgradeAgentsToLatest()
 		if err != nil {
-			log.Warnf("Failed to schedule Agent upgrade: %s, this could be due do ongoing Automation Config publishing in Ops Manager and will get fixed during next trial", err)
+			log.Warnf(
+				"Failed to schedule Agent upgrade: %s, this could be due do ongoing Automation Config publishing in Ops Manager and will get fixed during next trial",
+				err,
+			)
 			continue
 		}
 		if currentVersion != version && currentVersion != "" {
-			log.Debugf("Submitted the request to Ops Manager to upgrade the agents from %s to the latest version (%s)", currentVersion, version)
+			log.Debugf(
+				"Submitted the request to Ops Manager to upgrade the agents from %s to the latest version (%s)",
+				currentVersion,
+				version,
+			)
 		}
 	}
 	return nil
@@ -121,7 +140,12 @@ func doUpgrade(ctx context.Context, cmGetter configmap.Getter, secretGetter secr
 //
 // If the `watchNamespace` contains only the "" string, the MongoDB resources
 // will be searched in every Namespace of the cluster.
-func readAllMongoDBs(ctx context.Context, cl kubernetesClient.Client, watchNamespace []string, isMulti bool) ([]dbCommonWithNamespace, error) {
+func readAllMongoDBs(
+	ctx context.Context,
+	cl kubernetesClient.Client,
+	watchNamespace []string,
+	isMulti bool,
+) ([]dbCommonWithNamespace, error) {
 	var namespaces []string
 
 	// 1. Find which Namespaces to look for MongoDB resources
@@ -168,8 +192,20 @@ func readAllMongoDBs(ctx context.Context, cl kubernetesClient.Client, watchNames
 	return mdbs, nil
 }
 
-func connectToMongoDB(ctx context.Context, cmGetter configmap.Getter, secretGetter secrets.SecretClient, factory om.ConnectionFactory, mdb dbCommonWithNamespace, log *zap.SugaredLogger) (om.Connection, error) {
-	projectConfig, err := project.ReadProjectConfig(ctx, cmGetter, kube.ObjectKey(mdb.objectKey.Namespace, mdb.GetProject()), mdb.objectKey.Name)
+func connectToMongoDB(
+	ctx context.Context,
+	cmGetter configmap.Getter,
+	secretGetter secrets.SecretClient,
+	factory om.ConnectionFactory,
+	mdb dbCommonWithNamespace,
+	log *zap.SugaredLogger,
+) (om.Connection, error) {
+	projectConfig, err := project.ReadProjectConfig(
+		ctx,
+		cmGetter,
+		kube.ObjectKey(mdb.objectKey.Namespace, mdb.GetProject()),
+		mdb.objectKey.Name,
+	)
 	if err != nil {
 		return nil, xerrors.Errorf("error reading Project Config: %w", err)
 	}

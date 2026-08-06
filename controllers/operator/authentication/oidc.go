@@ -22,7 +22,13 @@ func (o *oidcAuthMechanism) GetName() MechanismName {
 	return MongoDBOIDC
 }
 
-func (o *oidcAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, _ om.Connection, _ Options, _ *zap.SugaredLogger) error {
+func (o *oidcAuthMechanism) EnableAgentAuthentication(
+	_ context.Context,
+	_ kubernetesClient.Client,
+	_ om.Connection,
+	_ Options,
+	_ *zap.SugaredLogger,
+) error {
 	return xerrors.Errorf("OIDC agent authentication is not supported")
 }
 

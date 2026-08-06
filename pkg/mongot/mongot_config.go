@@ -30,9 +30,9 @@ type ConfigFeatureFlags struct {
 }
 
 type EmbeddingConfig struct {
-	QueryKeyFile              string `json:"queryKeyFile" yaml:"queryKeyFile,omitempty"`
-	IndexingKeyFile           string `json:"indexingKeyFile" yaml:"indexingKeyFile,omitempty"`
-	ProviderEndpoint          string `json:"providerEndpoint" yaml:"providerEndpoint,omitempty"`
+	QueryKeyFile              string `json:"queryKeyFile"              yaml:"queryKeyFile,omitempty"`
+	IndexingKeyFile           string `json:"indexingKeyFile"           yaml:"indexingKeyFile,omitempty"`
+	ProviderEndpoint          string `json:"providerEndpoint"          yaml:"providerEndpoint,omitempty"`
 	IsAutoEmbeddingViewWriter *bool  `json:"isAutoEmbeddingViewWriter" yaml:"isAutoEmbeddingViewWriter,omitempty"`
 }
 

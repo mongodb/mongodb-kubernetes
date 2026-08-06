@@ -102,7 +102,13 @@ func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluste
 
 // WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enqueues the
 // MongoDBMultiCluster resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
-func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client, clustersMap map[string]cluster.Cluster) {
+func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	watchChannel chan event.GenericEvent,
+	centralClient kubernetesClient.Client,
+	clustersMap map[string]cluster.Cluster,
+) {
 	// check if the local cache is populated if not let's do that
 	if len(m.Cache) == 0 {
 		m.populateCache(clustersMap, log)
@@ -245,7 +251,12 @@ func distributeFailedMembers(clusters mdb.ClusterSpecList, clustername string) m
 
 // AddFailoverAnnotation adds the failed cluster spec to the annotation of the MongoDBMultiCluster CR for it to be used
 // while performing the reconcilliation
-func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
+func AddFailoverAnnotation(
+	ctx context.Context,
+	mrs mdbmulti.MongoDBMultiCluster,
+	clustername string,
+	client kubernetesClient.Client,
+) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}
@@ -263,10 +274,20 @@ func AddFailoverAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster
 		return err
 	}
 
-	return annotations.SetAnnotations(ctx, &mrs, map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)}, client)
+	return annotations.SetAnnotations(
+		ctx,
+		&mrs,
+		map[string]string{failedcluster.ClusterSpecOverrideAnnotation: string(updatedClusterSpec)},
+		client,
+	)
 }
 
-func removeClusterFromFailedAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
+func removeClusterFromFailedAnnotation(
+	ctx context.Context,
+	mrs mdbmulti.MongoDBMultiCluster,
+	clustername string,
+	client kubernetesClient.Client,
+) error {
 	failedClusters := readFailedClusterAnnotation(mrs.Annotations)
 
 	remaining := slices.DeleteFunc(failedClusters, func(c failedcluster.FailedCluster) bool { return c.ClusterName == clustername })
@@ -282,7 +303,12 @@ func removeClusterFromFailedAnnotation(ctx context.Context, mrs mdbmulti.MongoDB
 	return annotations.SetAnnotations(ctx, &mrs, map[string]string{failedcluster.FailedClusterAnnotation: string(clusterDataBytes)}, client)
 }
 
-func addFailedClustersAnnotation(ctx context.Context, mrs mdbmulti.MongoDBMultiCluster, clustername string, client kubernetesClient.Client) error {
+func addFailedClustersAnnotation(
+	ctx context.Context,
+	mrs mdbmulti.MongoDBMultiCluster,
+	clustername string,
+	client kubernetesClient.Client,
+) error {
 	if mrs.Annotations == nil {
 		mrs.Annotations = map[string]string{}
 	}

@@ -130,7 +130,15 @@ func TestRotateCertificate(t *testing.T) {
 	pemSecretNamespacedName.Name = fmt.Sprintf("%s%s", secretNamespacedName.Name, OperatorGeneratedCertSuffix)
 
 	t.Run("Case 1: Enabling TLS", func(t *testing.T) {
-		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey1, certificateValue1, []v1.OwnerReference{}, Unused)
+		err := CreateOrUpdatePEMSecretWithPreviousCert(
+			ctx,
+			fakeSecretClient,
+			secretNamespacedName,
+			certificateKey1,
+			certificateValue1,
+			[]v1.OwnerReference{},
+			Unused,
+		)
 		assert.NoError(t, err)
 
 		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
@@ -151,7 +159,15 @@ func TestRotateCertificate(t *testing.T) {
 
 		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
 
-		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey1, certificateValue1, []v1.OwnerReference{}, Unused)
+		err := CreateOrUpdatePEMSecretWithPreviousCert(
+			ctx,
+			fakeSecretClient,
+			secretNamespacedName,
+			certificateKey1,
+			certificateValue1,
+			[]v1.OwnerReference{},
+			Unused,
+		)
 		assert.NoError(t, err)
 
 		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
@@ -173,7 +189,15 @@ func TestRotateCertificate(t *testing.T) {
 		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
 
 		// The rotation happens here because CreateOrUpdatePEMSecretWithPreviousCert is called with certificate 2, but the existing pem secret references certificate 1.
-		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey2, certificateValue2, []v1.OwnerReference{}, Unused)
+		err := CreateOrUpdatePEMSecretWithPreviousCert(
+			ctx,
+			fakeSecretClient,
+			secretNamespacedName,
+			certificateKey2,
+			certificateValue2,
+			[]v1.OwnerReference{},
+			Unused,
+		)
 		assert.NoError(t, err)
 
 		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
@@ -198,7 +222,15 @@ func TestRotateCertificate(t *testing.T) {
 
 		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
 
-		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey2, certificateValue2, []v1.OwnerReference{}, Unused)
+		err := CreateOrUpdatePEMSecretWithPreviousCert(
+			ctx,
+			fakeSecretClient,
+			secretNamespacedName,
+			certificateKey2,
+			certificateValue2,
+			[]v1.OwnerReference{},
+			Unused,
+		)
 		assert.NoError(t, err)
 
 		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)
@@ -224,7 +256,15 @@ func TestRotateCertificate(t *testing.T) {
 
 		_ = fakeSecretClient.PutSecret(ctx, existingPem, Unused)
 
-		err := CreateOrUpdatePEMSecretWithPreviousCert(ctx, fakeSecretClient, secretNamespacedName, certificateKey3, certificateValue3, []v1.OwnerReference{}, Unused)
+		err := CreateOrUpdatePEMSecretWithPreviousCert(
+			ctx,
+			fakeSecretClient,
+			secretNamespacedName,
+			certificateKey3,
+			certificateValue3,
+			[]v1.OwnerReference{},
+			Unused,
+		)
 		assert.NoError(t, err)
 
 		pemSecret, _ := fakeSecretClient.ReadSecret(ctx, pemSecretNamespacedName, Unused)

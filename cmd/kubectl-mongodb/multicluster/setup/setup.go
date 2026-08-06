@@ -17,19 +17,32 @@ import (
 
 func init() {
 	SetupCmd.Flags().StringVar(&common.MemberClusters, "member-clusters", "", "Comma separated list of member clusters. [required]")
-	SetupCmd.Flags().StringVar(&setupFlags.ServiceAccount, "service-account", "mongodb-kubernetes-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-kubernetes-operator-multi-cluster]")
-	SetupCmd.Flags().StringVar(&setupFlags.CentralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [required]")
-	SetupCmd.Flags().StringVar(&setupFlags.MemberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
-	SetupCmd.Flags().StringVar(&setupFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
-	SetupCmd.Flags().StringVar(&setupFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-kubernetes-operator]")
-	SetupCmd.Flags().BoolVar(&setupFlags.Cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
-	SetupCmd.Flags().BoolVar(&setupFlags.ClusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
-	SetupCmd.Flags().BoolVar(&setupFlags.CreateTelemetryClusterRoles, "create-telemetry-roles", true, "Create ClusterRole and ClusterRoleBindings for member clusters for telemetry. [optional default: true]")
-	SetupCmd.Flags().BoolVar(&setupFlags.CreateMongoDBRolesClusterRole, "create-mongodb-roles-cluster-role", true, "Create ClusterRole and ClusterRoleBinding for central cluster for ClusterMongoDBRole resources. [optional default: true]")
-	SetupCmd.Flags().BoolVar(&setupFlags.InstallDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
-	SetupCmd.Flags().BoolVar(&setupFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
-	SetupCmd.Flags().StringVar(&setupFlags.ImagePullSecrets, "image-pull-secrets", "", "Name of the secret for imagePullSecrets to set in created service accounts")
-	SetupCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
+	SetupCmd.Flags().
+		StringVar(&setupFlags.ServiceAccount, "service-account", "mongodb-kubernetes-operator-multi-cluster", "Name of the service account which should be used for the Operator to communicate with the member clusters. [optional, default: mongodb-kubernetes-operator-multi-cluster]")
+	SetupCmd.Flags().
+		StringVar(&setupFlags.CentralCluster, "central-cluster", "", "The central cluster the operator will be deployed in. [required]")
+	SetupCmd.Flags().
+		StringVar(&setupFlags.MemberClusterNamespace, "member-cluster-namespace", "", "The namespace the member cluster resources will be deployed to. [required]")
+	SetupCmd.Flags().
+		StringVar(&setupFlags.CentralClusterNamespace, "central-cluster-namespace", "", "The namespace the Operator will be deployed to. [required]")
+	SetupCmd.Flags().
+		StringVar(&setupFlags.OperatorName, "operator-name", common.DefaultOperatorName, "Name used to identify the deployment of the operator. [optional, default: mongodb-kubernetes-operator]")
+	SetupCmd.Flags().
+		BoolVar(&setupFlags.Cleanup, "cleanup", false, "Delete all previously created resources except for namespaces. [optional default: false]")
+	SetupCmd.Flags().
+		BoolVar(&setupFlags.ClusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
+	SetupCmd.Flags().
+		BoolVar(&setupFlags.CreateTelemetryClusterRoles, "create-telemetry-roles", true, "Create ClusterRole and ClusterRoleBindings for member clusters for telemetry. [optional default: true]")
+	SetupCmd.Flags().
+		BoolVar(&setupFlags.CreateMongoDBRolesClusterRole, "create-mongodb-roles-cluster-role", true, "Create ClusterRole and ClusterRoleBinding for central cluster for ClusterMongoDBRole resources. [optional default: true]")
+	SetupCmd.Flags().
+		BoolVar(&setupFlags.InstallDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
+	SetupCmd.Flags().
+		BoolVar(&setupFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
+	SetupCmd.Flags().
+		StringVar(&setupFlags.ImagePullSecrets, "image-pull-secrets", "", "Name of the secret for imagePullSecrets to set in created service accounts")
+	SetupCmd.Flags().
+		StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
 }
 
 // SetupCmd represents the setup command
@@ -54,7 +67,12 @@ kubectl-mongodb multicluster setup --central-cluster="operator-cluster" --member
 			fmt.Println(utils.GetBuildInfoString(buildInfo))
 		}
 
-		clientMap, err := common.CreateClientMap(setupFlags.MemberClusters, setupFlags.CentralCluster, common.LoadKubeConfigFilePath(), common.GetKubernetesClient)
+		clientMap, err := common.CreateClientMap(
+			setupFlags.MemberClusters,
+			setupFlags.CentralCluster,
+			common.LoadKubeConfigFilePath(),
+			common.GetKubernetesClient,
+		)
 		if err != nil {
 			fmt.Printf("failed to create clientset map: %s", err)
 			os.Exit(1)
@@ -75,8 +93,19 @@ kubectl-mongodb multicluster setup --central-cluster="operator-cluster" --member
 var setupFlags = common.Flags{}
 
 func parseSetupFlags() error {
-	if slices.Contains([]string{common.MemberClusters, setupFlags.ServiceAccount, setupFlags.CentralCluster, setupFlags.MemberClusterNamespace, setupFlags.CentralClusterNamespace}, "") {
-		return xerrors.Errorf("non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace]")
+	if slices.Contains(
+		[]string{
+			common.MemberClusters,
+			setupFlags.ServiceAccount,
+			setupFlags.CentralCluster,
+			setupFlags.MemberClusterNamespace,
+			setupFlags.CentralClusterNamespace,
+		},
+		"",
+	) {
+		return xerrors.Errorf(
+			"non empty values are required for [service-account, member-clusters, central-cluster, member-cluster-namespace, central-cluster-namespace]",
+		)
 	}
 
 	setupFlags.MemberClusters = strings.Split(common.MemberClusters, ",")
@@ -84,7 +113,11 @@ func parseSetupFlags() error {
 	if strings.TrimSpace(common.MemberClustersApiServers) != "" {
 		setupFlags.MemberClusterApiServerUrls = strings.Split(common.MemberClustersApiServers, ",")
 		if len(setupFlags.MemberClusterApiServerUrls) != len(setupFlags.MemberClusters) {
-			return xerrors.Errorf("expected %d addresses in member-clusters-api-servers parameter but got %d", len(setupFlags.MemberClusters), len(setupFlags.MemberClusterApiServerUrls))
+			return xerrors.Errorf(
+				"expected %d addresses in member-clusters-api-servers parameter but got %d",
+				len(setupFlags.MemberClusters),
+				len(setupFlags.MemberClusterApiServerUrls),
+			)
 		}
 	}
 

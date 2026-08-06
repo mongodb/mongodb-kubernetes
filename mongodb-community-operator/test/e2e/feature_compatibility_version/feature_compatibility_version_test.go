@@ -68,7 +68,10 @@ func TestFeatureCompatibilityVersion(t *testing.T) {
 	})
 
 	t.Run("Test Basic Connectivity after upgrade has completed", tester.ConnectivitySucceeds())
-	t.Run(fmt.Sprintf("Test FeatureCompatibilityVersion, after upgrade, is %s", featureCompatibility), tester.HasFCV(featureCompatibility, 3))
+	t.Run(
+		fmt.Sprintf("Test FeatureCompatibilityVersion, after upgrade, is %s", featureCompatibility),
+		tester.HasFCV(featureCompatibility, 3),
+	)
 
 	// Downgrade while keeping the Feature Compatibility intact
 	t.Run("MongoDB is reachable while version is downgraded", func(t *testing.T) {
@@ -77,7 +80,10 @@ func TestFeatureCompatibilityVersion(t *testing.T) {
 		t.Run("Stateful Set Reaches Ready State, after Upgrading", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
 	})
 
-	t.Run(fmt.Sprintf("Test FeatureCompatibilityVersion, after downgrade, is %s", featureCompatibility), tester.HasFCV(featureCompatibility, 3))
+	t.Run(
+		fmt.Sprintf("Test FeatureCompatibilityVersion, after downgrade, is %s", featureCompatibility),
+		tester.HasFCV(featureCompatibility, 3),
+	)
 
 	// Upgrade the Feature Compatibility keeping the MongoDB version the same
 	t.Run("Test FeatureCompatibilityVersion can be upgraded", func(t *testing.T) {
@@ -85,9 +91,18 @@ func TestFeatureCompatibilityVersion(t *testing.T) {
 			db.Spec.FeatureCompatibilityVersion = upgradedFeatureCompatibility
 		})
 		assert.NoError(t, err)
-		t.Run("Stateful Set Reaches Ready State, after Upgrading FeatureCompatibilityVersion", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
-		t.Run("MongoDB Reaches Running Phase, after Upgrading FeatureCompatibilityVersion", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
+		t.Run(
+			"Stateful Set Reaches Ready State, after Upgrading FeatureCompatibilityVersion",
+			mongodbtests.StatefulSetBecomesReady(ctx, &mdb),
+		)
+		t.Run(
+			"MongoDB Reaches Running Phase, after Upgrading FeatureCompatibilityVersion",
+			mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb),
+		)
 	})
 
-	t.Run(fmt.Sprintf("Test FeatureCompatibilityVersion, after upgrading FeatureCompatibilityVersion, is %s", upgradedFeatureCompatibility), tester.HasFCV(upgradedFeatureCompatibility, 10))
+	t.Run(
+		fmt.Sprintf("Test FeatureCompatibilityVersion, after upgrading FeatureCompatibilityVersion, is %s", upgradedFeatureCompatibility),
+		tester.HasFCV(upgradedFeatureCompatibility, 10),
+	)
 }

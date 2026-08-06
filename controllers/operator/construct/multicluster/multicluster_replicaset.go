@@ -13,7 +13,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
-func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
+func MultiClusterReplicaSetOptions(
+	additionalOpts ...func(options *construct.DatabaseStatefulSetOptions),
+) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
 	return func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
 		stsSpec := appsv1.StatefulSetSpec{}
 		if mdbm.Spec.StatefulSetConfiguration != nil {
@@ -77,7 +79,10 @@ func PodLabel(mdbmName string) map[string]string {
 	}
 }
 
-func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
+func MultiClusterStatefulSet(
+	mdbm mdbmultiv1.MongoDBMultiCluster,
+	stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions,
+) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdbm)
 	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
 

@@ -15,7 +15,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
-func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable, agentCertSecret types.NamespacedName) error {
+func Enable(
+	ctx context.Context,
+	auth *automationconfig.Auth,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdb authtypes.Configurable,
+	agentCertSecret types.NamespacedName,
+) error {
 	scramEnabled := false
 	for _, authMode := range mdb.GetAuthOptions().AuthMechanisms {
 		switch authMode {
@@ -41,7 +47,10 @@ func AddRemovedUsers(auth *automationconfig.Auth, mdb mdbv1.MongoDBCommunity, la
 	auth.UsersDeleted = append(auth.UsersDeleted, deletedUsers...)
 }
 
-func getRemovedUsersFromSpec(currentMDB mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec *mdbv1.MongoDBCommunitySpec) []automationconfig.DeletedUser {
+func getRemovedUsersFromSpec(
+	currentMDB mdbv1.MongoDBCommunitySpec,
+	lastAppliedMDBSpec *mdbv1.MongoDBCommunitySpec,
+) []automationconfig.DeletedUser {
 	type user struct {
 		db   string
 		name string

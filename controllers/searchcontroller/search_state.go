@@ -75,7 +75,12 @@ func ReadSearchState(
 // with configmap.CreateOrUpdate — that is a blind no-RV Update). mutate returns
 // true when the state changed and must be persisted. Every update also repairs
 // owner labels missing from ConfigMaps written by released 1.9.x operators.
-func MutateSearchState(ctx context.Context, c kubernetesClient.Client, search *searchv1.MongoDBSearch, mutate func(*SearchDeploymentState) bool) (*SearchDeploymentState, error) {
+func MutateSearchState(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	search *searchv1.MongoDBSearch,
+	mutate func(*SearchDeploymentState) bool,
+) (*SearchDeploymentState, error) {
 	cmName := SearchStateCMName(search)
 	cm := &corev1.ConfigMap{}
 	err := c.Get(ctx, kube.ObjectKey(search.Namespace, cmName), cm)

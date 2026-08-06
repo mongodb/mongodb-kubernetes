@@ -48,7 +48,8 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 			},
 		},
 	})
-	_, err := e2eutil.TestClient.CoreV1Client.Namespaces().Patch(ctx, testConfig.Namespace, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	_, err := e2eutil.TestClient.CoreV1Client.Namespaces().
+		Patch(ctx, testConfig.Namespace, types.MergePatchType, patchBytes, metav1.PatchOptions{})
 	require.NoError(t, err)
 
 	err = setup.InstallCommunityOperatorViaHelm(ctx, t, testConfig, testConfig.Namespace)
@@ -103,7 +104,10 @@ func TestReplicaSetOperatorUpgradeMCOToMCK(t *testing.T) {
 		t.Run("Scale MongoDB Resource Up", mongodbtests.Scale(ctx, &mdb, 5))
 		t.Run("Stateful Set Scaled Up Correctly", mongodbtests.StatefulSetBecomesReady(ctx, &mdb))
 		t.Run("MongoDB Reaches Running Phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
-		t.Run("AutomationConfig's version has been increased", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 4)) // 4, because the mck upgrade already forces one version bump
+		t.Run(
+			"AutomationConfig's version has been increased",
+			mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 4),
+		) // 4, because the mck upgrade already forces one version bump
 		t.Run("Test Status Was Updated", mongodbtests.Status(ctx, &mdb, mdbv1.MongoDBCommunityStatus{
 			MongoURI:                           mdb.MongoURI(),
 			Phase:                              mdbv1.Running,

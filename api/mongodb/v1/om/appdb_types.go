@@ -489,7 +489,12 @@ func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.C
 	panic(fmt.Errorf("cluster with name %s could not be found in AppDB's clusterSpecList", memberClusterName))
 }
 
-func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, multiClusterHostnames []string) string {
+func (m *AppDBSpec) BuildConnectionURL(
+	username, password string,
+	scheme connectionstring.Scheme,
+	connectionParams map[string]string,
+	multiClusterHostnames []string,
+) string {
 	builder := connectionstring.Builder().
 		SetName(m.Name()).
 		SetNamespace(m.Namespace).

@@ -259,7 +259,10 @@ func TestHeadlessAgentHasntReachedGoal(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv(headlessAgent, "true")
 	c := testConfig("testdata/health-status-ok.json")
-	c.ClientSet = fake.NewSimpleClientset(testdata.TestPod(c.Namespace, c.Hostname), testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 6))
+	c.ClientSet = fake.NewSimpleClientset(
+		testdata.TestPod(c.Namespace, c.Hostname),
+		testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 6),
+	)
 	ready, err := isPodReady(ctx, c)
 	assert.False(t, ready)
 	assert.NoError(t, err)
@@ -273,7 +276,10 @@ func TestHeadlessAgentReachedGoal(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv(headlessAgent, "true")
 	c := testConfig("testdata/health-status-ok.json")
-	c.ClientSet = fake.NewSimpleClientset(testdata.TestPod(c.Namespace, c.Hostname), testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 5))
+	c.ClientSet = fake.NewSimpleClientset(
+		testdata.TestPod(c.Namespace, c.Hostname),
+		testdata.TestSecret(c.Namespace, c.AutomationConfigSecretName, 5),
+	)
 	ready, err := isPodReady(ctx, c)
 	assert.True(t, ready)
 	assert.NoError(t, err)

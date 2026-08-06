@@ -16,7 +16,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
-func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient, resourceType mdbv1.ResourceType) {
+func WatchSecretChangeForMDB(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	watchChannel chan event.GenericEvent,
+	k8sClient kubernetesClient.Client,
+	vaultClient *vault.VaultClient,
+	resourceType mdbv1.ResourceType,
+) {
 	for {
 		mdbList := &mdbv1.MongoDBList{}
 		err := k8sClient.List(ctx, mdbList, &client.ListOptions{Namespace: ""})
@@ -31,7 +38,13 @@ func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchC
 			}
 			// the credentials secret is mandatory and stored in a different path
 			path := fmt.Sprintf("%s/%s/%s", vaultClient.OperatorScretMetadataPath(), mdb.Namespace, mdb.Spec.Credentials)
-			latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, mdb.Spec.Credentials, mdb.Annotations, log)
+			latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(
+				vaultClient,
+				path,
+				mdb.Spec.Credentials,
+				mdb.Annotations,
+				log,
+			)
 			if latestResourceVersion > currentResourceVersion {
 				watchChannel <- event.GenericEvent{Object: &mdbList.Items[n]}
 				break
@@ -39,7 +52,13 @@ func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchC
 
 			for _, secretName := range mdb.GetSecretsMountedIntoDBPod() {
 				path := fmt.Sprintf("%s/%s/%s", vaultClient.DatabaseSecretMetadataPath(), mdb.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, mdb.Annotations, log)
+				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(
+					vaultClient,
+					path,
+					secretName,
+					mdb.Annotations,
+					log,
+				)
 
 				if latestResourceVersion > currentResourceVersion {
 					watchChannel <- event.GenericEvent{Object: &mdbList.Items[n]}
@@ -52,7 +71,13 @@ func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchC
 	}
 }
 
-func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, k8sClient kubernetesClient.Client, vaultClient *vault.VaultClient) {
+func WatchSecretChangeForOM(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	watchChannel chan event.GenericEvent,
+	k8sClient kubernetesClient.Client,
+	vaultClient *vault.VaultClient,
+) {
 	for {
 		omList := &omv1.MongoDBOpsManagerList{}
 		err := k8sClient.List(ctx, omList, &client.ListOptions{Namespace: ""})
@@ -64,7 +89,13 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 		for n, om := range omList.Items {
 			for _, secretName := range om.GetSecretsMountedIntoPod() {
 				path := fmt.Sprintf("%s/%s/%s", vaultClient.OpsManagerSecretMetadataPath(), om.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
+				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(
+					vaultClient,
+					path,
+					secretName,
+					om.Annotations,
+					log,
+				)
 
 				if latestResourceVersion > currentResourceVersion {
 					watchChannel <- event.GenericEvent{Object: &omList.Items[n]}
@@ -77,7 +108,13 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 			}
 			for _, secretName := range om.Spec.AppDB.GetSecretsMountedIntoPod() {
 				path := fmt.Sprintf("%s/%s/%s", vaultClient.AppDBSecretMetadataPath(), om.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
+				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(
+					vaultClient,
+					path,
+					secretName,
+					om.Annotations,
+					log,
+				)
 
 				if latestResourceVersion > currentResourceVersion {
 					watchChannel <- event.GenericEvent{Object: &omList.Items[n]}
@@ -90,7 +127,13 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 	}
 }
 
-func getCurrentAndLatestVersion(vaultClient *vault.VaultClient, path string, annotationKey string, annotations map[string]string, log *zap.SugaredLogger) (int, int) {
+func getCurrentAndLatestVersion(
+	vaultClient *vault.VaultClient,
+	path string,
+	annotationKey string,
+	annotations map[string]string,
+	log *zap.SugaredLogger,
+) (int, int) {
 	latestResourceVersion, err := vaultClient.ReadSecretVersion(path)
 	if err != nil {
 		log.Errorf("failed to fetch secret revision for the path %s, err: %v", path, err)

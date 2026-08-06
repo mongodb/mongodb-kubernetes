@@ -27,7 +27,12 @@ const (
 	appdbAutomationConfigEnv = "AUTOMATION_CONFIG_MAP"
 )
 
-func appdbMongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, agentImage string, command []string) container.Modification {
+func appdbMongodbAgentContainer(
+	automationConfigSecretName string,
+	volumeMounts []corev1.VolumeMount,
+	agentImage string,
+	command []string,
+) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(
 		container.WithName(util.AgentContainerName),
@@ -72,7 +77,9 @@ func appdbMongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, init
 		container.WithImagePullPolicy(corev1.PullAlways),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
+		container.WithCommand(
+			[]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"},
+		),
 		container.WithArgs([]string{""}),
 		containerSecurityContext,
 	)
@@ -211,7 +218,12 @@ echo "Starting mongod..."
 `, signalHandling, filePath, appdbKeyfileFilePath, mongodExec)
 }
 
-func appdbMongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig v1.MongodConfiguration, isStatic bool) container.Modification {
+func appdbMongodbContainer(
+	mongodbImage string,
+	volumeMounts []corev1.VolumeMount,
+	additionalMongoDBConfig v1.MongodConfiguration,
+	isStatic bool,
+) container.Modification {
 	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + appdbAutomationMongodConfFileName
 	mongoDbCommand := appdbBuildMongodbCommand(filePath, isStatic)
 

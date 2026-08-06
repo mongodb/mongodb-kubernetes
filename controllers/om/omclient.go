@@ -205,8 +205,11 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 		}
 
 		// We only support process configuration for OM larger than 7.0.4 or 6.0.24
-		if !oc.OpsManagerVersion().IsCloudManager() && !omVersion.GTE(semver.MustParse("7.0.4")) && !omVersion.GTE(semver.MustParse("6.0.24")) {
-			return xerrors.Errorf("configuring log rotation for mongod processes is supported only with Cloud Manager or Ops Manager with versions >= 7.0.4 or >= 6.0.24")
+		if !oc.OpsManagerVersion().IsCloudManager() && !omVersion.GTE(semver.MustParse("7.0.4")) &&
+			!omVersion.GTE(semver.MustParse("6.0.24")) {
+			return xerrors.Errorf(
+				"configuring log rotation for mongod processes is supported only with Cloud Manager or Ops Manager with versions >= 7.0.4 or >= 6.0.24",
+			)
 		}
 
 		// We only retrieve the first process, since logRotation is configured the same for all processes
@@ -236,7 +239,11 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 	return err
 }
 
-func updateProcessLogRotateIfChanged(logRotateSettingFromCRD *automationconfig.CrdLogRotate, logRotationSettingFromWire map[string]interface{}, updateLogRotationSetting func(logRotateSetting automationconfig.AcLogRotate) ([]byte, error)) error {
+func updateProcessLogRotateIfChanged(
+	logRotateSettingFromCRD *automationconfig.CrdLogRotate,
+	logRotationSettingFromWire map[string]interface{},
+	updateLogRotationSetting func(logRotateSetting automationconfig.AcLogRotate) ([]byte, error),
+) error {
 	logRotationToSetInAC := automationconfig.ConvertCrdLogRotateToAC(logRotateSettingFromCRD)
 	if logRotationToSetInAC == nil {
 		return nil
@@ -798,7 +805,10 @@ func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConf
 	return nil, nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(modifyMonitoringAgentFunction func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(
+	modifyMonitoringAgentFunction func(*MonitoringAgentConfig) error,
+	log *zap.SugaredLogger,
+) error {
 	if log == nil {
 		log = zap.S()
 	}

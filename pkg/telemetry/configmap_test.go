@@ -146,7 +146,9 @@ func TestGetOrGenerateOperatorUUID(t *testing.T) {
 			},
 		}
 
-		client := &failingUpdateFakeClient{fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingCM).Build()} // Simulate update failure
+		client := &failingUpdateFakeClient{
+			fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingCM).Build(),
+		} // Simulate update failure
 
 		result := getOrGenerateOperatorUUID(ctx, client, testNamespace)
 

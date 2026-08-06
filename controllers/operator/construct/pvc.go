@@ -12,7 +12,12 @@ import (
 // PvcFunc convenience function to build a PersistentVolumeClaim. It accepts two config parameters - the one specified by
 // the customers and the default one configured by the Operator. Putting the default one to the signature ensures the
 // calling code doesn't forget to think about default values in case the user hasn't provided values.
-func PvcFunc(name string, config *v1.PersistenceConfig, defaultConfig v1.PersistenceConfig, labels map[string]string) persistentvolumeclaim.Modification {
+func PvcFunc(
+	name string,
+	config *v1.PersistenceConfig,
+	defaultConfig v1.PersistenceConfig,
+	labels map[string]string,
+) persistentvolumeclaim.Modification {
 	selectorFunc := persistentvolumeclaim.NOOP()
 	storageClassNameFunc := persistentvolumeclaim.NOOP()
 	if config != nil {
@@ -33,7 +38,11 @@ func PvcFunc(name string, config *v1.PersistenceConfig, defaultConfig v1.Persist
 	)
 }
 
-func createClaimsAndMountsMultiModeFunc(persistence *v1.Persistence, defaultConfig v1.MultiplePersistenceConfig, labels map[string]string) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
+func createClaimsAndMountsMultiModeFunc(
+	persistence *v1.Persistence,
+	defaultConfig v1.MultiplePersistenceConfig,
+	labels map[string]string,
+) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
 	mounts := []corev1.VolumeMount{
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData),
 		statefulset.CreateVolumeMount(util.PvcNameJournal, util.PvcMountPathJournal),
@@ -46,7 +55,10 @@ func createClaimsAndMountsMultiModeFunc(persistence *v1.Persistence, defaultConf
 	}, mounts
 }
 
-func createClaimsAndMountsSingleModeFunc(config *v1.PersistenceConfig, opts DatabaseStatefulSetOptions) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
+func createClaimsAndMountsSingleModeFunc(
+	config *v1.PersistenceConfig,
+	opts DatabaseStatefulSetOptions,
+) (map[string]persistentvolumeclaim.Modification, []corev1.VolumeMount) {
 	mounts := []corev1.VolumeMount{
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathData, statefulset.WithSubPath(util.PvcNameData)),
 		statefulset.CreateVolumeMount(util.PvcNameData, util.PvcMountPathJournal, statefulset.WithSubPath(util.PvcNameJournal)),

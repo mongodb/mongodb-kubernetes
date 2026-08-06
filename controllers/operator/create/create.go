@@ -47,7 +47,14 @@ var (
 
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Services.
 // It returns any errors coming from Kubernetes API.
-func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+func DatabaseInKubernetes(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	mdb mdbv1.MongoDB,
+	sts appsv1.StatefulSet,
+	config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions,
+	log *zap.SugaredLogger,
+) (*appsv1.StatefulSet, error) {
 	opts := config(mdb)
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, mdb.Namespace, log, &sts)
 	if err != nil {
@@ -60,7 +67,14 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 	}
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(
+		namespacedName,
+		&mdb,
+		&set.Spec.ServiceName,
+		nil,
+		opts.ServicePort,
+		omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP},
+	)
 	internalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
@@ -93,7 +107,12 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 // HandlePVCResize handles the state machine of a PVC resize.
 // Note: it modifies the desiredSTS.annotation to trigger a rolling restart later
 // We leverage workflowStatus.WithAdditionalOptions(...) to merge/update/add to existing mdb.status.pvc
-func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, log *zap.SugaredLogger) workflow.Status {
+func HandlePVCResize(
+	ctx context.Context,
+	memberClient kubernetesClient.Client,
+	desiredSts *appsv1.StatefulSet,
+	log *zap.SugaredLogger,
+) workflow.Status {
 	existingStatefulSet, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 	if stsErr != nil {
 		// if we are here it means its first reconciling, we can skip the whole pvc state machine
@@ -111,7 +130,9 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	for _, pvcResize := range pvcResizes {
 		if pvcResize.resizeIndicator == 1 {
 			log.Debug("Can't update the stateful set, as we cannot decrease the pvc size")
-			return workflow.Failed(xerrors.Errorf("can't update pvc and statefulset to a smaller storage, from: %s - to:%s", pvcResize.from, pvcResize.to))
+			return workflow.Failed(
+				xerrors.Errorf("can't update pvc and statefulset to a smaller storage, from: %s - to:%s", pvcResize.from, pvcResize.to),
+			)
 		}
 		if pvcResize.resizeIndicator == -1 {
 			log.Infof("Detected PVC size expansion; for pvc %s, from: %s to: %s", pvcResize.pvcName, pvcResize.from, pvcResize.to)
@@ -142,7 +163,8 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 			log.Info("Deleting StatefulSet and orphan pods")
 			// Cascade delete the StatefulSet
 			deletePolicy := metav1.DeletePropagationOrphan
-			if err := memberClient.Delete(ctx, desiredSts, client.PropagationPolicy(deletePolicy)); err != nil && !apiErrors.IsNotFound(err) {
+			if err := memberClient.Delete(ctx, desiredSts, client.PropagationPolicy(deletePolicy)); err != nil &&
+				!apiErrors.IsNotFound(err) {
 				return workflow.Failed(xerrors.Errorf("error deleting sts, err: %s", err))
 			}
 
@@ -154,7 +176,8 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 					"Restarting the reconcile").WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhasePVCResize, StatefulsetName: desiredSts.Name}))
 			}
 			log.Info("Statefulset have been orphaned")
-			return workflow.OK().WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: desiredSts.Name}))
+			return workflow.OK().
+				WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: desiredSts.Name}))
 		} else {
 			log.Info("PVCs are still resizing, waiting until it has finished")
 			return workflow.Pending("PVC resizes has not finished; current state of sts: %s: %s", desiredSts.Name, pvc.PhasePVCResize).WithAdditionalOptions(status.NewPVCsStatusOption(&status.PVC{Phase: pvc.PhasePVCResize, StatefulsetName: desiredSts.Name}))
@@ -164,7 +187,13 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	return workflow.OK()
 }
 
-func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {
+func checkStatefulsetIsDeleted(
+	ctx context.Context,
+	memberClient kubernetesClient.Client,
+	desiredSts *appsv1.StatefulSet,
+	sleepDuration time.Duration,
+	log *zap.SugaredLogger,
+) bool {
 	// After deleting the statefulset it can take seconds to be reflected in kubernetes.
 	// In case it is still not reflected
 	deletedIsStatefulset := false
@@ -190,7 +219,9 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 	finishedResizing := true
 	for _, currentPVC := range pvcList.Items {
 		if template, index := getMatchingPVCTemplateFromSTS(desiredSts, &currentPVC); template != nil {
-			if currentPVC.Status.Capacity.Storage().Cmp(*desiredSts.Spec.VolumeClaimTemplates[index].Spec.Resources.Requests.Storage()) != 0 {
+			if currentPVC.Status.Capacity.Storage().
+				Cmp(*desiredSts.Spec.VolumeClaimTemplates[index].Spec.Resources.Requests.Storage()) !=
+				0 {
 				finishedResizing = false
 			}
 		}
@@ -199,7 +230,12 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 }
 
 // resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
-func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+func resizePVCsStorage(
+	ctx context.Context,
+	kubeClient kubernetesClient.Client,
+	statefulSetToCreate *appsv1.StatefulSet,
+	log *zap.SugaredLogger,
+) error {
 	// this is to ensure that requests to a potentially not allowed resource is not blocking the operator until the end
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -213,7 +249,13 @@ func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, 
 		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
 			currentSize := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
 			targetSize := *template.Spec.Resources.Requests.Storage()
-			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.GetNamespace(), existingPVC.GetName(), currentSize.String(), targetSize.String())
+			log.Infof(
+				"Resizing PVC %s/%s from %s to %s",
+				existingPVC.GetNamespace(),
+				existingPVC.GetName(),
+				currentSize.String(),
+				targetSize.String(),
+			)
 			existingPVC.Spec.Resources.Requests[corev1.ResourceStorage] = targetSize
 			if err := kubeClient.Update(ctx, &existingPVC); err != nil {
 				return err
@@ -223,7 +265,10 @@ func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, 
 	return nil
 }
 
-func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, int) {
+func getMatchingPVCTemplateFromSTS(
+	statefulSet *appsv1.StatefulSet,
+	pvc *corev1.PersistentVolumeClaim,
+) (*corev1.PersistentVolumeClaim, int) {
 	for i, claimTemplate := range statefulSet.Spec.VolumeClaimTemplates {
 		expectedPrefix := fmt.Sprintf("%s-%s", claimTemplate.Name, statefulSet.Name)
 
@@ -238,12 +283,28 @@ func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.
 
 // createExternalServices creates the external services.
 // For sharded clusters: services are only created for mongos.
-func createExternalServices(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
+func createExternalServices(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	mdb mdbv1.MongoDB,
+	opts construct.DatabaseStatefulSetOptions,
+	namespacedName client.ObjectKey,
+	set *appsv1.StatefulSet,
+	podNum int,
+	log *zap.SugaredLogger,
+) error {
 	if mdb.IsShardedCluster() && !opts.IsMongos() {
 		return nil
 	}
 	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
-	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	externalService := BuildService(
+		namespacedName,
+		&mdb,
+		&set.Spec.ServiceName,
+		ptr.To(dns.GetPodName(set.Name, podNum)),
+		opts.ServicePort,
+		omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer},
+	)
 	externalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -254,15 +315,33 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 		// external domain (e.g. for multi-cluster no-mesh), then we need to define backup port.
 		// In the agent process, we pass -ephemeralPortOffset 1 argument to define, that backup port should be a standard port+1.
 		backupPort := GetNonEphemeralBackupPort(opts.ServicePort)
-		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt32(backupPort), Name: "backup"})
+		externalService.Spec.Ports = append(
+			externalService.Spec.Ports,
+			corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt32(backupPort), Name: "backup"},
+		)
 	}
 
 	if mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
-		externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+		externalService.Spec = merge.ServiceSpec(
+			externalService.Spec,
+			mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec,
+		)
 	}
-	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+	externalService.Annotations = merge.StringToStringMap(
+		externalService.Annotations,
+		mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations,
+	)
 
-	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), mdb.Spec.GetExternalDomain(), mdb.Spec.GetClusterDomain(), podNum, mdb.GetResourceType())
+	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(
+		mdb.Name,
+		set.Name,
+		mdb.Namespace,
+		mdb.ServiceName(),
+		mdb.Spec.GetExternalDomain(),
+		mdb.Spec.GetClusterDomain(),
+		podNum,
+		mdb.GetResourceType(),
+	)
 	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(externalService.Annotations); err != nil {
 		return xerrors.Errorf("failed to process annotations in service %s: %w", externalService.Name, err)
 	} else if replacedFlag {
@@ -292,7 +371,16 @@ const (
 	PlaceholderClusterIndex        = "clusterIndex"
 )
 
-func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, externalDomain *string, clusterDomain string, podIdx int, resourceType mdbv1.ResourceType) *placeholders.Replacer {
+func GetSingleClusterMongoDBPlaceholderReplacer(
+	resourceName string,
+	statefulSetName string,
+	namespace string,
+	serviceName string,
+	externalDomain *string,
+	clusterDomain string,
+	podIdx int,
+	resourceType mdbv1.ResourceType,
+) *placeholders.Replacer {
 	podName := dns.GetPodName(statefulSetName, podIdx)
 	placeholderValues := map[string]string{
 		PlaceholderPodIndex:            fmt.Sprintf("%d", podIdx),
@@ -320,7 +408,16 @@ func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSet
 	return placeholders.New(placeholderValues)
 }
 
-func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, namespace string, clusterName string, clusterNum int, externalDomain *string, clusterDomain string, podIdx int) *placeholders.Replacer {
+func GetMultiClusterMongoDBPlaceholderReplacer(
+	name string,
+	stsName string,
+	namespace string,
+	clusterName string,
+	clusterNum int,
+	externalDomain *string,
+	clusterDomain string,
+	podIdx int,
+) *placeholders.Replacer {
 	podName := dns.GetMultiPodName(stsName, clusterNum, podIdx)
 	serviceDomain := dns.GetServiceDomain(namespace, clusterDomain, externalDomain)
 	placeholderValues := map[string]string{
@@ -331,14 +428,28 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, name
 		PlaceholderStatefulSetName:     dns.GetMultiStatefulSetName(stsName, clusterNum),
 		PlaceholderExternalServiceName: dns.GetMultiExternalServiceName(stsName, clusterNum, podIdx),
 		PlaceholderMongodProcessDomain: serviceDomain,
-		PlaceholderMongodProcessFQDN:   dns.GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podIdx, clusterDomain),
-		PlaceholderClusterName:         clusterName,
-		PlaceholderClusterIndex:        fmt.Sprintf("%d", clusterNum),
+		PlaceholderMongodProcessFQDN: dns.GetMultiClusterPodServiceFQDN(
+			stsName,
+			namespace,
+			clusterNum,
+			externalDomain,
+			podIdx,
+			clusterDomain,
+		),
+		PlaceholderClusterName:  clusterName,
+		PlaceholderClusterIndex: fmt.Sprintf("%d", clusterNum),
 	}
 
 	if strings.HasSuffix(stsName, "mongos") {
 		placeholderValues[PlaceholderMongosProcessDomain] = serviceDomain
-		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podIdx, clusterDomain)
+		placeholderValues[PlaceholderMongosProcessFQDN] = dns.GetMultiClusterPodServiceFQDN(
+			stsName,
+			namespace,
+			clusterNum,
+			externalDomain,
+			podIdx,
+			clusterDomain,
+		)
 		if externalDomain != nil {
 			placeholderValues[PlaceholderMongosProcessDomain] = *externalDomain
 		}
@@ -354,14 +465,28 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, name
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+func AppDBInKubernetes(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	opsManager *omv1.MongoDBOpsManager,
+	sts appsv1.StatefulSet,
+	serviceSelectorLabel string,
+	log *zap.SugaredLogger,
+) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return nil, err
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, opsManager, ptr.To(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(
+		namespacedName,
+		opsManager,
+		ptr.To(serviceSelectorLabel),
+		nil,
+		opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(),
+		omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP},
+	)
 	internalService.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
@@ -383,7 +508,13 @@ func (s StatefulSetIsRecreating) Error() string {
 }
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
-func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+func BackupDaemonInKubernetes(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	opsManager *omv1.MongoDBOpsManager,
+	sts appsv1.StatefulSet,
+	log *zap.SugaredLogger,
+) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		// Check if it is a k8s error or a custom one
@@ -401,7 +532,14 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 		return nil, StatefulSetIsRecreating{"deleted the old backup stateful set and creating a new one in next reconciliation"}
 	}
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, opsManager, &set.Spec.ServiceName, nil, construct.BackupDaemonServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(
+		namespacedName,
+		opsManager,
+		&set.Spec.ServiceName,
+		nil,
+		construct.BackupDaemonServicePort,
+		omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP},
+	)
 	internalService.OwnerReferences = opsManager.OwnerReferenceForMemberCluster()
 	internalService.Spec.PublishNotReadyAddresses = false
 
@@ -410,7 +548,13 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 
 // OpsManagerInKubernetes creates all the required Kubernetes resources for Ops Manager.
 // It creates the StatefulSet and all required services.
-func OpsManagerInKubernetes(ctx context.Context, memberCluster multicluster.MemberCluster, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+func OpsManagerInKubernetes(
+	ctx context.Context,
+	memberCluster multicluster.MemberCluster,
+	opsManager *omv1.MongoDBOpsManager,
+	sts appsv1.StatefulSet,
+	log *zap.SugaredLogger,
+) (*appsv1.StatefulSet, error) {
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, memberCluster.Client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return nil, err
@@ -500,7 +644,14 @@ func addQueryableBackupPortToService(opsManager *omv1.MongoDBOpsManager, service
 //
 // When appLabel is specified, then the selector is targeting all pods (round-robin service). Usable for e.g. OpsManager service.
 // When podLabel is specified, then the selector is targeting only a single pod. Used for external services or multi-cluster services.
-func BuildService(namespacedName types.NamespacedName, owner v1.ObjectOwner, appLabel *string, podLabel *string, port int32, mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition) corev1.Service {
+func BuildService(
+	namespacedName types.NamespacedName,
+	owner v1.ObjectOwner,
+	appLabel *string,
+	podLabel *string,
+	port int32,
+	mongoServiceDefinition omv1.MongoDBOpsManagerServiceDefinition,
+) corev1.Service {
 	svcLabels := owner.GetOwnerLabels()
 
 	selectorLabels := map[string]string{
@@ -591,7 +742,10 @@ type pvcResize struct {
 //	 1: toCreateVolumeClaims < desiredVolumeClaims → decrease storage
 //	-1: toCreateVolumeClaims > desiredVolumeClaims → increase storage
 //	 0: toCreateVolumeClaims = desiredVolumeClaims → storage stays same
-func resourceStorageHasChanged(existingVolumeClaims []corev1.PersistentVolumeClaim, desiredVolumeClaims []corev1.PersistentVolumeClaim) []pvcResize {
+func resourceStorageHasChanged(
+	existingVolumeClaims []corev1.PersistentVolumeClaim,
+	desiredVolumeClaims []corev1.PersistentVolumeClaim,
+) []pvcResize {
 	existingClaimByName := map[string]*corev1.PersistentVolumeClaim{}
 	var pvcResizes []pvcResize
 

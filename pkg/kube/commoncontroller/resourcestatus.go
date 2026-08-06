@@ -20,7 +20,14 @@ import (
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
-func UpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
+func UpdateStatus(
+	ctx context.Context,
+	kubeClient kubernetesClient.Client,
+	reconciledResource v1.CustomResourceReadWriter,
+	st workflow.Status,
+	log *zap.SugaredLogger,
+	statusOptions ...status.Option,
+) (reconcile.Result, error) {
 	mergedOptions := append(statusOptions, st.StatusOptions()...)
 	log.Infof("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
 	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
@@ -43,7 +50,12 @@ type patchValue struct {
 // Note, that this method enforces update ONLY to the status, so the reconciliation events happening because of this
 // can be filtered out by 'controller.shouldReconcile'
 // The "jsonPatch" merge allows to update only status field
-func patchUpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, options ...status.Option) error {
+func patchUpdateStatus(
+	ctx context.Context,
+	kubeClient kubernetesClient.Client,
+	resource v1.CustomResourceReadWriter,
+	options ...status.Option,
+) error {
 	payload := []patchValue{{
 		Op:   "replace",
 		Path: resource.GetStatusPath(options...),
@@ -78,7 +90,12 @@ func patchUpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, 
 // Each path (ancestors and leaf) is probed before being added: JSON-patch add
 // REPLACES an existing member, so an unconditional add at /status would wipe
 // sibling status fields written by another controller.
-func ensureStatusSubresourceExists(ctx context.Context, kubeClient kubernetesClient.Client, resource v1.CustomResourceReadWriter, options ...status.Option) error {
+func ensureStatusSubresourceExists(
+	ctx context.Context,
+	kubeClient kubernetesClient.Client,
+	resource v1.CustomResourceReadWriter,
+	options ...status.Option,
+) error {
 	for _, pathStr := range statusSubresourcePatchPaths(resource.GetStatusPath(options...)) {
 		if !statusPathAbsent(ctx, kubeClient, resource, pathStr) {
 			continue

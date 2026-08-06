@@ -106,7 +106,12 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
+func (r *ReconcileCommonController) getRoleAnnotation(
+	ctx context.Context,
+	db mdbv1.DbCommonSpec,
+	enableClusterMongoDBRoles bool,
+	mongodbResourceNsName types.NamespacedName,
+) (map[string]string, []string, error) {
 	previousRoles, err := r.getRoleStrings(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("Error retrieving configured roles: %w", err)
@@ -122,7 +127,12 @@ func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db md
 	return annotationToAdd, previousRoles, nil
 }
 
-func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]string, error) {
+func (r *ReconcileCommonController) getRoleStrings(
+	ctx context.Context,
+	db mdbv1.DbCommonSpec,
+	enableClusterMongoDBRoles bool,
+	mongodbResourceNsName types.NamespacedName,
+) ([]string, error) {
 	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
 	if err != nil {
 		return []string{}, err
@@ -136,7 +146,12 @@ func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1
 	return roleStrings, nil
 }
 
-func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
+func (r *ReconcileCommonController) getRoles(
+	ctx context.Context,
+	db mdbv1.DbCommonSpec,
+	enableClusterMongoDBRoles bool,
+	mongodbResourceNsName types.NamespacedName,
+) ([]mdbv1.MongoDBRole, error) {
 	localRoles := db.GetSecurity().Roles
 	roleRefs := db.GetSecurity().RoleRefs
 
@@ -147,7 +162,9 @@ func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCom
 	var roles []mdbv1.MongoDBRole
 	if len(roleRefs) > 0 {
 		if !enableClusterMongoDBRoles {
-			return nil, xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC.")
+			return nil, xerrors.Errorf(
+				"RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC.",
+			)
 		}
 		var err error
 		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName, db.Version)
@@ -164,7 +181,15 @@ func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCom
 // ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
 // Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
 // If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, previousRoles []string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureRoles(
+	ctx context.Context,
+	db mdbv1.DbCommonSpec,
+	enableClusterMongoDBRoles bool,
+	conn om.Connection,
+	mongodbResourceNsName types.NamespacedName,
+	previousRoles []string,
+	log *zap.SugaredLogger,
+) workflow.Status {
 	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
 	if err != nil {
 		return workflow.Failed(err)
@@ -267,7 +292,12 @@ func mergeRoles(deployed []mdbv1.MongoDBRole, current []mdbv1.MongoDBRole, previ
 // It will also add the referenced resources to the resource watcher, so that they are watched for changes.
 // The referenced resources are expected to be of kind ClusterMongoDBRole.
 // This implementation is prepared for a future namespaced variant of ClusterMongoDBRole.
-func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []mdbv1.MongoDBRoleRef, mongodbResourceNsName types.NamespacedName, mdbVersion string) ([]mdbv1.MongoDBRole, error) {
+func (r *ReconcileCommonController) getRoleRefs(
+	ctx context.Context,
+	roleRefs []mdbv1.MongoDBRoleRef,
+	mongodbResourceNsName types.NamespacedName,
+	mdbVersion string,
+) ([]mdbv1.MongoDBRole, error) {
 	roles := make([]mdbv1.MongoDBRole, len(roleRefs))
 
 	for idx, ref := range roleRefs {
@@ -280,7 +310,10 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
 			if err != nil {
 				if apiErrors.IsNotFound(err) {
-					return nil, xerrors.Errorf("ClusterMongoDBRole '%s' not found. If the resource was deleted, the role is still present in MongoDB. To correctly remove a role from MongoDB, please remove the reference from spec.security.roleRefs.", ref.Name)
+					return nil, xerrors.Errorf(
+						"ClusterMongoDBRole '%s' not found. If the resource was deleted, the role is still present in MongoDB. To correctly remove a role from MongoDB, please remove the reference from spec.security.roleRefs.",
+						ref.Name,
+					)
 				}
 				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
 			}
@@ -304,7 +337,13 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 
 // updateStatus updates the status for the CR using patch operation. Note, that the resource status is mutated and
 // it's important to pass resource by pointer to all methods which invoke current 'updateStatus'.
-func (r *ReconcileCommonController) updateStatus(ctx context.Context, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
+func (r *ReconcileCommonController) updateStatus(
+	ctx context.Context,
+	reconciledResource v1.CustomResourceReadWriter,
+	st workflow.Status,
+	log *zap.SugaredLogger,
+	statusOptions ...status.Option,
+) (reconcile.Result, error) {
 	return commoncontroller.UpdateStatus(ctx, r.client, reconciledResource, st, log, statusOptions...)
 }
 
@@ -321,7 +360,12 @@ type WatcherResource interface {
 // Note: everything is watched under the same namespace as the objectKey
 // in case getSecretNames func is nil, we will default to common mechanism to get the secret names
 // TODO: unify the watcher setup with the secret creation/mounting code in database creation
-func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherResource, getTLSSecretNames func() []string, getInternalAuthSecretNames func() []string, resourceNameForSecret string) {
+func (r *ReconcileCommonController) SetupCommonWatchers(
+	watcherResource WatcherResource,
+	getTLSSecretNames func() []string,
+	getInternalAuthSecretNames func() []string,
+	resourceNameForSecret string,
+) {
 	// We remove all watched resources
 	objectToReconcile := watcherResource.ObjectKey()
 	r.resourceWatcher.RemoveDependentWatchedResources(objectToReconcile)
@@ -366,13 +410,23 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 }
 
 // GetResource populates the provided runtime.Object with some additional error handling
-func (r *ReconcileCommonController) GetResource(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *ReconcileCommonController) GetResource(
+	ctx context.Context,
+	request reconcile.Request,
+	resource v1.CustomResourceReadWriter,
+	log *zap.SugaredLogger,
+) (reconcile.Result, error) {
 	return commoncontroller.GetResource(ctx, r.client, request, resource, log)
 }
 
 // prepareResourceForReconciliation finds the object being reconciled. Returns the reconcile result and any error that
 // occurred.
-func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *ReconcileCommonController) prepareResourceForReconciliation(
+	ctx context.Context,
+	request reconcile.Request,
+	resource v1.CustomResourceReadWriter,
+	log *zap.SugaredLogger,
+) (reconcile.Result, error) {
 	if result, err := r.GetResource(ctx, request, resource, log); err != nil {
 		return result, err
 	}
@@ -409,15 +463,29 @@ func checkIfHasExcessProcesses(conn om.Connection, resourceName string, log *zap
 		log.Warnw("could not remove externally managed tag from Ops Manager group", "error", err)
 	}
 
-	return workflow.Pending("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+	return workflow.Pending(
+		"cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)",
+	)
 }
 
 // validateInternalClusterCertsAndCheckTLSType verifies that all the x509 internal cluster certs exist and return whether they are built following the kubernetes.io/tls secret type (tls.crt/tls.key entries).
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
-func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {
+func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
+	ctx context.Context,
+	configurator certs.X509CertConfigurator,
+	opts certs.Options,
+	log *zap.SugaredLogger,
+) error {
 	secretName := opts.InternalClusterSecretName
 
-	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), secretName, opts, log)
+	err := certs.VerifyAndEnsureCertificatesForStatefulSet(
+		ctx,
+		configurator.GetSecretReadClient(),
+		configurator.GetSecretWriteClient(),
+		secretName,
+		opts,
+		log,
+	)
 	if err != nil {
 		return xerrors.Errorf("the secret object '%s' does not contain all the certificates needed: %w", secretName, err)
 	}
@@ -432,8 +500,25 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 }
 
 // ensureBackupConfigurationAndUpdateStatus configures backup in Ops Manager based on the MongoDB resources spec
-func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger, backupEnableDelay time.Duration) workflow.Status {
-	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log, backupEnableDelay)
+func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(
+	ctx context.Context,
+	conn om.Connection,
+	mdb backup.ConfigReaderUpdater,
+	secretsReader secrets.SecretClient,
+	log *zap.SugaredLogger,
+	backupEnableDelay time.Duration,
+) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(
+		ctx,
+		mdb,
+		secretsReader,
+		conn.GroupID(),
+		conn,
+		conn,
+		conn,
+		log,
+		backupEnableDelay,
+	)
 	if len(opts) > 0 {
 		if _, err := r.updateStatus(ctx, mdb, statusOpt, log, opts...); err != nil {
 			return workflow.Failed(err)
@@ -464,14 +549,23 @@ func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
 			return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
 		}
 		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
-			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
+			return workflow.Unsupported(
+				"This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s",
+				omVersion,
+				oldestSupportedOpsManagerVersion,
+			)
 		}
 	}
 	return workflow.OK()
 }
 
 // scaleStatefulSet sets the number of replicas for a StatefulSet and returns a reference of the updated resource.
-func (r *ReconcileCommonController) scaleStatefulSet(ctx context.Context, namespace, name string, replicas int32, client kubernetesClient.Client) (appsv1.StatefulSet, error) {
+func (r *ReconcileCommonController) scaleStatefulSet(
+	ctx context.Context,
+	namespace, name string,
+	replicas int32,
+	client kubernetesClient.Client,
+) (appsv1.StatefulSet, error) {
 	if set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name)); err != nil {
 		return set, err
 	} else {
@@ -489,7 +583,9 @@ func validateScram(mdb *mdbv1.MongoDB, ac *om.AutomationConfig) workflow.Status 
 
 	scram256IsAlreadyEnabled := stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(authentication.ScramSha256))
 	attemptingToDowngradeMongoDBVersion := ac.Deployment.MinimumMajorVersion() >= 4 && specVersion.Major < 4
-	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion && stringutil.Contains(mdb.Spec.Security.Authentication.GetModes(), "SCRAM") && scram256IsAlreadyEnabled
+	isDowngradingFromScramSha256ToScramSha1 := attemptingToDowngradeMongoDBVersion &&
+		stringutil.Contains(mdb.Spec.Security.Authentication.GetModes(), "SCRAM") &&
+		scram256IsAlreadyEnabled
 
 	if isDowngradingFromScramSha256ToScramSha1 {
 		return workflow.Invalid("Unable to downgrade to SCRAM-SHA-1 when SCRAM-SHA-256 has been enabled")
@@ -522,7 +618,15 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // enables/disables authentication. If the authentication can't be fully configured, a boolean value indicating that
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 // Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
-func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertPath, caFilepath, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
+func (r *ReconcileCommonController) updateOmAuthentication(
+	ctx context.Context,
+	conn om.Connection,
+	processNames []string,
+	ar authentication.AuthResource,
+	agentCertPath, caFilepath, clusterFilePath string,
+	isRecovering bool,
+	log *zap.SugaredLogger,
+) (status workflow.Status, multiStageReconciliation bool) {
 	// don't touch authentication settings if resource has not been configured with them
 	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
 		return workflow.OK(), false
@@ -572,7 +676,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
 	if ar.IsLDAPEnabled() {
-		bindUserPassword, err := r.ReadSecretKey(ctx, kube.ObjectKey(ar.GetNamespace(), ar.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
+		bindUserPassword, err := r.ReadSecretKey(
+			ctx,
+			kube.ObjectKey(ar.GetNamespace(), ar.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name),
+			databaseSecretPath,
+			"password",
+		)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("error reading bind user password: %w", err)), false
 		}
@@ -616,7 +725,12 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		}
 		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
 			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
-			autoConfigPassword, err := r.ReadSecretKey(ctx, kube.ObjectKey(ar.GetNamespace(), secretRef.Name), databaseSecretPath, secretRef.Key)
+			autoConfigPassword, err := r.ReadSecretKey(
+				ctx,
+				kube.ObjectKey(ar.GetNamespace(), secretRef.Name),
+				databaseSecretPath,
+				secretRef.Key,
+			)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("error reading automation agent password: %w", err)), false
 			}
@@ -657,7 +771,13 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 // configureAgentSubjects returns a new authentication.Options which has configured the Subject lines for the automation agent.
 // The Ops Manager user names for these agents will be configured based on the contents of the secret.
-func (r *ReconcileCommonController) configureAgentSubjects(ctx context.Context, namespace string, secretKeySelector corev1.SecretKeySelector, authOpts authentication.Options, log *zap.SugaredLogger) (authentication.Options, error) {
+func (r *ReconcileCommonController) configureAgentSubjects(
+	ctx context.Context,
+	namespace string,
+	secretKeySelector corev1.SecretKeySelector,
+	authOpts authentication.Options,
+	log *zap.SugaredLogger,
+) (authentication.Options, error) {
 	userOpts, err := r.readAgentSubjectsFromSecret(ctx, namespace, secretKeySelector, log)
 	if err != nil {
 		return authentication.Options{}, xerrors.Errorf("error reading agent subjects from secret: %w", err)
@@ -666,7 +786,12 @@ func (r *ReconcileCommonController) configureAgentSubjects(ctx context.Context, 
 	return authOpts, nil
 }
 
-func (r *ReconcileCommonController) readAgentSubjectsFromSecret(ctx context.Context, namespace string, secretKeySelector corev1.SecretKeySelector, log *zap.SugaredLogger) (authentication.UserOptions, error) {
+func (r *ReconcileCommonController) readAgentSubjectsFromSecret(
+	ctx context.Context,
+	namespace string,
+	secretKeySelector corev1.SecretKeySelector,
+	log *zap.SugaredLogger,
+) (authentication.UserOptions, error) {
 	userOpts := authentication.UserOptions{}
 
 	var databaseSecretPath string
@@ -695,7 +820,13 @@ func (r *ReconcileCommonController) readAgentSubjectsFromSecret(ctx context.Cont
 	}, nil
 }
 
-func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx context.Context, conn om.Connection, mdb *mdbv1.MongoDB, processNames []string, log *zap.SugaredLogger) error {
+func (r *ReconcileCommonController) clearProjectAuthenticationSettings(
+	ctx context.Context,
+	conn om.Connection,
+	mdb *mdbv1.MongoDB,
+	processNames []string,
+	log *zap.SugaredLogger,
+) error {
 	agentCertSecretName := mdb.Spec.GetSecurity().AgentClientCertificateSecretName(mdb.Name)
 	agentCertSecretSelector := corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
@@ -717,7 +848,12 @@ func (r *ReconcileCommonController) clearProjectAuthenticationSettings(ctx conte
 }
 
 // ensureX509SecretAndCheckTLSType checks if the secrets containing the certificates are present and whether the certificate are of kubernetes.io/tls type.
-func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, currentAuthMechanism string, log *zap.SugaredLogger) workflow.Status {
+func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(
+	ctx context.Context,
+	configurator certs.X509CertConfigurator,
+	currentAuthMechanism string,
+	log *zap.SugaredLogger,
+) workflow.Status {
 	security := configurator.GetDbCommonSpec().GetSecurity()
 	authSpec := security.Authentication
 	if authSpec == nil || !security.Authentication.Enabled {
@@ -729,7 +865,13 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
 		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
+			ctx,
+			configurator.GetSecretReadClient(),
+			configurator.GetSecretWriteClient(),
+			kube.ObjectKey(configurator.GetNamespace(), agentSecretName),
+			log,
+		)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -752,7 +894,13 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
-func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn om.Connection, names []string, clusterAuth string, filePath string, isRecovering bool) error {
+func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(
+	conn om.Connection,
+	names []string,
+	clusterAuth string,
+	filePath string,
+	isRecovering bool,
+) error {
 	if filePath == "" {
 		return nil
 	}
@@ -766,7 +914,12 @@ func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn 
 // getAgentVersion resolves the agent version to use. When customAgentURL is set,
 // the version is extracted from the URL filename, overriding the Ops Manager API,
 // mapping file, and Cloud Manager paths.
-func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
+func (r *ReconcileCommonController) getAgentVersion(
+	conn om.Connection,
+	omVersion string,
+	isAppDB bool,
+	log *zap.SugaredLogger,
+) (string, error) {
 	// When a custom agent URL is set, derive the version from the URL filename.
 	// This overrides all other version resolution (Ops Manager API, mapping, Cloud Manager).
 	if r.customAgentURL != "" {
@@ -800,7 +953,13 @@ func agentVersionFromURL(url string) string {
 }
 
 // deleteClusterResources removes all resources that are associated with the given resource owner in a given cluster.
-func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
+func (r *ReconcileCommonController) deleteClusterResources(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	clusterName string,
+	resourceOwner v1.ObjectOwner,
+	log *zap.SugaredLogger,
+) error {
 	errs := deleteOwnedClusterResources(ctx, client, clusterName, resourceOwner, log)
 
 	r.resourceWatcher.RemoveDependentWatchedResources(resourceOwner.ObjectKey())
@@ -809,7 +968,13 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 }
 
 // deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.
-func deleteOwnedClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
+func deleteOwnedClusterResources(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	clusterName string,
+	resourceOwner v1.ObjectOwner,
+	log *zap.SugaredLogger,
+) error {
 	objectKey := resourceOwner.ObjectKey()
 
 	// cleanup resources in the namespace as the MongoDB with the corresponding label.
@@ -848,7 +1013,12 @@ func deleteOwnedClusterResources(ctx context.Context, client kubernetesClient.Cl
 
 // agentCertHashAndPath returns a hash of an agent certificate along with file path
 // to the said certificate. File path also contains the hash.
-func (r *ReconcileCommonController) agentCertHashAndPath(ctx context.Context, log *zap.SugaredLogger, namespace, agentCertSecretName string, appdbSecretPath string) (string, string) {
+func (r *ReconcileCommonController) agentCertHashAndPath(
+	ctx context.Context,
+	log *zap.SugaredLogger,
+	namespace, agentCertSecretName string,
+	appdbSecretPath string,
+) (string, string) {
 	agentCertHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, namespace, agentCertSecretName, appdbSecretPath, log)
 	agentCertPath := ""
 	if agentCertHash != "" {
@@ -871,7 +1041,16 @@ func isPrometheusSupported(conn om.Connection) bool {
 }
 
 // UpdatePrometheus configures Prometheus on the Deployment for this resource.
-func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection, prometheus *v1.Prometheus, sClient secrets.SecretClient, namespace string, certName string, log *zap.SugaredLogger) error {
+func UpdatePrometheus(
+	ctx context.Context,
+	d *om.Deployment,
+	conn om.Connection,
+	prometheus *v1.Prometheus,
+	sClient secrets.SecretClient,
+	namespace string,
+	certName string,
+	log *zap.SugaredLogger,
+) error {
 	if prometheus == nil {
 		return nil
 	}
@@ -921,7 +1100,8 @@ func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection,
 // during this reconciliation. This function may return a different value on the next reconciliation
 // if the state of Ops Manager has been changed.
 func canConfigureAuthentication(ac *om.AutomationConfig, authenticationModes []string, log *zap.SugaredLogger) bool {
-	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) && stringutil.Contains(authenticationModes, util.X509)
+	attemptingToEnableX509 := !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) &&
+		stringutil.Contains(authenticationModes, util.X509)
 	canEnableX509InOpsManager := ac.Deployment.AllProcessesAreTLSEnabled() || ac.Deployment.NumberOfProcesses() == 0
 
 	log.Debugw("canConfigureAuthentication",
@@ -962,7 +1142,13 @@ func getVolumeFromStatefulSet(sts appsv1.StatefulSet, name string) (corev1.Volum
 }
 
 // wasTLSSecretMounted checks whether TLS was previously enabled by looking at the state of the volumeMounts of the pod.
-func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, currentSts appsv1.StatefulSet, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+func wasTLSSecretMounted(
+	ctx context.Context,
+	secretGetter secret.Getter,
+	currentSts appsv1.StatefulSet,
+	mdb mdbv1.MongoDB,
+	log *zap.SugaredLogger,
+) bool {
 	tlsVolume, err := getVolumeFromStatefulSet(currentSts, util.SecretVolumeName)
 	if err != nil {
 		return false
@@ -989,7 +1175,13 @@ func wasTLSSecretMounted(ctx context.Context, secretGetter secret.Getter, curren
 }
 
 // wasCAConfigMapMounted checks whether the CA ConfigMap  by looking at the state of the volumeMounts of the pod.
-func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter, currentSts appsv1.StatefulSet, mdb mdbv1.MongoDB, log *zap.SugaredLogger) bool {
+func wasCAConfigMapMounted(
+	ctx context.Context,
+	configMapGetter configmap.Getter,
+	currentSts appsv1.StatefulSet,
+	mdb mdbv1.MongoDB,
+	log *zap.SugaredLogger,
+) bool {
 	caVolume, err := getVolumeFromStatefulSet(currentSts, util.ConfigMapVolumeCAMountPath)
 	if err != nil {
 		return false
@@ -1019,7 +1211,15 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirst(
+	ctx context.Context,
+	getter kubernetesClient.Client,
+	mdb mdbv1.MongoDB,
+	lastSpec *mdbv1.MongoDbSpec,
+	configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions,
+	defaultArchitecture architectures.DefaultArchitecture,
+	log *zap.SugaredLogger,
+) bool {
 	opts := configFunc(mdb)
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
@@ -1054,7 +1254,8 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return true
 	}
 
-	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 && statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
+	if mdb.Spec.Security.GetAgentMechanism(opts.CurrentAgentAuthMode) != util.X509 &&
+		statefulset.VolumeMountWithNameExists(volumeMounts, util.AgentSecretName) {
 		log.Debug(automationConfigFirstMsg("project.AuthMode", "empty"))
 		return true
 	}
@@ -1100,7 +1301,18 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(
+	ctx context.Context,
+	d om.Deployment,
+	spec mdbv1.DbCommonSpec,
+	lastMongodConfig map[string]interface{},
+	resourceName string,
+	rs om.ReplicaSetWithProcesses,
+	caFilePath string,
+	internalClusterPath string,
+	pc *PrometheusConfiguration,
+	log *zap.SugaredLogger,
+) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -1108,13 +1320,19 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 
 	excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
 	if excessProcesses > 0 {
-		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+		return xerrors.Errorf(
+			"cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)",
+		)
 	}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
-	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
+	d.ConfigureInternalClusterAuthentication(
+		rs.GetProcessNames(),
+		spec.GetSecurity().GetInternalClusterAuthenticationMode(),
+		internalClusterPath,
+	)
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
 	if pc != nil {

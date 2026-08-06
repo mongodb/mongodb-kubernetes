@@ -41,7 +41,13 @@ const RollingChangeArgs = "RollingChangeArgs"
 // Returns agent key that was either generated or reused from parameter agentKey.
 // We need to return the key, because in case it was generated here it has to be passed back on an agentKey argument when we're executing the
 // function over multiple clusters.
-func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId, basePath string, log *zap.SugaredLogger) (string, error) {
+func EnsureAgentKeySecretExists(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	agentKeyGenerator om.AgentKeyGenerator,
+	namespace, agentKey, projectId, basePath string,
+	log *zap.SugaredLogger,
+) (string, error) {
 	secretName := ApiKeySecretName(projectId)
 	log = log.With("secret", secretName)
 	agentKeySecret, err := secretClient.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), basePath)
@@ -84,7 +90,14 @@ func ApiKeySecretName(project string) string {
 }
 
 // WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
-func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger, rs *mdbv1.MongoDB) error {
+func WaitForRsAgentsToRegister(
+	set appsv1.StatefulSet,
+	members int,
+	clusterName string,
+	omConnection om.Connection,
+	log *zap.SugaredLogger,
+	rs *mdbv1.MongoDB,
+) error {
 	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members, rs.Spec.DbCommonSpec.GetExternalDomain())
 
 	log = log.With("statefulset", set.Name)
@@ -98,7 +111,14 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 
 // WaitForRsAgentsToRegisterByResource waits for RS agents to register using MongoDB resource directly without StatefulSet
 func WaitForRsAgentsToRegisterByResource(rs *mdbv1.MongoDB, members int, omConnection om.Connection, log *zap.SugaredLogger) error {
-	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), members, rs.Spec.DbCommonSpec.GetExternalDomain())
+	hostnames, _ := dns.GetDNSNames(
+		rs.Name,
+		rs.ServiceName(),
+		rs.Namespace,
+		rs.Spec.GetClusterDomain(),
+		members,
+		rs.Spec.DbCommonSpec.GetExternalDomain(),
+	)
 
 	log = log.With("mongodb", rs.Name)
 
@@ -235,7 +255,12 @@ func calculateProcessStateMap(processStatuses []om.ProcessStatus, agentStatuses 
 		}
 		lastPing, err := time.Parse(time.RFC3339, agentStatus.LastConf)
 		if err != nil {
-			return nil, xerrors.Errorf("wrong format for lastConf field: expected UTC format but the value is %s, agentStatus=%+v: %v", agentStatus.LastConf, agentStatus, err)
+			return nil, xerrors.Errorf(
+				"wrong format for lastConf field: expected UTC format but the value is %s, agentStatus=%+v: %v",
+				agentStatus.LastConf,
+				agentStatus,
+				err,
+			)
 		}
 		processState.LastAgentPing = lastPing
 
@@ -287,7 +312,11 @@ func agentCheck(omConnection om.Connection, agentHostnames []string, log *zap.Su
 
 	var msg string
 	if len(registeredHostnamesList) == 0 {
-		return fmt.Sprintf("None of %d expected agents has registered with OM, expected hostnames: %+v", len(agentHostnames), agentHostnames), false
+		return fmt.Sprintf(
+			"None of %d expected agents has registered with OM, expected hostnames: %+v",
+			len(agentHostnames),
+			agentHostnames,
+		), false
 	} else if len(registeredHostnamesList) == len(agentHostnames) {
 		return fmt.Sprintf("All of %d expected agents have registered with OM, hostnames: %+v", len(registeredHostnamesList), registeredHostnamesList), true
 	} else {

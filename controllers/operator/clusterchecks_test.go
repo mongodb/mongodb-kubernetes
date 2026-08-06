@@ -165,7 +165,15 @@ func (c *clusterChecks) checkServiceExists(ctx context.Context, serviceName stri
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 }
 
-func (c *clusterChecks) checkServiceAnnotations(ctx context.Context, statefulSetName string, expectedMembers int, sc *mdbv1.MongoDB, clusterName string, clusterIdx int, externalDomain string) {
+func (c *clusterChecks) checkServiceAnnotations(
+	ctx context.Context,
+	statefulSetName string,
+	expectedMembers int,
+	sc *mdbv1.MongoDB,
+	clusterName string,
+	clusterIdx int,
+	externalDomain string,
+) {
 	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
@@ -232,33 +240,78 @@ func (c *clusterChecks) checkStatefulSetDoesNotExist(ctx context.Context, statef
 
 func (c *clusterChecks) checkAgentCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)), &sec)
+	err := c.kubeClient.Get(
+		ctx,
+		kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, util.AgentSecretName)),
+		&sec,
+	)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, util.LatestHashSecretKey, "clusterName: %s", c.clusterName)
 	require.Contains(c.t, sec.Data, string(sec.Data[util.LatestHashSecretKey]), "clusterName: %s", c.clusterName)
 }
 
-func (c *clusterChecks) checkMongosCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
+func (c *clusterChecks) checkMongosCertsSecret(
+	ctx context.Context,
+	certificatesSecretsPrefix string,
+	resourceName string,
+	shouldExist bool,
+) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "mongos-cert")), &sec)
+	err := c.kubeClient.Get(
+		ctx,
+		kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "mongos-cert")),
+		&sec,
+	)
 	c.assertErrNotFound(err, shouldExist)
 }
 
-func (c *clusterChecks) checkConfigSrvCertsSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shouldExist bool) {
+func (c *clusterChecks) checkConfigSrvCertsSecret(
+	ctx context.Context,
+	certificatesSecretsPrefix string,
+	resourceName string,
+	shouldExist bool,
+) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "config-cert")), &sec)
+	err := c.kubeClient.Get(
+		ctx,
+		kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%s-pem", certificatesSecretsPrefix, resourceName, "config-cert")),
+		&sec,
+	)
 	c.assertErrNotFound(err, shouldExist)
 }
 
-func (c *clusterChecks) checkInternalClusterCertSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shardIdx int, shouldExist bool) {
+func (c *clusterChecks) checkInternalClusterCertSecret(
+	ctx context.Context,
+	certificatesSecretsPrefix string,
+	resourceName string,
+	shardIdx int,
+	shouldExist bool,
+) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-%s-pem", certificatesSecretsPrefix, resourceName, shardIdx, util.ClusterFileName)), &sec)
+	err := c.kubeClient.Get(
+		ctx,
+		kube.ObjectKey(
+			c.namespace,
+			fmt.Sprintf("%s-%s-%d-%s-pem", certificatesSecretsPrefix, resourceName, shardIdx, util.ClusterFileName),
+		),
+		&sec,
+	)
 	c.assertErrNotFound(err, shouldExist)
 }
 
-func (c *clusterChecks) checkMemberCertSecret(ctx context.Context, certificatesSecretsPrefix string, resourceName string, shardIdx int, shouldExist bool) {
+func (c *clusterChecks) checkMemberCertSecret(
+	ctx context.Context,
+	certificatesSecretsPrefix string,
+	resourceName string,
+	shardIdx int,
+	shouldExist bool,
+) {
 	sec := corev1.Secret{}
-	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-cert-pem", certificatesSecretsPrefix, resourceName, shardIdx)), &sec)
+	err := c.kubeClient.Get(
+		ctx,
+		kube.ObjectKey(c.namespace, fmt.Sprintf("%s-%s-%d-cert-pem", certificatesSecretsPrefix, resourceName, shardIdx)),
+		&sec,
+	)
 	c.assertErrNotFound(err, shouldExist)
 }
 
@@ -278,7 +331,11 @@ func (c *clusterChecks) checkMMSCAConfigMap(ctx context.Context, configMapName s
 	assert.Contains(c.t, cm.Data, util.CaCertMMS, "clusterName: %s", c.clusterName)
 }
 
-func (c *clusterChecks) checkHostnameOverrideConfigMap(ctx context.Context, configMapName string, expectedPodNameToHostnameMap map[string]string) {
+func (c *clusterChecks) checkHostnameOverrideConfigMap(
+	ctx context.Context,
+	configMapName string,
+	expectedPodNameToHostnameMap map[string]string,
+) {
 	cm := corev1.ConfigMap{}
 	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, configMapName), &cm)
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)

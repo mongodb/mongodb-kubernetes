@@ -73,7 +73,11 @@ var shared *TestEnv
 func RunShared(m *testing.M, opts ...Option) int {
 	testEnv, err := start(opts...)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to start the envtest control plane; run `make envtest-assets` to download the required binaries: %v\n", err)
+		_, _ = fmt.Fprintf(
+			os.Stderr,
+			"failed to start the envtest control plane; run `make envtest-assets` to download the required binaries: %v\n",
+			err,
+		)
 		return 1
 	}
 	shared = testEnv

@@ -143,7 +143,11 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(
+	operatorRs ReplicaSetWithProcesses,
+	specArgs26, prevArgs26 map[string]interface{},
+	l *zap.SugaredLogger,
+) {
 	log := l.With("replicaSet", operatorRs.Rs.Name())
 
 	r := d.getReplicaSetByName(operatorRs.Rs.Name())
@@ -442,7 +446,11 @@ func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
 
 // ConfigureInternalClusterAuthentication configures all processes in processNames to have the corresponding
 // clusterAuthenticationMode enabled
-func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string, clusterAuthenticationMode string, internalClusterPath string) {
+func (d Deployment) ConfigureInternalClusterAuthentication(
+	processNames []string,
+	clusterAuthenticationMode string,
+	internalClusterPath string,
+) {
 	for _, p := range processNames {
 		if process := d.getProcessByName(p); process != nil {
 			process.ConfigureClusterAuthMode(clusterAuthenticationMode, internalClusterPath)
@@ -467,7 +475,12 @@ func (d Deployment) GetInternalClusterFilePath(processNames []string) string {
 }
 
 // SetInternalClusterFilePathOnlyIfItThePathHasChanged sets the internal cluster path for the given process names only if it has changed and has been set before.
-func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []string, filePath string, clusterAuth string, isRecovering bool) {
+func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(
+	names []string,
+	filePath string,
+	clusterAuth string,
+	isRecovering bool,
+) {
 	if currPath := d.GetInternalClusterFilePath(names); isRecovering || currPath != filePath && currPath != "" {
 		d.ConfigureInternalClusterAuthentication(names, clusterAuth, filePath)
 	}
@@ -748,7 +761,8 @@ func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptio
 		}
 	}
 	// Making sure changes to existing mongos processes are propagated to new ones
-	if cntMongosProcesses := len(d.getMongosProcessesNames(opts.Name)); cntMongosProcesses > 0 && cntMongosProcesses < len(opts.MongosProcesses) {
+	if cntMongosProcesses := len(d.getMongosProcessesNames(opts.Name)); cntMongosProcesses > 0 &&
+		cntMongosProcesses < len(opts.MongosProcesses) {
 		if err := d.copyFirstProcessToNewPositions(opts.MongosProcesses, cntMongosProcesses, log); err != nil {
 			// I guess this error is not so serious to fail the whole process - mongoses will be scaled up anyway
 			log.Error("Failed to copy first mongos process (so new mongos processes may miss Ops Manager changes done to "+

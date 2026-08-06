@@ -35,7 +35,13 @@ func getWebhookName() string {
 }
 
 // createWebhookService creates a Kubernetes service for the webhook.
-func createWebhookService(ctx context.Context, client client.Client, location types.NamespacedName, webhookPort int, svcSelector string) error {
+func createWebhookService(
+	ctx context.Context,
+	client client.Client,
+	location types.NamespacedName,
+	webhookPort int,
+	svcSelector string,
+) error {
 	svc := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      location.Name,
@@ -193,7 +199,15 @@ func shouldRegisterWebhookConfiguration() bool {
 	return env.ReadBoolOrDefault(util.MdbWebhookRegisterConfigurationEnv, true) // nolint:forbidigo
 }
 
-func Setup(ctx context.Context, client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, svcSelector string, log *zap.SugaredLogger) error {
+func Setup(
+	ctx context.Context,
+	client client.Client,
+	serviceLocation types.NamespacedName,
+	certDirectory string,
+	webhookPort int,
+	svcSelector string,
+	log *zap.SugaredLogger,
+) error {
 	if !shouldRegisterWebhookConfiguration() {
 		log.Debugf("Skipping configuration of ValidatingWebhookConfiguration")
 		// After upgrading OLM version after migrating to proper OLM webhooks we don't need that `operator-service` anymore.
@@ -211,7 +225,11 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		}
 		if err := client.Delete(ctx, &webhookConfig); err != nil {
 			if !apiErrors.IsNotFound(err) {
-				log.Warnf("Failed to perform cleanup of ValidatingWebhookConfiguration %s. The operator might not have necessary permissions. Remove the configuration manually. Error: %s", webhookConfig.Name, err)
+				log.Warnf(
+					"Failed to perform cleanup of ValidatingWebhookConfiguration %s. The operator might not have necessary permissions. Remove the configuration manually. Error: %s",
+					webhookConfig.Name,
+					err,
+				)
 				// we don't want to fail the operator startup if we cannot do the cleanup
 			}
 		}

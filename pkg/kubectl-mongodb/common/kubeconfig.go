@@ -40,7 +40,11 @@ func GetMemberClusterApiServerUrls(kubeconfig *clientcmdapi.Config, clusterNames
 }
 
 // CreateClientMap crates a map of all MultiClusterClient for every member cluster, and the operator cluster.
-func CreateClientMap(memberClusters []string, operatorCluster, kubeConfigPath string, getClient func(clusterName string, kubeConfigPath string) (KubeClient, error)) (map[string]KubeClient, error) {
+func CreateClientMap(
+	memberClusters []string,
+	operatorCluster, kubeConfigPath string,
+	getClient func(clusterName string, kubeConfigPath string) (KubeClient, error),
+) (map[string]KubeClient, error) {
 	clientMap := map[string]KubeClient{}
 	for _, c := range memberClusters {
 		clientset, err := getClient(c, kubeConfigPath)

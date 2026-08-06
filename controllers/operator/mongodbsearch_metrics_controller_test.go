@@ -107,7 +107,10 @@ func newTestProjectConfigMap(name, namespace, baseURL string) *corev1.ConfigMap 
 }
 
 // newMetricsForwarderReconciler creates the reconciler with a fake client populated with the given objects.
-func newMetricsForwarderReconciler(defaultImage string, objects ...client.Object) (*MongoDBSearchMetricsForwarderReconciler, client.Client) {
+func newMetricsForwarderReconciler(
+	defaultImage string,
+	objects ...client.Object,
+) (*MongoDBSearchMetricsForwarderReconciler, client.Client) {
 	builder := mock.NewEmptyFakeClientBuilder()
 	if len(objects) > 0 {
 		builder.WithObjects(objects...)
@@ -134,7 +137,11 @@ type stubOMAgentRequester struct {
 	getOMVersionFn func(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
 }
 
-func (s stubOMAgentRequester) RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+func (s stubOMAgentRequester) RequestWithAgentAuth(
+	projectConfig mdbv1.ProjectConfig,
+	method, path, authHeader string,
+	body any,
+) ([]byte, error) {
 	return s.fn(projectConfig, method, path, authHeader, body)
 }
 
@@ -263,8 +270,11 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 			},
 			initialState: clusterTopologyState{ClusterIndex: ptr.To(0)},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
-				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
-					"legacy central Deployment must be deleted after the move to named clusters")
+				assert.True(
+					t,
+					apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
+					"legacy central Deployment must be deleted after the move to named clusters",
+				)
 				topologyState := getFullTopologyState(t, fakeClient, search)
 				assert.NotContains(t, topologyState.Clusters, "")
 				// Each named cluster persists its own pinned index, written once.
@@ -310,8 +320,11 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
 			}},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, oldDeployment *appsv1.Deployment, deletedHostIDs []string) {
-				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{})),
-					"old-index Deployment must be deleted after the index change")
+				assert.True(
+					t,
+					apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{})),
+					"old-index Deployment must be deleted after the index change",
+				)
 				require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{
 					Name: search.MetricsForwarderDeploymentNameForCluster(7), Namespace: search.Namespace,
 				}, &appsv1.Deployment{}), "new-index Deployment must be created")
@@ -334,7 +347,14 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 				stateJSON, err := json.Marshal(tc.fullState)
 				require.NoError(t, err)
 				stateCM := &corev1.ConfigMap{}
-				require.NoError(t, fakeClient.Get(t.Context(), types.NamespacedName{Name: testSearchName + "-metrics-forwarder-state", Namespace: testNamespace}, stateCM))
+				require.NoError(
+					t,
+					fakeClient.Get(
+						t.Context(),
+						types.NamespacedName{Name: testSearchName + "-metrics-forwarder-state", Namespace: testNamespace},
+						stateCM,
+					),
+				)
 				stateCM.Data[stateKey] = string(stateJSON)
 				require.NoError(t, fakeClient.Update(t.Context(), stateCM))
 			}
@@ -485,7 +505,12 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 	}{
 		{name: "local legacy single cluster"},
 		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}, crossCluster: true},
-		{name: "operator-per-cluster entry keeps pinned index and stays local", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7},
+		{
+			name:                "operator-per-cluster entry keeps pinned index and stays local",
+			clusters:            []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}},
+			operatorClusterName: "cluster-b",
+			wantIdx:             7,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -507,7 +532,19 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 			assert.Equal(t, tc.wantIdx, work.ClusterIndex)
 
 			require.NoError(t, r.ensureMetricsForwarderConfigMap(t.Context(), search, []byte("receivers: {}"), work, zap.S()))
-			require.NoError(t, r.ensureMetricsForwarderDeployment(t.Context(), search, []byte("receivers: {}"), testGroupID, "agent-key-secret", "", work, zap.S()))
+			require.NoError(
+				t,
+				r.ensureMetricsForwarderDeployment(
+					t.Context(),
+					search,
+					[]byte("receivers: {}"),
+					testGroupID,
+					"agent-key-secret",
+					"",
+					work,
+					zap.S(),
+				),
+			)
 			require.NoError(t, r.replicateForwarderDependencies(t.Context(), search, sourceSecret.Name, sourceCA.Name, work, zap.S()))
 
 			for name, obj := range map[types.NamespacedName]client.Object{
@@ -838,8 +875,19 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 		wantStateKey        string
 	}{
 		{name: "legacy single cluster"},
-		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}, crossCluster: true, wantStateKey: "member-a"},
-		{name: "operator-per-cluster", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7, wantStateKey: "cluster-b"},
+		{
+			name:         "hub member cluster",
+			clusters:     []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}},
+			crossCluster: true,
+			wantStateKey: "member-a",
+		},
+		{
+			name:                "operator-per-cluster",
+			clusters:            []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}},
+			operatorClusterName: "cluster-b",
+			wantIdx:             7,
+			wantStateKey:        "cluster-b",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -876,7 +924,12 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 					Namespace: testNamespace,
 					Name:      search.MetricsForwarderDeploymentNameForCluster(tc.wantIdx),
 				}, &appsv1.Deployment{})
-				assert.True(t, apierrors.IsNotFound(err), "member cluster's Deployment must never fall back to the central cluster, got err=%v", err)
+				assert.True(
+					t,
+					apierrors.IsNotFound(err),
+					"member cluster's Deployment must never fall back to the central cluster, got err=%v",
+					err,
+				)
 			} else {
 				assert.NotEmpty(t, dep.GetOwnerReferences(), "local resources carry the CR owner ref")
 			}
@@ -928,7 +981,16 @@ func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
 		Labels:    map[string]string{"app": "foreign"},
 	}}
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace), stateCM, existingDep, foreignDep)
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+		stateCM,
+		existingDep,
+		foreignDep,
+	)
 	fakeClientWithWatch, ok := fakeClient.(client.WithWatch)
 	require.True(t, ok)
 	var propagationPolicy *metav1.DeletionPropagation
@@ -1050,7 +1112,10 @@ func TestReconcile_CommunitySource_FinalizerLifecycle(t *testing.T) {
 				search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
 			}
 			if tc.persistedHosts {
-				objects = append(objects, newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 1}))
+				objects = append(
+					objects,
+					newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 1}),
+				)
 			}
 			r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, objects...)
 			if tc.deleteSearch {
@@ -1114,7 +1179,13 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 	}{
 		{name: "no Deployment deregisters hosts and removes the finalizer", image: testDefaultImage, disabledMode: true, stateReplicas: 2},
 		{name: "running Deployment drains before hosts are deregistered", image: testDefaultImage, existingDep: true, stateReplicas: 1},
-		{name: "Ops Manager failure retains the finalizer for retry", image: testDefaultImage, omError: true, stateReplicas: 1, wantRetained: true},
+		{
+			name:          "Ops Manager failure retains the finalizer for retry",
+			image:         testDefaultImage,
+			omError:       true,
+			stateReplicas: 1,
+			wantRetained:  true,
+		},
 		{name: "invalid spec and missing image never block deletion cleanup", invalidSpec: true},
 	}
 	for _, tc := range tests {
@@ -1187,10 +1258,20 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 				assert.Empty(t, deletedHostIDs, "expected no host deregistration while Deployment still exists")
 				require.NotNil(t, propagationPolicy)
 				assert.Equal(t, metav1.DeletePropagationForeground, *propagationPolicy)
-				assert.True(t, apierrors.IsNotFound(fakeClient.Get(context.Background(), client.ObjectKeyFromObject(existingDep), &appsv1.Deployment{})))
+				assert.True(
+					t,
+					apierrors.IsNotFound(
+						fakeClient.Get(context.Background(), client.ObjectKeyFromObject(existingDep), &appsv1.Deployment{}),
+					),
+				)
 				midDeleteSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 				require.NotNil(t, midDeleteSearch.DeletionTimestamp)
-				assert.Contains(t, midDeleteSearch.Finalizers, util.SearchMetricsForwarderFinalizer, "finalizer must remain until host cleanup finishes")
+				assert.Contains(
+					t,
+					midDeleteSearch.Finalizers,
+					util.SearchMetricsForwarderFinalizer,
+					"finalizer must remain until host cleanup finishes",
+				)
 
 				// Phase 2: the Deployment is gone → hosts deregistered, finalizer removed.
 				result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
@@ -1205,12 +1286,20 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 			}
 			assert.ElementsMatch(t, wantHosts, deletedHostIDs)
 
-			err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: testSearchName}, &searchv1.MongoDBSearch{})
+			err := fakeClient.Get(
+				context.Background(),
+				types.NamespacedName{Namespace: testNamespace, Name: testSearchName},
+				&searchv1.MongoDBSearch{},
+			)
 			if tc.wantRetained {
 				assert.True(t, result.RequeueAfter > 0)
 				require.NoError(t, err)
-				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer,
-					"finalizer must stay until host cleanup succeeds")
+				assert.Contains(
+					t,
+					getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers,
+					util.SearchMetricsForwarderFinalizer,
+					"finalizer must stay until host cleanup succeeds",
+				)
 			} else {
 				assert.True(t, apierrors.IsNotFound(err), "expected MongoDBSearch to be deleted after finalizer removal, got err=%v", err)
 			}
@@ -1253,10 +1342,21 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 
 		require.True(t, st.IsOK(), "status: %s", searchcontroller.MessageFromStatus(st))
 		// The registered cluster got its Deployment on its member cluster...
-		require.NoError(t, memberA.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, &appsv1.Deployment{}))
+		require.NoError(
+			t,
+			memberA.Get(
+				context.Background(),
+				types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+				&appsv1.Deployment{},
+			),
+		)
 		// ...and the missing cluster never fell back to the central client.
 		for _, idx := range []int{0, 1} {
-			err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(idx)}, &appsv1.Deployment{})
+			err := fakeClient.Get(
+				context.Background(),
+				types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(idx)},
+				&appsv1.Deployment{},
+			)
 			assert.True(t, apierrors.IsNotFound(err), "no Deployment expected on the central cluster at index %d, got err=%v", idx, err)
 		}
 	})
@@ -1419,31 +1519,55 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 			if tc.failDepDelete {
 				// Kubernetes-side cleanup failures are warnings: the persisted state
 				// entry and finalizer survive so the next reconcile retries.
-				assert.Positive(t, logs.FilterMessageSnippet(injectedDepDeleteErr.Error()).Len(), "expected a warning containing %q", injectedDepDeleteErr.Error())
+				assert.Positive(
+					t,
+					logs.FilterMessageSnippet(injectedDepDeleteErr.Error()).Len(),
+					"expected a warning containing %q",
+					injectedDepDeleteErr.Error(),
+				)
 				require.NoError(t, fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{}),
 					"removed cluster's Deployment must survive a warned cleanup failure")
 				assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
-				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+				assert.Contains(
+					t,
+					getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers,
+					util.SearchMetricsForwarderFinalizer,
+				)
 				return
 			}
 			assert.True(t, result.RequeueAfter > 0)
 			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
-			assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{})))
+			assert.True(
+				t,
+				apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(removedClusterDep), &appsv1.Deployment{})),
+			)
 			if tc.failFinalizerRemoval {
 				assert.True(t, result.RequeueAfter > 0)
-				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer,
-					"finalizer must survive a failed removal update and be retried")
+				assert.Contains(
+					t,
+					getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers,
+					util.SearchMetricsForwarderFinalizer,
+					"finalizer must survive a failed removal update and be retried",
+				)
 				reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 				assert.NotContains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
-				assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+				assert.NotContains(
+					t,
+					getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers,
+					util.SearchMetricsForwarderFinalizer,
+				)
 				return
 			}
 			if tc.omError {
 				// A live CR with a real Ops Manager failure must fail and retry:
 				// finalizer and persisted state entry survive for the next attempt.
 				assert.True(t, result.RequeueAfter > 0)
-				assert.Contains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+				assert.Contains(
+					t,
+					getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers,
+					util.SearchMetricsForwarderFinalizer,
+				)
 				assert.Contains(t, getFullTopologyState(t, fakeClient, search).Clusters, "cluster-b")
 				return
 			}
@@ -1455,7 +1579,11 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 				return
 			}
 			require.NoError(t, err)
-			assert.NotContains(t, getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers, util.SearchMetricsForwarderFinalizer)
+			assert.NotContains(
+				t,
+				getMongoDBSearch(t, fakeClient, testNamespace, testSearchName).Finalizers,
+				util.SearchMetricsForwarderFinalizer,
+			)
 
 			result = reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 			assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
@@ -1519,7 +1647,13 @@ func TestReconcile_EnterpriseSource_NoProjectID_Pending(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
@@ -1535,7 +1669,13 @@ func TestReconcile_NoStatusVersion_Pending(t *testing.T) {
 	search.Status.Version = ""
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
@@ -1703,7 +1843,13 @@ func TestReconcile_AutoMode_InternalEnterprise_EnabledByDefault(t *testing.T) {
 	// No explicit metrics forwarder config - auto mode by default
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	// Should create the Deployment since auto mode with enterprise source enables it
@@ -1724,7 +1870,13 @@ func TestReconcile_ConfigMapHash_TriggersRollout(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	// Get the config hash annotation
@@ -1783,7 +1935,14 @@ func TestReconcile_WithCACert(t *testing.T) {
 		Data:       map[string]string{util.CaCertMMS: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"},
 	}
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, caCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		caCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	// Verify Deployment has the CA volume
@@ -2124,7 +2283,13 @@ func TestMetricsForwarder_OMVersionTooOld_ImplicitConnection(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: "8.0.0"})
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
@@ -2136,7 +2301,11 @@ func TestMetricsForwarder_OMVersionTooOld_ImplicitConnection(t *testing.T) {
 
 	// No Deployment must exist.
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created for unsupported OM version")
 }
 
@@ -2160,7 +2329,11 @@ func TestMetricsForwarder_OMVersionTooOld_ExplicitConnection(t *testing.T) {
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created for unsupported OM version")
 }
 
@@ -2190,7 +2363,13 @@ func TestMetricsForwarder_CloudManager_ImplicitConnection(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: "v20240101"})
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
@@ -2201,7 +2380,11 @@ func TestMetricsForwarder_CloudManager_ImplicitConnection(t *testing.T) {
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Cloud Manager")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created when OM is Cloud Manager")
 }
 
@@ -2226,7 +2409,11 @@ func TestMetricsForwarder_CloudManager_ExplicitConnection(t *testing.T) {
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Cloud Manager")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created for Cloud Manager explicit connection")
 }
 
@@ -2239,12 +2426,22 @@ func TestMetricsForwarder_OMVersionSupported(t *testing.T) {
 
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
 	// Default stub already returns 8.0.25; being explicit here for clarity.
-	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion})
+	r.omRequester = newStubOMAgentRequesterWithVersion(
+		testGroupID,
+		versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion},
+	)
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	dep := &appsv1.Deployment{}
-	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep))
+	require.NoError(
+		t,
+		fakeClient.Get(
+			context.Background(),
+			types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+			dep,
+		),
+	)
 
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
@@ -2258,7 +2455,13 @@ func TestMetricsForwarder_OMVersionFetchError_Pending(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	stub := newStubOMAgentRequester(testGroupID)
 	stub.getOMVersionFn = func(_ mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
 		return versionutil.OpsManagerVersion{}, fmt.Errorf("connection refused")
@@ -2273,7 +2476,11 @@ func TestMetricsForwarder_OMVersionFetchError_Pending(t *testing.T) {
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Checking Ops Manager version compatibility")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created while OM version check is pending")
 }
 
@@ -2284,7 +2491,13 @@ func TestMetricsForwarder_OMVersionUnknown_Unsupported(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: ""})
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
@@ -2295,7 +2508,11 @@ func TestMetricsForwarder_OMVersionUnknown_Unsupported(t *testing.T) {
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Could not determine Ops Manager version")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created when OM version is unknown")
 }
 
@@ -2306,7 +2523,13 @@ func TestMetricsForwarder_OMVersionSemverParseError_Unsupported(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 
-	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace))
+	r, fakeClient := newMetricsForwarderReconciler(
+		testDefaultImage,
+		mdb,
+		search,
+		projectCM,
+		newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
+	)
 	// "a.b.c" has three dot-segments so OpsManagerVersion.Semver() attempts semver.Make("a.b.c"),
 	// which fails because the components are non-numeric.
 	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: "a.b.c"})
@@ -2319,7 +2542,11 @@ func TestMetricsForwarder_OMVersionSemverParseError_Unsupported(t *testing.T) {
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Could not determine Ops Manager version")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created when OM version cannot be parsed")
 }
 
@@ -2343,7 +2570,11 @@ func TestMetricsForwarder_OMVersionUnknown_ExplicitConnection_Failed(t *testing.
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Could not determine Ops Manager version")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created when OM version is unknown")
 }
 
@@ -2367,7 +2598,11 @@ func TestMetricsForwarder_OMVersionSemverParseError_ExplicitConnection_Failed(t 
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Could not determine Ops Manager version")
 
 	dep := &appsv1.Deployment{}
-	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
+	err := fakeClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)},
+		dep,
+	)
 	assert.True(t, apierrors.IsNotFound(err), "deployment should not be created when OM version cannot be parsed")
 }
 
@@ -2408,11 +2643,26 @@ func TestReconcileCore_StateWriteFailurePreventsDeploymentCreation(t *testing.T)
 // callReconcileTopologyState invokes reconcileTopologyState directly against the
 // single-cluster (clusterName=="", clusterIndex=0) work item, bypassing the full
 // Reconcile path so each test targets one state-machine transition.
-func callReconcileTopologyState(t *testing.T, r *MongoDBSearchMetricsForwarderReconciler, search *searchv1.MongoDBSearch, shardNames []string, agentSecretName string) (bool, error) {
+func callReconcileTopologyState(
+	t *testing.T,
+	r *MongoDBSearchMetricsForwarderReconciler,
+	search *searchv1.MongoDBSearch,
+	shardNames []string,
+	agentSecretName string,
+) (bool, error) {
 	t.Helper()
 	projectConfig := mdbv1.ProjectConfig{BaseURL: testOMBaseURL}
 	w := clusterWorkItem{ClusterName: "", ClusterIndex: 0, Client: r.kubeClient}
-	return r.reconcileTopologyState(context.Background(), search, shardNames, testGroupID, projectConfig, agentSecretName, w, zap.NewNop().Sugar())
+	return r.reconcileTopologyState(
+		context.Background(),
+		search,
+		shardNames,
+		testGroupID,
+		projectConfig,
+		agentSecretName,
+		w,
+		zap.NewNop().Sugar(),
+	)
 }
 
 // newTestMongoDBSearchWithReplicas creates a MongoDBSearch with an explicit replica count on the

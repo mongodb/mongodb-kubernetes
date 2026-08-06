@@ -67,7 +67,11 @@ func hmacIteration(hashConstructor func() hash.Hash, input, salt []byte, iterati
 	// incorrect salt size will pass validation, but the credentials will be invalid. i.e. it will not
 	// be possible to auth with the password provided to create the credentials.
 	if len(salt) != hashSize-RFC5802MandatedSaltSize {
-		return nil, fmt.Errorf("salt should have a size of %d bytes, but instead has a size of %d bytes", hashSize-RFC5802MandatedSaltSize, len(salt))
+		return nil, fmt.Errorf(
+			"salt should have a size of %d bytes, but instead has a size of %d bytes",
+			hashSize-RFC5802MandatedSaltSize,
+			len(salt),
+		)
 	}
 
 	startKey := append(salt, 0, 0, 0, 1)
@@ -115,7 +119,12 @@ func generateStoredKey(hashConstructor func() hash.Hash, clientKey []byte) ([]by
 	return h.Sum(nil), nil
 }
 
-func generateSecrets(hashConstructor func() hash.Hash, password string, salt []byte, iterationCount int) (storedKey, serverKey []byte, err error) {
+func generateSecrets(
+	hashConstructor func() hash.Hash,
+	password string,
+	salt []byte,
+	iterationCount int,
+) (storedKey, serverKey []byte, err error) {
 	saltedPassword, err := generateSaltedPassword(hashConstructor, password, salt, iterationCount)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error generating salted password: %s", err)
@@ -139,7 +148,11 @@ func generateSecrets(hashConstructor func() hash.Hash, password string, salt []b
 	return storedKey, serverKey, err
 }
 
-func generateB64EncodedSecrets(hashConstructor func() hash.Hash, password, b64EncodedSalt string, iterationCount int) (storedKey, serverKey string, err error) {
+func generateB64EncodedSecrets(
+	hashConstructor func() hash.Hash,
+	password, b64EncodedSalt string,
+	iterationCount int,
+) (storedKey, serverKey string, err error) {
 	salt, err := base64.StdEncoding.DecodeString(b64EncodedSalt)
 	if err != nil {
 		return "", "", fmt.Errorf("error decoding salt: %s", err)
@@ -156,7 +169,12 @@ func generateB64EncodedSecrets(hashConstructor func() hash.Hash, password, b64En
 }
 
 // password should be encrypted in the case of SCRAM-SHA-1 and unencrypted in the case of SCRAM-SHA-256
-func computeScramCredentials(hashConstructor func() hash.Hash, iterationCount int, base64EncodedSalt string, password string) (ScramCreds, error) {
+func computeScramCredentials(
+	hashConstructor func() hash.Hash,
+	iterationCount int,
+	base64EncodedSalt string,
+	password string,
+) (ScramCreds, error) {
 	storedKey, serverKey, err := generateB64EncodedSecrets(hashConstructor, password, base64EncodedSalt, iterationCount)
 	if err != nil {
 		return ScramCreds{}, fmt.Errorf("error generating SCRAM-SHA keys: %s", err)

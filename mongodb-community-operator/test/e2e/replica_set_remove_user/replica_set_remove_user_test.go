@@ -118,14 +118,23 @@ func TestCleanupUsers(t *testing.T) {
 	t.Run("Add new user to MongoDB Resource", mongodbtests.AddUserToMongoDBCommunity(ctx, &mdb, newUser))
 	t.Run("MongoDB reaches Running phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
 	editedUser := mdb.Spec.Users[1]
-	t.Run("Edit connection string secret name of the added user", mongodbtests.EditConnectionStringSecretNameOfLastUser(ctx, &mdb, "other-secret-name"))
+	t.Run(
+		"Edit connection string secret name of the added user",
+		mongodbtests.EditConnectionStringSecretNameOfLastUser(ctx, &mdb, "other-secret-name"),
+	)
 	t.Run("MongoDB reaches Running phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
-	t.Run("Old connection string secret is cleaned up", mongodbtests.ConnectionStringSecretIsCleanedUp(ctx, &mdb, editedUser.GetConnectionStringSecretName(mdb.Name)))
+	t.Run(
+		"Old connection string secret is cleaned up",
+		mongodbtests.ConnectionStringSecretIsCleanedUp(ctx, &mdb, editedUser.GetConnectionStringSecretName(mdb.Name)),
+	)
 	deletedUser := mdb.Spec.Users[1]
 	t.Run("Remove last user from MongoDB Resource", mongodbtests.RemoveLastUserFromMongoDBCommunity(ctx, &mdb))
 	t.Run("MongoDB reaches Pending phase", mongodbtests.MongoDBReachesPendingPhase(ctx, &mdb))
 	t.Run("Removed users are added to automation config", mongodbtests.AuthUsersDeletedIsUpdated(ctx, &mdb, deletedUser))
 	t.Run("MongoDB reaches Running phase", mongodbtests.MongoDBReachesRunningPhase(ctx, &mdb))
-	t.Run("Connection string secrets are cleaned up", mongodbtests.ConnectionStringSecretIsCleanedUp(ctx, &mdb, deletedUser.GetConnectionStringSecretName(mdb.Name)))
+	t.Run(
+		"Connection string secrets are cleaned up",
+		mongodbtests.ConnectionStringSecretIsCleanedUp(ctx, &mdb, deletedUser.GetConnectionStringSecretName(mdb.Name)),
+	)
 	t.Run("Delete MongoDB Resource", mongodbtests.DeleteMongoDBResource(&mdb, testCtx))
 }

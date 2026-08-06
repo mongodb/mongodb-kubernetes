@@ -30,7 +30,13 @@ func ReadFromSecret(ctx context.Context, secretGetter secret.Getter, secretNsNam
 // if the desired config is the same as the current contents, no change is made.
 // The most recent AutomationConfig is returned. If no change is made, it will return the existing one, if there
 // is a change, the new AutomationConfig is returned.
-func EnsureSecret(ctx context.Context, secretGetUpdateCreator secret.GetUpdateCreator, secretNsName types.NamespacedName, owner []metav1.OwnerReference, desiredAutomationConfig AutomationConfig) (AutomationConfig, error) {
+func EnsureSecret(
+	ctx context.Context,
+	secretGetUpdateCreator secret.GetUpdateCreator,
+	secretNsName types.NamespacedName,
+	owner []metav1.OwnerReference,
+	desiredAutomationConfig AutomationConfig,
+) (AutomationConfig, error) {
 	existingSecret, err := secretGetUpdateCreator.GetSecret(ctx, secretNsName)
 	if err != nil {
 		if secret.SecretNotExist(err) {
@@ -68,7 +74,13 @@ func EnsureSecret(ctx context.Context, secretGetUpdateCreator secret.GetUpdateCr
 	return desiredAutomationConfig, secretGetUpdateCreator.UpdateSecret(ctx, existingSecret)
 }
 
-func createNewAutomationConfigSecret(ctx context.Context, secretGetUpdateCreator secret.GetUpdateCreator, secretNsName types.NamespacedName, owner []metav1.OwnerReference, desiredAutomation AutomationConfig) (AutomationConfig, error) {
+func createNewAutomationConfigSecret(
+	ctx context.Context,
+	secretGetUpdateCreator secret.GetUpdateCreator,
+	secretNsName types.NamespacedName,
+	owner []metav1.OwnerReference,
+	desiredAutomation AutomationConfig,
+) (AutomationConfig, error) {
 	acBytes, err := json.Marshal(desiredAutomation)
 	if err != nil {
 		return AutomationConfig{}, err

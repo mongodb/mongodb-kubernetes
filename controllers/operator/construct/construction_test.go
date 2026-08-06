@@ -172,7 +172,15 @@ func TestBuildAppDbStatefulSetDefault(t *testing.T) {
 	t.Setenv(util.OpsManagerMonitorAppDB, "false")
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
-	appDbSts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"}, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	appDbSts, err := AppDbStatefulSet(
+		*om,
+		&env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{},
+		scaler,
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		nil,
+	)
 	assert.NoError(t, err)
 	podSpecTemplate := appDbSts.Spec.Template.Spec
 	assert.Len(t, podSpecTemplate.InitContainers, 1)
@@ -210,7 +218,11 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().SetName("my-standalone").Build(), StandaloneOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(
+		*mdbv1.NewStandaloneBuilder().SetName("my-standalone").Build(),
+		StandaloneOptions(GetPodEnvOptions()),
+		zap.S(),
+	)
 
 	spec := sts.Spec.Template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
@@ -309,13 +321,23 @@ func TestPodSpec_Requirements(t *testing.T) {
 		SetMemoryLimit("1012M").
 		Build()
 
-	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(
+		*mdbv1.NewReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build(),
+		ReplicaSetOptions(GetPodEnvOptions()),
+		zap.S(),
+	)
 
 	podSpecTemplate := sts.Spec.Template
 	container := podSpecTemplate.Spec.Containers[0]
 
-	expectedLimits := corev1.ResourceList{corev1.ResourceCPU: ParseQuantityOrZero("0.3"), corev1.ResourceMemory: ParseQuantityOrZero("1012M")}
-	expectedRequests := corev1.ResourceList{corev1.ResourceCPU: ParseQuantityOrZero("0.1"), corev1.ResourceMemory: ParseQuantityOrZero("512M")}
+	expectedLimits := corev1.ResourceList{
+		corev1.ResourceCPU:    ParseQuantityOrZero("0.3"),
+		corev1.ResourceMemory: ParseQuantityOrZero("1012M"),
+	}
+	expectedRequests := corev1.ResourceList{
+		corev1.ResourceCPU:    ParseQuantityOrZero("0.1"),
+		corev1.ResourceMemory: ParseQuantityOrZero("512M"),
+	}
 	assert.Equal(t, expectedLimits, container.Resources.Limits)
 	assert.Equal(t, expectedRequests, container.Resources.Requests)
 }

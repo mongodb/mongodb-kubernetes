@@ -14,7 +14,12 @@ import (
 )
 
 // ReadCredentials reads the Secret containing the credentials to authenticate in Ops Manager and creates a matching 'Credentials' object
-func ReadCredentials(ctx context.Context, secretClient secrets.SecretClient, credentialsSecret client.ObjectKey, log *zap.SugaredLogger) (mdbv1.Credentials, error) {
+func ReadCredentials(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	credentialsSecret client.ObjectKey,
+	log *zap.SugaredLogger,
+) (mdbv1.Credentials, error) {
 	var operatorSecretPath string
 	if vault.IsVaultSecretBackend() {
 		operatorSecretPath = secretClient.VaultClient.OperatorSecretPath()
@@ -28,11 +33,24 @@ func ReadCredentials(ctx context.Context, secretClient secrets.SecretClient, cre
 	newSecretEntries, publicKey, privateKey := secretContainsPairOfKeys(secret, util.OmPublicApiKey, util.OmPrivateKey)
 
 	if !oldSecretEntries && !newSecretEntries {
-		return mdbv1.Credentials{}, xerrors.Errorf("secret %s does not contain the required entries. It should contain either %s and %s, or %s and %s", credentialsSecret, util.OldOmUser, util.OldOmPublicApiKey, util.OmPublicApiKey, util.OmPrivateKey)
+		return mdbv1.Credentials{}, xerrors.Errorf(
+			"secret %s does not contain the required entries. It should contain either %s and %s, or %s and %s",
+			credentialsSecret,
+			util.OldOmUser,
+			util.OldOmPublicApiKey,
+			util.OmPublicApiKey,
+			util.OmPrivateKey,
+		)
 	}
 
 	if oldSecretEntries {
-		log.Infof("Usage of old entries for the credentials secret (\"%s\" and \"%s\") is deprecated, prefer using \"%s\" and \"%s\"", util.OldOmUser, util.OldOmPublicApiKey, util.OmPublicApiKey, util.OmPrivateKey)
+		log.Infof(
+			"Usage of old entries for the credentials secret (\"%s\" and \"%s\") is deprecated, prefer using \"%s\" and \"%s\"",
+			util.OldOmUser,
+			util.OldOmPublicApiKey,
+			util.OmPublicApiKey,
+			util.OmPrivateKey,
+		)
 		return mdbv1.Credentials{
 			PublicAPIKey:  user,
 			PrivateAPIKey: publicAPIKey,

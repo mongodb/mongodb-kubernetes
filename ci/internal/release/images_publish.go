@@ -17,7 +17,12 @@ type ImagesPublishResult struct {
 	Infos       []string
 }
 
-func PublishImages(images []ReleaseImage, commit, latestMarker string, force, dryRun bool, connect RegistryConnector) ([]ImagesPublishResult, error) {
+func PublishImages(
+	images []ReleaseImage,
+	commit, latestMarker string,
+	force, dryRun bool,
+	connect RegistryConnector,
+) ([]ImagesPublishResult, error) {
 	if commit == "" {
 		return nil, errors.New("commit is required")
 	}
@@ -59,7 +64,10 @@ func PublishImages(images []ReleaseImage, commit, latestMarker string, force, dr
 		prep = append(prep, prepared{img: img, reg: reg, host: host, prodPath: path, version: version})
 	}
 	if len(conflicts) > 0 && !force {
-		return nil, fmt.Errorf("refusing to publish images; tag conflicts found (use --force to override):\n%s", strings.Join(conflicts, "\n"))
+		return nil, fmt.Errorf(
+			"refusing to publish images; tag conflicts found (use --force to override):\n%s",
+			strings.Join(conflicts, "\n"),
+		)
 	}
 
 	results := make([]ImagesPublishResult, 0, len(images))

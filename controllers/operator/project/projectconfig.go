@@ -32,7 +32,12 @@ func validateProjectConfig(ctx context.Context, cmGetter configmap.Getter, proje
 // ReadProjectConfig returns a "Project" config build from a ConfigMap with a series of attributes
 // like `projectName`, `baseUrl` and a series of attributes related to SSL.
 // If configMap doesn't have a projectName defined - the name of MongoDB resource is used as a name of project
-func ReadProjectConfig(ctx context.Context, cmGetter configmap.Getter, projectConfigMap client.ObjectKey, mdbName string) (mdbv1.ProjectConfig, error) {
+func ReadProjectConfig(
+	ctx context.Context,
+	cmGetter configmap.Getter,
+	projectConfigMap client.ObjectKey,
+	mdbName string,
+) (mdbv1.ProjectConfig, error) {
 	data, err := validateProjectConfig(ctx, cmGetter, projectConfigMap)
 	if err != nil {
 		return mdbv1.ProjectConfig{}, err

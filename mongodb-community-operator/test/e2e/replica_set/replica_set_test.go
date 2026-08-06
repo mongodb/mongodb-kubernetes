@@ -106,6 +106,9 @@ func TestReplicaSet(t *testing.T) {
 		tester.ConnectivitySucceeds(WithURI(mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser))))
 	t.Run("Ensure Authentication", tester.EnsureAuthenticationIsConfigured(3))
 	t.Run("AutomationConfig has the correct version", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 1))
-	t.Run("AutomationConfig has correct member options", mongodbtests.AutomationConfigHasVoteTagPriorityConfigured(ctx, &mdb, memberOptions))
+	t.Run(
+		"AutomationConfig has correct member options",
+		mongodbtests.AutomationConfigHasVoteTagPriorityConfigured(ctx, &mdb, memberOptions),
+	)
 	t.Run("AutomationConfig has correct settings", mongodbtests.AutomationConfigHasSettings(ctx, &mdb, settings))
 }

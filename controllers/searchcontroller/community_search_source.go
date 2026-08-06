@@ -32,7 +32,15 @@ func (r *CommunitySearchSource) HostSeeds(shardName string) ([]string, error) {
 	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
-		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.GetMongodConfiguration().GetDBPort())
+		seeds[i] = fmt.Sprintf(
+			"%s-%d.%s.%s.svc.%s:%d",
+			r.Name,
+			i,
+			r.ServiceName(),
+			r.Namespace,
+			clusterDomain,
+			r.GetMongodConfiguration().GetDBPort(),
+		)
 	}
 	return seeds, nil
 }

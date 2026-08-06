@@ -51,10 +51,16 @@ func GetDeploymentStatus(ctx context.Context, namespace, name string, expectedGe
 		dep.Status.ObservedGeneration == expectedGeneration
 
 	if !ready {
-		zap.S().Debugf("Deployment %s/%s (wanted: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d, expectedGeneration: %d)",
-			namespace, name, wantedReplicas, dep.Status.ReadyReplicas, dep.Status.UpdatedReplicas,
-			dep.Generation, dep.Status.ObservedGeneration, expectedGeneration)
-		msg := fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: %d, ready: %d)", wantedReplicas, dep.Status.UpdatedReplicas, dep.Status.ReadyReplicas)
+		zap.S().
+			Debugf("Deployment %s/%s (wanted: %d, ready: %d, updated: %d, generation: %d, observedGeneration: %d, expectedGeneration: %d)",
+				namespace, name, wantedReplicas, dep.Status.ReadyReplicas, dep.Status.UpdatedReplicas,
+				dep.Generation, dep.Status.ObservedGeneration, expectedGeneration)
+		msg := fmt.Sprintf(
+			"Not all the Pods are ready (wanted: %d, updated: %d, ready: %d)",
+			wantedReplicas,
+			dep.Status.UpdatedReplicas,
+			dep.Status.ReadyReplicas,
+		)
 		return workflow.Pending("%s", msg).
 			WithResourcesNotReady([]status.ResourceNotReady{{
 				Kind:    status.DeploymentKind,

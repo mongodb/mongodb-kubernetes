@@ -13,11 +13,34 @@ import (
 const deprecatedImageAppdbUbiName = "mongodb-enterprise-appdb-database-ubi"
 
 func TestReplaceImageTagOrDigestToTag(t *testing.T) {
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"))
-	assert.Equal(t, "docker.io/mongodb/mongodb-enterprise-server:9876-54321", replaceImageTagOrDigestToTag("docker.io/mongodb/mongodb-enterprise-server:1234-567", "9876-54321"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a", "9876-54321"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-database:some-tag", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-kubernetes-database:45678", "some-tag"))
-	assert.Equal(t, "quay.io:3000/mongodb/mongodb-enterprise-database:some-tag", replaceImageTagOrDigestToTag("quay.io:3000/mongodb/mongodb-enterprise-database:45678", "some-tag"))
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-agent:9876-54321",
+		replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"),
+	)
+	assert.Equal(
+		t,
+		"docker.io/mongodb/mongodb-enterprise-server:9876-54321",
+		replaceImageTagOrDigestToTag("docker.io/mongodb/mongodb-enterprise-server:1234-567", "9876-54321"),
+	)
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-agent:9876-54321",
+		replaceImageTagOrDigestToTag(
+			"quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a",
+			"9876-54321",
+		),
+	)
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-database:some-tag",
+		replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-kubernetes-database:45678", "some-tag"),
+	)
+	assert.Equal(
+		t,
+		"quay.io:3000/mongodb/mongodb-enterprise-database:some-tag",
+		replaceImageTagOrDigestToTag("quay.io:3000/mongodb/mongodb-enterprise-database:45678", "some-tag"),
+	)
 }
 
 func TestContainerImage(t *testing.T) {
@@ -26,19 +49,48 @@ func TestContainerImage(t *testing.T) {
 	initDatabaseRelatedImageEnv3 := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0_b20220912000000", util.InitDatabaseImageUrlEnv)
 
 	t.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")
-	t.Setenv(initDatabaseRelatedImageEnv1, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd")
-	t.Setenv(initDatabaseRelatedImageEnv2, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c")
-	t.Setenv(initDatabaseRelatedImageEnv3, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad")
+	t.Setenv(
+		initDatabaseRelatedImageEnv1,
+		"quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd",
+	)
+	t.Setenv(
+		initDatabaseRelatedImageEnv2,
+		"quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c",
+	)
+	t.Setenv(
+		initDatabaseRelatedImageEnv3,
+		"quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad",
+	)
 
 	// there is no related image for 0.0.1
 	imageUrls := LoadImageUrlsFromEnv()
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:0.0.1", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "0.0.1"))
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-init-database:0.0.1",
+		ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "0.0.1"),
+	)
 	// for 10.2.25.6008-1 there is no RELATED_IMAGE variable set, so we use input instead of digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database:10.2.25.6008-1", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "10.2.25.6008-1"))
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-init-database:10.2.25.6008-1",
+		ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "10.2.25.6008-1"),
+	)
 	// for following versions we set RELATED_IMAGE_MONGODB_IMAGE_* env variables to sha256 digest
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "1.0.0"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "12.0.4.7554-1"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad", ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "2.0.0-b20220912000000"))
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-init-database@sha256:608daf56296c10c9bd02cc85bb542a849e9a66aff0697d6359b449540696b1fd",
+		ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "1.0.0"),
+	)
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-init-database@sha256:b631ee886bb49ba8d7b90bb003fe66051dadecbc2ac126ac7351221f4a7c377c",
+		ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "12.0.4.7554-1"),
+	)
+	assert.Equal(
+		t,
+		"quay.io/mongodb/mongodb-kubernetes-init-database@sha256:f1a7f49cd6533d8ca9425f25cdc290d46bb883997f07fac83b66cc799313adad",
+		ContainerImage(imageUrls, util.InitDatabaseImageUrlEnv, "2.0.0-b20220912000000"),
+	)
 
 	t.Setenv(util.OpsManagerImageUrl, "quay.io:3000/mongodb/mongodb-kubernetes")
 	imageUrls = LoadImageUrlsFromEnv()
@@ -177,7 +229,13 @@ func TestGetAppDBImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupEnvs(t)
 			imageUrlsMock := LoadImageUrlsFromEnv()
-			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations, architectures.NonStatic), "getOfficialImage(%v)", tt.input)
+			assert.Equalf(
+				t,
+				tt.want,
+				GetOfficialImage(imageUrlsMock, tt.input, tt.annotations, architectures.NonStatic),
+				"getOfficialImage(%v)",
+				tt.input,
+			)
 		})
 	}
 }

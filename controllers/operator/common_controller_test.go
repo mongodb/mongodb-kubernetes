@@ -88,11 +88,30 @@ func TestPrepareOpsManagerConnection_TagNamespace(t *testing.T) {
 		ctx := context.Background()
 		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 		controller := NewReconcileCommonController(ctx, kubeClient)
-		projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+		projectConfig, err := project.ReadProjectConfig(
+			ctx,
+			controller.client,
+			kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName),
+			"mdb-name",
+		)
 		require.NoError(t, err)
-		credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
+		credsConfig, err := project.ReadCredentials(
+			ctx,
+			controller.SecretClient,
+			kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName),
+			&zap.SugaredLogger{},
+		)
 		require.NoError(t, err)
-		conn, _, err := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mock.TestNamespace, tagNamespace, zap.S())
+		conn, _, err := connection.PrepareOpsManagerConnection(
+			ctx,
+			controller.SecretClient,
+			projectConfig,
+			credsConfig,
+			omConnectionFactory.GetConnectionFunc,
+			mock.TestNamespace,
+			tagNamespace,
+			zap.S(),
+		)
 		require.NoError(t, err)
 		return conn.(*om.MockedOmConnection)
 	}
@@ -123,7 +142,9 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
 		// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
 		// So it won't work for cases when the group "was created before" by Operator
-		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
+		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{
+			{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}},
+		}
 	})
 
 	controller := NewReconcileCommonController(ctx, kubeClient)
@@ -133,7 +154,12 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 	assert.Len(t, mockOm.OrganizationsWithGroups, 1)
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadOrganization), reflect.ValueOf(mockOm.ReadProjectsInOrganizationByName))
-	mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.ReadOrganizations), reflect.ValueOf(mockOm.CreateProject), reflect.ValueOf(mockOm.ReadProjectsInOrganization))
+	mockOm.CheckOperationsDidntHappen(
+		t,
+		reflect.ValueOf(mockOm.ReadOrganizations),
+		reflect.ValueOf(mockOm.CreateProject),
+		reflect.ValueOf(mockOm.ReadProjectsInOrganization),
+	)
 }
 
 // TestPrepareOmConnection_DuplicatedGroups verifies that if there are groups with the same name but in different organization
@@ -149,7 +175,9 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 	omConnectionFactory.SetPostCreateHook(func(c om.Connection) {
 		// Important: the organization for the group has a different name ("foo") then group (om.TestGroupName).
 		// So it won't work for cases when the group "was created before" by Operator
-		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
+		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{
+			{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}},
+		}
 	})
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
@@ -273,22 +301,42 @@ func TestUpdateStatus_Patched(t *testing.T) {
 
 func TestReadSubjectFromJustCertificate(t *testing.T) {
 	ctx := context.Background()
-	assertSubjectFromFileSucceeds(ctx, t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/just_certificate")
+	assertSubjectFromFileSucceeds(
+		ctx,
+		t,
+		"CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US",
+		"testdata/certificates/just_certificate",
+	)
 }
 
 func TestReadSubjectFromCertificateThenKey(t *testing.T) {
 	ctx := context.Background()
-	assertSubjectFromFileSucceeds(ctx, t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/certificate_then_key")
+	assertSubjectFromFileSucceeds(
+		ctx,
+		t,
+		"CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US",
+		"testdata/certificates/certificate_then_key",
+	)
 }
 
 func TestReadSubjectFromKeyThenCertificate(t *testing.T) {
 	ctx := context.Background()
-	assertSubjectFromFileSucceeds(ctx, t, "CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US", "testdata/certificates/key_then_certificate")
+	assertSubjectFromFileSucceeds(
+		ctx,
+		t,
+		"CN=mms-automation-agent,OU=MongoDB Kubernetes Operator,O=mms-automation-agent,L=NY,ST=NY,C=US",
+		"testdata/certificates/key_then_certificate",
+	)
 }
 
 func TestReadSubjectFromCertInStrictlyRFC2253(t *testing.T) {
 	ctx := context.Background()
-	assertSubjectFromFileSucceeds(ctx, t, "CN=mms-agent-cert,O=MongoDB-agent,OU=TSE,L=New Delhi,ST=New Delhi,C=IN", "testdata/certificates/cert_rfc2253")
+	assertSubjectFromFileSucceeds(
+		ctx,
+		t,
+		"CN=mms-agent-cert,O=MongoDB-agent,OU=TSE,L=New Delhi,ST=New Delhi,C=IN",
+		"testdata/certificates/cert_rfc2253",
+	)
 }
 
 func TestReadSubjectNoCertificate(t *testing.T) {
@@ -738,12 +786,24 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	agentCert := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, caName)}:                        {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, memberCert)}:                       {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, internalAuthCert)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, agentCert)}:                        {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, caName)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, memberCert)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, internalAuthCert)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, agentCert)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
 	}
 
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
@@ -762,10 +822,18 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 	}, nil, rs.Name)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, caName)}:                        {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "a-secret")}:                       {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, caName)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "a-secret")}: {
+			kube.ObjectKey(mock.TestNamespace, rs.Name),
+		},
 	}
 
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
@@ -852,13 +920,37 @@ func assertSubjectFromFile(t *testing.T, expectedSubject, filePath string, passe
 	assert.Equal(t, expectedSubject, subject)
 }
 
-func prepareConnection(ctx context.Context, controller *ReconcileCommonController, omConnectionFunc om.ConnectionFactory, t *testing.T) (*om.MockedOmConnection, *env.PodEnvVars) {
-	projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+func prepareConnection(
+	ctx context.Context,
+	controller *ReconcileCommonController,
+	omConnectionFunc om.ConnectionFactory,
+	t *testing.T,
+) (*om.MockedOmConnection, *env.PodEnvVars) {
+	projectConfig, err := project.ReadProjectConfig(
+		ctx,
+		controller.client,
+		kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName),
+		"mdb-name",
+	)
 	assert.NoError(t, err)
-	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
+	credsConfig, err := project.ReadCredentials(
+		ctx,
+		controller.SecretClient,
+		kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName),
+		&zap.SugaredLogger{},
+	)
 	assert.NoError(t, err)
 
-	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, true, zap.S())
+	conn, _, e := connection.PrepareOpsManagerConnection(
+		ctx,
+		controller.SecretClient,
+		projectConfig,
+		credsConfig,
+		omConnectionFunc,
+		mock.TestNamespace,
+		true,
+		zap.S(),
+	)
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, newPodVars(conn, projectConfig, mdbv1.Warn)
@@ -881,7 +973,13 @@ func testConnectionSpec() mdbv1.ConnectionSpec {
 	}
 }
 
-func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, client client.Client) {
+func checkReconcileSuccessful(
+	ctx context.Context,
+	t *testing.T,
+	reconciler reconcile.Reconciler,
+	object *mdbv1.MongoDB,
+	client client.Client,
+) {
 	err := client.Update(ctx, object)
 	require.NoError(t, err)
 
@@ -920,7 +1018,13 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(object), object))
 }
 
-func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
+func checkOMReconciliationSuccessful(
+	ctx context.Context,
+	t *testing.T,
+	reconciler reconcile.Reconciler,
+	om *omv1.MongoDBOpsManager,
+	client client.Client,
+) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
@@ -934,7 +1038,13 @@ func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconcil
 	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(om), om))
 }
 
-func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
+func checkOMReconciliationInvalid(
+	ctx context.Context,
+	t *testing.T,
+	reconciler reconcile.Reconciler,
+	om *omv1.MongoDBOpsManager,
+	client client.Client,
+) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
@@ -954,7 +1064,15 @@ func checkOMReconciliationPending(ctx context.Context, t *testing.T, reconciler 
 	assert.True(t, res.RequeueAfter > 0)
 }
 
-func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client client.Client) {
+func checkReconcileFailed(
+	ctx context.Context,
+	t *testing.T,
+	reconciler reconcile.Reconciler,
+	object *mdbv1.MongoDB,
+	expectedRetry bool,
+	expectedErrorMessage string,
+	client client.Client,
+) {
 	failedResult := reconcile.Result{}
 	if expectedRetry {
 		failedResult.RequeueAfter = 10 * time.Second
@@ -969,7 +1087,15 @@ func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcil
 	assert.Contains(t, object.Status.Message, expectedErrorMessage)
 }
 
-func checkReconcilePending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedErrorMessage string, client client.Client, requeueAfter time.Duration) {
+func checkReconcilePending(
+	ctx context.Context,
+	t *testing.T,
+	reconciler reconcile.Reconciler,
+	object *mdbv1.MongoDB,
+	expectedErrorMessage string,
+	client client.Client,
+	requeueAfter time.Duration,
+) {
 	failedResult := reconcile.Result{RequeueAfter: requeueAfter * time.Second}
 	result, e := reconciler.Reconcile(ctx, requestFromObject(object))
 	assert.Nil(t, e, "When pending, error should be nil")
@@ -999,7 +1125,12 @@ type testReconciliationResources struct {
 
 // agentVersionMappingTest is a helper function to verify that the version mapping mechanism works correctly in controllers
 // in case retrieving the version fails, the user should have the possibility to override the image in the pod specs
-func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource testReconciliationResources, overridenResource testReconciliationResources) {
+func agentVersionMappingTest(
+	ctx context.Context,
+	t *testing.T,
+	defaultResource testReconciliationResources,
+	overridenResource testReconciliationResources,
+) {
 	nonExistingPath := "/foo/bar/foo"
 
 	t.Run("Static architecture, version retrieving fails, image is overriden, reconciliation should succeed", func(t *testing.T) {
@@ -1026,7 +1157,13 @@ func agentVersionMappingTest(ctx context.Context, t *testing.T, defaultResource 
 	})
 }
 
-func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.Client, reconciler reconcile.Reconciler, objects ...client.Object) {
+func testConcurrentReconciles(
+	ctx context.Context,
+	t *testing.T,
+	client client.Client,
+	reconciler reconcile.Reconciler,
+	objects ...client.Object,
+) {
 	for _, object := range objects {
 		err := mock.CreateOrUpdate(ctx, client, object)
 		require.NoError(t, err)

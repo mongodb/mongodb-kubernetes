@@ -48,11 +48,19 @@ type ResourcesHandler struct {
 
 // Note that we implement Create in addition to Update to be able to handle cases when config map or secret is deleted
 // and then created again.
-func (c *ResourcesHandler) Create(ctx context.Context, e event.TypedCreateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (c *ResourcesHandler) Create(
+	ctx context.Context,
+	e event.TypedCreateEvent[client.Object],
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
 }
 
-func (c *ResourcesHandler) Update(ctx context.Context, e event.TypedUpdateEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (c *ResourcesHandler) Update(
+	ctx context.Context,
+	e event.TypedUpdateEvent[client.Object],
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	if !shouldHandleUpdate(e) {
 		return
 	}
@@ -84,7 +92,11 @@ func (c *ResourcesHandler) doHandle(namespace, name string, q workqueue.TypedRat
 }
 
 // Seems we don't need to react on config map/secret removal..
-func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (c *ResourcesHandler) Delete(
+	ctx context.Context,
+	e event.TypedDeleteEvent[client.Object],
+	q workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	switch e.Object.(type) {
 	case *corev1.ConfigMap:
 		return
@@ -95,7 +107,11 @@ func (c *ResourcesHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[
 	c.doHandle(e.Object.GetNamespace(), e.Object.GetName(), q)
 }
 
-func (c *ResourcesHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (c *ResourcesHandler) Generic(
+	context.Context,
+	event.TypedGenericEvent[client.Object],
+	workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 }
 
 // ConfigMapEventHandler is an EventHandler implementation that is used to watch for events on a given ConfigMap and ConfigMapNamespace
@@ -106,10 +122,18 @@ type ConfigMapEventHandler struct {
 	ConfigMapNamespace string
 }
 
-func (m ConfigMapEventHandler) Create(context.Context, event.TypedCreateEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (m ConfigMapEventHandler) Create(
+	context.Context,
+	event.TypedCreateEvent[client.Object],
+	workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 }
 
-func (m ConfigMapEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (m ConfigMapEventHandler) Update(
+	ctx context.Context,
+	e event.TypedUpdateEvent[client.Object],
+	_ workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	if m.isMemberListCM(e.ObjectOld) {
 		switch v := e.ObjectOld.(type) {
 		case *corev1.ConfigMap:
@@ -120,14 +144,26 @@ func (m ConfigMapEventHandler) Update(ctx context.Context, e event.TypedUpdateEv
 	}
 }
 
-func (m ConfigMapEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[client.Object], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (m ConfigMapEventHandler) Delete(
+	ctx context.Context,
+	e event.TypedDeleteEvent[client.Object],
+	_ workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	if m.isMemberListCM(e.Object) {
-		errMsg := fmt.Sprintf("%s/%s has been deleted! Note we will need the configmap otherwise the operator will not work", m.ConfigMapNamespace, m.ConfigMapName)
+		errMsg := fmt.Sprintf(
+			"%s/%s has been deleted! Note we will need the configmap otherwise the operator will not work",
+			m.ConfigMapNamespace,
+			m.ConfigMapName,
+		)
 		panic(errMsg)
 	}
 }
 
-func (m ConfigMapEventHandler) Generic(context.Context, event.TypedGenericEvent[client.Object], workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (m ConfigMapEventHandler) Generic(
+	context.Context,
+	event.TypedGenericEvent[client.Object],
+	workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 }
 
 func (m ConfigMapEventHandler) isMemberListCM(o client.Object) bool {

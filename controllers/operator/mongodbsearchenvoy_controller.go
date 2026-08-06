@@ -89,7 +89,12 @@ type MongoDBSearchEnvoyReconciler struct {
 	prepareSearch prepareSearchFuncs
 }
 
-func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(
+	c client.Client,
+	defaultEnvoyImage string,
+	memberClustersMap map[string]client.Client,
+	operatorClusterName string,
+) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -213,7 +218,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// When no cluster has a registered client there is nothing to make progress
 	// on, and Pending is the honest signal.
 	if len(workList) > 0 && len(missingClusters) == len(workList) {
-		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("None of the clusters in spec.clusters is registered with the operator: %s", strings.Join(missingClusters, ", ")), log)
+		return r.updateLBStatus(
+			ctx,
+			mdbSearch,
+			workflow.Pending(
+				"None of the clusters in spec.clusters is registered with the operator: %s",
+				strings.Join(missingClusters, ", "),
+			),
+			log,
+		)
 	}
 
 	if reconcileErrs != nil {
@@ -258,7 +271,14 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 // registered member client. A missing member client leaves Client nil: callers
 // report the cluster as not registered and never fall back to the central
 // client.
-func newClusterWorkItem(search *searchv1.MongoDBSearch, clusterName string, clusterIndex int, central kubernetesClient.Client, members map[string]kubernetesClient.Client, operatorClusterName string) clusterWorkItem {
+func newClusterWorkItem(
+	search *searchv1.MongoDBSearch,
+	clusterName string,
+	clusterIndex int,
+	central kubernetesClient.Client,
+	members map[string]kubernetesClient.Client,
+	operatorClusterName string,
+) clusterWorkItem {
 	work := clusterWorkItem{
 		ClusterName:  clusterName,
 		ClusterIndex: clusterIndex,
@@ -326,7 +346,12 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 
 // updateLBStatus patches the loadBalancer sub-status on the MongoDBSearch CR
 // and returns the reconcile result derived from the workflow status.
-func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(ctx context.Context, search *searchv1.MongoDBSearch, st workflow.Status, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBSearchEnvoyReconciler) updateLBStatus(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	st workflow.Status,
+	log *zap.SugaredLogger,
+) (reconcile.Result, error) {
 	partOption := searchv1.NewSearchPartOption(searchv1.SearchPartLoadBalancer)
 	return commoncontroller.UpdateStatus(ctx, r.kubeClient, search, st, log, partOption)
 }
@@ -352,18 +377,45 @@ func (r *MongoDBSearchEnvoyReconciler) clearLBStatus(ctx context.Context, search
 // LB transition. Deletes go through the shared owned-resource check: a same-name
 // object not owned by this MongoDBSearch is skipped rather than an error, so LB
 // teardown cannot requeue forever on a collision it can never resolve.
-func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(ctx context.Context, search *searchv1.MongoDBSearch, workList []clusterWorkItem, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) deleteEnvoyResources(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	workList []clusterWorkItem,
+	log *zap.SugaredLogger,
+) error {
 	var errs error
 	for _, w := range workList {
 		if w.Client == nil {
 			log.Warnf("cluster %q: no Kubernetes client registered for Envoy cleanup; skipping", w.ClusterName)
 			continue
 		}
-		deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}
-		_, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "Envoy Deployment", searchProxyComponent, deployment, log)
+		deployment := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerDeploymentNameForCluster(w.ClusterIndex), Namespace: search.Namespace},
+		}
+		_, err := searchcontroller.DeleteOwnedResource(
+			ctx,
+			w.Client,
+			search,
+			w.ClusterName,
+			"Envoy Deployment",
+			searchProxyComponent,
+			deployment,
+			log,
+		)
 		errs = errors.Join(errs, err)
-		configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}
-		_, err = searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "Envoy ConfigMap", searchProxyComponent, configMap, log)
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace},
+		}
+		_, err = searchcontroller.DeleteOwnedResource(
+			ctx,
+			w.Client,
+			search,
+			w.ClusterName,
+			"Envoy ConfigMap",
+			searchProxyComponent,
+			configMap,
+			log,
+		)
 		errs = errors.Join(errs, err)
 	}
 	return errs
@@ -384,7 +436,13 @@ func caKeyNameFromTLSConfig(tlsCfg *searchcontroller.TLSSourceConfig) string {
 // routingReadyMongotGroups is the state-CM switch; a shard not listed is pending and
 // its per-shard filter chain is redirected to the cluster-level cluster with the
 // routed_from_another_shard header.
-func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clusterIndex int, clusterName string, routingReadyMongotGroups []string) []envoyRoute {
+func buildShardRoutes(
+	search *searchv1.MongoDBSearch,
+	shardNames []string,
+	clusterIndex int,
+	clusterName string,
+	routingReadyMongotGroups []string,
+) []envoyRoute {
 	// +1 for the cluster-level route appended at the end.
 	routes := make([]envoyRoute, 0, len(shardNames)+1)
 	namespace := search.Namespace
@@ -462,7 +520,13 @@ func buildShardRoutes(search *searchv1.MongoDBSearch, shardNames []string, clust
 // clusterName "" is the single-cluster path, but clusterIndex is still the CRD-pinned
 // index (a single-entry CR pinned non-zero must not reconcile at 0). routingReadyMongotGroups
 // gives a not-yet-listed mongot group fallback routing via the routed_from_another_shard header.
-func buildRoutesForCluster(search *searchv1.MongoDBSearch, source searchcontroller.SearchSourceDBResource, clusterIndex int, clusterName string, routingReadyMongotGroups []string) []envoyRoute {
+func buildRoutesForCluster(
+	search *searchv1.MongoDBSearch,
+	source searchcontroller.SearchSourceDBResource,
+	clusterIndex int,
+	clusterName string,
+	routingReadyMongotGroups []string,
+) []envoyRoute {
 	if shardedSource, ok := source.(searchcontroller.SearchSourceShardedDeployment); ok {
 		return buildShardRoutes(search, shardedSource.GetShardNames(), clusterIndex, clusterName, routingReadyMongotGroups)
 	}
@@ -496,7 +560,13 @@ func buildReplicaSetRouteForCluster(search *searchv1.MongoDBSearch, clusterIndex
 // ensureConfigMap creates or updates the Envoy ConfigMap with three files:
 // bootstrap.json (static), cds.json (dynamic clusters), and lds.json (dynamic listener).
 // Kubernetes ConfigMap updates are atomic (symlink swap), so all files update together.
-func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON, cdsJSON, ldsJSON string, w clusterWorkItem, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	bootstrapJSON, cdsJSON, ldsJSON string,
+	w clusterWorkItem,
+	log *zap.SugaredLogger,
+) error {
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      search.LoadBalancerConfigMapNameForCluster(w.ClusterIndex),
@@ -536,7 +606,15 @@ func envoyConfigHash(configJSON string) (string, error) {
 // ensureDeployment creates or updates the Envoy Deployment.
 // The config hash is computed from bootstrapJSON only — CDS/LDS changes are
 // hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(
+	ctx context.Context,
+	search *searchv1.MongoDBSearch,
+	bootstrapJSON string,
+	w clusterWorkItem,
+	managedLB *searchv1.ManagedLBConfig,
+	tlsCfg *searchcontroller.TLSSourceConfig,
+	log *zap.SugaredLogger,
+) error {
 	configHash, err := envoyConfigHash(bootstrapJSON)
 	if err != nil {
 		return err
@@ -606,7 +684,15 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 // clusterIndex selects the per-cluster ConfigMap volume name. Without this,
 // MC pods mount a ConfigMap that does not exist in the member cluster and
 // Envoy never starts.
-func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+func buildEnvoyPodSpec(
+	search *searchv1.MongoDBSearch,
+	clusterIndex int,
+	tlsCfg *searchcontroller.TLSSourceConfig,
+	tlsEnabled bool,
+	image string,
+	resources corev1.ResourceRequirements,
+	managedSecurityContext bool,
+) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "envoy-config",
@@ -836,11 +922,22 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) 
 //
 // For each member cluster we register watches on Envoy Deployment + ConfigMap
 // using the label-based mapper (cross-cluster owner refs do not GC).
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchEnvoyController(
+	ctx context.Context,
+	mgr manager.Manager,
+	defaultEnvoyImage string,
+	memberClusterObjectsMap map[string]runtimeCluster.Cluster,
+	operatorClusterName string,
+) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
+	r := newMongoDBSearchEnvoyReconciler(
+		mgr.GetClient(),
+		defaultEnvoyImage,
+		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+		operatorClusterName,
+	)
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,

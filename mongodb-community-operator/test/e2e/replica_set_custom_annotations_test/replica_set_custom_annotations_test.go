@@ -79,5 +79,8 @@ func TestReplicaSetCustomAnnotations(t *testing.T) {
 		tester.ConnectivitySucceeds(WithURI(mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser))))
 	t.Run("Ensure Authentication", tester.EnsureAuthenticationIsConfigured(3))
 	t.Run("AutomationConfig has the correct version", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 1))
-	t.Run("Cluster has the expected labels and annotations", mongodbtests.HasExpectedMetadata(ctx, &mdb, e2eutil.TestLabels(), e2eutil.TestAnnotations()))
+	t.Run(
+		"Cluster has the expected labels and annotations",
+		mongodbtests.HasExpectedMetadata(ctx, &mdb, e2eutil.TestLabels(), e2eutil.TestAnnotations()),
+	)
 }

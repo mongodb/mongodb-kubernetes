@@ -33,8 +33,15 @@ func TestAppDBAgentFlags(t *testing.T) {
 	}
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	om.Spec.AppDB.AutomationAgent.StartupParameters = agentStartupParameters
-	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	sts, err := AppDbStatefulSet(
+		*om,
+		&env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{},
+		scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		nil,
+	)
 	assert.NoError(t, err)
 
 	command := sts.Spec.Template.Spec.Containers[0].Command
@@ -79,13 +86,27 @@ func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
 		SetAppDBClusterSpecList(clusterSpecList).
 		Build()
 
-	stsA, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-a", 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	stsA, err := AppDbStatefulSet(
+		*om,
+		&env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{},
+		scalers.GetAppDBScaler(om, "cluster-a", 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		nil,
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, hostAliasesA, stsA.Spec.Template.Spec.HostAliases)
 
-	stsB, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-b", 1, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	stsB, err := AppDbStatefulSet(
+		*om,
+		&env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{},
+		scalers.GetAppDBScaler(om, "cluster-b", 1, nil),
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		nil,
+	)
 	assert.NoError(t, err)
 	assert.Equal(t, hostAliasesB, stsB.Spec.Template.Spec.HostAliases)
 
@@ -105,7 +126,15 @@ func TestAppDbStatefulSet_SingleAgentContainer(t *testing.T) {
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
 	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
 
-	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	sts, err := AppDbStatefulSet(
+		*om,
+		podVars,
+		AppDBStatefulSetOptions{},
+		scaler,
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		zap.S(),
+	)
 	require.NoError(t, err)
 
 	containerNames := make([]string, 0)
@@ -120,7 +149,15 @@ func TestAppDbStatefulSet_SingleAgentContainer_MonitoringDisabled(t *testing.T) 
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
 
-	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	sts, err := AppDbStatefulSet(
+		*om,
+		nil,
+		AppDBStatefulSetOptions{},
+		scaler,
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		zap.S(),
+	)
 	require.NoError(t, err)
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
@@ -134,7 +171,15 @@ func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
 	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
 
-	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	sts, err := AppDbStatefulSet(
+		*om,
+		podVars,
+		AppDBStatefulSetOptions{},
+		scaler,
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		zap.S(),
+	)
 	require.NoError(t, err)
 
 	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
@@ -154,7 +199,15 @@ func TestAppDbStatefulSet_NoMonitoringCredentialsWhenDisabled(t *testing.T) {
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
 
 	// nil podVars => ShouldEnableMonitoring returns false
-	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	sts, err := AppDbStatefulSet(
+		*om,
+		nil,
+		AppDBStatefulSetOptions{},
+		scaler,
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		zap.S(),
+	)
 	require.NoError(t, err)
 
 	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
@@ -208,7 +261,15 @@ func TestAppDbStatefulSet_UserTemplateMonitoringContainerStripped(t *testing.T) 
 	}
 
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
-	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	sts, err := AppDbStatefulSet(
+		*om,
+		nil,
+		AppDBStatefulSetOptions{},
+		scaler,
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		zap.S(),
+	)
 	require.NoError(t, err)
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
@@ -232,20 +293,38 @@ func TestAppDbStatefulSet_MultiClusterIdentity(t *testing.T) {
 			SetAppDBClusterSpecList(clusterSpecList).
 			Build()
 
-		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-			AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "cluster-a", 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+		sts, err := AppDbStatefulSet(
+			*om,
+			&env.PodEnvVars{ProjectID: "abcd"},
+			AppDBStatefulSetOptions{},
+			scalers.GetAppDBScaler(om, "cluster-a", 0, nil),
+			appsv1.OnDeleteStatefulSetStrategyType,
+			architectures.NonStatic,
+			nil,
+		)
 		assert.NoError(t, err)
 		assert.Empty(t, sts.OwnerReferences,
 			"StatefulSet in a remote member cluster must not carry an ownerReference pointing to the MongoDBOpsManager CR")
-		assert.Equal(t, om.Name, sts.Annotations[handler.MongoDBMultiResourceAnnotation],
-			"StatefulSet must carry MongoDBMultiResourceAnnotation so watch predicates and the OM connection factory can map it back to its parent CR")
+		assert.Equal(
+			t,
+			om.Name,
+			sts.Annotations[handler.MongoDBMultiResourceAnnotation],
+			"StatefulSet must carry MongoDBMultiResourceAnnotation so watch predicates and the OM connection factory can map it back to its parent CR",
+		)
 	})
 
 	t.Run("single-cluster mode: ownerReference set, no multi-cluster annotation", func(t *testing.T) {
 		om := omv1.NewOpsManagerBuilderDefault().Build()
 
-		sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-			AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+		sts, err := AppDbStatefulSet(
+			*om,
+			&env.PodEnvVars{ProjectID: "abcd"},
+			AppDBStatefulSetOptions{},
+			scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+			appsv1.OnDeleteStatefulSetStrategyType,
+			architectures.NonStatic,
+			nil,
+		)
 		assert.NoError(t, err)
 		assert.Len(t, sts.OwnerReferences, 1,
 			"StatefulSet in single-cluster mode must carry an ownerReference so Kubernetes GC can clean it up")
@@ -280,8 +359,15 @@ func TestResourceRequirements(t *testing.T) {
 		},
 	}
 
-	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, "central", 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	sts, err := AppDbStatefulSet(
+		*om,
+		&env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{},
+		scalers.GetAppDBScaler(om, "central", 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType,
+		architectures.NonStatic,
+		nil,
+	)
 	assert.NoError(t, err)
 
 	for _, c := range sts.Spec.Template.Spec.Containers {

@@ -453,7 +453,11 @@ func AuthSecretName(mdbName string) string {
 // EnsurePassword makes sure that there is an Automation Agent password
 // that the agents will use to communicate with the deployments. The password
 // is returned, so it can be provided to the other agents.
-func (ac *AutomationConfig) EnsurePassword(ctx context.Context, k8sClient secret.GetUpdateCreator, mdbNamespacedName types.NamespacedName) (string, error) {
+func (ac *AutomationConfig) EnsurePassword(
+	ctx context.Context,
+	k8sClient secret.GetUpdateCreator,
+	mdbNamespacedName types.NamespacedName,
+) (string, error) {
 	secretName := AuthSecretName(mdbNamespacedName.Name)
 	secretNamespacedName := client.ObjectKey{Name: secretName, Namespace: mdbNamespacedName.Namespace}
 	var password string
@@ -488,7 +492,12 @@ func (ac *AutomationConfig) EnsurePassword(ctx context.Context, k8sClient secret
 		Build()
 
 	if err := secret.CreateOrUpdateIfNeeded(ctx, k8sClient, passwordSecret); err != nil {
-		return "", fmt.Errorf("failed to update password field in shared secret %s/%s: %w", secretNamespacedName.Namespace, secretNamespacedName.Name, err)
+		return "", fmt.Errorf(
+			"failed to update password field in shared secret %s/%s: %w",
+			secretNamespacedName.Namespace,
+			secretNamespacedName.Name,
+			err,
+		)
 	}
 	ac.Auth.AutoPwd = password
 	return password, nil

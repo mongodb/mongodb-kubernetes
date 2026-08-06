@@ -84,7 +84,12 @@ func markDeploymentReady(ctx context.Context, t *testing.T, c client.Client, nam
 	require.NoError(t, c.Status().Update(ctx, dep))
 }
 
-func reconcileVoyageAI(ctx context.Context, t *testing.T, reconciler *VoyageAIReconciler, name, namespace string) (reconcile.Result, error) {
+func reconcileVoyageAI(
+	ctx context.Context,
+	t *testing.T,
+	reconciler *VoyageAIReconciler,
+	name, namespace string,
+) (reconcile.Result, error) {
 	t.Helper()
 	return reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: name, Namespace: namespace},

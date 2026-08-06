@@ -34,7 +34,12 @@ func CreateOrUpdate(ctx context.Context, kubeClient kubernetesClient.Client, sta
 }
 
 // GetAndUpdate applies the provided function to the most recent version of the object
-func GetAndUpdate(ctx context.Context, kubeClient kubernetesClient.Client, nsName types.NamespacedName, updateFunc func(*appsv1.StatefulSet)) (appsv1.StatefulSet, error) {
+func GetAndUpdate(
+	ctx context.Context,
+	kubeClient kubernetesClient.Client,
+	nsName types.NamespacedName,
+	updateFunc func(*appsv1.StatefulSet),
+) (appsv1.StatefulSet, error) {
 	sts, err := kubeClient.GetStatefulSet(ctx, nsName)
 	if err != nil {
 		return appsv1.StatefulSet{}, err

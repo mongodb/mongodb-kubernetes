@@ -236,11 +236,26 @@ func TestMergeContainer(t *testing.T) {
 		)
 		mergedContainer := Container(defaultContainer, overrideContainer)
 		assert.Equal(t, overrideContainer.Name, mergedContainer.Name, "Name was overridden, and should be used.")
-		assert.Equal(t, []string{"d", "f", "e"}, mergedContainer.Command, "Command specified in the override container overrides the default container.")
+		assert.Equal(
+			t,
+			[]string{"d", "f", "e"},
+			mergedContainer.Command,
+			"Command specified in the override container overrides the default container.",
+		)
 		assert.Equal(t, overrideContainer.Image, mergedContainer.Image, "Image was overridden, and should be used.")
-		assert.Equal(t, defaultContainer.ImagePullPolicy, mergedContainer.ImagePullPolicy, "No ImagePullPolicy was specified in the override, so the default should be used.")
+		assert.Equal(
+			t,
+			defaultContainer.ImagePullPolicy,
+			mergedContainer.ImagePullPolicy,
+			"No ImagePullPolicy was specified in the override, so the default should be used.",
+		)
 		assert.Equal(t, overrideContainer.WorkingDir, mergedContainer.WorkingDir)
-		assert.Equal(t, []string{"arg3", "arg2"}, mergedContainer.Args, "Args specified in the override container overrides the default container.")
+		assert.Equal(
+			t,
+			[]string{"arg3", "arg2"},
+			mergedContainer.Args,
+			"Args specified in the override container overrides the default container.",
+		)
 
 		assert.Equal(t, overrideContainer.Resources, mergedContainer.Resources)
 
@@ -259,15 +274,35 @@ func TestMergeContainer(t *testing.T) {
 
 				assert.NotNil(t, livenessProbe)
 				assert.Equal(t, int32(15), livenessProbe.InitialDelaySeconds, "value is specified in override and so should be used.")
-				assert.Equal(t, int32(20), livenessProbe.FailureThreshold, "value is not specified in override so the original should be used.")
-				assert.Equal(t, []string{"exec", "command", "override"}, livenessProbe.Exec.Command, "value is not specified in override so the original should be used.")
+				assert.Equal(
+					t,
+					int32(20),
+					livenessProbe.FailureThreshold,
+					"value is not specified in override so the original should be used.",
+				)
+				assert.Equal(
+					t,
+					[]string{"exec", "command", "override"},
+					livenessProbe.Exec.Command,
+					"value is not specified in override so the original should be used.",
+				)
 			})
 			t.Run("Readiness probe", func(t *testing.T) {
 				readinessProbe := mergedContainer.ReadinessProbe
 				assert.NotNil(t, readinessProbe)
 				assert.Equal(t, int32(5), readinessProbe.InitialDelaySeconds, "value is specified in override and so should be used.")
-				assert.Equal(t, int32(6), readinessProbe.FailureThreshold, "value is not specified in override so the original should be used.")
-				assert.Equal(t, []string{"exec", "command", "readiness", "override"}, readinessProbe.Exec.Command, "value is not specified in override so the original should be used.")
+				assert.Equal(
+					t,
+					int32(6),
+					readinessProbe.FailureThreshold,
+					"value is not specified in override so the original should be used.",
+				)
+				assert.Equal(
+					t,
+					[]string{"exec", "command", "readiness", "override"},
+					readinessProbe.Exec.Command,
+					"value is not specified in override so the original should be used.",
+				)
 			})
 		})
 
@@ -293,7 +328,12 @@ func TestMergeContainer(t *testing.T) {
 
 		t.Run("Volume Mounts are overridden", func(t *testing.T) {
 			volumeMounts := mergedContainer.VolumeMounts
-			assert.Len(t, volumeMounts, 3, "volume mounts can have the same name, the uniqueness is the combination of name, path and subpath")
+			assert.Len(
+				t,
+				volumeMounts,
+				3,
+				"volume mounts can have the same name, the uniqueness is the combination of name, path and subpath",
+			)
 			t.Run("First VolumeMount is still present", func(t *testing.T) {
 				vm0 := volumeMounts[0]
 				assert.Equal(t, "volume-mount-0", vm0.Name)
@@ -314,7 +354,12 @@ func TestMergeContainer(t *testing.T) {
 		mergedContainer := Container(defaultContainer, corev1.Container{})
 		assert.Equal(t, defaultContainer.Name, mergedContainer.Name, "Name was not overridden, and should not be used.")
 		assert.Equal(t, defaultContainer.Image, mergedContainer.Image, "Image was not overridden, and should not be used.")
-		assert.Equal(t, defaultContainer.ImagePullPolicy, mergedContainer.ImagePullPolicy, "No ImagePullPolicy was specified in the override, so the default should be used.")
+		assert.Equal(
+			t,
+			defaultContainer.ImagePullPolicy,
+			mergedContainer.ImagePullPolicy,
+			"No ImagePullPolicy was specified in the override, so the default should be used.",
+		)
 		assert.Equal(t, defaultContainer.WorkingDir, mergedContainer.WorkingDir)
 
 		assert.Equal(t, defaultContainer.Resources, mergedContainer.Resources)
@@ -333,16 +378,46 @@ func TestMergeContainer(t *testing.T) {
 				livenessProbe := mergedContainer.LivenessProbe
 
 				assert.NotNil(t, livenessProbe)
-				assert.Equal(t, int32(10), livenessProbe.InitialDelaySeconds, "value is not specified in override so the original should be used.")
-				assert.Equal(t, int32(20), livenessProbe.FailureThreshold, "value is not specified in override so the original should be used.")
-				assert.Equal(t, []string{"exec", "command", "liveness"}, livenessProbe.Exec.Command, "value is not specified in override so the original should be used.")
+				assert.Equal(
+					t,
+					int32(10),
+					livenessProbe.InitialDelaySeconds,
+					"value is not specified in override so the original should be used.",
+				)
+				assert.Equal(
+					t,
+					int32(20),
+					livenessProbe.FailureThreshold,
+					"value is not specified in override so the original should be used.",
+				)
+				assert.Equal(
+					t,
+					[]string{"exec", "command", "liveness"},
+					livenessProbe.Exec.Command,
+					"value is not specified in override so the original should be used.",
+				)
 			})
 			t.Run("Readiness probe", func(t *testing.T) {
 				readinessProbe := mergedContainer.ReadinessProbe
 				assert.NotNil(t, readinessProbe)
-				assert.Equal(t, int32(20), readinessProbe.InitialDelaySeconds, "value is not specified in override so the original should be used.")
-				assert.Equal(t, int32(30), readinessProbe.FailureThreshold, "value is not specified in override so the original should be used.")
-				assert.Equal(t, []string{"exec", "command", "readiness"}, readinessProbe.Exec.Command, "value is not specified in override so the original should be used.")
+				assert.Equal(
+					t,
+					int32(20),
+					readinessProbe.InitialDelaySeconds,
+					"value is not specified in override so the original should be used.",
+				)
+				assert.Equal(
+					t,
+					int32(30),
+					readinessProbe.FailureThreshold,
+					"value is not specified in override so the original should be used.",
+				)
+				assert.Equal(
+					t,
+					[]string{"exec", "command", "readiness"},
+					readinessProbe.Exec.Command,
+					"value is not specified in override so the original should be used.",
+				)
 			})
 		})
 
@@ -584,8 +659,12 @@ func TestMergeSecurityContext(t *testing.T) {
 
 func TestMergeVolumesSecret(t *testing.T) {
 	permission := int32(416)
-	vol0 := []corev1.Volume{{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "Secret-name"}}}}
-	vol1 := []corev1.Volume{{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{DefaultMode: &permission}}}}
+	vol0 := []corev1.Volume{
+		{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "Secret-name"}}},
+	}
+	vol1 := []corev1.Volume{
+		{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{DefaultMode: &permission}}},
+	}
 	mergedVolumes := Volumes(vol0, vol1)
 	assert.Len(t, mergedVolumes, 1)
 	volume := mergedVolumes[0]
@@ -596,7 +675,9 @@ func TestMergeVolumesSecret(t *testing.T) {
 func TestMergeNonNilValueNotFilledByOperator(t *testing.T) {
 	// Tests that providing a custom volume with a volume source
 	// That the operator does not manage overwrites the original
-	vol0 := []corev1.Volume{{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "Secret-name"}}}}
+	vol0 := []corev1.Volume{
+		{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "Secret-name"}}},
+	}
 	vol1 := []corev1.Volume{{Name: "volume", VolumeSource: corev1.VolumeSource{GCEPersistentDisk: &corev1.GCEPersistentDiskVolumeSource{}}}}
 	mergedVolumes := Volumes(vol0, vol1)
 	assert.Len(t, mergedVolumes, 1)
@@ -610,7 +691,9 @@ func TestMergeNonNilValueFilledByOperatorButDifferent(t *testing.T) {
 	// Tests that providing a custom volume with a volume source
 	// That the operator does manage, but different from the one
 	// That already exists, overwrites the original
-	vol0 := []corev1.Volume{{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "Secret-name"}}}}
+	vol0 := []corev1.Volume{
+		{Name: "volume", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "Secret-name"}}},
+	}
 	vol1 := []corev1.Volume{{Name: "volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 	mergedVolumes := Volumes(vol0, vol1)
 	assert.Len(t, mergedVolumes, 1)

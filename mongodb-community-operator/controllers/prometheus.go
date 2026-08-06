@@ -20,7 +20,11 @@ const (
 )
 
 // PrometheusModification adds Prometheus configuration to AutomationConfig.
-func getPrometheusModification(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, mdb mdbv1.MongoDBCommunity) (automationconfig.Modification, error) {
+func getPrometheusModification(
+	ctx context.Context,
+	getUpdateCreator secret.GetUpdateCreator,
+	mdb mdbv1.MongoDBCommunity,
+) (automationconfig.Modification, error) {
 	if mdb.Spec.Prometheus == nil {
 		return automationconfig.NOOP(), nil
 	}

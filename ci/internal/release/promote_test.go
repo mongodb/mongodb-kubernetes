@@ -196,7 +196,11 @@ func TestPromoteRefusesStompedTag(t *testing.T) {
 	})
 
 	t.Run("proceeds with force", func(t *testing.T) {
-		result, err := Promote(PromoteInputs{Image: newSrc, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", Force: true}, host, reg)
+		result, err := Promote(
+			PromoteInputs{Image: newSrc, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", Force: true},
+			host,
+			reg,
+		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

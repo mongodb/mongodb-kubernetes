@@ -76,7 +76,12 @@ type Getter interface {
 
 // EnsureFeatureControls updates the controlled feature based on the provided MongoDB
 // resource if the version of Ops Manager supports it
-func EnsureFeatureControls(mdb mdbv1.MongoDB, updater Updater, omVersion versionutil.OpsManagerVersion, log *zap.SugaredLogger) workflow.Status {
+func EnsureFeatureControls(
+	mdb mdbv1.MongoDB,
+	updater Updater,
+	omVersion versionutil.OpsManagerVersion,
+	log *zap.SugaredLogger,
+) workflow.Status {
 	if !ShouldUseFeatureControls(omVersion) {
 		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", omVersion)
 		return workflow.OK()

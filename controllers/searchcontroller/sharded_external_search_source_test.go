@@ -109,19 +109,25 @@ func TestShardedExternalSearchSource_Validate(t *testing.T) {
 		{
 			name: "Valid config with multiple router hosts",
 			spec: &searchv1.ExternalMongoDBSource{
-				ShardedCluster: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
-					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
-				}),
+				ShardedCluster: newExternalShardedConfig(
+					[]string{"mongos1.example.com:27017", "mongos2.example.com:27017"},
+					[]searchv1.ExternalShardConfig{
+						{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
+					},
+				),
 			},
 			expectError: false,
 		},
 		{
 			name: "InValid config, multiple shards with same name",
 			spec: &searchv1.ExternalMongoDBSource{
-				ShardedCluster: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
-					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
-					{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
-				}),
+				ShardedCluster: newExternalShardedConfig(
+					[]string{"mongos1.example.com:27017", "mongos2.example.com:27017"},
+					[]searchv1.ExternalShardConfig{
+						{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
+						{ShardName: "shard-0", Hosts: []string{"shard0-0.example.com:27017"}},
+					},
+				),
 			},
 			expectError:    true,
 			expectedErrMsg: "shardNames can not be duplicate, shard name shard-0 is duplicate",
@@ -295,9 +301,12 @@ func TestShardedExternalSearchSource_MongosHostsAndPorts(t *testing.T) {
 		{
 			name: "Multiple router hosts returns all",
 			spec: &searchv1.ExternalMongoDBSource{
-				ShardedCluster: newExternalShardedConfig([]string{"mongos1.example.com:27017", "mongos2.example.com:27017"}, []searchv1.ExternalShardConfig{
-					{ShardName: "shard-0", Hosts: []string{"host:27017"}},
-				}),
+				ShardedCluster: newExternalShardedConfig(
+					[]string{"mongos1.example.com:27017", "mongos2.example.com:27017"},
+					[]searchv1.ExternalShardConfig{
+						{ShardName: "shard-0", Hosts: []string{"host:27017"}},
+					},
+				),
 			},
 			expected: []string{"mongos1.example.com:27017", "mongos2.example.com:27017"},
 		},

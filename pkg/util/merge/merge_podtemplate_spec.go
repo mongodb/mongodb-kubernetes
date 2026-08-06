@@ -131,7 +131,10 @@ func PodTemplateSpecs(original, override corev1.PodTemplateSpec) corev1.PodTempl
 	}
 
 	if override.Spec.TopologySpreadConstraints != nil {
-		merged.Spec.TopologySpreadConstraints = TopologySpreadConstraints(original.Spec.TopologySpreadConstraints, override.Spec.TopologySpreadConstraints)
+		merged.Spec.TopologySpreadConstraints = TopologySpreadConstraints(
+			original.Spec.TopologySpreadConstraints,
+			override.Spec.TopologySpreadConstraints,
+		)
 	}
 
 	return merged

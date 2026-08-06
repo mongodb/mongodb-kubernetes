@@ -32,8 +32,14 @@ import (
 )
 
 func TestSettingUserStatus_ToPending_IsFilteredOut(t *testing.T) {
-	userInUpdatedPhase := &userv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: userv1.MongoDBUserStatus{Common: status.Common{Phase: status.PhaseUpdated}}}
-	userInPendingPhase := &userv1.MongoDBUser{ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace}, Status: userv1.MongoDBUserStatus{Common: status.Common{Phase: status.PhasePending}}}
+	userInUpdatedPhase := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace},
+		Status:     userv1.MongoDBUserStatus{Common: status.Common{Phase: status.PhaseUpdated}},
+	}
+	userInPendingPhase := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "mms-user", Namespace: mock.TestNamespace},
+		Status:     userv1.MongoDBUserStatus{Common: status.Common{Phase: status.PhasePending}},
+	}
 
 	predicates := watch.PredicatesForUser()
 	updateEvent := event.UpdateEvent{
@@ -135,7 +141,11 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 
 	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
 	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
-	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*originalAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
+	assert.True(
+		t,
+		acAfterSecondReconcile.EqualsWithoutDeployment(*originalAC),
+		"Automation config before the second reconciliation and after the second reconciliation should be same",
+	)
 }
 
 func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T) {
@@ -161,7 +171,12 @@ func TestReconciliationSucceed_OnAddingUser_FromADifferentNamespace(t *testing.T
 	expected, _ := workflow.OK().ReconcileResult()
 
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
-	assert.Equal(t, expected, actual, "there should be a successful reconciliation if MongoDBUser and MongoDB resources are in different namespaces")
+	assert.Equal(
+		t,
+		expected,
+		actual,
+		"there should be a successful reconciliation if MongoDBUser and MongoDB resources are in different namespaces",
+	)
 }
 
 func TestReconciliationSucceed_OnAddingUser_WithNoMongoDBNamespaceSpecified(t *testing.T) {
@@ -696,7 +711,14 @@ func TestConnectionStringSecret_NotExplicitlyDeleted_OnUserDeletion(t *testing.T
 // BuildAuthenticationEnabledReplicaSet returns a AutomationConfig after creating a Replica Set with a set of
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
-func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
+func BuildAuthenticationEnabledReplicaSet(
+	ctx context.Context,
+	t *testing.T,
+	automationConfigOption string,
+	numAgents int,
+	agentAuthMode string,
+	authModes []mdbv1.AuthMode,
+) *om.AutomationConfig {
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
 
 	reconciler, client, omConnectionFactory := defaultUserReconciler(ctx, user)
@@ -750,7 +772,13 @@ func createPasswordSecret(ctx context.Context, client client.Client, secretRef u
 	createPasswordSecretInNamespace(ctx, client, secretRef, password, mock.TestNamespace)
 }
 
-func createPasswordSecretInNamespace(ctx context.Context, client client.Client, secretRef userv1.SecretKeyRef, password string, namespace string) {
+func createPasswordSecretInNamespace(
+	ctx context.Context,
+	client client.Client,
+	secretRef userv1.SecretKeyRef,
+	password string,
+	namespace string,
+) {
 	_ = client.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: secretRef.Name, Namespace: namespace},
 		Data: map[string][]byte{
@@ -767,13 +795,26 @@ func createMongoDBForUserWithAuth(ctx context.Context, client client.Client, use
 
 // defaultUserReconciler is the user reconciler used in unit test. It "adds" necessary
 // additional K8s objects (st, connection config map and secrets) necessary for reconciliation
-func defaultUserReconciler(ctx context.Context, user *userv1.MongoDBUser) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
+func defaultUserReconciler(
+	ctx context.Context,
+	user *userv1.MongoDBUser,
+) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(user)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay), kubeClient, omConnectionFactory
+	return newMongoDBUserReconciler(
+		ctx,
+		kubeClient,
+		omConnectionFactory.GetConnectionFunc,
+		memberClusterMap,
+		testBackupEnableDelay,
+	), kubeClient, omConnectionFactory
 }
 
-func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, authMode string) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
+func userReconcilerWithAuthMode(
+	ctx context.Context,
+	user *userv1.MongoDBUser,
+	authMode string,
+) (*MongoDBUserReconciler, client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(user)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
 	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)

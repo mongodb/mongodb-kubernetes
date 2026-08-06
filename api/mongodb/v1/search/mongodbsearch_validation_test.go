@@ -330,9 +330,12 @@ func TestValidateMCExternalHostnames(t *testing.T) {
 			errorContains: "{shardName}",
 		},
 		{
-			name:      "MC sharded shardName as name component is allowed",
-			hostnames: []string{"search-us-east-{shardName}-proxy.lb.example.com:443", "search-eu-west-{shardName}-proxy.lb.example.com:443"},
-			sharded:   true,
+			name: "MC sharded shardName as name component is allowed",
+			hostnames: []string{
+				"search-us-east-{shardName}-proxy.lb.example.com:443",
+				"search-eu-west-{shardName}-proxy.lb.example.com:443",
+			},
+			sharded: true,
 		},
 		{
 			name:      "MC sharded shared hostname across clusters allowed (cross-AZ failover)",
@@ -365,7 +368,12 @@ func TestValidateRouterHostname(t *testing.T) {
 	mkSearch := func(routerHostnames []string, sharded bool) *MongoDBSearch {
 		clusters := make([]ClusterSpec, 0, len(routerHostnames))
 		for i, rh := range routerHostnames {
-			c := ClusterSpec{Name: "cluster-" + strconv.Itoa(i), LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{ExternalHostname: "{shardName}.c" + strconv.Itoa(i) + ".example.com", RouterHostname: rh}}}
+			c := ClusterSpec{
+				Name: "cluster-" + strconv.Itoa(i),
+				LoadBalancer: &LoadBalancerConfig{
+					Managed: &ManagedLBConfig{ExternalHostname: "{shardName}.c" + strconv.Itoa(i) + ".example.com", RouterHostname: rh},
+				},
+			}
 			clusters = append(clusters, c)
 		}
 		s := &MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}, Spec: MongoDBSearchSpec{Clusters: clusters}}
@@ -386,7 +394,12 @@ func TestValidateRouterHostname(t *testing.T) {
 	}{
 		{name: "sharded with routerHostname set", routerHostnames: []string{"search.example.com:443"}, sharded: true},
 		{name: "sharded missing routerHostname rejected", routerHostnames: []string{""}, sharded: true, errorContains: "must be specified"},
-		{name: "sharded routerHostname with shardName placeholder rejected", routerHostnames: []string{"{shardName}.search.example.com:443"}, sharded: true, errorContains: "must not contain"},
+		{
+			name:            "sharded routerHostname with shardName placeholder rejected",
+			routerHostnames: []string{"{shardName}.search.example.com:443"},
+			sharded:         true,
+			errorContains:   "must not contain",
+		},
 		// Not an external sharded source → validator is a no-op even if unset.
 		{name: "non-sharded source ignored", routerHostnames: []string{""}, sharded: false},
 	}
@@ -465,8 +478,25 @@ func TestValidateExternalHostnameDNSLength(t *testing.T) {
 		{
 			// Each label fits 63, but the FQDN exceeds 253.
 			// 5 x 60-char labels + 4 dots = 304 > 253.
-			name:          "FQDN > 253 rejected",
-			hostnames:     []string{strings.Repeat("c", 60) + "." + strings.Repeat("a", 60) + "." + strings.Repeat("b", 60) + "." + strings.Repeat("c", 60) + "." + strings.Repeat("d", 60) + ".lb.example.com:443"},
+			name: "FQDN > 253 rejected",
+			hostnames: []string{
+				strings.Repeat(
+					"c",
+					60,
+				) + "." + strings.Repeat(
+					"a",
+					60,
+				) + "." + strings.Repeat(
+					"b",
+					60,
+				) + "." + strings.Repeat(
+					"c",
+					60,
+				) + "." + strings.Repeat(
+					"d",
+					60,
+				) + ".lb.example.com:443",
+			},
 			errorContains: "invalid DNS subdomain",
 		},
 		{
@@ -781,8 +811,13 @@ func TestValidateLBConfig(t *testing.T) {
 			errorContains: "exactly one of 'managed' or 'unmanaged'",
 		},
 		{
-			name:          "both managed and unmanaged rejected",
-			clusters:      []ClusterSpec{{Name: "a", LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}, Unmanaged: &UnmanagedLBConfig{Endpoint: "e:443"}}}},
+			name: "both managed and unmanaged rejected",
+			clusters: []ClusterSpec{
+				{
+					Name:         "a",
+					LoadBalancer: &LoadBalancerConfig{Managed: &ManagedLBConfig{}, Unmanaged: &UnmanagedLBConfig{Endpoint: "e:443"}},
+				},
+			},
 			errorContains: "mutually exclusive",
 		},
 		{

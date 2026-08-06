@@ -46,19 +46,35 @@ func (w ResourceWatcher) Watch(ctx context.Context, watchedName, dependentName t
 	w.watched[watchedName] = append(existing, dependentName)
 }
 
-func (w ResourceWatcher) Create(ctx context.Context, event event.TypedCreateEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (w ResourceWatcher) Create(
+	ctx context.Context,
+	event event.TypedCreateEvent[client.Object],
+	queue workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Update(ctx context.Context, event event.TypedUpdateEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (w ResourceWatcher) Update(
+	ctx context.Context,
+	event event.TypedUpdateEvent[client.Object],
+	queue workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	w.handleEvent(event.ObjectOld, queue)
 }
 
-func (w ResourceWatcher) Delete(ctx context.Context, event event.TypedDeleteEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (w ResourceWatcher) Delete(
+	ctx context.Context,
+	event event.TypedDeleteEvent[client.Object],
+	queue workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	w.handleEvent(event.Object, queue)
 }
 
-func (w ResourceWatcher) Generic(ctx context.Context, event event.TypedGenericEvent[client.Object], queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (w ResourceWatcher) Generic(
+	ctx context.Context,
+	event event.TypedGenericEvent[client.Object],
+	queue workqueue.TypedRateLimitingInterface[reconcile.Request],
+) {
 	w.handleEvent(event.Object, queue)
 }
 

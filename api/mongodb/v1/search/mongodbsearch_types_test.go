@@ -396,7 +396,14 @@ func TestMongoDBSearch_LocalizeToCluster(t *testing.T) {
 	}{
 		{name: "nil slice is a no-op", clusters: nil, localize: "us-east", wantOK: true, wantNil: true},
 		{name: "empty slice is a no-op", clusters: []ClusterSpec{}, localize: "us-east", wantOK: true, wantLen: 0},
-		{name: "match narrows to 1-element slice", clusters: twoClusters(), localize: "us-west", wantOK: true, wantLen: 1, wantFirst: "us-west"},
+		{
+			name:      "match narrows to 1-element slice",
+			clusters:  twoClusters(),
+			localize:  "us-west",
+			wantOK:    true,
+			wantLen:   1,
+			wantFirst: "us-west",
+		},
 		{name: "no match leaves slice unmodified", clusters: twoClusters(), localize: "ap-south", wantOK: false, wantLen: 2},
 	}
 	for _, tc := range tests {

@@ -106,7 +106,9 @@ func (p *PodSpecWrapperBuilder) SetSinglePersistence(builder *PersistenceConfigB
 	return p
 }
 
-func (p *PodSpecWrapperBuilder) SetMultiplePersistence(dataBuilder, journalBuilder, logsBuilder *PersistenceConfigBuilder) *PodSpecWrapperBuilder {
+func (p *PodSpecWrapperBuilder) SetMultiplePersistence(
+	dataBuilder, journalBuilder, logsBuilder *PersistenceConfigBuilder,
+) *PodSpecWrapperBuilder {
 	if p.spec.Persistence == nil {
 		p.spec.Persistence = &v1.Persistence{}
 	}

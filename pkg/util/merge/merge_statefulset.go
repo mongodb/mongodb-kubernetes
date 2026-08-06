@@ -71,7 +71,10 @@ func LabelSelectors(originalLabelSelector, overrideLabelSelector *metav1.LabelSe
 	// we have specified both, so we must merge them
 	mergedLabelSelector := &metav1.LabelSelector{}
 	mergedLabelSelector.MatchLabels = StringToStringMap(originalLabelSelector.MatchLabels, overrideLabelSelector.MatchLabels)
-	mergedLabelSelector.MatchExpressions = LabelSelectorRequirements(originalLabelSelector.MatchExpressions, overrideLabelSelector.MatchExpressions)
+	mergedLabelSelector.MatchExpressions = LabelSelectorRequirements(
+		originalLabelSelector.MatchExpressions,
+		overrideLabelSelector.MatchExpressions,
+	)
 	return mergedLabelSelector
 }
 
@@ -118,7 +121,10 @@ func LabelSelectorRequirements(original, override []metav1.LabelSelectorRequirem
 
 // LabelSelectorRequirementByKey returns the LabelSelectorRequirement with the given key if present in the slice.
 // returns nil if not present.
-func LabelSelectorRequirementByKey(labelSelectorRequirements []metav1.LabelSelectorRequirement, key string) *metav1.LabelSelectorRequirement {
+func LabelSelectorRequirementByKey(
+	labelSelectorRequirements []metav1.LabelSelectorRequirement,
+	key string,
+) *metav1.LabelSelectorRequirement {
 	for _, lsr := range labelSelectorRequirements {
 		if lsr.Key == key {
 			return &lsr
@@ -127,7 +133,10 @@ func LabelSelectorRequirementByKey(labelSelectorRequirements []metav1.LabelSelec
 	return nil
 }
 
-func VolumeClaimTemplates(defaultTemplates []corev1.PersistentVolumeClaim, overrideTemplates []corev1.PersistentVolumeClaim) []corev1.PersistentVolumeClaim {
+func VolumeClaimTemplates(
+	defaultTemplates []corev1.PersistentVolumeClaim,
+	overrideTemplates []corev1.PersistentVolumeClaim,
+) []corev1.PersistentVolumeClaim {
 	defaultMountsMap := createVolumeClaimMap(defaultTemplates)
 	overrideMountsMap := createVolumeClaimMap(overrideTemplates)
 

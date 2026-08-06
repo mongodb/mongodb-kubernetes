@@ -31,7 +31,13 @@ type TLSConfigurableResource interface {
 // EnsureTLSSecret will create or update the operator-managed Secret containing
 // the concatenated certificate and key from the user-provided Secret.
 // Returns the file name of the concatenated certificate and key
-func EnsureTLSSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, resource TLSConfigurableResource, labels map[string]string, ownerReferences []metav1.OwnerReference) (string, error) {
+func EnsureTLSSecret(
+	ctx context.Context,
+	getUpdateCreator secret.GetUpdateCreator,
+	resource TLSConfigurableResource,
+	labels map[string]string,
+	ownerReferences []metav1.OwnerReference,
+) (string, error) {
 	certKey, err := getPemOrConcatenatedCrtAndKey(ctx, getUpdateCreator, resource.TLSSecretNamespacedName())
 	if err != nil {
 		return "", err
@@ -88,7 +94,12 @@ func getPemOrConcatenatedCrtAndKey(ctx context.Context, getter secret.Getter, se
 	certKey := getCertAndKey(ctx, getter, secretName)
 	pem := getPem(ctx, getter, secretName)
 	if certKey == "" && pem == "" {
-		return "", fmt.Errorf(`neither "%s" nor the pair "%s"/"%s" were present in the TLS secret`, tlsSecretPemName, tlsSecretCertName, tlsSecretKeyName)
+		return "", fmt.Errorf(
+			`neither "%s" nor the pair "%s"/"%s" were present in the TLS secret`,
+			tlsSecretPemName,
+			tlsSecretCertName,
+			tlsSecretKeyName,
+		)
 	}
 	if certKey == "" {
 		return pem, nil
@@ -97,7 +108,15 @@ func getPemOrConcatenatedCrtAndKey(ctx context.Context, getter secret.Getter, se
 		return certKey, nil
 	}
 	if certKey != pem {
-		return "", fmt.Errorf(`if all of "%s", "%s" and "%s" are present in the secret, the entry for "%s" must be equal to the concatenation of "%s" with "%s"`, tlsSecretCertName, tlsSecretKeyName, tlsSecretPemName, tlsSecretPemName, tlsSecretCertName, tlsSecretKeyName)
+		return "", fmt.Errorf(
+			`if all of "%s", "%s" and "%s" are present in the secret, the entry for "%s" must be equal to the concatenation of "%s" with "%s"`,
+			tlsSecretCertName,
+			tlsSecretKeyName,
+			tlsSecretPemName,
+			tlsSecretPemName,
+			tlsSecretCertName,
+			tlsSecretKeyName,
+		)
 	}
 	return certKey, nil
 }

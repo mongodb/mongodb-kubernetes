@@ -27,7 +27,14 @@ func TestBuildJvmEnvVar(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, buildJvmEnvVar(tt.args.customParams, tt.args.containerMemParams), "buildJvmEnvVar(%v, %v)", tt.args.customParams, tt.args.containerMemParams)
+			assert.Equalf(
+				t,
+				tt.want,
+				buildJvmEnvVar(tt.args.customParams, tt.args.containerMemParams),
+				"buildJvmEnvVar(%v, %v)",
+				tt.args.customParams,
+				tt.args.containerMemParams,
+			)
 		})
 	}
 }

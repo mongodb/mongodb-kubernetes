@@ -32,7 +32,12 @@ const (
 // Enable will configure all of the required Kubernetes resources for SCRAM-SHA to be enabled.
 // The agent password and keyfile contents will be configured and stored in a secret.
 // the user credentials will be generated if not present, or existing credentials will be read.
-func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) error {
+func Enable(
+	ctx context.Context,
+	auth *automationconfig.Auth,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdb authtypes.Configurable,
+) error {
 	opts := mdb.GetAuthOptions()
 
 	desiredUsers, err := convertMongoDBResourceUsersToAutomationConfigUsers(ctx, secretGetUpdateCreateDeleter, mdb)
@@ -49,7 +54,12 @@ func Enable(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCre
 	return enableClientAuthentication(auth, opts, desiredUsers)
 }
 
-func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) error {
+func ensureAgent(
+	ctx context.Context,
+	auth *automationconfig.Auth,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdb authtypes.Configurable,
+) error {
 	generatedPassword, err := generate.RandomFixedLengthStringOfSize(20)
 	if err != nil {
 		return fmt.Errorf("could not generate password: %s", err)
@@ -61,13 +71,27 @@ func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpda
 	}
 
 	// ensure that the agent password secret exists or read existing password.
-	agentPassword, err := secret.EnsureSecretWithKey(ctx, secretGetUpdateCreateDeleter, mdb.GetAgentPasswordSecretNamespacedName(), mdb.GetOwnerReferences(), constants.AgentPasswordKey, generatedPassword)
+	agentPassword, err := secret.EnsureSecretWithKey(
+		ctx,
+		secretGetUpdateCreateDeleter,
+		mdb.GetAgentPasswordSecretNamespacedName(),
+		mdb.GetOwnerReferences(),
+		constants.AgentPasswordKey,
+		generatedPassword,
+	)
 	if err != nil {
 		return err
 	}
 
 	// ensure that the agent keyfile secret exists or read existing keyfile.
-	agentKeyFile, err := secret.EnsureSecretWithKey(ctx, secretGetUpdateCreateDeleter, mdb.GetAgentKeyfileSecretNamespacedName(), mdb.GetOwnerReferences(), constants.AgentKeyfileKey, generatedContents)
+	agentKeyFile, err := secret.EnsureSecretWithKey(
+		ctx,
+		secretGetUpdateCreateDeleter,
+		mdb.GetAgentKeyfileSecretNamespacedName(),
+		mdb.GetOwnerReferences(),
+		constants.AgentKeyfileKey,
+		generatedContents,
+	)
 	if err != nil {
 		return err
 	}
@@ -77,8 +101,19 @@ func ensureAgent(ctx context.Context, auth *automationconfig.Auth, secretGetUpda
 
 // ensureScramCredentials will ensure that the ScramSha1 & ScramSha256 credentials exist and are stored in the credentials
 // secret corresponding to user of the given MongoDB deployment.
-func ensureScramCredentials(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, user authtypes.User, mdbNamespacedName types.NamespacedName, ownerRef []metav1.OwnerReference) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
-	password, err := secret.ReadKey(ctx, getUpdateCreator, user.PasswordSecretKey, types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdbNamespacedName.Namespace})
+func ensureScramCredentials(
+	ctx context.Context,
+	getUpdateCreator secret.GetUpdateCreator,
+	user authtypes.User,
+	mdbNamespacedName types.NamespacedName,
+	ownerRef []metav1.OwnerReference,
+) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
+	password, err := secret.ReadKey(
+		ctx,
+		getUpdateCreator,
+		user.PasswordSecretKey,
+		types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdbNamespacedName.Namespace},
+	)
 	if err != nil {
 		// if the password is deleted, that's fine we can read from the stored credentials that were previously generated
 		if secret.SecretNotExist(err) {
@@ -91,9 +126,19 @@ func ensureScramCredentials(ctx context.Context, getUpdateCreator secret.GetUpda
 	// we should only need to generate new credentials in two situations.
 	// 1. We are creating the credentials for the first time
 	// 2. We are changing the password
-	shouldGenerateNewCredentials, err := needToGenerateNewCredentials(ctx, getUpdateCreator, user.Username, user.ScramCredentialsSecretName, mdbNamespacedName, password)
+	shouldGenerateNewCredentials, err := needToGenerateNewCredentials(
+		ctx,
+		getUpdateCreator,
+		user.Username,
+		user.ScramCredentialsSecretName,
+		mdbNamespacedName,
+		password,
+	)
 	if err != nil {
-		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf("could not determine if new credentials need to be generated: %s", err)
+		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf(
+			"could not determine if new credentials need to be generated: %s",
+			err,
+		)
 	}
 
 	// there are no changes required, we can re-use the same credentials.
@@ -111,7 +156,11 @@ func ensureScramCredentials(ctx context.Context, getUpdateCreator secret.GetUpda
 
 	// create or update our credentials secret for this user
 	if err := createScramCredentialsSecret(ctx, getUpdateCreator, mdbNamespacedName, ownerRef, user.ScramCredentialsSecretName, sha1Creds, sha256Creds); err != nil {
-		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf("faild to create scram credentials secret %s: %s", user.ScramCredentialsSecretName, err)
+		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf(
+			"faild to create scram credentials secret %s: %s",
+			user.ScramCredentialsSecretName,
+			err,
+		)
 	}
 
 	zap.S().Debugf("Successfully generated SCRAM credentials")
@@ -120,7 +169,13 @@ func ensureScramCredentials(ctx context.Context, getUpdateCreator secret.GetUpda
 
 // needToGenerateNewCredentials determines if it is required to generate new credentials or not.
 // this will be the case if we are either changing password, or are generating credentials for the first time.
-func needToGenerateNewCredentials(ctx context.Context, secretGetter secret.Getter, username, scramCredentialsSecretName string, mdbNamespacedName types.NamespacedName, password string) (bool, error) {
+func needToGenerateNewCredentials(
+	ctx context.Context,
+	secretGetter secret.Getter,
+	username, scramCredentialsSecretName string,
+	mdbNamespacedName types.NamespacedName,
+	password string,
+) (bool, error) {
 	s, err := secretGetter.GetSecret(ctx, types.NamespacedName{Name: scramCredentialsSecretName, Namespace: mdbNamespacedName.Namespace})
 	if err != nil {
 		// haven't generated credentials yet, so we are changing password
@@ -178,7 +233,10 @@ func generateScramShaCredentials(username string, password string) (scramcredent
 }
 
 // computeScramShaCredentials computes ScramSha 1 & 256 credentials using the provided salts
-func computeScramShaCredentials(username, password string, sha1Salt, sha256Salt []byte) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
+func computeScramShaCredentials(
+	username, password string,
+	sha1Salt, sha256Salt []byte,
+) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
 	scram1Creds, err := scramcredentials.ComputeScramSha1Creds(username, password, sha1Salt)
 	if err != nil {
 		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf("could not generate scramSha1Creds: %s", err)
@@ -194,7 +252,14 @@ func computeScramShaCredentials(username, password string, sha1Salt, sha256Salt 
 
 // createScramCredentialsSecret will create a Secret that contains all of the fields required to read these credentials
 // back in the future.
-func createScramCredentialsSecret(ctx context.Context, getUpdateCreator secret.GetUpdateCreator, mdbObjectKey types.NamespacedName, ref []metav1.OwnerReference, scramCredentialsSecretName string, sha1Creds, sha256Creds scramcredentials.ScramCreds) error {
+func createScramCredentialsSecret(
+	ctx context.Context,
+	getUpdateCreator secret.GetUpdateCreator,
+	mdbObjectKey types.NamespacedName,
+	ref []metav1.OwnerReference,
+	scramCredentialsSecretName string,
+	sha1Creds, sha256Creds scramcredentials.ScramCreds,
+) error {
 	scramCredsSecret := secret.Builder().
 		SetName(scramCredentialsSecretName).
 		SetNamespace(mdbObjectKey.Namespace).
@@ -210,15 +275,38 @@ func createScramCredentialsSecret(ctx context.Context, getUpdateCreator secret.G
 }
 
 // readExistingCredentials reads the existing set of credentials for both ScramSha 1 & 256
-func readExistingCredentials(ctx context.Context, secretGetter secret.Getter, mdbObjectKey types.NamespacedName, scramCredentialsSecretName string) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
-	credentialsSecret, err := secretGetter.GetSecret(ctx, types.NamespacedName{Name: scramCredentialsSecretName, Namespace: mdbObjectKey.Namespace})
+func readExistingCredentials(
+	ctx context.Context,
+	secretGetter secret.Getter,
+	mdbObjectKey types.NamespacedName,
+	scramCredentialsSecretName string,
+) (scramcredentials.ScramCreds, scramcredentials.ScramCreds, error) {
+	credentialsSecret, err := secretGetter.GetSecret(
+		ctx,
+		types.NamespacedName{Name: scramCredentialsSecretName, Namespace: mdbObjectKey.Namespace},
+	)
 	if err != nil {
-		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf("could not get secret %s/%s: %s", mdbObjectKey.Namespace, scramCredentialsSecretName, err)
+		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf(
+			"could not get secret %s/%s: %s",
+			mdbObjectKey.Namespace,
+			scramCredentialsSecretName,
+			err,
+		)
 	}
 
 	// we should really never hit this situation. It would only be possible if the secret storing credentials is manually edited.
-	if !secret.HasAllKeys(credentialsSecret, sha1SaltKey, sha1ServerKeyKey, sha1ServerKeyKey, sha256SaltKey, sha256ServerKeyKey, sha256StoredKeyKey) {
-		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf("credentials secret did not have all of the required keys")
+	if !secret.HasAllKeys(
+		credentialsSecret,
+		sha1SaltKey,
+		sha1ServerKeyKey,
+		sha1ServerKeyKey,
+		sha256SaltKey,
+		sha256ServerKeyKey,
+		sha256StoredKeyKey,
+	) {
+		return scramcredentials.ScramCreds{}, scramcredentials.ScramCreds{}, fmt.Errorf(
+			"credentials secret did not have all of the required keys",
+		)
 	}
 
 	scramSha1Creds := scramcredentials.ScramCreds{
@@ -239,11 +327,21 @@ func readExistingCredentials(ctx context.Context, secretGetter secret.Getter, md
 }
 
 // convertMongoDBResourceUsersToAutomationConfigUsers returns a list of users that are able to be set in the AutomationConfig
-func convertMongoDBResourceUsersToAutomationConfigUsers(ctx context.Context, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb authtypes.Configurable) ([]automationconfig.MongoDBUser, error) {
+func convertMongoDBResourceUsersToAutomationConfigUsers(
+	ctx context.Context,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdb authtypes.Configurable,
+) ([]automationconfig.MongoDBUser, error) {
 	var usersWanted []automationconfig.MongoDBUser
 	for _, u := range mdb.GetAuthUsers() {
 		if u.Database != constants.ExternalDB {
-			acUser, err := convertMongoDBUserToAutomationConfigUser(ctx, secretGetUpdateCreateDeleter, mdb.NamespacedName(), mdb.GetOwnerReferences(), u)
+			acUser, err := convertMongoDBUserToAutomationConfigUser(
+				ctx,
+				secretGetUpdateCreateDeleter,
+				mdb.NamespacedName(),
+				mdb.GetOwnerReferences(),
+				u,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert scram user %s to Automation Config user: %s", u.Username, err)
 			}
@@ -255,7 +353,13 @@ func convertMongoDBResourceUsersToAutomationConfigUsers(ctx context.Context, sec
 
 // convertMongoDBUserToAutomationConfigUser converts a single user configured in the MongoDB resource and converts it to a user
 // that can be added directly to the AutomationConfig.
-func convertMongoDBUserToAutomationConfigUser(ctx context.Context, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdbNsName types.NamespacedName, ownerRef []metav1.OwnerReference, user authtypes.User) (automationconfig.MongoDBUser, error) {
+func convertMongoDBUserToAutomationConfigUser(
+	ctx context.Context,
+	secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter,
+	mdbNsName types.NamespacedName,
+	ownerRef []metav1.OwnerReference,
+	user authtypes.User,
+) (automationconfig.MongoDBUser, error) {
 	acUser := automationconfig.MongoDBUser{
 		Username: user.Username,
 		Database: user.Database,

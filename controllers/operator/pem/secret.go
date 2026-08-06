@@ -15,7 +15,12 @@ import (
 
 // ReadHashFromSecret reads the existing Pem from
 // the secret that stores this StatefulSet's Pem collection.
-func ReadHashFromSecret(ctx context.Context, secretClient secrets.SecretClient, namespace, name, basePath string, log *zap.SugaredLogger) string {
+func ReadHashFromSecret(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	namespace, name, basePath string,
+	log *zap.SugaredLogger,
+) string {
 	var secretData map[string]string
 	var err error
 	if vault.IsVaultSecretBackend() {

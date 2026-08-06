@@ -21,7 +21,13 @@ func (s *automationConfigScramSha) GetName() MechanismName {
 	return s.MechanismName
 }
 
-func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (s *automationConfigScramSha) EnableAgentAuthentication(
+	ctx context.Context,
+	client kubernetesClient.Client,
+	conn om.Connection,
+	opts Options,
+	log *zap.SugaredLogger,
+) error {
 	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
 		if err := configureScramAgentUsers(ctx, client, ac, opts); err != nil {
 			return err

@@ -117,7 +117,12 @@ func WithReplicas(replicas int) func(opts *OpsManagerStatefulSetOptions) {
 	}
 }
 
-func WithKmipConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, client kubernetesClient.Client, log *zap.SugaredLogger) func(opts *OpsManagerStatefulSetOptions) {
+func WithKmipConfig(
+	ctx context.Context,
+	opsManager *omv1.MongoDBOpsManager,
+	client kubernetesClient.Client,
+	log *zap.SugaredLogger,
+) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		if !opsManager.Spec.IsKmipEnabled() {
 			return
@@ -146,7 +151,11 @@ func WithKmipConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, cli
 				}
 
 				clientCertificatePasswordSecret := &corev1.Secret{}
-				err := client.Get(ctx, kube.ObjectKey(m.GetNamespace(), c.ClientCertificatePasswordSecretName(m.GetName())), clientCertificatePasswordSecret)
+				err := client.Get(
+					ctx,
+					kube.ObjectKey(m.GetNamespace(), c.ClientCertificatePasswordSecretName(m.GetName())),
+					clientCertificatePasswordSecret,
+				)
 				if !apiErrors.IsNotFound(err) {
 					log.Warnf("failed to fetch the %s Secret from Kubernetes: %v", c.ClientCertificateSecretName(m.GetName()), err)
 				} else if err == nil {
@@ -184,7 +193,13 @@ func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitec
 }
 
 // updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
-func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Context, centralClusterSecretClient secrets.SecretClient, memberCluster multicluster.MemberCluster, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
+func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(
+	ctx context.Context,
+	centralClusterSecretClient secrets.SecretClient,
+	memberCluster multicluster.MemberCluster,
+	ownerReferences []metav1.OwnerReference,
+	log *zap.SugaredLogger,
+) error {
 	// Return immediately if no Certificate is provided
 	if opts.HTTPSCertSecretName == "" {
 		return nil
@@ -197,7 +212,9 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Cont
 
 	if vault.IsVaultSecretBackend() {
 		opsManagerSecretPath = centralClusterSecretClient.VaultClient.OpsManagerSecretPath()
-		secretData, err = centralClusterSecretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName))
+		secretData, err = centralClusterSecretClient.VaultClient.ReadSecretBytes(
+			fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName),
+		)
 		if err != nil {
 			return err
 		}
@@ -222,10 +239,25 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Cont
 		return err
 	}
 
-	certHash := enterprisepem.ReadHashFromSecret(ctx, centralClusterSecretClient, opts.Namespace, opts.HTTPSCertSecretName, opsManagerSecretPath, log)
+	certHash := enterprisepem.ReadHashFromSecret(
+		ctx,
+		centralClusterSecretClient,
+		opts.Namespace,
+		opts.HTTPSCertSecretName,
+		opsManagerSecretPath,
+		log,
+	)
 
 	// The operator concatenates the two fields of the secret into a PEM secret
-	err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), certHash, data, ownerReferences, certs.OpsManager)
+	err = certs.CreateOrUpdatePEMSecretWithPreviousCert(
+		ctx,
+		memberCluster.SecretClient,
+		kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName),
+		certHash,
+		data,
+		ownerReferences,
+		certs.OpsManager,
+	)
 	if err != nil {
 		return err
 	}
@@ -238,7 +270,14 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Cont
 
 // OpsManagerStatefulSet is the base method for building StatefulSet shared by Ops Manager and Backup Daemon.
 // Shouldn't be called by end users directly
-func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+func OpsManagerStatefulSet(
+	ctx context.Context,
+	centralClusterSecretClient secrets.SecretClient,
+	opsManager *omv1.MongoDBOpsManager,
+	memberCluster multicluster.MemberCluster,
+	log *zap.SugaredLogger,
+	additionalOpts ...func(*OpsManagerStatefulSetOptions),
+) (appsv1.StatefulSet, error) {
 	opts := opsManagerOptions(memberCluster, additionalOpts...)(opsManager)
 
 	opts.Annotations = opsManager.Annotations
@@ -253,7 +292,12 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 		// if the secret is specified, we must have a queryable.pem entry.
 		_, err := secret.ReadKey(ctx, centralClusterSecretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
 		if err != nil {
-			return appsv1.StatefulSet{}, xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
+			return appsv1.StatefulSet{}, xerrors.Errorf(
+				"error reading queryable.pem key from secret %s/%s: %w",
+				opsManager.Namespace,
+				secretName,
+				err,
+			)
 		}
 	}
 
@@ -292,7 +336,10 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 }
 
 // opsManagerOptions returns a function which returns the OpsManagerStatefulSetOptions to create the OpsManager StatefulSet
-func opsManagerOptions(memberCluster multicluster.MemberCluster, additionalOpts ...func(opts *OpsManagerStatefulSetOptions)) func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
+func opsManagerOptions(
+	memberCluster multicluster.MemberCluster,
+	additionalOpts ...func(opts *OpsManagerStatefulSetOptions),
+) func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return func(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 		var stsSpec *appsv1.StatefulSetSpec = nil
 		if opsManager.Spec.StatefulSetConfiguration != nil {
@@ -499,16 +546,26 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 	)
 }
 
-func appendKmipVolumes(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, opts OpsManagerStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+func appendKmipVolumes(
+	volumes []corev1.Volume,
+	volumeMounts []corev1.VolumeMount,
+	opts OpsManagerStatefulSetOptions,
+) ([]corev1.Volume, []corev1.VolumeMount) {
 	if opts.kmip != nil {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.KMIPServerCAName, opts.kmip.ServerConfiguration.CA))
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.KMIPServerCAName, util.KMIPServerCAHome, statefulset.WithReadOnly(true)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(util.KMIPServerCAName, util.KMIPServerCAHome, statefulset.WithReadOnly(true)),
+		)
 
 		for _, cc := range opts.kmip.ClientConfigurations {
 			clientSecretName := util.KMIPClientSecretNamePrefix + cc.ClientCertificateSecretName
 			clientSecretPath := util.KMIPClientSecretsHome + "/" + cc.ClientCertificateSecretName
 			volumes = append(volumes, statefulset.CreateVolumeFromSecret(clientSecretName, cc.ClientCertificateSecretName))
-			volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(clientSecretName, clientSecretPath, statefulset.WithReadOnly(true)))
+			volumeMounts = append(
+				volumeMounts,
+				statefulset.CreateVolumeMount(clientSecretName, clientSecretPath, statefulset.WithReadOnly(true)),
+			)
 		}
 	}
 	return volumes, volumeMounts
@@ -686,40 +743,105 @@ func hasVolumeMount(opts OpsManagerStatefulSetOptions, mountPath string) bool {
 	return false
 }
 
-func getNonPersistentOpsManagerVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, opts OpsManagerStatefulSetOptions) ([]corev1.Volume, []corev1.VolumeMount) {
+func getNonPersistentOpsManagerVolumeMounts(
+	volumes []corev1.Volume,
+	volumeMounts []corev1.VolumeMount,
+	opts OpsManagerStatefulSetOptions,
+) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.OpsManagerPvcNameData))
 
 	// Mount default emptyDir paths only if user hasn't provided custom overrides.
 	// This allows users to use their own PVCs for any of these paths.
 	if !hasVolumeMount(opts, util.PvcMountPathTmp) {
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.PvcMountPathTmp, statefulset.WithSubPath(util.PvcNameTmp)),
+		)
 	}
 	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathTmp) {
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathTmp, statefulset.WithSubPath(util.OpsManagerPvcNameTmp)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcNameData,
+				util.OpsManagerPvcMountPathTmp,
+				statefulset.WithSubPath(util.OpsManagerPvcNameTmp),
+			),
+		)
 	}
 	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathLogs) {
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathLogs, statefulset.WithSubPath(util.OpsManagerPvcNameLogs)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcNameData,
+				util.OpsManagerPvcMountPathLogs,
+				statefulset.WithSubPath(util.OpsManagerPvcNameLogs),
+			),
+		)
 	}
 	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathEtc) {
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathEtc, statefulset.WithSubPath(util.OpsManagerPvcNameEtc)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcNameData,
+				util.OpsManagerPvcMountPathEtc,
+				statefulset.WithSubPath(util.OpsManagerPvcNameEtc),
+			),
+		)
 	}
 
 	if opts.LoggingConfiguration != nil && opts.LoggingConfiguration.LogBackRef != nil {
-		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackNameVolume, opts.LoggingConfiguration.LogBackRef.Name))
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcLogBackNameVolume, util.OpsManagerPvcLogbackMountPath, statefulset.WithSubPath(util.OpsManagerPvcLogbackSubPath)))
+		volumes = append(
+			volumes,
+			statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackNameVolume, opts.LoggingConfiguration.LogBackRef.Name),
+		)
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcLogBackNameVolume,
+				util.OpsManagerPvcLogbackMountPath,
+				statefulset.WithSubPath(util.OpsManagerPvcLogbackSubPath),
+			),
+		)
 	}
 
 	if opts.LoggingConfiguration != nil && opts.LoggingConfiguration.LogBackAccessRef != nil {
-		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(util.OpsManagerPvcLogBackAccessNameVolume, opts.LoggingConfiguration.LogBackAccessRef.Name))
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcLogBackAccessNameVolume, util.OpsManagerPvcLogbackAccessMountPath, statefulset.WithSubPath(util.OpsManagerPvcLogbackAccessSubPath)))
+		volumes = append(
+			volumes,
+			statefulset.CreateVolumeFromConfigMap(
+				util.OpsManagerPvcLogBackAccessNameVolume,
+				opts.LoggingConfiguration.LogBackAccessRef.Name,
+			),
+		)
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcLogBackAccessNameVolume,
+				util.OpsManagerPvcLogbackAccessMountPath,
+				statefulset.WithSubPath(util.OpsManagerPvcLogbackAccessSubPath),
+			),
+		)
 	}
 
 	if !hasVolumeMount(opts, util.OpsManagerPvcMountDownloads) {
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountDownloads, statefulset.WithSubPath(util.OpsManagerPvcNameDownloads)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcNameData,
+				util.OpsManagerPvcMountDownloads,
+				statefulset.WithSubPath(util.OpsManagerPvcNameDownloads),
+			),
+		)
 	}
 
 	if !hasVolumeMount(opts, util.OpsManagerPvcMountPathConf) {
-		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.OpsManagerPvcNameData, util.OpsManagerPvcMountPathConf, statefulset.WithSubPath(util.OpsManagerPvcNameConf)))
+		volumeMounts = append(
+			volumeMounts,
+			statefulset.CreateVolumeMount(
+				util.OpsManagerPvcNameData,
+				util.OpsManagerPvcMountPathConf,
+				statefulset.WithSubPath(util.OpsManagerPvcNameConf),
+			),
+		)
 	}
 
 	return volumes, volumeMounts

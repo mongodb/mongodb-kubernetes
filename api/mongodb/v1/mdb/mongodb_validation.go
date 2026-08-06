@@ -265,7 +265,11 @@ func oidcProviderConfigIssuerURIValidator(config OIDCProviderConfig) func(DbComm
 		}
 
 		if url.Scheme != "https" {
-			return v1.ValidationWarning("IssuerURI %s in OIDC provider config %q in not secure endpoint", url.String(), config.ConfigurationName)
+			return v1.ValidationWarning(
+				"IssuerURI %s in OIDC provider config %q in not secure endpoint",
+				url.String(),
+				config.ConfigurationName,
+			)
 		}
 
 		return v1.ValidationSuccess()
@@ -276,7 +280,10 @@ func oidcProviderConfigClientIdValidator(config OIDCProviderConfig) func(DbCommo
 	return func(_ DbCommonSpec) v1.ValidationResult {
 		if config.AuthorizationMethod == OIDCAuthorizationMethodWorkforceIdentityFederation {
 			if config.ClientId == nil || *config.ClientId == "" {
-				return v1.ValidationError("ClientId has to be specified in OIDC provider config %q with Workforce Identity Federation", config.ConfigurationName)
+				return v1.ValidationError(
+					"ClientId has to be specified in OIDC provider config %q with Workforce Identity Federation",
+					config.ConfigurationName,
+				)
 			}
 		} else if config.AuthorizationMethod == OIDCAuthorizationMethodWorkloadIdentityFederation {
 			if config.ClientId != nil {
@@ -292,7 +299,10 @@ func oidcProviderConfigRequestedScopesValidator(config OIDCProviderConfig) func(
 	return func(_ DbCommonSpec) v1.ValidationResult {
 		if config.AuthorizationMethod == OIDCAuthorizationMethodWorkloadIdentityFederation {
 			if len(config.RequestedScopes) > 0 {
-				return v1.ValidationWarning("RequestedScopes will be ignored in OIDC provider config %q with Workload Identity Federation", config.ConfigurationName)
+				return v1.ValidationWarning(
+					"RequestedScopes will be ignored in OIDC provider config %q with Workload Identity Federation",
+					config.ConfigurationName,
+				)
 			}
 		}
 
@@ -304,7 +314,10 @@ func oidcProviderConfigAuthorizationTypeValidator(config OIDCProviderConfig) fun
 	return func(_ DbCommonSpec) v1.ValidationResult {
 		if config.AuthorizationType == OIDCAuthorizationTypeGroupMembership {
 			if config.GroupsClaim == nil || *config.GroupsClaim == "" {
-				return v1.ValidationError("GroupsClaim has to be specified in OIDC provider config %q when using Group Membership authorization", config.ConfigurationName)
+				return v1.ValidationError(
+					"GroupsClaim has to be specified in OIDC provider config %q when using Group Membership authorization",
+					config.ConfigurationName,
+				)
 			}
 		} else if config.AuthorizationType == OIDCAuthorizationTypeUserID {
 			if config.GroupsClaim != nil {
@@ -339,7 +352,10 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 	}
 	// Standalone or ReplicaSet
 	if ms.ShardSpec != nil || ms.ConfigSrvSpec != nil || ms.MongosSpec != nil {
-		return v1.ValidationError("'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is %s", ms.ResourceType)
+		return v1.ValidationError(
+			"'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is %s",
+			ms.ResourceType,
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -356,7 +372,9 @@ func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.Validat
 		return v1.ValidationSuccess()
 	}
 	if len(d.Security.Authentication.Modes) > 1 && d.Security.Authentication.Agents.Mode == "" {
-		return v1.ValidationError("spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
+		return v1.ValidationError(
+			"spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes",
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -366,8 +384,11 @@ func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(d DbCommonSpec) v1
 		return v1.ValidationSuccess()
 	}
 	auth := d.Security.Authentication
-	if auth.Ldap.AuthzQueryTemplate != "" && auth.Agents.AutomationLdapGroupDN == "" && stringutil.Contains([]string{"X509", "LDAP"}, auth.Agents.Mode) {
-		return v1.ValidationError("automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)")
+	if auth.Ldap.AuthzQueryTemplate != "" && auth.Agents.AutomationLdapGroupDN == "" &&
+		stringutil.Contains([]string{"X509", "LDAP"}, auth.Agents.Mode) {
+		return v1.ValidationError(
+			"automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)",
+		)
 	}
 	return v1.ValidationSuccess()
 }
@@ -457,7 +478,11 @@ func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
 
 		splitted := strings.Split(fcvString, ".")
 		if len(splitted) != 2 {
-			return v1.ValidationError("invalid feature compatibility version %q, possible values are: '%s' or 'major.minor'", fcvString, util.AlwaysMatchVersionFCV)
+			return v1.ValidationError(
+				"invalid feature compatibility version %q, possible values are: '%s' or 'major.minor'",
+				fcvString,
+				util.AlwaysMatchVersionFCV,
+			)
 		}
 
 		_, err := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
@@ -596,7 +621,11 @@ func ValidateMemberClusterIsSubsetOfKubeConfig(ms ClusterSpecList) v1.Validation
 		}
 	}
 	if len(notPresentClusters) > 0 {
-		return v1.ValidationWarning("The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v", notPresentClusters, clusterNames)
+		return v1.ValidationWarning(
+			"The following clusters specified in ClusterSpecList is not present in Kubeconfig: %s, instead - the following are: %+v",
+			notPresentClusters,
+			clusterNames,
+		)
 	}
 	return v1.ValidationSuccess()
 }

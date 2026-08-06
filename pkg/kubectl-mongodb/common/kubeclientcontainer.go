@@ -314,7 +314,11 @@ func (k *KubeClientContainer) GetRestConfig() *rest.Config {
 	return k.restConfig
 }
 
-func NewKubeClientContainer(restConfig *rest.Config, staticClient kubernetes.Interface, dynamicClient dynamic.Interface) *KubeClientContainer {
+func NewKubeClientContainer(
+	restConfig *rest.Config,
+	staticClient kubernetes.Interface,
+	dynamicClient dynamic.Interface,
+) *KubeClientContainer {
 	return &KubeClientContainer{
 		staticClient:  staticClient,
 		dynamicClient: dynamicClient,
