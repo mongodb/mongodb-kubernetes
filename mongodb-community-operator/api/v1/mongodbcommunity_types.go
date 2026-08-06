@@ -53,6 +53,7 @@ var (
 		"replicaSet": {},
 		"ssl":        {},
 		"tls":        {},
+		"authSource": {},
 	}
 )
 
@@ -729,21 +730,16 @@ func (m *MongoDBCommunity) GetOptionsString() string {
 //
 // Takes into account both user options and resource options.
 // User options will override any existing options in the resource.
+// authSource is written separately by the caller (see MongoAuthUserURI /
+// MongoAuthUserSRVURI), so it is excluded here even though it may be
+// present in either options map, to avoid writing it twice.
 func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 	generalOptionsMap := m.Spec.AdditionalConnectionStringConfig.Object
 	userOptionsMap := user.ConnectionStringOptions
-	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap)+1)
+	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap))
 	i := 0
 
-	if authSource := user.GetAuthSource(); authSource != "" {
-		optionValues[i] = fmt.Sprintf("authSource=%v", authSource)
-		i += 1
-	}
-
 	for key, value := range userOptionsMap {
-		if key == "authSource" {
-			continue
-		}
 		if _, protected := protectedConnectionStringOptions[key]; !protected {
 			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
 			i += 1
@@ -752,9 +748,6 @@ func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 
 	for key, value := range generalOptionsMap {
 		_, ok := userOptionsMap[key]
-		if key == "authSource" {
-			continue
-		}
 		if _, protected := protectedConnectionStringOptions[key]; !ok && !protected {
 			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
 			i += 1
@@ -784,16 +777,26 @@ func (m *MongoDBCommunity) MongoSRVURI() string {
 	return fmt.Sprintf("mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s", m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Name, optionsString)
 }
 
+// authSourceParam returns the "&authSource=<value>" connection string component for the
+// user, or an empty string if the user has no resolvable authentication database.
+func authSourceParam(user authtypes.User) string {
+	if authSource := user.GetAuthSource(); authSource != "" {
+		return fmt.Sprintf("&authSource=%s", authSource)
+	}
+	return ""
+}
+
 // MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
 // and includes the authentication data for the user
 func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string) string {
 	optionsString := m.GetUserOptionsString(user)
-	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s",
+	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s%s",
 		user.GetLoginString(password),
 		strings.Join(m.Hosts(), ","),
 		user.GetPathDatabase(),
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
+		authSourceParam(user),
 		optionsString)
 }
 
@@ -801,7 +804,7 @@ func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string
 // and includes the authentication data for the user
 func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password string) string {
 	optionsString := m.GetUserOptionsString(user)
-	return fmt.Sprintf("mongodb+srv://%s%s.%s.svc.%s/%s?replicaSet=%s&ssl=%t%s",
+	return fmt.Sprintf("mongodb+srv://%s%s.%s.svc.%s/%s?replicaSet=%s&ssl=%t%s%s",
 		user.GetLoginString(password),
 		m.ServiceName(),
 		m.Namespace,
@@ -809,6 +812,7 @@ func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password str
 		user.GetPathDatabase(),
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
+		authSourceParam(user),
 		optionsString)
 }
 
