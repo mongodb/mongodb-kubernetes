@@ -258,7 +258,7 @@ func convertMongoDBResourceUsersToAutomationConfigUsers(ctx context.Context, sec
 func convertMongoDBUserToAutomationConfigUser(ctx context.Context, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdbNsName types.NamespacedName, ownerRef []metav1.OwnerReference, user authtypes.User) (automationconfig.MongoDBUser, error) {
 	acUser := automationconfig.MongoDBUser{
 		Username: user.Username,
-		Database: user.GetUserDatabase(),
+		Database: user.GetAuthSource(),
 	}
 	for _, role := range user.Roles {
 		acUser.Roles = append(acUser.Roles, automationconfig.Role{

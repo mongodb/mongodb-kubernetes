@@ -735,8 +735,8 @@ func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap)+1)
 	i := 0
 
-	if user.AuthSource != "" {
-		optionValues[i] = fmt.Sprintf("authSource=%v", user.AuthSource)
+	if authSource := user.GetAuthSource(); authSource != "" {
+		optionValues[i] = fmt.Sprintf("authSource=%v", authSource)
 		i += 1
 	}
 
