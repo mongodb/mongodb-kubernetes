@@ -187,6 +187,9 @@ type ExternalApplicationDatabaseRef struct {
 	// +kubebuilder:validation:Enum=MongoDB
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
+
+	// Transient fields
+	Namespace string `json:"-"`
 }
 
 type Logging struct {
@@ -676,6 +679,8 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.AppDB.Namespace = om.Namespace
 		om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
 		om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+	} else {
+		om.Spec.ExternalApplicationDatabaseRef.Namespace = om.Namespace
 	}
 }
 
