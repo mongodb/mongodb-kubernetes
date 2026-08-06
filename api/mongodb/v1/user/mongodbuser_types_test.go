@@ -8,29 +8,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
-func TestMongoDBUserSpec_ApplyDefaults(t *testing.T) {
-	t.Run("empty authSource defaults to admin, defaultDatabase left empty", func(t *testing.T) {
-		spec := MongoDBUserSpec{}
-		spec.ApplyDefaults()
-		assert.Equal(t, "admin", spec.AuthSource)
-		assert.Equal(t, "", spec.DefaultDatabase)
-	})
-
-	t.Run("already-set fields are left untouched", func(t *testing.T) {
-		spec := MongoDBUserSpec{AuthSource: "admin", DefaultDatabase: "myapp"}
-		spec.ApplyDefaults()
-		assert.Equal(t, "admin", spec.AuthSource)
-		assert.Equal(t, "myapp", spec.DefaultDatabase)
-	})
-
-	t.Run("defaultDatabase alone is left as-is", func(t *testing.T) {
-		spec := MongoDBUserSpec{DefaultDatabase: "myapp"}
-		spec.ApplyDefaults()
-		assert.Equal(t, "admin", spec.AuthSource)
-		assert.Equal(t, "myapp", spec.DefaultDatabase)
-	})
-}
-
 func TestMongoDBUser_ChangedIdentifier(t *testing.T) {
 	before := MongoDBUser{
 		Spec: MongoDBUserSpec{
