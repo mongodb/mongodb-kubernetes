@@ -142,7 +142,6 @@ def user_ldap(
         namespace,
         username=mongodb_user.uid,
         auth_source="$external",
-        default_database="$external",
         password=mongodb_user.password,
         mongodb_resource=mongodb_multi,
     )

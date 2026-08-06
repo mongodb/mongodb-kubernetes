@@ -6,7 +6,6 @@ metadata:
 spec:
   username: CN=my-replica-set-x509-user,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US
   authSource: $external
-  defaultDatabase: $external
   mongodbResourceRef:
     name: my-replica-set
   roles:

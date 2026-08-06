@@ -6,7 +6,6 @@ metadata:
 spec:
   username: "<filled-in-test>"
   authSource: "$external"
-  defaultDatabase: "$external"
   mongodbResourceRef:
     name: oidc-multi-replica-set
   roles:

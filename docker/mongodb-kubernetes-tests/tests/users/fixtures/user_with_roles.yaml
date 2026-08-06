@@ -5,7 +5,6 @@ metadata:
 spec:
   username: "CN=mms-user-1,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
   authSource: "$external"
-  defaultDatabase: "$external"
   opsManager:
     configMapRef:
       name: my-project
