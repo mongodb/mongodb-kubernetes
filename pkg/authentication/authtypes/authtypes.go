@@ -47,9 +47,6 @@ type User struct {
 	// Username is the username of the user.
 	Username string
 
-	// Database is the database this user will be created in.
-	Database string
-
 	// Roles is a slice of roles that this user should have.
 	Roles []Role
 
@@ -88,31 +85,23 @@ type User struct {
 }
 
 // GetPathDatabase returns the database to place in the connection string URI path.
-// Uses DefaultDatabase if set, otherwise falls back to Database for backward compatibility.
 func (u User) GetPathDatabase() string {
-	if u.DefaultDatabase != "" {
-		return u.DefaultDatabase
-	}
-	return u.Database
+	return u.DefaultDatabase
 }
 
 // GetAuthSource returns the database used to authenticate this user (used in AutomationConfig
 // and as the authSource connection string parameter).
-// Uses AuthSource if set, otherwise falls back to Database for backward compatibility.
 func (u User) GetAuthSource() string {
-	if u.AuthSource != "" {
-		return u.AuthSource
-	}
-	return u.Database
+	return u.AuthSource
 }
 
 // IsExternalAuth returns true if this user authenticates against an external database.
 func (u User) IsExternalAuth() bool {
-	return u.AuthSource == constants.ExternalDB || u.Database == constants.ExternalDB
+	return u.AuthSource == constants.ExternalDB
 }
 
 func (u User) GetLoginString(password string) string {
-	if u.AuthSource == constants.ExternalDB || u.Database == constants.ExternalDB {
+	if u.AuthSource == constants.ExternalDB {
 		return ""
 	}
 	return stringutil.EncodeUserinfoComponent(u.Username) + ":" + stringutil.EncodeUserinfoComponent(password) + "@"
