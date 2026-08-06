@@ -58,9 +58,15 @@ def replica_set(
 
 @fixture(scope="module")
 def replica_set_user(replica_set: MongoDB) -> MongoDBUser:
-    """Creates a password secret and then the user referencing it"""
+    """Creates a password secret and then the user referencing it.
+
+    Uses the legacy spec.db field instead of spec.authSource/spec.defaultDatabase:
+    this user is created against the currently-released official operator's CRD
+    (before the operator-under-test is installed), which does not yet recognize
+    the new fields.
+    """
     resource = MongoDBUser.from_yaml(
-        yaml_fixture("scram-sha-user.yaml"),
+        yaml_fixture("scram-sha-user-legacy-db.yaml"),
         namespace=replica_set.namespace,
         name="rs-user",
     )

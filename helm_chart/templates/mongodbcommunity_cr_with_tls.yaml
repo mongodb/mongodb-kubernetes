@@ -138,7 +138,8 @@ spec:
   {{- if .Values.community.resource.tls.sampleX509User }}
   users:
   - name: CN=my-x509-user,OU=organizationalunit,O=organization
-    db: $external
+    authSource: $external
+    defaultDatabase: $external
     roles:
       - name: clusterAdmin
         db: admin

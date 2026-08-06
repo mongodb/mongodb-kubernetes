@@ -5,7 +5,8 @@
     name: mms-user-1
   spec:
     username: "CN=mms-user-1,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-    db: "$external"
+    authSource: "$external"
+    defaultDatabase: "$external"
     mongodbResourceRef:
       name: test-x509-rs
     roles:
@@ -17,7 +18,8 @@
     name: mms-user-2
   spec:
     username: "CN=mms-user-2,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-    db: "$external"
+    authSource: "$external"
+    defaultDatabase: "$external"
     mongodbResourceRef:
       name: test-x509-rs
     roles:
@@ -29,7 +31,8 @@
     name: mms-user-3
   spec:
     username: "CN=mms-user-3,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-    db: "$external"
+    authSource: "$external"
+    defaultDatabase: "$external"
     mongodbResourceRef:
       name: test-x509-rs
     roles:
@@ -41,7 +44,8 @@
     name: mms-user-4
   spec:
     username: "CN=mms-user-4,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-    db: "$external"
+    authSource: "$external"
+    defaultDatabase: "$external"
     mongodbResourceRef:
       name: test-x509-rs
     roles:
@@ -53,7 +57,8 @@
     name: mms-user-5
   spec:
     username: "CN=mms-user-5,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-    db: "$external"
+    authSource: "$external"
+    defaultDatabase: "$external"
     mongodbResourceRef:
       name: test-x509-rs
     roles:
@@ -65,7 +70,8 @@
     name: mms-user-6
   spec:
     username: "CN=mms-user-6,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US"
-    db: "$external"
+    authSource: "$external"
+    defaultDatabase: "$external"
     mongodbResourceRef:
       name: test-x509-rs
     roles:

@@ -5,7 +5,8 @@ metadata:
   name: my-ldap-user
 spec:
   username: my-ldap-user
-  db: $external
+  authSource: $external
+  defaultDatabase: $external
   mongodbResourceRef:
     name: my-ldap-enabled-sharded-cluster # The name of the MongoDB resource this user will be added to
   roles:
