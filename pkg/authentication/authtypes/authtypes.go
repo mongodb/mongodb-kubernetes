@@ -96,9 +96,10 @@ func (u User) GetPathDatabase() string {
 	return u.Database
 }
 
-// GetUserDatabase returns the database the user is created in (used in AutomationConfig).
+// GetAuthSource returns the database used to authenticate this user (used in AutomationConfig
+// and as the authSource connection string parameter).
 // Uses AuthSource if set, otherwise falls back to Database for backward compatibility.
-func (u User) GetUserDatabase() string {
+func (u User) GetAuthSource() string {
 	if u.AuthSource != "" {
 		return u.AuthSource
 	}

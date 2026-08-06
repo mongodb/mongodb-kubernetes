@@ -88,7 +88,7 @@ func convertMongoDBResourceUsersToAutomationConfigUsers(mdb authtypes.Configurab
 func convertMongoDBUserToAutomationConfigUser(user authtypes.User) automationconfig.MongoDBUser {
 	acUser := automationconfig.MongoDBUser{
 		Username: user.Username,
-		Database: user.GetUserDatabase(),
+		Database: user.GetAuthSource(),
 	}
 	for _, role := range user.Roles {
 		acUser.Roles = append(acUser.Roles, automationconfig.Role{
