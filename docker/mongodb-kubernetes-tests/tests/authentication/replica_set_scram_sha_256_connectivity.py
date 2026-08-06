@@ -41,6 +41,11 @@ PLUS_PASSWORD_USER_NAME = "mms-user-4"
 PLUS_PASSWORD_SECRET_NAME = "mms-user-4-password"
 PLUS_PASSWORD_USER_PASSWORD = "my:p@ss/w?rd# %[+]!$&'()*,;=~-._"
 
+DIFFERENT_DATABASE_USER_NAME = "mms-user-5"
+DIFFERENT_DATABASE_SECRET_NAME = "mms-user-5-password"
+DIFFERENT_DATABASE_USER_PASSWORD = "my-password-5"
+DIFFERENT_CONNECTION_STRING_DATABASE = "myapp"
+
 
 def create_password_secret(namespace: str) -> str:
     create_or_update_secret(
@@ -98,6 +103,13 @@ def space_password_standard_secret(replica_set: MongoDB):
 @fixture(scope="function")
 def plus_password_standard_secret(replica_set: MongoDB):
     secret_name = "{}-{}-{}".format(replica_set.name, PLUS_PASSWORD_USER_NAME, USER_DATABASE)
+    return read_secret(replica_set.namespace, secret_name)
+
+
+@fixture(scope="function")
+def different_database_standard_secret(replica_set: MongoDB):
+    # the connection string secret name is keyed by authSource, not defaultDatabase
+    secret_name = "{}-{}-{}".format(replica_set.name, DIFFERENT_DATABASE_USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
 
 
