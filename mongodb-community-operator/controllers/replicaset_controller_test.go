@@ -466,7 +466,8 @@ func createPodWithAgentAnnotation(ctx context.Context, t *testing.T, c k8sClient
 func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 	ctx := context.Background()
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
-		Name: "testuser",
+		Name:       "testuser",
+		AuthSource: "admin",
 		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
@@ -694,7 +695,8 @@ func TestService_connectionStringSecretAnnotationsAreApplied(t *testing.T) {
 	}
 
 	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
-		Name: "testuser",
+		Name:       "testuser",
+		AuthSource: "admin",
 		PasswordSecretRef: v1.SecretKeyReference{
 			Name: "password-secret-name",
 		},
