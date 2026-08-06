@@ -54,8 +54,10 @@ spec:
               connectionStringSecretName:
                 type: string
               defaultDatabase:
-                description: DefaultDatabase is the database placed in the connection
-                  string URI path.
+                description: |-
+                  DefaultDatabase is the database placed in the connection string URI path.
+                  Ignored when AuthSource is "$external", since it is an auth-only pseudo-database
+                  and must not appear in the URI path.
                 type: string
               mongodbResourceRef:
                 properties:
