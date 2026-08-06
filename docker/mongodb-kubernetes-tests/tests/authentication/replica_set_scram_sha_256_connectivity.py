@@ -209,7 +209,7 @@ def test_credentials_secret_is_created(replica_set: MongoDB, standard_secret: Di
     assert "password" in standard_secret
     assert "connectionString.standard" in standard_secret
     assert "connectionString.standardSrv" in standard_secret
-    # authSource in the connection string must match the user's spec.db
+    # authSource in the connection string must match the user's spec.authSource
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in standard_secret["connectionString.standardSrv"]
@@ -232,7 +232,7 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
     assert "password" in non_admin_standard_secret
     assert "connectionString.standard" in non_admin_standard_secret
     assert "connectionString.standardSrv" in non_admin_standard_secret
-    # authSource in the connection string must match the user's spec.db (non-admin database)
+    # authSource in the connection string must match the user's spec.authSource (non-admin database)
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
