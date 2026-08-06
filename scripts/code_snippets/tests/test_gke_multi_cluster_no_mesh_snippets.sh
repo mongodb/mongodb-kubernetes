@@ -9,6 +9,51 @@ _SNIPPETS_OUTPUT_DIR="$(dirname "${script_name}")/outputs/$(basename "${script_n
 export _SNIPPETS_OUTPUT_DIR
 mkdir -p "${_SNIPPETS_OUTPUT_DIR}"
 
+list_load_balancer_services() {
+  local context="${1}"
+  local namespace="${2}"
+
+  kubectl get services --context "${context}" --namespace "${namespace}" --ignore-not-found \
+    -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.name}{"\n"}{end}'
+}
+
+cleanup_load_balancer_services() {
+  local context namespace services service remaining
+
+  for context in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8S_CLUSTER_2_CONTEXT_NAME}"; do
+    for namespace in "${OM_NAMESPACE}" "${MDB_NAMESPACE}"; do
+      if ! services="$(list_load_balancer_services "${context}" "${namespace}")"; then
+        echo "Failed to list LoadBalancer Services in ${namespace} on ${context}" >&2
+        return 1
+      fi
+
+      while IFS= read -r service; do
+        if [ -z "${service}" ]; then
+          continue
+        fi
+
+        echo "Deleting LoadBalancer Service ${service} in ${namespace} on ${context}"
+        if ! kubectl delete service "${service}" --context "${context}" --namespace "${namespace}" \
+          --wait=true --timeout=5m --ignore-not-found; then
+          echo "Failed to delete LoadBalancer Service ${service} in ${namespace} on ${context}" >&2
+          return 1
+        fi
+      done <<< "${services}"
+
+      if ! remaining="$(list_load_balancer_services "${context}" "${namespace}")"; then
+        echo "Failed to verify LoadBalancer Services in ${namespace} on ${context}" >&2
+        return 1
+      fi
+      if [ -n "${remaining}" ]; then
+        echo "LoadBalancer Services remain in ${namespace} on ${context}: ${remaining}" >&2
+        return 1
+      fi
+    done
+  done
+
+  return 0
+}
+
 function cleanup() {
   # Disable exit on error during cleanup to ensure all cleanup steps run
   set +e
@@ -25,6 +70,8 @@ function cleanup() {
     # Wait for background processes and log any failures
     wait ${pid1} || echo "Warning: ra-10-ops-manager-mc-no-mesh teardown failed"
     wait ${pid2} || echo "Warning: ra-09-setup-externaldns teardown failed"
+
+    cleanup_load_balancer_services
 
     ./public/architectures/setup-multi-cluster/ra-01-setup-gke/teardown.sh || echo "Warning: ra-01-setup-gke teardown failed"
   elif [ "${code_snippets_reset:-false}" = true ]; then
@@ -43,6 +90,8 @@ function cleanup() {
       wait ${pid2} || echo "Warning: ra-11-mongodb-sharded-mc-no-mesh teardown failed"
       wait ${pid3} || echo "Warning: ra-12-mongodb-replicaset-mc-no-mesh teardown failed"
       wait ${pid4} || echo "Warning: ra-09-setup-externaldns teardown failed"
+
+      cleanup_load_balancer_services
 
       ./public/architectures/setup-multi-cluster/ra-02-setup-operator/teardown.sh || echo "Warning: ra-02-setup-operator teardown failed"
   else
