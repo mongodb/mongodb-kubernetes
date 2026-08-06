@@ -365,8 +365,9 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 
 func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	testuser := authtypes.User{
-		Username: "testuser",
-		Database: "admin",
+		Username:        "testuser",
+		AuthSource:      "admin",
+		DefaultDatabase: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 
@@ -417,23 +418,24 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
+	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", DefaultDatabase: "admin"}
 	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 
 	testuser = authtypes.User{
-		Username: "testuser",
-		Database: "$external",
+		Username:   "testuser",
+		AuthSource: "$external",
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/$external?replicaSet=my-rs&ssl=false&authSource=$external")
+	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&ssl=false&authSource=$external")
 }
 
 func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	testuser := authtypes.User{
-		Username: "testuser",
-		Database: "admin",
+		Username:        "testuser",
+		AuthSource:      "admin",
+		DefaultDatabase: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 
@@ -484,17 +486,17 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
+	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", DefaultDatabase: "admin"}
 	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 
 	testuser = authtypes.User{
-		Username: "testuser",
-		Database: "$external",
+		Username:   "testuser",
+		AuthSource: "$external",
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/$external?replicaSet=my-rs&ssl=false&authSource=$external")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&ssl=false&authSource=$external")
 }
 
 func TestConvertAuthModeToAuthMechanism(t *testing.T) {
@@ -618,9 +620,9 @@ func TestMongoDBUser_ApplyDefaults(t *testing.T) {
 func TestMongoDBCommunity_MongoAuthUserURI_WithAuthSource(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 	testuser := authtypes.User{
-		Username:   "testuser",
-		Database:   "myapp",
-		AuthSource: "admin",
+		Username:        "testuser",
+		DefaultDatabase: "myapp",
+		AuthSource:      "admin",
 	}
 	uri := mdb.MongoAuthUserURI(testuser, "password")
 	assert.Contains(t, uri, "/myapp?")

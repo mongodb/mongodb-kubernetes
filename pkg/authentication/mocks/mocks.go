@@ -94,8 +94,8 @@ func (m MockConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 
 func BuildX509MongoDBUser(name string) authtypes.User {
 	return authtypes.User{
-		Username: fmt.Sprintf("CN=%s,OU=organizationalunit,O=organization", name),
-		Database: "$external",
+		Username:   fmt.Sprintf("CN=%s,OU=organizationalunit,O=organization", name),
+		AuthSource: "$external",
 		Roles: []authtypes.Role{
 			{
 				Database: "admin",
@@ -111,8 +111,8 @@ func BuildX509MongoDBUser(name string) authtypes.User {
 
 func BuildScramMongoDBUser(name string) authtypes.User {
 	return authtypes.User{
-		Username: name,
-		Database: "admin",
+		Username:   name,
+		AuthSource: "admin",
 		Roles: []authtypes.Role{
 			{
 				Database: "testing",

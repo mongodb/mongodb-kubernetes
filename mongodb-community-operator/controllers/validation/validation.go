@@ -76,7 +76,7 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 				fmt.Sprintf(`[connection string secret name: "%s" for user: "%s", db: "%s" and user: "%s", db: "%s"]`,
 					connectionStringSecretName,
 					previousUser.Username,
-					previousUser.Database,
+					previousUser.AuthSource,
 					user.Username,
 					user.AuthSource))
 		} else {
