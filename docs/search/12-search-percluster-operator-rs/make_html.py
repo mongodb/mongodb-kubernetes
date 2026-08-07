@@ -34,6 +34,8 @@ REPO_TREE = "https://github.com/mongodb/mongodb-kubernetes/tree/{ref}/"
 VENDOR = {
     "marked.min.js": "https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js",
     "mermaid.min.js": "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js",
+    "highlight.min.js": "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js",
+    "highlight-theme.css": "https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css",
 }
 
 CSS = """
@@ -50,7 +52,7 @@ h4 { font-size:1.05rem; margin-top:1.6em; }
 a { color:var(--green); }
 code { background:#F4F6F5; border-radius:4px; padding:.1em .35em; font-size:.9em; }
 pre { background:var(--dark); color:#E6EDF3; border-radius:8px; padding:1rem; overflow-x:auto; }
-pre code { background:none; color:inherit; padding:0; font-size:.85rem; }
+pre code, pre code.hljs { background:none; color:inherit; padding:0; font-size:.85rem; }
 blockquote { border-left:4px solid var(--green); background:#F7FBFA; margin:1em 0;
              padding:.6em 1em; color:#33454F; }
 blockquote p { margin:.4em 0; }
@@ -71,6 +73,7 @@ PAGE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
+<style>{highlight_css}</style>
 <style>{css}</style>
 </head>
 <body>
@@ -81,6 +84,7 @@ This is a generated offline copy. Canonical source, always current:
 <main id="content">JavaScript is required to render this guide.</main>
 <script>{marked_js}</script>
 <script>{mermaid_js}</script>
+<script>{highlight_js}</script>
 <script>
 const SOURCE = {source_json};
 const SNIPPETS = {snippets_json};
@@ -112,10 +116,13 @@ for (const slot of document.querySelectorAll(".snippet-slot")) {{
   const pre = document.createElement("pre");
   const code = document.createElement("code");
   code.textContent = SNIPPETS[slot.dataset.src];
+  code.className = "language-bash";
   pre.appendChild(code);
   details.append(summary, pre);
   slot.replaceWith(details);
 }}
+// Syntax coloring for bash/yaml blocks (mermaid blocks were already replaced above).
+for (const code of document.querySelectorAll("pre code")) {{ hljs.highlightElement(code); }}
 </script>
 </body>
 </html>
@@ -215,6 +222,8 @@ def main() -> None:
         css=CSS,
         marked_js=vendor_js("marked.min.js"),
         mermaid_js=vendor_js("mermaid.min.js"),
+        highlight_js=vendor_js("highlight.min.js"),
+        highlight_css=vendor_js("highlight-theme.css").replace("</", "<\\/"),
         source_json=json.dumps(md).replace("</", "<\\/"),  # keep </script> inert
         snippets_json=json.dumps(snippets).replace("</", "<\\/"),
     ))
