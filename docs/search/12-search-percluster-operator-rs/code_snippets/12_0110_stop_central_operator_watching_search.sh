@@ -1,3 +1,7 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${OPERATOR_HELM_CHART:?not set -- source the env files first (see README, Environment section)}"
+: "${OPERATOR_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+
 # ra-02's central hub-and-spoke operator watches mongodbsearch by default
 # (operator.watchedResources in helm_chart/values.yaml) and has no cluster identity, so a
 # MongoDBSearch CR with more than one spec.clusters[] entry makes it write status Invalid

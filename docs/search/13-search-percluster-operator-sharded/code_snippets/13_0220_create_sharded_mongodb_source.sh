@@ -1,3 +1,14 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_TLS_CA_CONFIGMAP:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_CONFIG_SERVER_COUNT:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_MONGODS_PER_SHARD:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_MONGOS_COUNT:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_SHARD_COUNT:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CERT_SECRET_PREFIX:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_VERSION:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating the single-cluster, operator-managed sharded MongoDB source (cluster 0)..."
 echo "  Shards: ${MDB_SHARD_COUNT}, mongods/shard: ${MDB_MONGODS_PER_SHARD}, mongos: ${MDB_MONGOS_COUNT}, config servers: ${MDB_CONFIG_SERVER_COUNT}"
 

@@ -1,3 +1,9 @@
+: "${IMAGE_PULL_SECRET_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_2_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+
 if [[ -z "${IMAGE_PULL_SECRET_NAME:-}" ]]; then
   echo "No IMAGE_PULL_SECRET_NAME configured, skipping image pull secret creation"
 elif [[ -z "${IMAGE_PULL_SECRET_DATA:-}" ]]; then

@@ -1,3 +1,8 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Waiting for MongoDBSearch to be ready in every cluster..."
 echo "This may take several minutes while mongot syncs data..."
 

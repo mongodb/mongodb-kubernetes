@@ -1,3 +1,7 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Waiting for the sharded source MongoDB to be ready..."
 echo "This may take several minutes..."
 

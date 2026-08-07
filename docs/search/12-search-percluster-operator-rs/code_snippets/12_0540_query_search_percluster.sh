@@ -1,3 +1,8 @@
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_ADMIN_USER_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_ADMIN_USER_PASSWORD:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Running \$search and \$vectorSearch against a LOCAL member of every cluster..."
 echo "Each query connects directly (directConnection) to that cluster's own replica-set"
 echo "member, so serving it requires that cluster's own mongot -- three green clusters"

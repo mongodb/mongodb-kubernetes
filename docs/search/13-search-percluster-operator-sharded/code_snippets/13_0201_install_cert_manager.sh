@@ -1,3 +1,6 @@
+: "${CERT_MANAGER_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Installing cert-manager (cluster 0 only -- it never runs on cluster 1 in this scenario)..."
 
 if kubectl get namespace "${CERT_MANAGER_NAMESPACE}" --context "${K8S_CLUSTER_0_CONTEXT_NAME}" &>/dev/null \

@@ -1,3 +1,9 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_ADMIN_USER_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_ADMIN_USER_PASSWORD:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating an admin MongoDBUser for loading data and running search queries..."
 
 # Like the sync-source user (12_0310), MongoDBUser is managed by the CENTRAL

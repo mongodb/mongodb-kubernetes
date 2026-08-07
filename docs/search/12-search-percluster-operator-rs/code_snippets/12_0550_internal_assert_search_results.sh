@@ -1,3 +1,9 @@
+: "${ENVOY_PROXY_PORT:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_ADMIN_USER_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_ADMIN_USER_PASSWORD:?not set -- source the env files first (see README, Environment section)}"
+
 # CI assertion layer for the functional steps (12_0500-12_0540): re-runs the same
 # per-cluster queries quietly and exits non-zero on any unexpected result. This is
 # deliberately NOT part of the tutorial -- READMEs and guides must not reference it.

@@ -1,3 +1,10 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_CLUSTER_0_INDEX:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_CLUSTER_1_INDEX:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Verifying each cluster's operator only manages its own index..."
 
 for cluster_idx in "${MDBS_CLUSTER_0_INDEX}" "${MDBS_CLUSTER_1_INDEX}"; do

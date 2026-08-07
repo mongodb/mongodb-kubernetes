@@ -1,3 +1,11 @@
+: "${CERT_MANAGER_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_2_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CA_SECRET_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SOURCE_CA_CONFIGMAP:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating the source CA ConfigMap '${SOURCE_CA_CONFIGMAP}' in every member cluster..."
 echo "spec.source.external.tls.ca requires the ca.crt key specifically -- ra-05's"
 echo "'ca-issuer' ConfigMap (ca-pem/mms-ca.crt keys) does not carry it, so we create our own."

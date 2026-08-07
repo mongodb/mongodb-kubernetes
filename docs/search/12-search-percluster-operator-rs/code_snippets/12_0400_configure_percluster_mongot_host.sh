@@ -1,3 +1,10 @@
+: "${ENVOY_PROXY_PORT:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${OM_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "=============================================================================="
 echo "WARNING: this step talks to the Ops Manager Automation Config REST API DIRECTLY,"
 echo "bypassing the operator's own reconcile. It deliberately sets mongotHost /"

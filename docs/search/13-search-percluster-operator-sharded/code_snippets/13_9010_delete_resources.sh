@@ -1,3 +1,10 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_OPERATOR_RELEASE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "WARNING: This will delete the MongoDBSearch resource, its per-cluster Search operator" \
   "in both clusters, AND the sharded source MongoDB deployed by this scenario in cluster 0."
 echo ""

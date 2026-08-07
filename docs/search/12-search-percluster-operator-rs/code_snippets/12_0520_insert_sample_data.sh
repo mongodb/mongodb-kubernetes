@@ -1,3 +1,7 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_CONNECTION_STRING:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Inserting sample documents (text + small vectors) through the replica set..."
 echo "Written ONCE via a replica-set connection string; every cluster's mongot then"
 echo "syncs them independently from its local members."

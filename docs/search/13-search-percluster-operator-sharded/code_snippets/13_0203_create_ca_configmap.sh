@@ -1,3 +1,10 @@
+: "${CERT_MANAGER_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_TLS_CA_CONFIGMAP:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CA_SECRET_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating the CA ConfigMap (used by the source MongoDB's own TLS and by MongoDBSearch)..."
 
 # One ConfigMap, two consumers with different key expectations:

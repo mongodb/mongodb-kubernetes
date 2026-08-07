@@ -1,3 +1,12 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_2_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${OPERATOR_ADDITIONAL_HELM_VALUES:?not set -- source the env files first (see README, Environment section)}"
+: "${OPERATOR_HELM_CHART:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_OPERATOR_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_OPERATOR_RELEASE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Installing a distinct MongoDB Kubernetes Operator release into every member cluster..."
 echo "Each release watches MongoDBSearch only, scoped to its own cluster identity."
 

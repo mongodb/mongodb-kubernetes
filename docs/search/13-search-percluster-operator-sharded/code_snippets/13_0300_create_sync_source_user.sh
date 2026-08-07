@@ -1,3 +1,9 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_SEARCH_SYNC_USER_PASSWORD:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating the search-sync-source user on the sharded source MongoDB (cluster 0)..."
 
 kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" -f - <<EOF

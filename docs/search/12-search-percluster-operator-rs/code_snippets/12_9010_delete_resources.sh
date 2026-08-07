@@ -1,3 +1,10 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_2_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_OPERATOR_RELEASE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "WARNING: This will delete the MongoDBSearch resource and the per-cluster Search"
 echo "operator release from every member cluster. It does NOT touch the source"
 echo "MongoDBMultiCluster, the central operator, or namespaces (those belong to ra-07/ra-02)."

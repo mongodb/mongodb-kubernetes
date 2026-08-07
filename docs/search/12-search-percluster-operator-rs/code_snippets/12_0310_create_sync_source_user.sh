@@ -1,3 +1,12 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_2_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_SYNC_USER_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_SYNC_USER_PASSWORD:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating the search-sync-source MongoDBUser on the source MongoDBMultiCluster..."
 
 # MongoDBUser is managed by the CENTRAL hub-and-spoke operator (ra-02) that owns the

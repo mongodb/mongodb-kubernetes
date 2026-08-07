@@ -1,3 +1,7 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_CONNECTION_STRING:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Creating a \$search index and a \$vectorSearch index..."
 echo "Index creation itself exercises the 12_0400 wiring: the mongod that receives"
 echo "createSearchIndex forwards it to searchIndexManagementHostAndPort -- its own"

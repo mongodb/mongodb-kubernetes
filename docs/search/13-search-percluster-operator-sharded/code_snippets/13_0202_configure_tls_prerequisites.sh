@@ -1,3 +1,10 @@
+: "${CERT_MANAGER_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CA_CERT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CA_ISSUER:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CA_SECRET_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_SELF_SIGNED_ISSUER:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Configuring TLS prerequisites (self-signed bootstrap CA chain, cluster 0)..."
 
 kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -f - <<EOF

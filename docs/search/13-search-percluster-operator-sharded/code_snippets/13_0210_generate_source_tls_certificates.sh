@@ -1,3 +1,11 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_SHARD_0_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_SHARD_1_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CA_ISSUER:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_TLS_CERT_SECRET_PREFIX:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Generating TLS certificates for the sharded source MongoDB (cluster 0)..."
 
 for shard_name in "${MDB_SHARD_0_NAME}" "${MDB_SHARD_1_NAME}"; do

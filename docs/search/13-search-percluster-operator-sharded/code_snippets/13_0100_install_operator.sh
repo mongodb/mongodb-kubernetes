@@ -1,3 +1,12 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_CLUSTER_0_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_CLUSTER_1_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${OPERATOR_ADDITIONAL_HELM_VALUES:?not set -- source the env files first (see README, Environment section)}"
+: "${OPERATOR_HELM_CHART:?not set -- source the env files first (see README, Environment section)}"
+: "${SEARCH_OPERATOR_RELEASE_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Installing a distinct per-cluster Search operator in every member cluster..."
 
 # Same Helm chart, a SECOND release (SEARCH_OPERATOR_RELEASE_NAME) per cluster --

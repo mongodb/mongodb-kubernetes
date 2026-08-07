@@ -1,3 +1,12 @@
+: "${K8S_CLUSTER_0_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${K8S_CLUSTER_1_CONTEXT_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_CLUSTER_1_INDEX:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDBS_TLS_CERT_SECRET_PREFIX:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_SHARD_0_NAME:?not set -- source the env files first (see README, Environment section)}"
+: "${MDB_SHARD_1_NAME:?not set -- source the env files first (see README, Environment section)}"
+
 echo "Replicating cluster-1 TLS secrets from cluster 0 (where cert-manager minted them)..."
 
 # cert-manager only ran on cluster 0, so every secret named for cluster index 1
