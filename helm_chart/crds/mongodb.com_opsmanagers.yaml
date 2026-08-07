@@ -729,6 +729,14 @@ spec:
                             description: Agents contains authentication configuration
                               properties for the agents
                             properties:
+                              autoPEMKeyFilePath:
+                                description: |-
+                                  AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+                                  database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+                                  and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+                                  that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+                                  hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+                                type: string
                               automationLdapGroupDN:
                                 type: string
                               automationPasswordSecretRef:
@@ -1006,8 +1014,20 @@ spec:
                             type: array
                           ca:
                             description: |-
-                              CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                              used to validate the certificates created already.
+                              CA corresponds to a ConfigMap containing the CA certificate used to validate
+                              the certificates created already. The ConfigMap must contain a key named ca-pem
+                              whose value is the PEM-encoded CA bundle.
+                            type: string
+                          caFilePath:
+                            description: |-
+                              CAFilePath is the absolute path for the CA certificate file. It must have
+                              at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                              referenced by tls.CA must contain a key named ca-pem, which the operator
+                              projects to this path. If the parent directory overlaps a volume mount
+                              declared in your podTemplate, the operator's mount will shadow that mount.
+                              Not supported for the AppDB.
+                              Default: /mongodb-automation/tls/ca/ca-pem
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           enabled:
                             description: |-
@@ -1809,6 +1829,66 @@ spec:
                           type: integer
                       type: object
                     type: array
+                  conditions:
+                    items:
+                      description: Condition contains details for one aspect of the
+                        current state of this API Resource.
+                      properties:
+                        lastTransitionTime:
+                          description: |-
+                            lastTransitionTime is the last time the condition transitioned from one status to another.
+                            This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                          format: date-time
+                          type: string
+                        message:
+                          description: |-
+                            message is a human readable message indicating details about the transition.
+                            This may be an empty string.
+                          maxLength: 32768
+                          type: string
+                        observedGeneration:
+                          description: |-
+                            observedGeneration represents the .metadata.generation that the condition was set based upon.
+                            For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                            with respect to the current state of the instance.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        reason:
+                          description: |-
+                            reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                            Producers of specific condition types may define expected values and meanings for this field,
+                            and whether the values are considered a guaranteed API.
+                            The value should be a CamelCase string.
+                            This field may not be empty.
+                          maxLength: 1024
+                          minLength: 1
+                          pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                          type: string
+                        status:
+                          description: status of the condition, one of True, False,
+                            Unknown.
+                          enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                          type: string
+                        type:
+                          description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                          maxLength: 316
+                          pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                          type: string
+                      required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - type
+                    x-kubernetes-list-type: map
                   configServerCount:
                     type: integer
                   featureCompatibilityVersion:
@@ -1821,6 +1901,15 @@ spec:
                     type: integer
                   message:
                     type: string
+                  migrationObservedExternalMembersCount:
+                    description: |-
+                      MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
+                      reconcile while migration is active. The next reconcile compares this to the current external count
+                      to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
+                      NOTE: This field is only used for MongoDB CR resources. It is always nil when MongoDbStatus is
+                      embedded in OpsManager's AppDbStatus, but appears in the CRD schema due to Go struct embedding.
+                      This is accepted technical debt until AppDbStatus is decoupled from MongoDbStatus.
+                    type: integer
                   mongodsPerShardCount:
                     type: integer
                   mongosCount:

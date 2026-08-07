@@ -115,12 +115,12 @@ const (
 	KMIPClientSecretNamePrefix     = "kmip-client-" //nolint
 	KMIPCAFileInContainer          = KMIPServerCAHome + "/ca.pem"
 	PvcMms                         = "mongodb-mms-automation"
-	PvcMmsMountPath                = "/var/lib/mongodb-mms-automation"
+	DefaultPvcMmsMountPath         = "/var/lib/mongodb-mms-automation"
 	PvMms                          = "agent"
-	AgentDownloadsDir              = PvcMmsMountPath + "/downloads"
-	AgentAuthenticationKeyfilePath = PvcMmsMountPath + "/keyfile"
+	AgentDownloadsDir              = DefaultPvcMmsMountPath + "/downloads"
+	AgentAuthenticationKeyfilePath = DefaultPvcMmsMountPath + "/keyfile"
 	AutomationConfigFilePath       = PvcMountPathData + "/automation-mongod.conf"
-	MongosConfigFileDirPath        = PvcMmsMountPath + "/workspace"
+	MongosConfigFileDirPath        = DefaultPvcMmsMountPath + "/workspace"
 
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
@@ -179,7 +179,7 @@ const (
 
 	// AutomationAgentKeyFilePathInContainer is the default path of the keyfile and should be
 	// kept as is for the same reason as above
-	AutomationAgentKeyFilePathInContainer = PvcMmsMountPath + "/keyfile"
+	AutomationAgentKeyFilePathInContainer = DefaultPvcMmsMountPath + "/keyfile"
 
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
@@ -201,15 +201,18 @@ const (
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
-	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
-	CurrentNamespace                 = "NAMESPACE"
-	OperatorNameEnv                  = "OPERATOR_NAME"
-	WatchNamespace                   = "WATCH_NAMESPACE"
-	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
-	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
-	AgentImageUrlEnv                 = "MDB_AGENT_IMAGE_REPOSITORY"
-	AgentImageUrlDefault             = "quay.io/mongodb/mongodb-agent"
-	AgentImageEnv                    = "AGENT_IMAGE"
+	// OperatorImageEnv is the MDB-prefixed env var for the full operator image reference (registry/name:tag or digest).
+	// The connectivity-validator binary is compiled into the same image, so migration dry-run Jobs use this ref.
+	OperatorImageEnv              = "MDB_OPERATOR_IMAGE"
+	ManagedSecurityContextEnv     = "MANAGED_SECURITY_CONTEXT"
+	CurrentNamespace              = "NAMESPACE"
+	OperatorNameEnv               = "OPERATOR_NAME"
+	WatchNamespace                = "WATCH_NAMESPACE"
+	OpsManagerMonitorAppDB        = "OPS_MANAGER_MONITOR_APPDB"
+	MongodbCommunityAgentImageEnv = "MDB_COMMUNITY_AGENT_IMAGE"
+	AgentImageUrlEnv              = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageUrlDefault          = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv                 = "AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
@@ -314,6 +317,13 @@ const (
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
+
+	// Migration annotation keys. MigrationDryRunAnnotation triggers migration dry-run mode: when set to "true"
+	// on a MongoDB CR, the operator launches a connectivity validation Job instead of performing the
+	// normal reconciliation that would write to Ops Manager or modify StatefulSets.
+	// MigrateToolVersionAnnotation records the version of the import tool that generated the resource.
+	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
+	MigrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"

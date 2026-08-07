@@ -668,7 +668,8 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 
 	agentCertSecretName := opsManager.Spec.AppDB.GetSecurity().AgentClientCertificateSecretName(opsManager.Spec.AppDB.GetName())
-	_, agentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
+	_, defaultAgentCertPath := r.agentCertHashAndPath(ctx, log, opsManager.Namespace, agentCertSecretName, appdbSecretPath)
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, opsManager.Spec.AppDB.GetSecurity())
 
 	podVars, err := r.tryConfigureMonitoringInOpsManager(ctx, opsManager, opsManagerUserPassword, agentCertPath, log)
 	// it's possible that Ops Manager will not be available when we attempt to configure AppDB monitoring
@@ -1833,13 +1834,15 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	// Configure Authentication Options.
+	appDBCAFilePath := util.CAFilePathInContainer
+
 	opts := authentication.Options{
 		AgentMechanism:     util.SCRAM,
 		Mechanisms:         []string{util.SCRAM},
 		ClientCertificates: util.OptionalClientCertficates,
 		AutoUser:           util.AutomationAgentUserName,
 		AutoPEMKeyFilePath: agentCertPath,
-		CAFilePath:         util.CAFilePathInContainer,
+		CAFilePath:         appDBCAFilePath,
 		MongoDBResource:    types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name},
 	}
 	err = authentication.Configure(ctx, r.client, conn, opts, false, log)
@@ -1850,7 +1853,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 	}
 
 	err = conn.ReadUpdateDeployment(func(d om.Deployment) error {
-		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), util.CAFilePathInContainer)
+		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
 		return nil
 	}, log)
 	if err != nil {

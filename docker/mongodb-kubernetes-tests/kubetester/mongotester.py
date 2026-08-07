@@ -25,7 +25,7 @@ TEST_COLLECTION = "test-collection"
 
 
 def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, Any]:
-    # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
+    # SSL is set to true by default if using mongodb+srv, it needs to be explicitly set to false
     # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
     options: Dict[str, Any] = {"tls": use_tls}
 
@@ -143,12 +143,15 @@ class MongoTester:
     def __init__(
         self,
         connection_string: str,
-        use_ssl: bool,
+        use_ssl: Optional[bool] = None,
         ca_path: Optional[str] = None,
     ):
-        self.default_opts = with_tls(use_ssl, ca_path)
-        self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
+        self.default_opts = {}
         self.cnx_string = connection_string
+        # Do not duplicate tls setting if connection string already has it
+        if "ssl=" not in connection_string and "tls=" not in connection_string and use_ssl is not None:
+            self.default_opts = with_tls(use_ssl, ca_path)
+        self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
         self.client = None
         logging.info(
             f"Initialized MongoTester with connection string: {connection_string}, TLS: {use_ssl} and CA Path: {ca_path}"

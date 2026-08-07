@@ -90,8 +90,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
-						{"_id": "1", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
+						{"_id": 0, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
 					},
 					"protocolVersion": "1",
 				},
@@ -130,8 +130,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
-						{"_id": "1", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
+						{"_id": 0, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
 					},
 					"protocolVersion": "1",
 				},
@@ -160,9 +160,9 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "0", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 0, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
 						// Defaulting priority 1.0 and votes to 1 when no member options are present
-						{"_id": "1", "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 					},
 					"protocolVersion": "1",
 				},
@@ -187,9 +187,9 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
 						// Defaulting priority 1.0 and votes to 1 when no member options are present
-						{"_id": "0", "host": "p-0", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 0, "host": "p-0", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 						// Defaulting priority 1.0 and votes to 1 when no member options are present
-						{"_id": "1", "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 1, "host": "p-1", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 					},
 					"protocolVersion": "1",
 				},
@@ -254,9 +254,9 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			expected: ReplicaSetWithProcesses{
 				Rs: ReplicaSet{
 					"_id": "mdb-multi", "members": []ReplicaSetMember{
-						{"_id": "5", "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
-						{"_id": "7", "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
-						{"_id": "8", "host": "p-2", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
+						{"_id": 5, "host": "p-0", "priority": float32(1.3), "tags": map[string]string{}, "votes": 1},
+						{"_id": 7, "host": "p-1", "priority": float32(0.7), "tags": map[string]string{}, "votes": 0},
+						{"_id": 8, "host": "p-2", "priority": float32(1.0), "tags": map[string]string{}, "votes": 1},
 					},
 					"protocolVersion": "1",
 				},
@@ -279,4 +279,52 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			assert.Equal(t, tt.expected, actual)
 		})
 	}
+}
+
+func TestNewReplicaSetWithProcesses_ShardedClusterPreservesProcessIds(t *testing.T) {
+	t.Run("Existing process IDs are preserved for known processes", func(t *testing.T) {
+		processes := []Process{
+			{"name": "shard-0-0"},
+			{"name": "shard-0-1"},
+			{"name": "shard-0-2"},
+		}
+		existingProcessIds := map[string]int{
+			"shard-0-0": 10,
+			"shard-0-1": 20,
+			"shard-0-2": 30,
+		}
+
+		actual := NewReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds)
+
+		members := actual.Rs.Members()
+		assert.Len(t, members, 3)
+		assert.Equal(t, 10, members[0].Id())
+		assert.Equal(t, 20, members[1].Id())
+		assert.Equal(t, 30, members[2].Id())
+	})
+
+	t.Run("New process added alongside existing ones gets an ID higher than all existing IDs", func(t *testing.T) {
+		existingProcessIds := map[string]int{
+			"shard-0-0": 10,
+			"shard-0-1": 20,
+			"shard-0-2": 30,
+		}
+		// shard-0-3 is a new process not present in existingProcessIds
+		processes := []Process{
+			{"name": "shard-0-0"},
+			{"name": "shard-0-1"},
+			{"name": "shard-0-2"},
+			{"name": "shard-0-3"},
+		}
+
+		actual := NewReplicaSetWithProcesses(NewReplicaSet("shard-0", "7.0.0"), processes, []ac.MemberOptions{}, existingProcessIds)
+
+		members := actual.Rs.Members()
+		assert.Len(t, members, 4)
+		assert.Equal(t, 10, members[0].Id())
+		assert.Equal(t, 20, members[1].Id())
+		assert.Equal(t, 30, members[2].Id())
+		// The new process must receive an ID strictly greater than the highest existing ID (30).
+		assert.Equal(t, 31, members[3].Id())
+	})
 }

@@ -1,0 +1,79 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  annotations:
+    mongodb.com/migrate-tool-version: latest
+    mongodb.com/migration-dry-run: "true"
+  name: allow-cluster
+  namespace: mongodb
+spec:
+  agent:
+    mongod:
+      systemLog:
+        destination: file
+        logAppend: false
+        path: /var/log/mongodb/mongod.log
+  configServerNameOverride: allow-csrs
+  configSrv:
+    additionalMongodConfig:
+      net:
+        port: 27019
+        tls:
+          allowConnectionsWithoutCertificates: false
+          mode: allowTLS
+  credentials: my-credentials
+  externalMembers:
+  - hostname: config-0.example.com:27019
+    processName: allow-csrs-0
+    replicaSetName: allow-csrs
+    type: mongod
+  - hostname: config-1.example.com:27019
+    processName: allow-csrs-1
+    replicaSetName: allow-csrs
+    type: mongod
+  - hostname: shard-0.example.com:27018
+    processName: allow-shard-rs-0
+    replicaSetName: allow-shard-rs
+    type: mongod
+  - hostname: shard-1.example.com:27018
+    processName: allow-shard-rs-1
+    replicaSetName: allow-shard-rs
+    type: mongod
+  - hostname: mongos-0.example.com:27017
+    processName: allow-mongos-0
+    type: mongos
+  featureCompatibilityVersion: "8.0"
+  mongos:
+    additionalMongodConfig:
+      net:
+        tls:
+          allowConnectionsWithoutCertificates: false
+          mode: allowTLS
+  opsManager:
+    configMapRef:
+      name: my-om-config
+  security:
+    authentication:
+      agents:
+        mode: SCRAM
+      enabled: true
+      ignoreUnknownUsers: true
+      modes:
+      - SCRAM
+    certsSecretPrefix: mdb
+    tls:
+      ca: allow-cluster-ca
+  shard:
+    additionalMongodConfig:
+      net:
+        port: 27018
+        tls:
+          allowConnectionsWithoutCertificates: false
+          mode: allowTLS
+  shardCount: 1
+  shardNameOverrides:
+  - replicaSetName: allow-shard-rs
+    shardId: allow-shard
+    shardName: allow-cluster-0
+  type: ShardedCluster
+  version: 8.0.4-ent

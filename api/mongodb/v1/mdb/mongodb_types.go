@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -85,6 +88,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (m *MongoDB) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDB) IsAgentImageOverridden() bool {
 	if m.Spec.PodSpec.IsAgentImageOverridden() {
 		return true
@@ -111,6 +118,12 @@ func isAgentImageOverriden(containers []corev1.Container) bool {
 }
 
 func (m *MongoDB) ForcedIndividualScaling() bool {
+	// This is so that we don't deploy all kube members at once if there are external members
+	// This allows the migration to begin with voting members from the get-go
+	// Without this, the deployment will fail if kube members are not set to 0 votes 0 priority
+	if len(m.Spec.GetExternalMembers()) > 0 {
+		return true
+	}
 	return false
 }
 
@@ -165,6 +178,10 @@ func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
 }
 
+func (m *MongoDB) IsReplicaSet() bool {
+	return m.GetResourceType() == ReplicaSet
+}
+
 func (m *MongoDB) IsShardedCluster() bool {
 	return m.GetResourceType() == ShardedCluster
 }
@@ -193,7 +210,7 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
 		for i := 0; i < m.Spec.ShardCount; i++ {
-			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardRsName(i))
+			tls = m.GetSecurity().MemberCertificateSecretName(m.ShardName(i))
 			if tls != "" {
 				secrets = append(secrets, tls)
 			}
@@ -227,6 +244,16 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 
 func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
+func (m *MongoDB) GetReplicaSetName() string {
+	if m.Spec.GetResourceType() != ReplicaSet {
+		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
+	}
+	if m.Spec.ReplicaSetNameOverride != "" {
+		return m.Spec.ReplicaSetNameOverride
+	}
+	return m.GetName()
 }
 
 type AdditionalMongodConfigType int
@@ -376,6 +403,17 @@ type MongoDbStatus struct {
 	ProjectId                              string                                     `json:"projectId,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
+	// reconcile while migration is active. The next reconcile compares this to the current external count
+	// to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
+	// NOTE: This field is only used for MongoDB CR resources. It is always nil when MongoDbStatus is
+	// embedded in OpsManager's AppDbStatus, but appears in the CRD schema due to Go struct embedding.
+	// This is accepted technical debt until AppDbStatus is decoupled from MongoDbStatus.
+	// +optional
+	MigrationObservedExternalMembersCount *int `json:"migrationObservedExternalMembersCount,omitempty"`
 }
 
 type BackupMode string
@@ -383,6 +421,34 @@ type BackupMode string
 type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
+
+type ExternalMember struct {
+	// ProcessName contains the name of the external process as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	ProcessName string `json:"processName"`
+
+	// Hostname contains the hostname and port of the external process, as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	Hostname string `json:"hostname"`
+
+	// Type specifies the type of the external member, whether it's a mongod or mongos process.
+	// This field is not required when the deployment we migrate is a Replica Set since it only contains mongods.
+	// However, for a Sharded Cluster deployment, this field is required to distinguish between mongod and mongos processes in the cluster.
+	// +kubebuilder:validation:Enum=mongod;mongos
+	Type string `json:"type"`
+
+	// ReplicaSetName is required only for mongod processes in a Sharded Cluster deployment
+	// It specifies the name of the Replica Set that the mongod process belongs to.
+	// This field will help to determine whether the mongod process belongs to the config server or a shard (and in which shard).
+	// +optional
+	ReplicaSetName string `json:"replicaSetName"`
+}
+
+const (
+	// ExternalMemberTypeMongod and ExternalMemberTypeMongos are the allowed values of ExternalMember.Type.
+	ExternalMemberTypeMongod = "mongod"
+	ExternalMemberTypeMongos = "mongos"
+)
 
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
@@ -441,6 +507,15 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// DownloadBase is the directory on the MongoDB host where the automation agent
+	// downloads and extracts MongoDB binaries. It is always used by the operator, and
+	// the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+	// defaults to "/var/lib/mongodb-mms-automation".
+	// This field should only be set (and only if needed) when migrating an existing
+	// VM-based deployment to the operator.
+	// +optional
+	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -460,6 +535,11 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
@@ -475,6 +555,57 @@ func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 
 func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
+}
+
+func (m *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return m.ExternalMembers
+}
+
+func (m *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	return externalMemberProcessNames(m.ExternalMembers)
+}
+
+// GetExternalMembersForRS filters to mongod members matching the given replicaSetName.
+func (m *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
+	var members []ExternalMember
+	for _, em := range m.ExternalMembers {
+		if em.Type == ExternalMemberTypeMongod && em.ReplicaSetName == rsName {
+			members = append(members, em)
+		}
+	}
+	return members
+}
+
+// GetExternalMemberProcessNamesForRS returns process names for mongod external members in the given replica set.
+func (m *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
+	return externalMemberProcessNames(m.GetExternalMembersForRS(rsName))
+}
+
+// GetExternalMemberProcessNamesForConfigRS returns process names for external mongod members of the config server.
+// Uses the AC replica set name, which may differ from the K8s default when an override is set.
+func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
+	return m.Spec.GetExternalMemberProcessNamesForRS(m.ConfigACRsName())
+}
+
+// GetExternalMemberProcessNamesForMongos returns process names for external mongos members.
+// Mongos processes carry no replica set name, so filtering is by type rather than by RS name.
+func (m *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
+	var mongos []ExternalMember
+	for _, em := range m.ExternalMembers {
+		if em.Type == ExternalMemberTypeMongos {
+			mongos = append(mongos, em)
+		}
+	}
+	return externalMemberProcessNames(mongos)
+}
+
+// externalMemberProcessNames extracts the ProcessName field from each member.
+func externalMemberProcessNames(members []ExternalMember) []string {
+	var names []string
+	for _, m := range members {
+		names = append(names, m.ProcessName)
+	}
+	return names
 }
 
 type SnapshotSchedule struct {
@@ -637,7 +768,7 @@ type AgentConfig struct {
 	// +optional
 	LogLevel LogLevel `json:"logLevel"`
 	// +optional
-	MaxLogFileDurationHours int `json:"maxLogFileDurationHours"`
+	MaxLogFileDurationHours int `json:"maxLogFileDurationHours,omitempty"`
 	// DEPRECATED please use mongod.logRotate
 	// +optional
 	LogRotate *automationconfig.CrdLogRotate `json:"logRotate,omitempty"`
@@ -809,7 +940,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
@@ -819,6 +950,61 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
+// GetExternalMembersHostnames returns the hostname list (host:port) the
+// caller should embed in this MongoDB resource's connection string:
+func (m *MongoDB) GetExternalMembersHostnames() []string {
+	var hostnames []string
+
+	// External members, filtered by Type.
+	var allowed func(em ExternalMember) bool
+	switch m.Spec.ResourceType {
+	case ReplicaSet:
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == ExternalMemberTypeMongod }
+	case ShardedCluster:
+		allowed = func(em ExternalMember) bool { return em.Type == ExternalMemberTypeMongos }
+	}
+	if allowed != nil {
+		for _, em := range m.Spec.ExternalMembers {
+			if allowed(em) {
+				hostnames = append(hostnames, em.Hostname)
+			}
+		}
+	}
+
+	return hostnames
+}
+
+// GetRSHostnamesAndPorts returns all hostnames and ports for each member of the replicaset, not including external members
+// This function is only used for replica sets.
+// It can't be used for sharded clusters due to dependencies on the cluster mapping. Use the reconciler helper object in that case.
+func (m *MongoDB) GetRSHostnamesAndPorts() []string {
+	if !m.IsReplicaSet() {
+		return nil
+	}
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(m), m.Spec.DbCommonSpec.GetExternalDomain())
+	portOrDefault := m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	hostnamePorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+	return hostnamePorts
+}
+
+func (s *Security) GetTLSCAFilePath(defaultPath string) string {
+	if s == nil || s.TLSConfig == nil {
+		return defaultPath
+	}
+	return s.TLSConfig.GetCAFilePath(defaultPath)
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -888,6 +1074,14 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 // even when no x509 agent-auth has been enabled.
 func (s Security) ShouldUseClientCertificates() bool {
 	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
+}
+
+// GetAgentAutoPEMKeyFilePath returns security.authentication.agents.autoPEMKeyFilePath when set (trimmed).
+func (s *Security) GetAgentAutoPEMKeyFilePath() string {
+	if s == nil || s.Authentication == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.Authentication.Agents.AutoPEMKeyFilePath)
 }
 
 func (s Security) InternalClusterAuthSecretName(defaultName string) string {
@@ -1017,6 +1211,13 @@ type MongoDBRole struct {
 type AgentAuthentication struct {
 	// Mode is the desired Authentication mode that the agents will use
 	Mode string `json:"mode"`
+	// AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+	// database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+	// and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+	// that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+	// hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+	// +optional
+	AutoPEMKeyFilePath string `json:"autoPEMKeyFilePath,omitempty"`
 	// +optional
 	AutomationUserName string `json:"automationUserName"`
 	// +optional
@@ -1168,9 +1369,28 @@ type TLSConfig struct {
 
 	AdditionalCertificateDomains []string `json:"additionalCertificateDomains,omitempty"`
 
-	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-	// used to validate the certificates created already.
+	// CA corresponds to a ConfigMap containing the CA certificate used to validate
+	// the certificates created already. The ConfigMap must contain a key named ca-pem
+	// whose value is the PEM-encoded CA bundle.
 	CA string `json:"ca,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$`
+	// CAFilePath is the absolute path for the CA certificate file. It must have
+	// at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+	// referenced by tls.CA must contain a key named ca-pem, which the operator
+	// projects to this path. If the parent directory overlaps a volume mount
+	// declared in your podTemplate, the operator's mount will shadow that mount.
+	// Not supported for the AppDB.
+	// Default: /mongodb-automation/tls/ca/ca-pem
+	CAFilePath string `json:"caFilePath,omitempty"`
+}
+
+func (t *TLSConfig) GetCAFilePath(defaultPath string) string {
+	if t == nil || t.CAFilePath == "" {
+		return defaultPath
+	}
+	return t.CAFilePath
 }
 
 func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
@@ -1250,22 +1470,67 @@ func (m *MongoDB) MongosRsName() string {
 	return m.Name + "-mongos"
 }
 
+func (m *MongoDB) GetShardedClusterName() string {
+	if m.Spec.ShardedClusterNameOverride != "" {
+		return m.Spec.ShardedClusterNameOverride
+	}
+	return m.Name
+}
+
 func (m *MongoDB) ConfigRsName() string {
 	return m.Name + "-config"
 }
 
-func (m *MongoDB) ShardRsName(i int) string {
+func (m *MongoDB) ConfigACRsName() string {
+	if m.Spec.ConfigServerNameOverride != "" {
+		return m.Spec.ConfigServerNameOverride
+	}
+	return m.ConfigRsName()
+}
+
+// ShardName returns the operator-generated Kubernetes StatefulSet name for shard i (e.g. "my-mdb-0").
+// It is the K8s resource name and is never affected by shardNameOverrides. For the Automation Config
+// replica set name use ShardACRsName.
+func (m *MongoDB) ShardName(i int) string {
 	// Unfortunately the pattern used by OM (name_idx) doesn't work as Kubernetes doesn't create the stateful set with an
 	// exception: "a DNS-1123 subdomain must consist of lower case alphanumeric characters, '-' or '.'"
 	return fmt.Sprintf("%s-%d", m.Name, i)
 }
 
-func (m *MongoDB) ShardRsNames() []string {
+// ShardNameOverrideForShard returns the override entry matching shard i by K8s StatefulSet name, or nil.
+func (m *MongoDB) ShardNameOverrideForShard(i int) *ShardNameOverride {
+	k8sName := m.ShardName(i)
+	for j := range m.Spec.ShardNameOverrides {
+		if m.Spec.ShardNameOverrides[j].ShardName == k8sName {
+			return &m.Spec.ShardNameOverrides[j]
+		}
+	}
+	return nil
+}
+
+// ShardACRsName returns the AC replicaSetName for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACRsName(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ReplicaSetName != "" {
+		return o.ReplicaSetName
+	}
+	return m.ShardName(i)
+}
+
+// ShardACRsNames returns the AC replicaSetName of every shard, indexed by shard index.
+func (m *MongoDB) ShardACRsNames() []string {
 	names := make([]string, m.Spec.ShardCount)
-	for i := range m.Spec.ShardCount {
-		names[i] = m.ShardRsName(i)
+	for i := range names {
+		names[i] = m.ShardACRsName(i)
 	}
 	return names
+}
+
+// ShardACShardId returns the AC shard _id for shard i. Falls back to the K8s default for brevity-form or missing entries.
+func (m *MongoDB) ShardACShardId(i int) string {
+	if o := m.ShardNameOverrideForShard(i); o != nil && o.ShardId != "" {
+		return o.ShardId
+	}
+	return m.ShardName(i)
 }
 
 func (m *MongoDB) MultiShardRsName(clusterIdx int, shardIdx int) string {
@@ -1294,6 +1559,131 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
+// IsMigrationDryRun returns true if the migration dry-run annotation is enabled on the resource.
+// In dry-run mode the operator runs a connectivity validation Job instead of performing the
+// normal reconciliation.
+func (m *MongoDB) IsMigrationDryRun() bool {
+	enabled, _ := strconv.ParseBool(m.GetAnnotations()[util.MigrationDryRunAnnotation])
+	return enabled
+}
+
+func (m *MongoDB) applyComputedReplicaSetMigrationStatus(phase status.Phase, priorStatusMembers int) {
+	extCount := len(m.Spec.GetExternalMembers())
+
+	if extCount == 0 {
+		// An empty spec.externalMembers only means the user asked for the last VM to go, not that it
+		// is gone: until this reconcile succeeds the operator is still removing those processes from
+		// the automation config. Leave the migration status untouched so we neither announce
+		// MigrationComplete early nor recompute a reason from a spec that no longer has anything to
+		// compare against.
+		if phase != status.PhaseRunning {
+			return
+		}
+		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
+		m.Status.MigrationObservedExternalMembersCount = nil
+		// Only flip Migrating to False if migration was previously active.
+		if cond := meta.FindStatusCondition(m.Status.Conditions, status.ConditionMigrating); cond != nil && cond.Status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(false, ""))
+		}
+		return
+	}
+
+	isDryRun := m.IsMigrationDryRun()
+	desiredK8sMembers := m.Spec.Members
+
+	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorStatusMembers)
+
+	meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(true, migratingReason))
+}
+
+// sumClusterCounts totals a per-member-cluster count map.
+func sumClusterCounts(m map[string]int) int {
+	total := 0
+	for _, v := range m {
+		total += v
+	}
+	return total
+}
+
+// shardedClusterInClusterMemberCount totals the in-Kubernetes mongod/mongos processes described by a
+// reconciled sharded size breakdown. It is override-aware
+func shardedClusterInClusterMemberCount(shardCount int, s *status.MongodbShardedSizeStatusInClusters) int {
+	if s == nil {
+		return 0
+	}
+	numOverridden := len(s.ShardOverridesInClusters)
+	numNonOverridden := shardCount - numOverridden
+	if numNonOverridden < 0 {
+		numNonOverridden = 0
+	}
+	total := numNonOverridden * s.TotalShardMongodsInClusters()
+	for _, perCluster := range s.ShardOverridesInClusters {
+		total += sumClusterCounts(perCluster)
+	}
+	total += s.TotalConfigServerMongodsInClusters() + s.TotalMongosCountInClusters()
+	return total
+}
+
+// shardedClusterSpecMemberCount totals the desired in-Kubernetes mongod/mongos processes described by
+// the ShardedCluster spec.
+func (m *MongoDB) shardedClusterSpecMemberCount() int {
+	total := 0
+	for i := 0; i < m.Spec.ShardCount; i++ {
+		if members, overridden := m.shardOverrideMembers(m.ShardName(i)); overridden {
+			total += members
+		} else {
+			total += m.Spec.MongodsPerShardCount
+		}
+	}
+	total += m.Spec.ConfigServerCount + m.Spec.MongosCount
+	return total
+}
+
+// shardOverrideMembers returns the overridden member count for the given shard (matched by K8s
+// StatefulSet name) and whether such an override with an explicit member count exists.
+func (m *MongoDB) shardOverrideMembers(shardName string) (int, bool) {
+	for i := range m.Spec.ShardOverrides {
+		override := m.Spec.ShardOverrides[i]
+		if override.Members == nil {
+			continue
+		}
+		for _, name := range override.ShardNames {
+			if name == shardName {
+				return *override.Members, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// applyComputedShardedClusterMigrationStatus is the ShardedCluster analogue of applyComputedReplicaSetMigrationStatus
+func (m *MongoDB) applyComputedShardedClusterMigrationStatus(phase status.Phase, priorK8sMemberCount int) {
+	extCount := len(m.Spec.GetExternalMembers())
+
+	if extCount == 0 {
+		// See applyComputedReplicaSetMigrationStatus: the migration is only finished once the
+		// reconcile that removes the last VM processes has succeeded.
+		if phase != status.PhaseRunning {
+			return
+		}
+		meta.RemoveStatusCondition(&m.Status.Conditions, status.ConditionNetworkConnectivityVerified)
+		m.Status.MigrationObservedExternalMembersCount = nil
+		// Only flip Migrating to False if migration was previously active.
+		if cond := meta.FindStatusCondition(m.Status.Conditions, status.ConditionMigrating); cond != nil && cond.Status == metav1.ConditionTrue {
+			meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(false, ""))
+		}
+		return
+	}
+
+	isDryRun := m.IsMigrationDryRun()
+	// The spec's desired in-cluster member count (the fixed target), analogous to ReplicaSet's spec.Members.
+	desiredK8sMembers := m.shardedClusterSpecMemberCount()
+
+	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorK8sMemberCount)
+
+	meta.SetStatusCondition(&m.Status.Conditions, status.MigratingCondition(true, migratingReason))
+}
+
 func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Option) {
 	m.Status.UpdateCommonFields(phase, m.GetGeneration(), statusOptions...)
 
@@ -1315,10 +1705,21 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
+		// Capture the last-reconciled member count before overwriting it below, so the migration
+		// reason can detect "Extending" (spec.members exceeds the previously reconciled count).
+		priorStatusMembers := m.Status.Members
 		if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
 			m.Status.Members = option.(status.ReplicaSetMembersOption).Members
 		}
+		m.applyComputedReplicaSetMigrationStatus(phase, priorStatusMembers)
 	case ShardedCluster:
+		// Capture the previously-reconciled in-cluster member count before the size option overwrites
+		// SizeStatusInClusters below, so the migration reason can detect active provisioning ("Extending").
+		// Use the last-reconciled shard count (m.Status.ShardCount), not m.Spec.ShardCount: the status
+		// size maps describe the previous topology, so interpreting them with a just-increased spec shard
+		// count would overcount the prior (multiplying the new shard count by the old per-shard
+		// distribution) and hide "Extending" when a whole new shard is being added.
+		priorK8sMemberCount := shardedClusterInClusterMemberCount(m.Status.ShardCount, m.Status.SizeStatusInClusters)
 		if option, exists := status.GetOption(statusOptions, status.ShardedClusterSizeConfigOption{}); exists {
 			if sizeConfig := option.(status.ShardedClusterSizeConfigOption).SizeConfig; sizeConfig != nil {
 				m.Status.MongodbShardedClusterSizeConfig = *sizeConfig
@@ -1329,12 +1730,25 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 				m.Status.SizeStatusInClusters = sizeConfigInClusters
 			}
 		}
+		m.applyComputedShardedClusterMigrationStatus(phase, priorK8sMemberCount)
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.MigrationStatusOption{}); exists {
+		c := option.(status.MigrationStatusOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
 	}
 
 	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 		m.Status.Message = ""
+		// Only track the observed external-member count while a migration is in progress. When no
+		// external members remain, leave it nil so migration status is fully cleared (see
+		// applyComputedReplicaSetMigrationStatus).
+		if extCount := len(m.Spec.GetExternalMembers()); extCount > 0 {
+			m.Status.MigrationObservedExternalMembersCount = new(extCount)
+		}
 
 		switch m.Spec.ResourceType {
 		case ShardedCluster:
@@ -1439,38 +1853,96 @@ func (m *MongoDB) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }
 
+// ldapFieldMapping holds both directions of a single field conversion so they stay co-located.
+type ldapFieldMapping struct {
+	toAC func(*Ldap, *ldap.Ldap)
+	toCR func(*ldap.Ldap, *Ldap)
+}
+
+// ldapField creates a bidirectional mapping for fields that copy directly between CR and AC.
+func ldapField[T any](getCR func(*Ldap) *T, getAC func(*ldap.Ldap) *T) ldapFieldMapping {
+	return ldapFieldMapping{
+		toAC: func(c *Ldap, a *ldap.Ldap) { *getAC(a) = *getCR(c) },
+		toCR: func(a *ldap.Ldap, c *Ldap) { *getCR(c) = *getAC(a) },
+	}
+}
+
+// ldapCustomField creates a bidirectional mapping for fields that require custom conversion logic.
+func ldapCustomField(toAC func(*Ldap, *ldap.Ldap), toCR func(*ldap.Ldap, *Ldap)) ldapFieldMapping {
+	return ldapFieldMapping{toAC: toAC, toCR: toCR}
+}
+
+var ldapFieldMappings = []ldapFieldMapping{
+	// Simple fields: same type, direct copy.
+	ldapField(func(c *Ldap) *string { return &c.BindQueryUser }, func(a *ldap.Ldap) *string { return &a.BindQueryUser }),
+	ldapField(func(c *Ldap) *string { return &c.AuthzQueryTemplate }, func(a *ldap.Ldap) *string { return &a.AuthzQueryTemplate }),
+	ldapField(func(c *Ldap) *string { return &c.UserToDNMapping }, func(a *ldap.Ldap) *string { return &a.UserToDnMapping }),
+	ldapField(func(c *Ldap) *int { return &c.TimeoutMS }, func(a *ldap.Ldap) *int { return &a.TimeoutMS }),
+	ldapField(func(c *Ldap) *int { return &c.UserCacheInvalidationInterval }, func(a *ldap.Ldap) *int { return &a.UserCacheInvalidationInterval }),
+
+	// Fields requiring custom conversion logic.
+	ldapCustomField(
+		func(c *Ldap, a *ldap.Ldap) {
+			a.ValidateLDAPServerConfig = true
+			if c.ValidateLDAPServerConfig != nil {
+				a.ValidateLDAPServerConfig = *c.ValidateLDAPServerConfig
+			}
+		},
+		func(a *ldap.Ldap, c *Ldap) { c.ValidateLDAPServerConfig = &a.ValidateLDAPServerConfig },
+	),
+	ldapCustomField(
+		func(c *Ldap, a *ldap.Ldap) { a.Servers = strings.Join(c.Servers, ",") },
+		func(a *ldap.Ldap, c *Ldap) {
+			if a.Servers == "" {
+				return
+			}
+			parts := strings.Split(a.Servers, ",")
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			c.Servers = parts
+		},
+	),
+	ldapCustomField(
+		func(c *Ldap, a *ldap.Ldap) { a.TransportSecurity = string(GetTransportSecurity(c)) },
+		func(a *ldap.Ldap, c *Ldap) {
+			if a.TransportSecurity != "" {
+				ts := TransportSecurity(a.TransportSecurity)
+				c.TransportSecurity = &ts
+			}
+		},
+	),
+}
+
+// GetLDAP converts the CR LDAP spec to the AC representation. See ConvertACLdapToCR for the reverse.
 func (m *MongoDB) GetLDAP(password, caContents string) *ldap.Ldap {
 	if !m.IsLDAPEnabled() {
 		return nil
 	}
-
 	mdbLdap := m.Spec.Security.Authentication.Ldap
-	transportSecurity := GetTransportSecurity(mdbLdap)
-
-	validateServerConfig := true
-	if mdbLdap.ValidateLDAPServerConfig != nil {
-		validateServerConfig = *mdbLdap.ValidateLDAPServerConfig
-	}
-
-	return &ldap.Ldap{
-		BindQueryUser:            mdbLdap.BindQueryUser,
-		BindQueryPassword:        password,
-		Servers:                  strings.Join(mdbLdap.Servers, ","),
-		TransportSecurity:        string(transportSecurity),
-		CaFileContents:           caContents,
-		ValidateLDAPServerConfig: validateServerConfig,
-
-		// Related to LDAP Authorization
-		AuthzQueryTemplate: mdbLdap.AuthzQueryTemplate,
-		UserToDnMapping:    mdbLdap.UserToDNMapping,
-
-		// TODO: Enable LDAP SASL bind method
-		BindMethod:         "simple",
+	ac := &ldap.Ldap{
+		BindQueryPassword:  password,
+		CaFileContents:     caContents,
+		BindMethod:         "simple", // TODO: Enable LDAP SASL bind method
 		BindSaslMechanisms: "",
-
-		TimeoutMS:                     mdbLdap.TimeoutMS,
-		UserCacheInvalidationInterval: mdbLdap.UserCacheInvalidationInterval,
 	}
+	for _, f := range ldapFieldMappings {
+		f.toAC(mdbLdap, ac)
+	}
+	return ac
+}
+
+// ConvertACLdapToCR converts an AC LDAP config to the CR representation. See GetLDAP for the reverse.
+// BindQuerySecretRef and CAConfigMapRef must be set by the caller — they reference K8s resources not present in the AC.
+func ConvertACLdapToCR(l *ldap.Ldap) *Ldap {
+	if l == nil {
+		return nil
+	}
+	cr := &Ldap{}
+	for _, f := range ldapFieldMappings {
+		f.toCR(l, cr)
+	}
+	return cr
 }
 
 // ExternalAccessConfiguration holds the custom Service override that will be merged into the operator created one.
@@ -1694,7 +2166,7 @@ func (m *MongoDB) CalculateFeatureCompatibilityVersion() string {
 func (m *MongoDB) ShardNames() []string {
 	shardNames := make([]string, m.Spec.ShardCount)
 	for shardIdx := 0; shardIdx < m.Spec.ShardCount; shardIdx++ {
-		shardNames[shardIdx] = m.ShardRsName(shardIdx)
+		shardNames[shardIdx] = m.ShardName(shardIdx)
 	}
 	return shardNames
 }
@@ -1780,6 +2252,8 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 	name := m.Name
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
+	} else if m.Spec.ResourceType == ReplicaSet {
+		name = m.GetReplicaSetName()
 	}
 
 	builder := connectionstring.Builder().

@@ -37,7 +37,7 @@ func (f *failedStatus) ReconcileResult() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: time.Second * time.Duration(f.retryInSeconds)}, nil
 }
 
-func (f *failedStatus) WithAdditionalOptions(options []status.Option) *failedStatus {
+func (f *failedStatus) WithAdditionalOptions(options ...status.Option) *failedStatus {
 	f.options = options
 	return f
 }

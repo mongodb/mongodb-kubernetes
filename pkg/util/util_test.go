@@ -261,6 +261,28 @@ func TestIsURL(t *testing.T) {
 	}
 }
 
+func TestIsPOSIXAbsolutePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "root", path: "/", want: true},
+		{name: "nested", path: "/etc/ssl/cert.pem", want: true},
+		{name: "double_slash", path: "//foo", want: true},
+		{name: "empty", path: "", want: false},
+		{name: "relative", path: "relative", want: false},
+		{name: "dot_slash", path: "./abs", want: false},
+		{name: "dot_dot_segment", path: "/safe/../etc/passwd", want: false},
+		{name: "dot_dot_in_name", path: "/opt/foo..bar/x", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsPOSIXAbsolutePath(tt.path))
+		})
+	}
+}
+
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {
 	return []identifiable.Identifiable{left, right}
 }

@@ -2,7 +2,9 @@ package construct
 
 import (
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -65,6 +67,7 @@ const (
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+	DownloadBaseEnv                  = "MMS_DOWNLOAD_BASE"
 )
 
 type StsType int
@@ -113,6 +116,14 @@ type DatabaseStatefulSetOptions struct {
 	Labels      map[string]string
 	StsLabels   map[string]string
 
+	// ExternalAgentVersion sets the agent version to download when spec.externalMembers is non-empty:
+	// databaseEnvVars forwards it as MDB_AGENT_VERSION.
+	ExternalAgentVersion string
+
+	// AgentCertPath is the absolute path to the agent PEM (Ops Manager tls.autoPEMKeyFilePath). When set and not
+	// equal to AgentCertMountPath/<AgentCertHash>, the StatefulSet uses an items-based secret mount at this path.
+	AgentCertPath string
+
 	// These fields are only relevant for multi-cluster
 	MultiClusterMode bool // should always be "false" in single-cluster
 	// This needs to be provided for the multi-cluster statefulsets as they contain a member index in the name.
@@ -124,6 +135,8 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebug          bool
 	AgentDebugImage     string
 	DefaultArchitecture architectures.DefaultArchitecture
+
+	DownloadBase string
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
@@ -143,6 +156,16 @@ func (d DatabaseStatefulSetOptions) GetStatefulSetName() string {
 	return d.Name
 }
 
+// GetDownloadBase returns the configured download base, falling back to util.DefaultPvcMmsMountPath
+// when unset. Leaving DownloadBase empty in the struct therefore yields the same behavior as before
+// the field was introduced.
+func (d DatabaseStatefulSetOptions) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
 // a database StatefulSet.
 type databaseStatefulSetSource interface {
@@ -154,6 +177,8 @@ type databaseStatefulSetSource interface {
 	GetPrometheus() *v1.Prometheus
 
 	GetAnnotations() map[string]string
+
+	GetDownloadBase() string
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -176,6 +201,8 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
+			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
 		}
 
 		for _, opt := range additionalOpts {
@@ -208,6 +235,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Labels:                  mdb.Labels,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 ReplicaSet,
+			DownloadBase:            mdb.Spec.GetDownloadBase(),
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -254,6 +282,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		MultiClusterMode:        cfg.mdb.Spec.IsMultiCluster(),
 		Persistent:              cfg.persistent,
 		StsType:                 cfg.stsType,
+		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
 	if cfg.mdb.Spec.IsMultiCluster() {
@@ -286,7 +315,7 @@ func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, me
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
 			componentSpec:     shardSpec,
-			rsName:            mdb.ShardRsName(shardNum),
+			rsName:            mdb.ShardName(shardNum),
 			memberClusterName: memberClusterName,
 			serviceName:       mdb.ShardServiceName(),
 			stsType:           Shard,
@@ -666,13 +695,33 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: util.AgentCertMountPath,
-			Name:      agentSecretVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		defaultAgentCertPath := filepath.Join(util.AgentCertMountPath, databaseOpts.AgentCertHash)
+		if databaseOpts.AgentCertPath != "" && databaseOpts.AgentCertPath != defaultAgentCertPath {
+			// Custom PEM path (e.g. spec.agents.autoPEMKeyFilePath): items mount (key=AgentCertHash, path=basename).
+			certFileName := filepath.Base(databaseOpts.AgentCertPath)
+			certDir := filepath.Dir(databaseOpts.AgentCertPath)
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName, func(v *corev1.Volume) {
+				v.Secret.Items = []corev1.KeyToPath{
+					{Key: databaseOpts.AgentCertHash, Path: certFileName},
+				}
+			})
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: certDir,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		} else {
+			// Normal mode: mount the whole secret as a directory at AgentCertMountPath.
+			// All hash-keyed cert files are accessible; hash changes trigger StatefulSet rollout.
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: util.AgentCertMountPath,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		}
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
@@ -691,7 +740,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
-	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.GetDownloadBase())
 
 	return volumesToAdd, volumeMounts
 }
@@ -740,6 +789,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
@@ -1034,6 +1084,24 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: opts.CustomAgentURL})
 	}
 
+	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
+		zap.S().Debugf("using a custom agent version from operator env: %s", agentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	} else if opts.ExternalAgentVersion != "" {
+		// Non-static pods download the agent
+		zap.S().Debugf("using external agent version for: %s", opts.ExternalAgentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
+	}
+
+	// The agent extracts MongoDB binaries and places the keyfile under this directory. It must match
+	// the volume mount path (see GetNonPersistentAgentVolumeMounts) and options.downloadBase in the
+	// automation config, in both static and non-static architectures.
+	// Only set the env var when it differs from the launcher's default (see agent-launcher.sh),
+	// which matches util.DefaultPvcMmsMountPath.
+	if downloadBase := opts.GetDownloadBase(); downloadBase != util.DefaultPvcMmsMountPath {
+		vars = append(vars, corev1.EnvVar{Name: DownloadBaseEnv, Value: downloadBase})
+	}
+
 	// append any additional env vars specified.
 	vars = append(vars, opts.ExtraEnvs...)
 
@@ -1103,12 +1171,12 @@ func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts [
 }
 
 // GetNonPersistentAgentVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the Agent container.
-func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, downloadBase string) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvMms))
 
 	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
 	// This one is published by the Dockerfile
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, downloadBase, statefulset.WithSubPath(util.PvcMms)))
 
 	// Runtime data for MMS
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))

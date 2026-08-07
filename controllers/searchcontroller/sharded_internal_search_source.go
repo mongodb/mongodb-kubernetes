@@ -30,7 +30,7 @@ func NewShardedInternalSearchSource(mdb *mdbv1.MongoDB, search *searchv1.MongoDB
 }
 
 func (r *ShardedInternalSearchSource) GetShardNames() []string {
-	return r.ShardRsNames()
+	return r.ShardNames()
 }
 
 func (r *ShardedInternalSearchSource) GetShardCount() int {
