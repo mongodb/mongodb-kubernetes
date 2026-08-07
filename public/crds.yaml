@@ -2120,6 +2120,21 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              role:
+                default: ""
+                description: |-
+                  Role marks this resource as playing a special role for another MongoDB
+                  Kubernetes resource. Currently only AppDB is supported, marking this
+                  resource as the externally-managed Application Database for a
+                  MongoDBOpsManager resource.
+                type: string
+                x-kubernetes-validations:
+                - message: spec.role must be 'AppDB' when set
+                  rule: self == '' || self == 'AppDB'
+                - message: 'spec.role is immutable: it cannot be added, removed, or
+                    changed after creation; to stop using a resource as AppDB, perform
+                    a reverse migration (delete the resource)'
+                  rule: self == oldSelf
               security:
                 properties:
                   authentication:
@@ -3362,6 +3377,27 @@ spec:
             - version
             type: object
             x-kubernetes-preserve-unknown-fields: true
+            x-kubernetes-validations:
+            - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
+            - message: spec.topology MultiCluster is not supported when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
+                || self.topology != ''MultiCluster'''
+            - message: spec.members must be >= 3 when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.members)
+                && self.members >= 3)'
+            - message: spec.security.authentication must have SCRAM enabled when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
+                && has(self.security.authentication) && self.security.authentication.enabled
+                == true && has(self.security.authentication.modes) && ''SCRAM'' in
+                self.security.authentication.modes)'
+            - message: spec.security.authentication.ignoreUnknownUsers must be true
+                when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
+                && has(self.security.authentication) && self.security.authentication.ignoreUnknownUsers
+                == true)'
           status:
             properties:
               backup:
@@ -4133,6 +4169,21 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              role:
+                default: ""
+                description: |-
+                  Role marks this resource as playing a special role for another MongoDB
+                  Kubernetes resource. Currently only AppDB is supported, marking this
+                  resource as the externally-managed Application Database for a
+                  MongoDBOpsManager resource.
+                type: string
+                x-kubernetes-validations:
+                - message: spec.role must be 'AppDB' when set
+                  rule: self == '' || self == 'AppDB'
+                - message: 'spec.role is immutable: it cannot be added, removed, or
+                    changed after creation; to stop using a resource as AppDB, perform
+                    a reverse migration (delete the resource)'
+                  rule: self == oldSelf
               security:
                 properties:
                   authentication:
@@ -4485,6 +4536,20 @@ spec:
             - version
             type: object
             x-kubernetes-preserve-unknown-fields: true
+            x-kubernetes-validations:
+            - message: spec.role is not supported on MongoDBMultiCluster
+              rule: self.role == ”
+            - message: spec.security.authentication must have SCRAM enabled when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
+                && has(self.security.authentication) && self.security.authentication.enabled
+                == true && has(self.security.authentication.modes) && ''SCRAM'' in
+                self.security.authentication.modes)'
+            - message: spec.security.authentication.ignoreUnknownUsers must be true
+                when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
+                && has(self.security.authentication) && self.security.authentication.ignoreUnknownUsers
+                == true)'
           status:
             properties:
               backup:
@@ -6554,6 +6619,10 @@ spec:
                   has the fields: "Username", "Password", "FirstName", "LastName"
                 type: string
               applicationDatabase:
+                description: |-
+                  AppDB configures the internally-managed Application Database. Required unless
+                  ExternalApplicationDatabaseRef is set, in which case it may be omitted entirely.
+                  Ignored when ExternalApplicationDatabaseRef is set.
                 properties:
                   additionalMongodConfig:
                     description: |-
@@ -8100,6 +8169,27 @@ spec:
                 description: The configuration properties passed to Ops Manager/Backup
                   Daemon
                 type: object
+              externalApplicationDatabaseRef:
+                description: |-
+                  ExternalApplicationDatabaseRef references a MongoDB resource
+                  to use as this Ops Manager's AppDB, instead of the internally-managed one.
+                  Takes precedence over applicationDatabase when both are set.
+                properties:
+                  kind:
+                    description: Kind of the referenced resource.
+                    enum:
+                    - MongoDB
+                    type: string
+                  name:
+                    description: |-
+                      Name of the MongoDB resource to use as the external AppDB.
+                      Must be in the same namespace as the MongoDBOpsManager resource, and named
+                      <MongoDBOpsManager name>-db.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
               externalConnectivity:
                 description: |-
                   MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
@@ -8264,9 +8354,12 @@ spec:
               version:
                 type: string
             required:
-            - applicationDatabase
             - version
             type: object
+            x-kubernetes-validations:
+            - message: at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef
+                must be set
+              rule: has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)
           status:
             properties:
               applicationDatabase:

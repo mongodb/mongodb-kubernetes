@@ -384,6 +384,8 @@ type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.security) && has(self.security.authentication) && self.security.authentication.enabled == true && has(self.security.authentication.modes) && 'SCRAM' in self.security.authentication.modes)",message="spec.security.authentication must have SCRAM enabled when spec.role is AppDB"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.security) && has(self.security.authentication) && self.security.authentication.ignoreUnknownUsers == true)",message="spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB"
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	// +kubebuilder:validation:Required
@@ -441,8 +443,21 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// Role marks this resource as playing a special role for another MongoDB
+	// Kubernetes resource. Currently only AppDB is supported, marking this
+	// resource as the externally-managed Application Database for a
+	// MongoDBOpsManager resource.
+	// +optional
+	// +kubebuilder:default=""
+	// +kubebuilder:validation:XValidation:rule="self == '' || self == 'AppDB'",message="spec.role must be 'AppDB' when set"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
+	Role string `json:"role,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.type == 'ReplicaSet'",message="spec.resourceType must be ReplicaSet when spec.role is AppDB"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	DbCommonSpec                           `json:",inline"`
@@ -819,6 +834,10 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetRole() string {
+	return d.Role
 }
 
 func (s *Security) IsTLSEnabled() bool {
