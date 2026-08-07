@@ -150,16 +150,16 @@ If a Deployment prints a non-empty value in the second column, that operator ins
 
 ## What You're Responsible For
 
-| Task | Your Responsibility |
-|------|---------------------|
-| Installing a Search operator release in every member cluster | Yes -- N distinct Helm releases |
-| Applying the identical `MongoDBSearch` CR to every member cluster | Yes -- one `kubectl apply` per context |
-| Pinning a distinct `spec.clusters[].index` per cluster | Yes -- required by `ValidateOperatorPerClusterIndices` |
-| TLS certificates (mongot + per-cluster LB), all chained to one shared CA | Yes -- issued once via cert-manager on the central-for-TLS cluster, then the resulting Secrets are copied to whichever cluster(s) need them |
-| Replicating Secrets/ConfigMaps (passwords, certs, CA) to every member cluster | Yes -- **no operator replication** in this model |
-| Setting per-cluster `mongotHost` / `searchIndexManagementHostAndPort` | Yes -- via the OM Automation Config directly; no CR field carries per-process locality for a `MongoDBMultiCluster` source |
-| mongot StatefulSet + Envoy Deployment per cluster | No -- the operator creates these once the CR and secrets are present |
-| Cross-cluster status aggregation | Not available in this model -- each cluster's `MongoDBSearch.status` is independent by design, not a gap |
+In this model, everything that crosses cluster boundaries is your job -- the per-cluster operators only ever act inside their own cluster:
+
+- **Installing a Search operator release in every member cluster** -- N distinct Helm releases.
+- **Applying the identical `MongoDBSearch` CR to every member cluster** -- one `kubectl apply` per context.
+- **Pinning a distinct `spec.clusters[].index` per cluster** -- required by `ValidateOperatorPerClusterIndices`.
+- **TLS certificates (mongot + per-cluster LB), all chained to one shared CA** -- issued once via cert-manager on the central-for-TLS cluster, then the resulting Secrets are copied to whichever cluster(s) need them.
+- **Replicating Secrets/ConfigMaps (passwords, certs, CA) to every member cluster** -- there is **no operator replication** in this model.
+- **Setting per-cluster `mongotHost` / `searchIndexManagementHostAndPort`** -- via the OM Automation Config directly; no CR field carries per-process locality for a `MongoDBMultiCluster` source.
+
+Two things are deliberately NOT on your plate: the mongot StatefulSets and Envoy Deployments (each cluster's operator creates them once the CR and secrets are present -- that's its whole job), and cross-cluster status aggregation (it doesn't exist in this model; each cluster's `MongoDBSearch.status` is independent by design, not a gap).
 
 ## Prerequisites
 
@@ -172,7 +172,13 @@ This scenario **composes with**, and does not duplicate, the existing multi-clus
 
 The `ra-01` recipe targets GKE, but nothing in this scenario is GKE-specific: any three Kubernetes clusters with cross-cluster pod connectivity and a service mesh that resolves the other clusters' Services by name (the prerequisite `ra-04` verifies) will do -- run the same ra-02..ra-07 steps against them.
 
-> **Minimum versions (Search GA):** MongoDB Server **8.3.0**, Ops Manager **8.0.25**, Search (mongot) **1.70.1** (the default when `spec.version` is unset on the MongoDBSearch CR). The ra-06/ra-07 `env_variables.sh` defaults predate Search — export `OPS_MANAGER_VERSION=8.0.25` (or later) before running ra-06 and `MONGODB_VERSION=8.3.4-ent` (or later) before running ra-07, or upgrade the CRs afterwards. Symptom of a too-old source: the sync-source user (Step 7) fails with `Role searchCoordinator@admin doesn't exist` — that built-in role only exists from MongoDB 8.2, and this scenario's external source has no operator to create it as a custom role. Two more gates on the same path: Ops Manager only deploys versions in its **version manifest** (refresh it if the target version postdates the OM install), and MongoDB 8.2+ requires automation agent **108.0.13.8870+** (older operator charts default to less — set the `agent.version` Helm value on the operator managing the source).
+Three things the suite numbering does not make obvious:
+
+- **Label the workload namespaces for sidecar injection early.** ra-03's `istio-injection=enabled` labeling of `MDB_NAMESPACE`/`OM_NAMESPACE` must happen right after ra-02 creates those namespaces and BEFORE any workload pod exists (the first ones arrive with ra-06) -- pods only get their sidecar at creation time.
+- **The `kubectl mongodb` plugin ra-02 uses** is not installed by any suite: download `kubectl-mongodb_<version>_<os>_<arch>.tar.gz` from your operator version's [GitHub release assets](https://github.com/mongodb/mongodb-kubernetes/releases) and put the binary on your PATH.
+- **ra-07's replica set enables Ops Manager backup by default** (`spec.backup.mode: enabled` in its CR), which only works if you also ran ra-06's backup steps (`ra-06_0400`-`0522`: MinIO + S3 stores). If you skipped those, the CR parks in `Failed` ("Failed to configure backup for MongoDBMultiCluster RS") even though every member is healthy -- disable it (`kubectl patch mdbmc <name> -n ${MDB_NAMESPACE} --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'`); Search does not use backup.
+
+> **Minimum versions (Search GA):** MongoDB Server **8.3.0**, Ops Manager **8.0.25**, Search (mongot) **1.70.1** (the default when `spec.version` is unset on the MongoDBSearch CR). The ra-06/ra-07 `env_variables.sh` defaults predate Search — export `OPS_MANAGER_VERSION=8.0.25` (or later) for ra-06 and `MONGODB_VERSION=8.3.4-ent` (or later) for ra-07, and export them **AFTER sourcing those suites' env files**: the ra files hard-set their defaults with a plain `export`, so sourcing them overwrites any value you set earlier (the Environment section below gets the order right). One more moving target: registries prune old image tags over time, so a pinned tag can stop existing — if a pod sits in `ImagePullBackOff` on a documented tag, pick the closest available tag at or above the stated minimum instead. Symptom of a too-old source: the sync-source user (Step 7) fails with `Role searchCoordinator@admin doesn't exist` — that built-in role only exists from MongoDB 8.2, and this scenario's external source has no operator to create it as a custom role. Two more gates on the same path: Ops Manager only deploys versions in its **version manifest** (refresh it if the target version postdates the OM install), and MongoDB 8.2+ requires automation agent **108.0.13.8870+** (older operator charts default to less — set the `agent.version` Helm value on the operator managing the source).
 
 > **Note:** ra-05 installs cert-manager and the shared CA (`root-secret` / `my-ca-issuer`) **only on `K8S_CLUSTER_0_CONTEXT_NAME`**, because the hub-and-spoke resources it supports are all managed from the central cluster. This scenario does **not** extend cert-manager to clusters 1 and 2 -- it reuses `ra-05`'s setup as-is. Every Search TLS certificate (mongot cert and every per-cluster LB cert) is issued from cert-manager on cluster 0 too, matching `tests/multicluster_search/simulated_mc_rs.py`'s `test_create_search_tls_certificate`/`test_deploy_lb_certificates`, which never switch API client per cluster. Only the resulting Kubernetes **Secrets** -- not cert-manager, not the CA -- are then copied out to whichever member cluster(s) need them. This is simpler than it sounds and is the single biggest thing to get right in this model: the operator-per-cluster pattern has no cross-cluster secret replication, so every Secret a cluster's mongot or Envoy mounts must physically exist in that cluster before its operator can reconcile past `Pending`.
 
@@ -204,11 +210,20 @@ cd docs/search/12-search-percluster-operator-rs
 
 # Prerequisite env files first, in this order, in the SAME shell (this
 # scenario's env file reads ${K8S_CLUSTER_0_CONTEXT_NAME} and friends at
-# source time). On kind, replace the ra-01 line with your own context exports.
+# source time). On kind, replace the ra-01 line with your own context
+# exports, e.g.:
+#   export K8S_CLUSTER_0_CONTEXT_NAME=kind-e2e-cluster-1
+#   export K8S_CLUSTER_1_CONTEXT_NAME=kind-e2e-cluster-2
+#   export K8S_CLUSTER_2_CONTEXT_NAME=kind-e2e-cluster-3
 source ../../../public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
 source ../../../public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
 source ../../../public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
 source ../../../public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh
+
+# Search minimums, AFTER the ra files (they hard-set older defaults --
+# exporting these any earlier gets silently overwritten; see Prerequisites)
+export OPS_MANAGER_VERSION=8.0.25
+export MONGODB_VERSION=8.3.4-ent
 
 # Edit env_variables.sh -- cluster identities, resource names, credentials
 vi env_variables.sh
@@ -386,7 +401,7 @@ Snippet: [12_0325_wait_for_search_resources.sh](code_snippets/12_0325_wait_for_s
 
 > **WARNING -- this bypasses the operator's own reconcile on purpose.** A `MongoDBMultiCluster` resource has no per-process `additionalMongodConfig`, so there is no CR field that can point cluster 1's mongods at cluster 1's mongot and cluster 2's mongods at cluster 2's mongot. This step PUTs `mongotHost` and `searchIndexManagementHostAndPort` directly onto each mongod **process** in the Ops Manager Automation Config, keyed by the cluster index embedded in that process's name. Because these values never appear in any CR spec, the operator never learns them and never reverts them on a later reconcile -- that is the entire point.
 >
-> The Automation Config is normally protected by an `EXTERNALLY_MANAGED_LOCK` (`controlledFeature`); this step clears it immediately before the PUT and retries on 401 (the operator can re-assert the lock between the clear and the PUT).
+> The Automation Config is normally protected by an `EXTERNALLY_MANAGED_LOCK` (`controlledFeature`); this step clears it immediately before the PUT and retries if the PUT is rejected (the operator can re-assert the lock between the clear and the PUT).
 
 > **Index-alignment assumption:** the patch derives each process's target proxy from the cluster index embedded in the process name (`<RS_RESOURCE_NAME>-<clusterIndex>-<memberIndex>`), which is the source `MongoDBMultiCluster`'s `clusterSpecList` **position**. This only resolves to a real Service because this scenario pins `spec.clusters[].index` on the `MongoDBSearch` CR to those same positions (0/1/2, see `env_variables.sh`). If you pin different Search indices, or order `clusterSpecList` differently from `spec.clusters[]`, you must adjust the mapping in `12_0400` -- otherwise mongods are pointed at proxy Services that don't exist.
 
@@ -486,6 +501,7 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 | Search works in cluster A, returns nothing (or times out) in cluster B | B's mongod still points `mongotHost` at the WRONG proxy (stale/never-patched OM Automation Config), or B's mongot TLS cert SANs don't cover B's own `-search-B-svc`/`-search-B-proxy-svc` names | `cat /data/automation-mongod.conf` in a B mongod pod, check `setParameter.mongotHost`; `openssl s_client -connect <B proxy-svc>:27028 -servername <B proxy-svc FQDN>` for a TLS/SAN mismatch |
 | CR `Running` everywhere, but queries return nothing in EVERY cluster and index counts stay at 0 | mongot syncs from the seed list of RS member FQDNs spanning all clusters; if the service mesh doesn't resolve or route another cluster's Service names, that sync silently fails while the CR stays `Running` -- easy to misread as the mongotHost/SAN row above | mongot pod logs for `no such host` / connection timeouts on `<RS_RESOURCE_NAME>-<idx>-<member>-svc...` names; from a tools pod, `nslookup` another cluster's member Service FQDN -- the mesh must pass the `ra-04` connectivity check |
 | A cluster's LB (Envoy) pod is `CrashLoopBackOff` / fails TLS handshake, but no "missing secret" log line appears | LB server/client certs (`{prefix}-{name}-search-lb-{idx}-cert`/`-client-cert`) are **not** covered by the secrets-presence diagnostic at all -- their absence surfaces as a mount/handshake failure, not a logged gap | `kubectl describe pod` on the Envoy pod for volume-mount errors; `kubectl logs` for TLS errors |
+| ra-07's mongods never reach MongoDB 8.3.x (agents log an unsupported-version or upgrade error), long after ra-02 seemed fine | The central operator's chart defaults `agent.version` to an automation agent older than the **108.0.13.8870** floor MongoDB 8.2+ needs -- the failure surfaces two suites away from its cause | `helm upgrade --reuse-values --set agent.version=<current agent>` on the ra-02 operator release (see Minimum versions); restart the operator |
 | Step 12 exits with `om-svc-ext has no LoadBalancer IP yet` | Ops Manager's external Service is `type: LoadBalancer` and the IP never got assigned -- no MetalLB on kind, or the cloud LB is still provisioning/out of quota | `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's |
 | Old StatefulSet/Service left behind after changing a cluster's `index` | `index` is a pinned, effectively-immutable identifier baked into every resource name; changing it does not rename or garbage-collect the old-indexed resources | `kubectl get sts,svc,deploy -n ${MDB_NAMESPACE}` for orphans at the old index; delete them manually |
 | CR rejected with a duplicate-hostname validation error | Two `spec.clusters[].loadBalancer.managed.externalHostname` values are identical -- every cluster's hostname must be distinct (SNI) | `ManagedLBConfig.ExternalHostname` doc comment in `mongodbsearch_types.go`: "In multi-cluster deployments, every cluster's hostname must be distinct." |
