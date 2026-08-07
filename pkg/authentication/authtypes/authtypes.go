@@ -75,10 +75,33 @@ type User struct {
 	// ConnectionStringSecretAnnotations is the annotations of the secret object created by the operator which exposes the connection strings for the user.
 	ConnectionStringSecretAnnotations map[string]string
 
+	// ConnectionStringDatabase is the database placed in the connection string URI path.
+	ConnectionStringDatabase string
+
 	// ConnectionStringOptions contains connection string options for this user
 	// These options will be appended at the end of the connection string and
 	// will override any existing options from the resources.
 	ConnectionStringOptions map[string]interface{}
+}
+
+// GetConnectionStringDatabase returns the database to place in the connection string URI path.
+// $external is an auth only pseudo database, so it never appears in the path.
+func (u User) GetConnectionStringDatabase() string {
+	if u.ConnectionStringDatabase == constants.ExternalDB {
+		return ""
+	}
+	return u.ConnectionStringDatabase
+}
+
+// GetAuthSource returns the database used to authenticate this user (used in AutomationConfig
+// and as the authSource connection string parameter).
+func (u User) GetAuthSource() string {
+	return u.Database
+}
+
+// IsExternalAuth returns true if this user authenticates against an external database.
+func (u User) IsExternalAuth() bool {
+	return u.Database == constants.ExternalDB
 }
 
 func (u User) GetLoginString(password string) string {

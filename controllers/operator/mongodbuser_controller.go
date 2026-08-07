@@ -285,8 +285,8 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.Database, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDB, nil)
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.Database, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDBSRV, nil)
 
 	memberClusterSecret := secret.Builder().
 		SetName(secretName).
