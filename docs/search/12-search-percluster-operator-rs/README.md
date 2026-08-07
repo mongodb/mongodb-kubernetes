@@ -176,7 +176,6 @@ git clone --filter=blob:none --sparse --depth 1 \
 cd mongodb-kubernetes
 git sparse-checkout set \
   docs/search/12-search-percluster-operator-rs \
-  docs/search/13-search-percluster-operator-sharded \
   public/architectures \
   scripts/code_snippets
 ```
