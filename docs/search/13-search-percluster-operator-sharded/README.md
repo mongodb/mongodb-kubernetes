@@ -111,6 +111,8 @@ For example, `mdbs-sh-search-2-mdb-sh-1-proxy-svc` decodes as: MongoDBSearch `md
 
 ## Prerequisites
 
+Scenario 12's [Build Order](../12-search-percluster-operator-rs/README.md#build-order) (stage sequencing, version floors, checkpoints) and its [substrate appendix](../12-search-percluster-operator-rs/README.md#appendix-running-on-a-constrained-substrate-kind-local-docker) (kind/local-Docker workarounds) apply here unchanged — follow them through the Ops Manager stage, then return; this scenario deploys its own source instead of ra-07's.
+
 - [`ra-01` through `ra-05`](../../../public/architectures/setup-multi-cluster/) — the Kubernetes clusters, ra-02's central operator, service mesh, connectivity, cert-manager. The `ra-01` recipe targets GKE, but any clusters that pass `ra-04`'s connectivity check work.
 - [`ra-06-ops-manager-multi-cluster`](../../../public/architectures/ra-06-ops-manager-multi-cluster) — Ops Manager itself (deployed on `K8S_CLUSTER_0`), plus the `mdb-org-owner-credentials` Secret / `mdb-org-project-config` ConfigMap this scenario reuses to talk to the OM API directly (same pattern scenario 12's `12_0400` uses; see `ra-06_0610`). There are no `OPS_MANAGER_API_*` placeholder vars in `env_variables.sh` — everything is derived at runtime.
 - `helm`, `kubectl`, `jq`, `curl` — `jq` is required for the Automation Config step; there is no Python dependency anywhere in this scenario.

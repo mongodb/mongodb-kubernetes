@@ -172,13 +172,44 @@ This scenario **composes with**, and does not duplicate, the existing multi-clus
 
 The `ra-01` recipe targets GKE, but nothing in this scenario is GKE-specific: any three Kubernetes clusters with cross-cluster pod connectivity and a service mesh that resolves the other clusters' Services by name (the prerequisite `ra-04` verifies) will do -- run the same ra-02..ra-07 steps against them.
 
-Three things the suite numbering does not make obvious:
+### Tools
 
-- **Label the workload namespaces for sidecar injection early.** ra-03's `istio-injection=enabled` labeling of `MDB_NAMESPACE`/`OM_NAMESPACE` must happen right after ra-02 creates those namespaces and BEFORE any workload pod exists (the first ones arrive with ra-06) -- pods only get their sidecar at creation time.
-- **The `kubectl mongodb` plugin ra-02 uses** is not installed by any suite: download `kubectl-mongodb_<version>_<os>_<arch>.tar.gz` from your operator version's [GitHub release assets](https://github.com/mongodb/mongodb-kubernetes/releases) and put the binary on your PATH.
-- **ra-07's replica set enables Ops Manager backup by default** (`spec.backup.mode: enabled` in its CR), which only works if you also ran ra-06's backup steps (`ra-06_0400`-`0522`: MinIO + S3 stores). If you skipped those, the CR parks in `Failed` ("Failed to configure backup for MongoDBMultiCluster RS") even though every member is healthy -- disable it (`kubectl patch mdbmc <name> -n ${MDB_NAMESPACE} --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'`); Search does not use backup.
+You need `kubectl`, `helm`, `jq`, `curl`, and `mongosh` on your PATH, plus one thing no suite installs for you: the **`kubectl mongodb` plugin** (ra-02 uses it). Download `kubectl-mongodb_<version>_<os>_<arch>.tar.gz` from your operator version's [GitHub release assets](https://github.com/mongodb/mongodb-kubernetes/releases) and put the binary on your PATH; `kubectl mongodb --help` confirms it works.
 
-> **Minimum versions (Search GA):** MongoDB Server **8.3.0**, Ops Manager **8.0.25**, Search (mongot) **1.70.1** (the default when `spec.version` is unset on the MongoDBSearch CR). The ra-06/ra-07 `env_variables.sh` defaults predate Search — export `OPS_MANAGER_VERSION=8.0.25` (or later) for ra-06 and `MONGODB_VERSION=8.3.4-ent` (or later) for ra-07, and export them **AFTER sourcing those suites' env files**: the ra files hard-set their defaults with a plain `export`, so sourcing them overwrites any value you set earlier (the Environment section below gets the order right). One more moving target: registries prune old image tags over time, so a pinned tag can stop existing — if a pod sits in `ImagePullBackOff` on a documented tag, pick the closest available tag at or above the stated minimum instead. Symptom of a too-old source: the sync-source user (Step 7) fails with `Role searchCoordinator@admin doesn't exist` — that built-in role only exists from MongoDB 8.2, and this scenario's external source has no operator to create it as a custom role. Two more gates on the same path: Ops Manager only deploys versions in its **version manifest** (refresh it if the target version postdates the OM install), and MongoDB 8.2+ requires automation agent **108.0.13.8870+** (older operator charts default to less — set the `agent.version` Helm value on the operator managing the source).
+### Versions: floors, not pins
+
+Treat every version in this guide as a **floor plus a dated example**, not a pin. Registries prune old image tags over time, and chart defaults drift -- a number that worked when this guide was written may not exist when you run it.
+
+| Component | Floor | Why |
+|---|---|---|
+| MongoDB Server | **8.3.0** (8.2+ strictly required) | the built-in `searchCoordinator` role only exists from 8.2; this scenario's external source has no operator to create it as a custom role. Symptom of too-old: Step 7 fails with `Role searchCoordinator@admin doesn't exist` |
+| Ops Manager | **8.0.25** | Search GA minimum |
+| Search (mongot) | **1.70.1** | the default when `spec.version` is unset on the MongoDBSearch CR |
+| Automation agent | **108.0.13.8870** | required by MongoDB 8.2+; operator charts can default to LESS -- check yours and set `agent.version` on the ra-02 operator release if needed |
+
+Before you start, verify what you'll actually get instead of trusting examples:
+
+```bash
+# does the image tag you plan to use still exist? (empty result = pruned; pick the closest tag at or above the floor)
+curl -s "https://quay.io/api/v1/repository/mongodb/mongodb-enterprise-server/tag/?specificTag=8.3.4-ent" | jq '.tags'
+
+# what automation agent does YOUR chart default to? (compare against the floor above)
+helm show values mongodb/mongodb-kubernetes | grep -A2 'agent:'
+```
+
+Two more version gates on the same path: Ops Manager only deploys server versions present in its **version manifest** (refresh it if your target version postdates the OM install), and a pod stuck in `ImagePullBackOff` on a documented tag means the tag rotted -- bump to the closest available tag at or above the floor, not blindly to latest.
+
+### Build Order
+
+The ra-* suites were written as standalone recipes; this scenario needs them **interleaved** in a specific order, with two decisions made up front. Follow this sequence instead of each suite's own numbering -- each stage ends with a checkpoint that tells you it's safe to continue:
+
+1. **Clusters and mesh** -- ra-01 on GKE, or your own three clusters. *Checkpoint:* `ra-04` passes, including its cross-cluster check that a Service existing in only ONE cluster resolves by name from the others. If your substrate can't provide that (local kind can't), read the [substrate appendix](#appendix-running-on-a-constrained-substrate-kind-local-docker) before continuing -- two later stages will need its workarounds.
+2. **Namespaces, mesh labels, then the central operator** -- start ra-02 and stop after its namespace-creation snippets; label `MDB_NAMESPACE` and `OM_NAMESPACE` with `istio-injection=enabled` in every cluster (ra-03's labeling step) BEFORE any workload pod exists, because pods only get their sidecar at creation time; then finish ra-02 (multicluster setup + operator install). Finally, apply the agent floor from the table above: `helm upgrade --reuse-values --set agent.version=<current agent>` on the release. Getting this wrong surfaces confusingly late -- in stage 5, when mongods refuse to run your MongoDB version. *Checkpoint:* the operator Deployment is 1/1 and `helm get values` shows your `agent.version`.
+3. **cert-manager and the shared CA (ra-05)**, cluster 0 only. *Checkpoint:* `root-secret` and `my-ca-issuer` exist in the `cert-manager` namespace on cluster 0.
+4. **Ops Manager (ra-06)** -- source its `env_variables.sh` and only THEN `export OPS_MANAGER_VERSION=<your version>` (the ra env files hard-set their own defaults, so exporting earlier gets silently overwritten). **Decide about backup now:** ra-07's replica set enables OM backup by default, so either run ra-06's backup steps (`0400`-`0522`, MinIO + S3 stores) or plan to disable backup on the CR in stage 5. Expect 20-40 minutes. *Checkpoint:* `om` reports `Running`, and `mdb-org-owner-credentials` / `mdb-org-project-config` exist in `MDB_NAMESPACE` on cluster 0 -- scenario 12 reads its OM access from those.
+5. **The source replica set (ra-07)** -- source its env file, THEN `export MONGODB_VERSION=<your version>` (same overwrite trap as stage 4). If you skipped OM backup: right after the CR is applied, `kubectl patch mdbmc <name> -n ${MDB_NAMESPACE} --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'` -- otherwise the CR parks in `Failed` ("Failed to configure backup for MongoDBMultiCluster RS") even though every member is healthy. Search does not use backup. *Checkpoint:* the `MongoDBMultiCluster` reports `Running`.
+
+After stage 5 you are where scenario 12's Step 1 expects you to be.
 
 > **Note:** ra-05 installs cert-manager and the shared CA (`root-secret` / `my-ca-issuer`) **only on `K8S_CLUSTER_0_CONTEXT_NAME`**, because the hub-and-spoke resources it supports are all managed from the central cluster. This scenario does **not** extend cert-manager to clusters 1 and 2 -- it reuses `ra-05`'s setup as-is. Every Search TLS certificate (mongot cert and every per-cluster LB cert) is issued from cert-manager on cluster 0 too, matching `tests/multicluster_search/simulated_mc_rs.py`'s `test_create_search_tls_certificate`/`test_deploy_lb_certificates`, which never switch API client per cluster. Only the resulting Kubernetes **Secrets** -- not cert-manager, not the CA -- are then copied out to whichever member cluster(s) need them. This is simpler than it sounds and is the single biggest thing to get right in this model: the operator-per-cluster pattern has no cross-cluster secret replication, so every Secret a cluster's mongot or Envoy mounts must physically exist in that cluster before its operator can reconcile past `Pending`.
 
@@ -525,3 +556,19 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 | **mTLS** | Mutual TLS -- both sides of a connection present and verify a certificate |
 | **mongot** | The MongoDB Search server process that indexes data and serves `$search`/`$vectorSearch` queries |
 | **Proxy Service** | The stable per-cluster Kubernetes Service (`<name>-search-<idx>-proxy-svc`) a cluster's mongod points `mongotHost` at; backed by the managed Envoy LB |
+
+## Appendix: Running on a Constrained Substrate (kind, local Docker)
+
+A compliant environment -- three clusters, cross-cluster routing, a mesh whose DNS passes `ra-04` -- needs none of this. Local kind clusters (and similar lab setups) typically fail three specific prerequisites, each with a known, contained fix. All three were hit and validated on real kind runs of this guide.
+
+### 1. The operator's kubeconfig Secret contains unreachable API addresses
+
+`kubectl mongodb multicluster setup` (ra-02) copies API server URLs from YOUR kubeconfig into the operator's kubeconfig Secret. On kind those are `https://127.0.0.1:<port>` -- reachable from your machine, not from pods. **Symptom:** the central operator crash-loops, its log ending with `failed to wait for ... caches to sync`. **Fix:** rewrite each cluster's `server:` in the `mongodb-enterprise-operator-multi-cluster-kubeconfig` Secret to that cluster's in-cluster `kubernetes` Service clusterIP (`kubectl get svc -n default kubernetes -o jsonpath='{.spec.clusterIP}'` per context -- these route across interconnected kind clusters), re-apply the Secret, restart the operator.
+
+### 2. LoadBalancer IPs are not reachable from your workstation
+
+`ra-06_0610` and Step 12 (`12_0400`) call the Ops Manager API on `om-svc-ext`'s LoadBalancer IP. On kind with MetalLB that IP lives on the Docker network -- reachable between clusters, but (on macOS/Windows Docker Desktop) not from your shell. **Symptom:** those scripts hang or report `could not resolve project id` while everything looks healthy. **Fix:** `kubectl port-forward svc/om-svc 18443:8443` on cluster 0, copy the affected snippet to a scratch location, and point its `om_base_url` at `https://127.0.0.1:18443/api/public/v1.0`; everything else in the snippet stays unchanged.
+
+### 3. Cross-cluster DNS is not federated (Service IPs route, names don't)
+
+kind's cluster interconnect routes pod and Service IPs across clusters but does nothing for DNS -- resolving another cluster's Service NAMES is the mesh's job, and local istio-on-kind often cannot do it (this is exactly what `ra-04`'s cross-cluster check catches). One name in this stack genuinely needs it: **`om-svc`**, which exists only on cluster 0 and is dialed from other clusters at two different moments -- by the AppDB agents during the ra-06 install (immediate, obvious failure: `lookup om-svc.<ns>.svc.cluster.local: no such host`, AppDB stuck `Pending`), and again by ANY agent pod on clusters 1/2 that restarts later and re-fetches its binaries from OM (latent: everything runs fine until the first restart). **Fix:** mirror the Service into clusters 1 and 2 -- in `OM_NAMESPACE`, create a selectorless Service named `om-svc` with the same ports, plus an `EndpointSlice` labeled `kubernetes.io/service-name: om-svc` whose endpoint address is cluster 0's `om-svc` clusterIP. Do it once, right after ra-06 creates `om-svc`, and leave it in place -- it also covers the latent restart case. (The operator mirrors its own per-pod Services into every cluster, which is why nothing else in the stack hits this.)
