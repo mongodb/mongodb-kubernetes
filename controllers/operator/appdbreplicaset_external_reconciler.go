@@ -52,9 +52,26 @@ func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, o
 	return e.updateStatus(ctx, opsManager, workflow.Disabled(), e.log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
 }
 
-// BuildAppDBConnectionURL computes the AppDB connection string from the referenced MongoDB CR.
-func (e *ReconcileExternalAppDBReplicaSet) BuildAppDBConnectionURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	return e.computeExternalAppDBConnectionString(ctx, opsManager)
+// GetAppDBConfig computes the AppDB configuration including connection string and TLS settings from the referenced MongoDB CR.
+func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (*AppDBConfig, error) {
+	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
+	}
+
+	password, err := secret.ReadKey(ctx, e.SecretClient, util.OpsManagerPasswordKey, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read shared password secret: %w", err)
+	}
+
+	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil)
+
+	return &AppDBConfig{
+		IsTLSEnabled:     refObject.IsTLSEnabled(),
+		CAConfigMapName:  refObject.GetCAConfigMapName(),
+		ConnectionString: connectionString,
+	}, nil
 }
 
 // validateExternalAppDBReference validates that opsManager's spec.externalApplicationDatabaseRef
@@ -121,33 +138,31 @@ func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx cont
 	return nil
 }
 
-// computeExternalAppDBConnectionString fetches the referenced MongoDB CR and
-// the shared mongodb-ops-manager password secret, computes the connection string directly via
-// BuildConnectionString.
-func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
-	ref := opsManager.Spec.ExternalApplicationDatabaseRef
-
-	password, err := secret.ReadKey(ctx, e.SecretClient, util.OpsManagerPasswordKey, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)))
-	if err != nil {
-		return "", xerrors.Errorf("failed to read shared password secret: %w", err)
-	}
-
-	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
-	if err != nil {
-		return "", xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
-	}
-
-	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
-}
-
 type externalAppDBRefObject struct {
 	connectionstring.ConnectionStringBuilder
 	mdbv1.DbCommonSpec
 }
 
+// GetCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
+// should trust when connecting to the external AppDB over TLS ("" if TLS is off).
+func (o *externalAppDBRefObject) GetCAConfigMapName() string {
+	security := o.GetSecurity()
+	if security.TLSConfig != nil {
+		return security.TLSConfig.CA
+	}
+	return ""
+}
+
+// IsTLSEnabled reports whether the referenced CR has TLS enabled.
+func (o *externalAppDBRefObject) IsTLSEnabled() bool {
+	return o.IsSecurityTLSConfigEnabled()
+}
+
 type ExternalAppDB interface {
 	connectionstring.ConnectionStringBuilder
 	GetRole() string
+	GetCAConfigMapName() string
+	IsTLSEnabled() bool
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalApplicationDatabaseRef) (ExternalAppDB, error) {
