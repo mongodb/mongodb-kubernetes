@@ -509,7 +509,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		// AppDB user is always created in the admin database (see GetAuthUsers), so it is
 		// both the auth source and the database in the URI path
 		SetAuthSource(util.DefaultUserDatabase).
-		SetDatabase(util.DefaultUserDatabase)
+		SetConnectionStringDatabase(util.DefaultUserDatabase)
 
 	if m.IsMultiCluster() {
 		builder.SetReplicas(len(multiClusterHostnames))

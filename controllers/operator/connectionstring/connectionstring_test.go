@@ -16,7 +16,7 @@ func TestBuild_DatabaseInPath(t *testing.T) {
 			SetHostnames([]string{"host:27017"}).
 			SetUsername("user").
 			SetPassword("password").
-			SetDatabase(database).
+			SetConnectionStringDatabase(database).
 			Build()
 	}
 

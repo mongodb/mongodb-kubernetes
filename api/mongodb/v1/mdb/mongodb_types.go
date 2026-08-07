@@ -1800,7 +1800,7 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 		SetScheme(scheme).
 		SetHostnames(m.hostnames).
 		SetAuthSource(authSource).
-		SetDatabase(connectionStringDatabase)
+		SetConnectionStringDatabase(connectionStringDatabase)
 
 	return builder.Build()
 }

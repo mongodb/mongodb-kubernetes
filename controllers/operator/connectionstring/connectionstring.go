@@ -48,9 +48,10 @@ type builder struct {
 	isReplicaSet        bool
 	isTLSEnabled        bool
 
-	hostnames  []string
-	database   string
-	authSource string
+	hostnames []string
+	// connectionStringDatabase is the database placed in the URI path
+	connectionStringDatabase string
+	authSource               string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -126,8 +127,8 @@ func (b *builder) SetHostnames(hostnames []string) *builder {
 	return b
 }
 
-func (b *builder) SetDatabase(database string) *builder {
-	b.database = database
+func (b *builder) SetConnectionStringDatabase(connectionStringDatabase string) *builder {
+	b.connectionStringDatabase = connectionStringDatabase
 	return b
 }
 
@@ -202,7 +203,7 @@ func (b *builder) Build() string {
 	for k := range connectionParams {
 		keys = append(keys, k)
 	}
-	uri += "/" + PathDatabase(b.database) + "?"
+	uri += "/" + URIPathDatabase(b.connectionStringDatabase) + "?"
 
 	// sorting parameters to make a url stable
 	sort.Strings(keys)
@@ -212,9 +213,9 @@ func (b *builder) Build() string {
 	return strings.TrimSuffix(uri, "&")
 }
 
-// PathDatabase returns the database to use in the URI path component.
+// URIPathDatabase returns the database to use in the URI path component.
 // $external is an auth-only pseudo-database and must not appear in the path.
-func PathDatabase(db string) string {
+func URIPathDatabase(db string) string {
 	if db == "$external" {
 		return ""
 	}
