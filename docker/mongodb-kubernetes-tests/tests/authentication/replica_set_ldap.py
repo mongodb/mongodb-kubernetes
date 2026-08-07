@@ -97,7 +97,6 @@ def user_scram(replica_set: MongoDB, namespace: str) -> MongoDBUser:
         namespace,
         username="mms-user-1",
         db="admin",
-        connection_string_database="admin",
         mongodb_resource=replica_set,
     )
     secret_name = "user-password"
