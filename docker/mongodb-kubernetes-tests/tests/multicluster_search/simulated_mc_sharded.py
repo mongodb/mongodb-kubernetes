@@ -19,7 +19,8 @@ index systems never collide.
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Tuple
+from copy import deepcopy
+from typing import Callable, Dict, List, Tuple
 
 import kubernetes
 import pymongo.errors
@@ -39,6 +40,12 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod
 from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import (
+    mongot_data_pvc_names,
+    wait_for_mongot_pvcs_deleted,
+    wait_for_resource_deleted,
+    wait_for_search_owned_resources_deleted,
+)
 from tests.common.search.mc_search_helper import (
     assert_mongot_sync_source_hosts,
     patch_mongot_host_via_ac,
@@ -800,3 +807,125 @@ def test_cross_cluster_isolation_absence(
     """
     shard_names = [f"{MDB_RESOURCE_NAME}-{shard_idx}" for shard_idx in range(SHARD_COUNT)]
     assert_cross_cluster_isolation(namespace, per_cluster_mdbs_search, MDBS_RESOURCE_NAME, shard_names=shard_names)
+
+
+@mark.e2e_search_simulated_mc_sharded
+def test_remove_own_cluster_entry_sweeps_local_resources(
+    namespace: str,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Dropping the operator's OWN cluster entry from its local CR copy sweeps every
+    local per-(cluster, shard) artifact INCLUDING the search-state ConfigMap (the
+    removed-operator-local sweep is the one path that reaps it), leaves the other
+    cluster untouched, and restoring the entry redeploys the local slice and
+    re-creates the state ConfigMap (fresh UID) once the routing-ready latch re-fires."""
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    (mcc_a, mdbs_a), (mcc_b, mdbs_b) = per_cluster_mdbs_search
+
+    state_cm_name = search_resource_names.search_state_configmap_name(MDBS_RESOURCE_NAME)
+
+    def local_artifact_readers(mcc: MultiClusterClient) -> Dict[str, Callable[[], object]]:
+        """Direct readers for the concrete (kind, name) identities of one cluster's
+        Search artifact set: per-shard mongot resources plus the cluster-level
+        proxy Service, Envoy Deployment/ConfigMap, and the state ConfigMap."""
+        ci = _idx(mcc)
+        apps = mcc.apps_v1_api()
+        core = mcc.core_v1_api()
+        readers: Dict[str, Callable[[], object]] = {}
+        for shard_idx in range(SHARD_COUNT):
+            shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
+            sts = search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name, ci)
+            svc = search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name, ci)
+            proxy = search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name, ci)
+            cm = search_resource_names.shard_configmap_name(MDBS_RESOURCE_NAME, shard_name, ci)
+            secret = search_resource_names.shard_operator_managed_tls_secret_name(MDBS_RESOURCE_NAME, shard_name, ci)
+            readers[f"StatefulSet/{sts}"] = lambda n=sts: mcc.read_namespaced_stateful_set(n, namespace)
+            readers[f"Service/{svc}"] = lambda n=svc: mcc.read_namespaced_service(n, namespace)
+            readers[f"Service/{proxy}"] = lambda n=proxy: mcc.read_namespaced_service(n, namespace)
+            readers[f"ConfigMap/{cm}"] = lambda n=cm: mcc.read_namespaced_config_map(n, namespace)
+            readers[f"Secret/{secret}"] = lambda n=secret: core.read_namespaced_secret(n, namespace)
+        cluster_proxy = search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, ci)
+        envoy_dep = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, ci)
+        envoy_cm = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, ci)
+        readers[f"Service/{cluster_proxy}"] = lambda: mcc.read_namespaced_service(cluster_proxy, namespace)
+        readers[f"Deployment/{envoy_dep}"] = lambda: apps.read_namespaced_deployment(envoy_dep, namespace)
+        readers[f"ConfigMap/{envoy_cm}"] = lambda: mcc.read_namespaced_config_map(envoy_cm, namespace)
+        readers[f"ConfigMap/{state_cm_name}"] = lambda: mcc.read_namespaced_config_map(state_cm_name, namespace)
+        return readers
+
+    # Presence guard + UID snapshot on BOTH clusters (a 404 or missing-PVC failure here
+    # fails the capture, so the deletion polls below can never pass vacuously).
+    uids_a = {what: read().metadata.uid for what, read in local_artifact_readers(mcc_a).items()}
+    readers_b = local_artifact_readers(mcc_b)
+    uids_b = {what: read().metadata.uid for what, read in readers_b.items()}
+    shard_sts_names_b = [
+        search_resource_names.shard_statefulset_name(
+            MDBS_RESOURCE_NAME, f"{MDB_RESOURCE_NAME}-{shard_idx}", _idx(mcc_b)
+        )
+        for shard_idx in range(SHARD_COUNT)
+    ]
+    for sts_name in shard_sts_names_b:
+        assert mongot_data_pvc_names(
+            namespace, sts_name, api_client=mcc_b.api_client
+        ), f"[{mcc_b.cluster_name}] expected mongot data PVCs for {sts_name}"
+
+    mdbs_b.load()
+    original_clusters = deepcopy(mdbs_b["spec"]["clusters"])
+    remaining_clusters = [deepcopy(entry) for entry in original_clusters if entry["name"] == mcc_a.cluster_name]
+    assert len(remaining_clusters) == 1, f"expected exactly one entry for {mcc_a.cluster_name}: {original_clusters}"
+    mdbs_b["spec"]["clusters"] = remaining_clusters
+    mdbs_b.update()
+
+    for what, read in readers_b.items():
+        wait_for_resource_deleted(read, f"{what} in {mcc_b.cluster_name}")
+    for sts_name in shard_sts_names_b:
+        wait_for_mongot_pvcs_deleted(namespace, sts_name, api_client=mcc_b.api_client)
+    wait_for_search_owned_resources_deleted(
+        mcc_b.apps_v1_api(),
+        mcc_b.core_v1_api(),
+        namespace,
+        MDBS_RESOURCE_NAME,
+        where=mcc_b.cluster_name,
+    )
+
+    mdbs_a.load()
+    phase_a = mdbs_a.get_status_phase()
+    assert (
+        phase_a == Phase.Running
+    ), f"[{mcc_a.cluster_name}] phase={phase_a} after {mcc_b.cluster_name} swept its local slice"
+    assert {what: read().metadata.uid for what, read in local_artifact_readers(mcc_a).items()} == uids_a, (
+        f"[{mcc_a.cluster_name}] managed artifacts (including the state ConfigMap) changed "
+        f"when {mcc_b.cluster_name} swept its local slice"
+    )
+
+    mdbs_b.load()
+    mdbs_b["spec"]["clusters"] = original_clusters
+    mdbs_b.update()
+    mdbs_b.assert_reaches_phase(Phase.Running, timeout=900)
+    assert_workload_ready_in_cluster(
+        mcc_b,
+        namespace,
+        {sts_name: MONGOT_REPLICAS_PER_CLUSTER for sts_name in shard_sts_names_b},
+        search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, _idx(mcc_b)),
+        timeout=600,
+    )
+
+    # Only markRoutingReady creates the state ConfigMap, so a fresh UID proves the
+    # routing-ready latch re-fired for the redeployed slice.
+    old_state_cm_uid_b = uids_b[f"ConfigMap/{state_cm_name}"]
+
+    def state_cm_recreated() -> tuple:
+        try:
+            cm = mcc_b.read_namespaced_config_map(state_cm_name, namespace)
+        except kubernetes.client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return False, f"{state_cm_name} absent"
+            raise
+        return cm.metadata.uid != old_state_cm_uid_b, f"uid={cm.metadata.uid} (pre-sweep uid={old_state_cm_uid_b})"
+
+    run_periodically(
+        state_cm_recreated,
+        timeout=300,
+        sleep_time=5,
+        msg=f"state ConfigMap {state_cm_name} re-created in {mcc_b.cluster_name}",
+    )

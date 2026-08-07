@@ -10,7 +10,11 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.connectivity import wait_for_mongot_pvcs_deleted, wait_for_mongot_statefulset_drained
+from tests.common.search.connectivity import (
+    mongot_data_pvc_names,
+    wait_for_mongot_pvcs_deleted,
+    wait_for_mongot_statefulset_drained,
+)
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
@@ -128,18 +132,6 @@ def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelp
     sample_movies_helper.assert_search_query(retry_timeout=60)
 
 
-def _mongot_data_pvc_names(namespace: str, sts_name: str) -> list[str]:
-    """Names of the data PVCs backing a mongot StatefulSet (volumeClaimTemplate
-    ``data`` -> ``data-<sts>-<ordinal>``)."""
-    core_v1 = client.CoreV1Api()
-    prefix = f"data-{sts_name}-"
-    return [
-        pvc.metadata.name
-        for pvc in core_v1.list_namespaced_persistent_volume_claim(namespace).items
-        if pvc.metadata.name.startswith(prefix)
-    ]
-
-
 @mark.e2e_search_community_basic
 def test_scale_mongot_offline_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     """whenScaled:Delete - scaling mongot to 0 keeps the CR and StatefulSet object
@@ -150,7 +142,7 @@ def test_scale_mongot_offline_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     # Presence guard: the STS and its data PVC must exist before scale-down, else
     # the reclaim assertion below passes vacuously.
     client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace)
-    assert _mongot_data_pvc_names(namespace, sts_name), f"expected a mongot data PVC for {sts_name} before scale-down"
+    assert mongot_data_pvc_names(namespace, sts_name), f"expected a mongot data PVC for {sts_name} before scale-down"
 
     mdbs.load()
     mdbs["spec"]["clusters"][0]["replicas"] = 0
@@ -177,7 +169,7 @@ def test_delete_search_cr_reclaims_pvc(namespace: str, mdbs: MongoDBSearch):
     # Presence guard: the STS and its data PVC must exist before delete, otherwise
     # the post-delete absence checks below could pass vacuously.
     client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace)
-    pvcs_before = _mongot_data_pvc_names(namespace, sts_name)
+    pvcs_before = mongot_data_pvc_names(namespace, sts_name)
     assert pvcs_before, f"expected at least one mongot data PVC for {sts_name} before delete"
     logger.info(f"pre-delete: STS {sts_name} present, data PVCs {pvcs_before}")
 
