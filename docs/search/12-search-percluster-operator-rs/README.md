@@ -1,5 +1,7 @@
 # MongoDB Search, Operator-Per-Cluster with a Unified CR (Multi-Cluster Replica Set)
 
+*Author: Julien Benhaim*
+
 This guide deploys **MongoDB Search** against a **multi-cluster MongoDB replica set** (a `MongoDBMultiCluster` custom resource, "CR") using the **operator-per-cluster with a unified CR** deployment model: one identical `MongoDBSearch` manifest, applied independently to every member cluster, each running its own dedicated operator instance.
 
 **In a nutshell**, starting from a three-cluster MongoDB replica set (built by the prerequisite reference-architecture suites, with Ops Manager), you will: install a dedicated Search operator in each cluster, apply one identical `MongoDBSearch` manifest everywhere, wire each cluster's mongods to their **own local** search process, and finish by running `$search` and `$vectorSearch` queries proven to be served inside each cluster. Expect roughly 1-2 hours, most of it waiting on the Ops Manager prerequisite.
