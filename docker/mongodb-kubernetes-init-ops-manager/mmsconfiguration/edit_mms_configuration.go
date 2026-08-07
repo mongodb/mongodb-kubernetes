@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -25,6 +26,9 @@ const (
 	appDbConnectionStringFilePath = appDbConnectionStringPath + "/connectionString"
 	// keep in sync with MmsMongoUri constant from github.com/mongodb/mongodb-kubernetes/pkg/util
 	appDbUriKey = "mongo.mongoUri"
+
+	omPropertiesBlockBegin = "## BEGIN properties managed by the MongoDB Kubernetes Operator (rewritten on every container start, do not edit)"
+	omPropertiesBlockEnd   = "## END properties managed by the MongoDB Kubernetes Operator"
 )
 
 func updateConfFile(confFile string) error {
@@ -210,6 +214,13 @@ func getOmPropertiesFromEnvVars() map[string]string {
 }
 
 func updateMmsProperties(lines []string, newProperties map[string]string) []string {
+	// Drop the block written by a previous container start first: a property the
+	// operator no longer sets (e.g. mms.https.PEMKeyFile after TLS is disabled)
+	// must disappear from the file rather than linger forever. The conf directory
+	// can survive container recreation (in-place crash restarts, or a user PVC
+	// mounted over it), so this file cannot be assumed to be freshly templated.
+	lines = removeOperatorPropertiesBlocks(lines)
+
 	seenProperties := map[string]bool{}
 
 	// Overwrite existing properties
@@ -225,13 +236,43 @@ func updateMmsProperties(lines []string, newProperties map[string]string) []stri
 		}
 	}
 
-	// Add new properties
-	for key, val := range newProperties {
-		if _, ok := seenProperties[key]; !ok {
-			lines = append(lines, fmt.Sprintf("%s=%s", key, val))
+	// Add the remaining properties inside a delimited block so the next container
+	// start can strip and rewrite them.
+	var blockKeys []string
+	for key := range newProperties {
+		if !seenProperties[key] {
+			blockKeys = append(blockKeys, key)
 		}
 	}
-	return lines
+	if len(blockKeys) == 0 {
+		return lines
+	}
+	sort.Strings(blockKeys)
+
+	lines = append(lines, omPropertiesBlockBegin)
+	for _, key := range blockKeys {
+		lines = append(lines, fmt.Sprintf("%s=%s", key, newProperties[key]))
+	}
+	return append(lines, omPropertiesBlockEnd)
+}
+
+// removeOperatorPropertiesBlocks removes every operator-managed property block
+// (delimited by omPropertiesBlockBegin/omPropertiesBlockEnd) that a previous
+// container start wrote into the properties file.
+func removeOperatorPropertiesBlocks(lines []string) []string {
+	result := make([]string, 0, len(lines))
+	inBlock := false
+	for _, line := range lines {
+		switch {
+		case line == omPropertiesBlockBegin:
+			inBlock = true
+		case line == omPropertiesBlockEnd:
+			inBlock = false
+		case !inBlock:
+			result = append(result, line)
+		}
+	}
+	return result
 }
 
 func main() {

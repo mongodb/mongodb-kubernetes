@@ -129,8 +129,64 @@ func TestEditMmsConfiguration_UpdatePropertiesFile(t *testing.T) {
 	updatedContent := _readLinesFromFile(propFile)
 	assert.Equal(t, updatedContent[0], "mms.prop=1234")
 	assert.Equal(t, updatedContent[1], "mms.test.prop5=")
+	// Keys already present in the file are overwritten in place.
 	assert.Equal(t, updatedContent[2], "mms.test.prop=somethingNew")
-	assert.Equal(t, updatedContent[3], "mms.test.prop.new=400")
+	// New keys are appended inside the operator-managed block.
+	assert.Equal(t, updatedContent[3], omPropertiesBlockBegin)
+	assert.Equal(t, updatedContent[4], "mms.test.prop.new=400")
+	assert.Equal(t, updatedContent[5], omPropertiesBlockEnd)
+}
+
+// TestEditMmsConfiguration_UpdatePropertiesFile_Idempotent verifies that
+// repeated container starts do not accumulate duplicate operator-managed
+// property blocks in the file.
+func TestEditMmsConfiguration_UpdatePropertiesFile_Idempotent(t *testing.T) {
+	newProperties := map[string]string{
+		"mms.test.prop.new": "400",
+	}
+	propFile := _createTestPropertiesFile()
+
+	for i := 0; i < 10; i++ {
+		assert.NoError(t, updatePropertiesFile(propFile, newProperties))
+	}
+
+	content := strings.Join(_readLinesFromFile(propFile), "\n")
+	assert.Equal(t, 1, strings.Count(content, omPropertiesBlockBegin))
+	assert.Equal(t, 1, strings.Count(content, "mms.test.prop.new=400"))
+	assert.Contains(t, content, "mms.prop=1234")
+}
+
+// TestEditMmsConfiguration_UpdatePropertiesFile_RemovesStaleProperties
+// simulates disabling TLS on a running Ops Manager whose conf directory
+// survives into the next container start (in-place crash restart, or a
+// user-supplied PVC over the data path). Cycle 1 runs with TLS enabled and
+// writes mms.https.PEMKeyFile; cycle 2 runs after TLS was disabled, so the
+// property is absent from the new set. The stale key must not survive cycle
+// 2: a leftover PEMKeyFile pointing at a no-longer-mounted secret path
+// prevents Ops Manager from booting (KUBE-141 / HELP-84463).
+func TestEditMmsConfiguration_UpdatePropertiesFile_RemovesStaleProperties(t *testing.T) {
+	propFile := _createTestPropertiesFile()
+
+	tlsEnabled := map[string]string{
+		"mms.https.PEMKeyFile": "/opt/mongodb/mms/secrets/PVNZRVHDZKLN2KXL5VKDNOP5QTOX2LBJ",
+		"mms.centralUrl":       "https://om-svc.mongodb.svc.cluster.local:8443",
+		"mongo.mongoUri":       "mongodb://om-db-0.om-db-svc.mongodb.svc.cluster.local:27017",
+	}
+	assert.NoError(t, updatePropertiesFile(propFile, tlsEnabled))
+
+	tlsDisabled := map[string]string{
+		"mms.centralUrl": "http://om-svc.mongodb.svc.cluster.local:8080",
+		"mongo.mongoUri": "mongodb://om-db-0.om-db-svc.mongodb.svc.cluster.local:27017",
+	}
+	assert.NoError(t, updatePropertiesFile(propFile, tlsDisabled))
+
+	content := strings.Join(_readLinesFromFile(propFile), "\n")
+	assert.NotContains(t, content, "mms.https.PEMKeyFile",
+		"stale TLS property from a previous cycle must not remain in the file")
+	assert.Contains(t, content, "mms.centralUrl=http://om-svc.mongodb.svc.cluster.local:8080")
+
+	// Pre-existing base properties must be preserved.
+	assert.Contains(t, content, "mms.prop=1234")
 }
 
 func _createTestConfFile() string {

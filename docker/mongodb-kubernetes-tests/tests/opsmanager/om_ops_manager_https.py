@@ -234,3 +234,24 @@ def test_change_appdb_certificate_with_sts_restarting(ops_manager: MongoDBOpsMan
     ops_manager.trigger_appdb_sts_restart()
     rotate_cert(namespace, certificate_name="appdb-om-with-https-db-cert")
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+
+@mark.e2e_om_ops_manager_https_enabled
+def test_disable_https_on_opsmanager(ops_manager: MongoDBOpsManager):
+    """Ops Manager has HTTPS disabled again by removing spec.security. It should come back up over plain HTTP."""
+    ops_manager.load()
+    # update() sends a JSON merge-patch: a key merely absent from the body is left untouched
+    # server-side, so the field must be explicitly nulled out to delete it.
+    ops_manager["spec"]["security"] = None
+    ops_manager.update()
+
+    ops_manager.om_status().assert_abandons_phase(Phase.Running, timeout=600)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+
+    om_url = ops_manager.om_status().get_url()
+    assert om_url is not None
+    assert om_url.startswith("http://")
+    assert om_url.endswith(":8080")
+
+    # Beyond the reported phase/url, make sure Ops Manager is actually answering API calls over plain HTTP.
+    ops_manager.get_om_tester().assert_healthiness()
