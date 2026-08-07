@@ -506,10 +506,8 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetIsTLSEnabled(m.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).
 		SetScheme(scheme).
-		// AppDB user is always created in the admin database (see GetAuthUsers), so it is
-		// both the auth source and the database in the URI path
-		SetAuthSource(util.DefaultUserDatabase).
-		SetConnectionStringDatabase(util.DefaultUserDatabase)
+		// AppDB user is always created in the admin database (see GetAuthUsers).
+		SetAuthSource(util.DefaultUserDatabase)
 
 	if m.IsMultiCluster() {
 		builder.SetReplicas(len(multiClusterHostnames))
