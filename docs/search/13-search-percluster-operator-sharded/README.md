@@ -2,7 +2,7 @@
 
 > **Internal audience.** This guide is written for TSEs, Solutions Architects, and Consulting Engineers. It documents a real, e2e-tested deployment model that is **not** part of the public docs set. Read [`12-search-percluster-operator-rs/README.md`](../12-search-percluster-operator-rs/README.md) first — it explains what "operator-per-cluster with a unified CR" means and how to recognize it, using the simpler replica-set case. **This document only covers the delta a sharded source adds on top of that.**
 
-This scenario deploys **MongoDB Search** in the operator-per-cluster model across two Kubernetes clusters, both indexing the **same single-cluster sharded MongoDB** source.
+**In a nutshell**, starting from two connected Kubernetes clusters with the central operator and Ops Manager in place, you will: deploy a single-cluster sharded MongoDB source (this scenario brings its own), install a dedicated Search operator in each cluster, give **both** clusters a full independent set of per-shard mongot groups, and choose which cluster serves live search traffic with one Automation Config switch (`TARGET_CLUSTER_INDEX`) -- flippable at any time.
 
 ## The topology: one source, N search clusters, pick-a-target
 
@@ -73,25 +73,25 @@ Scenario 12's replica-set case has one naming axis: cluster index. A sharded sou
 
 ## Resource-name decode table (sharded case)
 
-`{name}` is `spec.metadata.name` (this scenario: `mdbs-sh`), `{idx}` is that cluster's pinned `spec.clusters[].index`, `{shard}` is `spec.source.external.shardedCluster.shards[].shardName`, `{prefix}` is `spec.security.tls.certsSecretPrefix`. Verified against the naming functions in `api/mongodb/v1/search/mongodbsearch_types.go`.
+`{name}` is `spec.metadata.name` (this scenario: `mdbs-sh`), `{idx}` is that cluster's pinned `spec.clusters[].index`, `{shard}` is `spec.source.external.shardedCluster.shards[].shardName`, `{prefix}` is `spec.security.tls.certsSecretPrefix`.
 
-| Pattern | What it is | Go source |
-|---|---|---|
-| `{name}-search-{idx}-{shard}` | mongot StatefulSet for this (cluster, shard) | `MongotStatefulSetForClusterShard` |
-| `{name}-search-{idx}-{shard}-svc` | headless Service for that StatefulSet's pods | `MongotServiceForClusterShard` |
-| `{name}-search-{idx}-{shard}-config` | mongot config ConfigMap for this (cluster, shard) | `MongotConfigMapForClusterShard` |
-| `{name}-search-{idx}-{shard}-proxy-svc` | stable proxy Service this shard's mongod connects to in this cluster | `ProxyServiceNameForClusterShard` |
-| `{name}-search-{idx}-proxy-svc` | shard-agnostic, per-cluster proxy Service this cluster's mongos connects to (`routerHostname`) | `ProxyServiceNamespacedNameForCluster` |
-| `{prefix}-{name}-search-{idx}-{shard}-cert` | customer-provided mongot server TLS secret for this (cluster, shard) | `TLSSecretForClusterShard` |
-| `{name}-search-{idx}-{shard}-certificate-key` | operator-managed combined cert+key (internal, do not create) | `TLSOperatorSecretForClusterShard` |
-| `{name}-search-lb-{idx}` | Envoy Deployment for this cluster (fronts every shard in it) | `LoadBalancerDeploymentNameForCluster` |
-| `{name}-search-lb-{idx}-config` | Envoy bootstrap ConfigMap for this cluster | `LoadBalancerConfigMapNameForCluster` |
-| `{prefix}-{name}-search-lb-{idx}-cert` | Envoy server TLS secret, **one per cluster, not per shard** | `LoadBalancerServerCert` |
-| `{prefix}-{name}-search-lb-{idx}-client-cert` | Envoy's client TLS secret for calling mongot, **one per cluster** | `LoadBalancerClientCert` |
+| Pattern | What it is |
+|---|---|
+| `{name}-search-{idx}-{shard}` | mongot StatefulSet for this (cluster, shard) |
+| `{name}-search-{idx}-{shard}-svc` | headless Service for that StatefulSet's pods |
+| `{name}-search-{idx}-{shard}-config` | mongot config ConfigMap for this (cluster, shard) |
+| `{name}-search-{idx}-{shard}-proxy-svc` | stable proxy Service this shard's mongod connects to in this cluster |
+| `{name}-search-{idx}-proxy-svc` | shard-agnostic, per-cluster proxy Service this cluster's mongos connects to (`routerHostname`) |
+| `{prefix}-{name}-search-{idx}-{shard}-cert` | customer-provided mongot server TLS secret for this (cluster, shard) |
+| `{name}-search-{idx}-{shard}-certificate-key` | operator-managed combined cert+key (internal, do not create) |
+| `{name}-search-lb-{idx}` | Envoy Deployment for this cluster (fronts every shard in it) |
+| `{name}-search-lb-{idx}-config` | Envoy bootstrap ConfigMap for this cluster |
+| `{prefix}-{name}-search-lb-{idx}-cert` | Envoy server TLS secret, **one per cluster, not per shard** |
+| `{prefix}-{name}-search-lb-{idx}-client-cert` | Envoy's client TLS secret for calling mongot, **one per cluster** |
 
 For example, `mdbs-sh-search-2-mdb-sh-1-proxy-svc` decodes as: MongoDBSearch `mdbs-sh`, cluster index `2`, shard `mdb-sh-1`, the shard's proxy Service.
 
-> **Note:** the type also defines `LoadBalancerServerCertForClusterShard` (`{prefix}-{name}-search-lb-{idx}-{shard}-cert`), and the admission-time resource-name-length validator checks it — but the Envoy reconciler (`mongodbsearchenvoy_controller.go`) only ever mounts `LoadBalancerServerCert` and `LoadBalancerClientCert` (per cluster, not per shard) when building the Envoy pod, and the e2e's own `create_lb_certificates` helper mints exactly that: one server + one client cert per cluster. **Create the per-cluster cert, not a per-shard one** — the per-shard name is unused dead code as of this writing.
+> **Note:** you may come across a per-shard LB cert naming pattern (`{prefix}-{name}-search-lb-{idx}-{shard}-cert`) in the API. The Envoy tier never mounts it -- it only ever uses the per-cluster server + client cert pair. **Create the per-cluster cert, not a per-shard one** -- the per-shard name is unused as of this writing.
 
 ## What You're Responsible For
 
@@ -111,7 +111,7 @@ For example, `mdbs-sh-search-2-mdb-sh-1-proxy-svc` decodes as: MongoDBSearch `md
 
 ## Prerequisites
 
-Scenario 12's [Build Order](../12-search-percluster-operator-rs/README.md#build-order) (stage sequencing, version floors, checkpoints) and its [substrate appendix](../12-search-percluster-operator-rs/README.md#appendix-running-on-a-constrained-substrate-kind-local-docker) (kind/local-Docker workarounds) apply here unchanged — follow them through the Ops Manager stage, then return; this scenario deploys its own source instead of ra-07's.
+Scenario 12's [Build Order](../12-search-percluster-operator-rs/README.md#build-order) (stage sequencing, version floors, checkpoints) and its [substrate appendix](../12-search-percluster-operator-rs/README.md#appendix-running-on-a-constrained-substrate-kind-local-docker) (kind/local-Docker workarounds) apply here unchanged — follow them through the Ops Manager stage, then return; this scenario deploys its own source instead of reference-architecture suite ra-07's (`ra-*` = the reference-architecture suites under `public/architectures/`).
 
 - [`ra-01` through `ra-05`](../../../public/architectures/setup-multi-cluster/) — the Kubernetes clusters, ra-02's central operator, service mesh, connectivity, cert-manager. The `ra-01` recipe targets GKE, but any clusters that pass `ra-04`'s connectivity check work.
 - [`ra-06-ops-manager-multi-cluster`](../../../public/architectures/ra-06-ops-manager-multi-cluster) — Ops Manager itself (deployed on `K8S_CLUSTER_0`), plus the `mdb-org-owner-credentials` Secret / `mdb-org-project-config` ConfigMap this scenario reuses to talk to the OM API directly (same pattern scenario 12's `12_0400` uses; see `ra-06_0610`). There are no `OPS_MANAGER_API_*` placeholder vars in `env_variables.sh` — everything is derived at runtime.
@@ -170,7 +170,7 @@ Snippets: [13_0045_create_namespaces.sh](code_snippets/13_0045_create_namespaces
 
 Snippet: [13_0100_install_operator.sh](code_snippets/13_0100_install_operator.sh)
 
-> The central operator does **not** safely ignore this scenario's CR by default: its reconcile gate (`mongodbsearch_controller.go`) **writes status `Invalid`** ("multi-cluster MongoDBSearch is not supported yet") on any CR with more than one `spec.clusters[]` entry before skipping it, and ra-02's install watches `mongodbsearch` in this namespace by default. Left as-is, it fights the per-cluster Search operator over cluster 0's CR status (`Invalid` ↔ `Running` flapping). Step 3b removes `mongodbsearch` from the central operator's watched resources to resolve this.
+> The central operator does **not** safely ignore this scenario's CR by default: it **writes status `Invalid`** ("multi-cluster MongoDBSearch is not supported yet") on any CR with more than one `spec.clusters[]` entry before skipping it, and ra-02's install watches `mongodbsearch` in this namespace by default. Left as-is, it fights the per-cluster Search operator over cluster 0's CR status (`Invalid` ↔ `Running` flapping). Step 3b removes `mongodbsearch` from the central operator's watched resources to resolve this.
 
 #### Step 3b: Stop the Central Operator Watching MongoDBSearch
 
@@ -304,7 +304,7 @@ Snippet: [13_0325_wait_for_search_resource.sh](code_snippets/13_0325_wait_for_se
 
 #### Step 15: Point the Source at `TARGET_CLUSTER_INDEX`
 
-Every shard's mongod processes are pointed at the target cluster's per-shard proxy endpoint; the mongos process is pointed at the target cluster's `routerHostname`; config server processes are left untouched (they never talk to mongot). The OM project looked up is named after `MDB_RESOURCE_NAME` (the source's own resource name) — the operator's `opsManager.configMapRef` here has no explicit `projectName`, so `ReadProjectConfig` (`controllers/operator/project/projectconfig.go`) falls back to the MongoDB resource's own name as the OM project name:
+Every shard's mongod processes are pointed at the target cluster's per-shard proxy endpoint; the mongos process is pointed at the target cluster's `routerHostname`; config server processes are left untouched (they never talk to mongot). The OM project looked up is named after `MDB_RESOURCE_NAME` (the source's own resource name) — the operator's `opsManager.configMapRef` here has no explicit `projectName`, so the operator falls back to the MongoDB resource's own name as the OM project name:
 
 ```bash
 ./code_snippets/13_0330_configure_om_automation_config.sh
@@ -343,7 +343,7 @@ This scenario stops at infrastructure verification — it does not load sample d
 
 #### Step 17: Give One Shard More Mongot Capacity in One Cluster
 
-`shardOverrides` sizes specific shards differently from the rest of their cluster — for example, a hot shard that needs more mongot replicas and resources than its siblings, but only in the cluster where you expect it to serve traffic. It is valid **only for external sharded sources**; every referenced `shardName` must already be declared in `spec.source.external.shardedCluster.shards[]`, and a shard may appear in at most one override per cluster (`validateShardOverrides` in `mongodbsearch_validation.go`). It lives inside `spec.clusters[].shardOverrides[]`, so it travels in the same unified YAML applied everywhere — cluster 1's operator simply ignores an override attached to cluster 0's entry:
+`shardOverrides` sizes specific shards differently from the rest of their cluster — for example, a hot shard that needs more mongot replicas and resources than its siblings, but only in the cluster where you expect it to serve traffic. It is valid **only for external sharded sources**; every referenced `shardName` must already be declared in `spec.source.external.shardedCluster.shards[]`, and a shard may appear in at most one override per cluster (the operator rejects duplicates). It lives inside `spec.clusters[].shardOverrides[]`, so it travels in the same unified YAML applied everywhere — cluster 1's operator simply ignores an override attached to cluster 0's entry:
 
 ```bash
 ./code_snippets/13_0340_apply_shard_overrides.sh
@@ -365,19 +365,72 @@ This removes the MongoDBSearch resource and the per-cluster Search operator rele
 
 Also see [scenario 12's general troubleshooting table](../12-search-percluster-operator-rs/README.md#troubleshooting) for issues not specific to sharding (wrong `OPERATOR_CLUSTER_NAME`, duplicate/missing `index`, orphaned resources after an index change).
 
-| Symptom | Cause | Check |
-|---|---|---|
-| CR rejected: `routerHostname must be specified when using managed load balancer with an external sharded MongoDB source` | Forgot `routerHostname` on one cluster's `loadBalancer.managed` | Every `spec.clusters[]` entry needs it for a sharded source — it's not optional the way it is for ReplicaSet sources |
-| Step 15 exits with `om-svc-ext has no LoadBalancer IP yet` | Ops Manager's external Service is `type: LoadBalancer` and the IP never got assigned — no MetalLB on kind, or the cloud LB is still provisioning/out of quota | `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's |
-| Cluster 1's mongot groups never leave initial sync (index counts stay 0 there), cluster 0 is fine | Cluster 1's mongot syncs from the source's Service FQDNs, which live only in cluster 0 — if the mesh doesn't resolve or route another cluster's Service names, sync fails silently while the CR stays `Running` | mongot pod logs in cluster 1 for `no such host` / connection timeouts on the source's `...-svc.${MDB_NAMESPACE}.svc.cluster.local` names; the mesh must pass the `ra-04` connectivity check |
-| CR rejected: `externalHostname must contain {shardName} for multi-cluster sharded deployments` | `externalHostname` was set to a resolved literal instead of the `{shardName}` template | Keep the literal `{shardName}` token in the value; the operator substitutes it per shard |
-| After flipping `TARGET_CLUSTER_INDEX`, queries still return stale/empty results, or responses carry `routed_from_another_shard` | The AC PUT didn't actually apply (operator re-locked between clear and PUT and all 3 retries were exhausted), or the target cluster's mongot group isn't past `MinMongotReadyReplicas` yet | Re-run Step 15; check mongot pod readiness for `{name}-search-{idx}-{shard}` in the target cluster; read the source's on-disk `automation-mongod.conf` `setParameter.mongotHost` to confirm the flip actually landed |
-| `MongoDBSearch.status.phase` flaps between `Invalid` ("multi-cluster MongoDBSearch is not supported yet") and `Running` on cluster 0 | Step 3b (narrowing ra-02's central operator away from `mongodbsearch`) was skipped, or was reverted — the central operator still watches `mongodbsearch` in the same namespace as the per-cluster Search operator and writes `Invalid` on every reconcile of a CR with more than one `spec.clusters[]` entry, before skipping further work on it | Run/re-run Step 3b (`13_0110_stop_central_operator_watching_search.sh`); confirm with `kubectl get deploy mongodb-kubernetes-operator-multi-cluster -n ${OPERATOR_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME} -o jsonpath='{.spec.template.spec.containers[0].args}'` that no `-watch-resource=mongodbsearch` argument is present (each `operator.watchedResources` entry renders as a `-watch-resource=<kind>` container arg, not an env var — `helm_chart/templates/operator.yaml`) |
-| Per-(cluster, shard) mongot cert secret missing in exactly one cluster, fine in the other | LB/mongot TLS certs are per-cluster secrets, not broadcast like the sync-source password — a copy step was skipped | Operator log: `MongoDBSearch missing customer-replicated secrets` with `cluster=<name>` and the exact missing secret name; requeues every 30s until it appears |
-| cert-manager `Certificate`/CR create fails, or the operator later rejects the CR with `... exceeds the 63-character Kubernetes limit` | `shardName` must be a valid RFC 1123 DNS label, and the combined `{name}-search-{idx}-{shard}` (plus e.g. a pod ordinal or `-proxy-svc` suffix) must fit the 63-char Kubernetes label limit for StatefulSet/Service/proxy-Service names (253 for ConfigMap/Secret) | Shorten the MongoDBSearch resource name or the shard name; see `validateResourceName` / `generateShardResourceNames` in `mongodbsearch_validation.go` |
-| CR rejected: `spec.clusters[].shardOverrides is only supported for external sharded sources` / `references unknown shardName` / `appears in more than one shardOverrides entry` | `shardOverrides` used against a non-sharded source, or references a shard not declared in `spec.source.external.shardedCluster.shards[]`, or duplicated within a cluster | `validateShardOverrides` in `mongodbsearch_validation.go` |
-| Two clusters end up with duplicate/overlapping `routerHostname` or `externalHostname` and traffic silently lands on the wrong cluster's Envoy | **Not caught by validation.** The Go doc comments say every cluster's `routerHostname`/`externalHostname` "must be distinct," but only presence and the `{shardName}`-placeholder rule are actually enforced (`validateRouterHostname`, `validateMCExternalHostnames`) — cross-cluster uniqueness is a convention you must enforce yourself | Diff `spec.clusters[].loadBalancer.managed.{routerHostname,externalHostname}` across every cluster entry by hand |
-| `MongoDBSearch` reaches `Running` but keeps re-requeuing every 30s forever, logging `MongoDBSearch missing customer-replicated secrets` naming your **CA ConfigMap** even though it exists | **Verified code-level bug**, not a real gap: `secrets_presence.go`'s `missingSecretsIn` does a `client.Get` against a `corev1.Secret{}` for every name it checks, including `spec.source.external.tls.ca.name` — which is a **ConfigMap**, not a Secret. The `Get` 404s against the Secret API regardless of how healthy the ConfigMap is, so this specific entry is permanently reported "missing" whenever an external source sets `tls.ca` (this scenario always does) | Confirm with `kubectl get configmap <ca-configmap-name> -n <ns> --context <ctx>` that it's actually present (it will be) and that the resource's `.status.phase` is `Running`; this is a harmless extra 30s requeue with a misleading log line, not a stuck deployment |
+#### CR rejected: `routerHostname must be specified when using managed load balancer with an external sharded MongoDB source`
+
+**Why:** Forgot `routerHostname` on one cluster's `loadBalancer.managed`
+
+**Check:** Every `spec.clusters[]` entry needs it for a sharded source — it's not optional the way it is for ReplicaSet sources
+
+#### Step 15 exits with `om-svc-ext has no LoadBalancer IP yet`
+
+**Why:** Ops Manager's external Service is `type: LoadBalancer` and the IP never got assigned — no MetalLB on kind, or the cloud LB is still provisioning/out of quota
+
+**Check:** `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's
+
+#### Cluster 1's mongot groups never leave initial sync (index counts stay 0 there), cluster 0 is fine
+
+**Why:** Cluster 1's mongot syncs from the source's Service FQDNs, which live only in cluster 0 — if the mesh doesn't resolve or route another cluster's Service names, sync fails silently while the CR stays `Running`
+
+**Check:** mongot pod logs in cluster 1 for `no such host` / connection timeouts on the source's `...-svc.${MDB_NAMESPACE}.svc.cluster.local` names; the mesh must pass the `ra-04` connectivity check
+
+#### CR rejected: `externalHostname must contain {shardName} for multi-cluster sharded deployments`
+
+**Why:** `externalHostname` was set to a resolved literal instead of the `{shardName}` template
+
+**Check:** Keep the literal `{shardName}` token in the value; the operator substitutes it per shard
+
+#### After flipping `TARGET_CLUSTER_INDEX`, queries still return stale/empty results, or responses carry `routed_from_another_shard`
+
+**Why:** The AC PUT didn't actually apply (operator re-locked between clear and PUT and all 3 retries were exhausted), or the target cluster's mongot group isn't past `MinMongotReadyReplicas` yet
+
+**Check:** Re-run Step 15; check mongot pod readiness for `{name}-search-{idx}-{shard}` in the target cluster; read the source's on-disk `automation-mongod.conf` `setParameter.mongotHost` to confirm the flip actually landed
+
+#### `MongoDBSearch.status.phase` flaps between `Invalid` ("multi-cluster MongoDBSearch is not supported yet") and `Running` on cluster 0
+
+**Why:** Step 3b (narrowing ra-02's central operator away from `mongodbsearch`) was skipped, or was reverted — the central operator still watches `mongodbsearch` in the same namespace as the per-cluster Search operator and writes `Invalid` on every reconcile of a CR with more than one `spec.clusters[]` entry, before skipping further work on it
+
+**Check:** Run/re-run Step 3b (`13_0110_stop_central_operator_watching_search.sh`); confirm with `kubectl get deploy mongodb-kubernetes-operator-multi-cluster -n ${OPERATOR_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME} -o jsonpath='{.spec.template.spec.containers[0].args}'` that no `-watch-resource=mongodbsearch` argument is present (each `operator.watchedResources` entry renders as a `-watch-resource=<kind>` container arg, not an env var — `helm_chart/templates/operator.yaml`)
+
+#### Per-(cluster, shard) mongot cert secret missing in exactly one cluster, fine in the other
+
+**Why:** LB/mongot TLS certs are per-cluster secrets, not broadcast like the sync-source password — a copy step was skipped
+
+**Check:** Operator log: `MongoDBSearch missing customer-replicated secrets` with `cluster=<name>` and the exact missing secret name; requeues every 30s until it appears
+
+#### cert-manager `Certificate`/CR create fails, or the operator later rejects the CR with `... exceeds the 63-character Kubernetes limit`
+
+**Why:** `shardName` must be a valid RFC 1123 DNS label, and the combined `{name}-search-{idx}-{shard}` (plus e.g. a pod ordinal or `-proxy-svc` suffix) must fit the 63-char Kubernetes label limit for StatefulSet/Service/proxy-Service names (253 for ConfigMap/Secret)
+
+**Check:** Shorten the MongoDBSearch resource name or the shard name -- the operator validates the longest generated name at admission time, so the rejection message names the offending combination
+
+#### CR rejected: `spec.clusters[].shardOverrides is only supported for external sharded sources` / `references unknown shardName` / `appears in more than one shardOverrides entry`
+
+**Why:** `shardOverrides` used against a non-sharded source, or references a shard not declared in `spec.source.external.shardedCluster.shards[]`, or duplicated within a cluster
+
+**Check:** every `shardName` in an override must exist in `spec.source.external.shardedCluster.shards[]`, appear at most once per cluster, and the source must be external sharded -- fix whichever the rejection message names
+
+#### Two clusters end up with duplicate/overlapping `routerHostname` or `externalHostname` and traffic silently lands on the wrong cluster's Envoy
+
+**Why:** **Not caught by validation.** The Go doc comments say every cluster's `routerHostname`/`externalHostname` "must be distinct," but only presence and the `{shardName}`-placeholder rule are actually enforced (`validateRouterHostname`, `validateMCExternalHostnames`) — cross-cluster uniqueness is a convention you must enforce yourself
+
+**Check:** Diff `spec.clusters[].loadBalancer.managed.{routerHostname,externalHostname}` across every cluster entry by hand
+
+#### `MongoDBSearch` reaches `Running` but keeps re-requeuing every 30s forever, logging `MongoDBSearch missing customer-replicated secrets` naming your **CA ConfigMap** even though it exists
+
+**Why:** A **known operator bug**, not a real gap: the presence check looks every listed name up as a Secret, but `spec.source.external.tls.ca` names a **ConfigMap** -- that lookup can never succeed, so this one entry is permanently reported "missing" whenever an external source sets `tls.ca` (this scenario always does)
+
+**Check:** Confirm with `kubectl get configmap <ca-configmap-name> -n <ns> --context <ctx>` that it's actually present (it will be) and that the resource's `.status.phase` is `Running`; this is a harmless extra 30s requeue with a misleading log line, not a stuck deployment
+
 
 ## Glossary (delta — see [scenario 12's glossary](../12-search-percluster-operator-rs/README.md#glossary) for the shared terms)
 
@@ -393,12 +446,11 @@ Also see [scenario 12's general troubleshooting table](../12-search-percluster-o
 
 ## A Note on What This Doc's Ground Truth Contradicted
 
-While writing this guide against the actual `mongodbsearch_types.go` / `mongodbsearch_validation.go` / `secrets_presence.go` code and the `simulated_mc_sharded.py` e2e, a few assumptions turned out not to hold, and this doc follows the code/e2e instead:
+While verifying this guide against the operator's actual behavior and its end-to-end tests, a few assumptions turned out not to hold, and this doc follows the verified behavior instead:
 
-1. **The source topology itself.** An earlier draft of this scenario modeled the source as a `ra-08`-style sharded MongoDB spread across the same two physical clusters as Search, with each cluster's mongot syncing locally. Direct reading of `simulated_mc_sharded.py` showed the tested topology is different: a **single-cluster** sharded source, with the Automation Config pointing ALL of its processes at ONE chosen search cluster at a time (the "flip"). This doc now matches that on those two load-bearing points -- but not on cluster count: the e2e uses a **third** member cluster for the source, one that runs no search operator (its docstring: a member serving the MongoDB CRD would reap the source's StatefulSets as orphans under the harness's ownership model), while this doc co-locates the source with search cluster 0 to keep the footprint at two clusters. That co-location is expected to be safe -- the per-cluster Search operator watches only `mongodbsearch` -- but be aware it is a configuration the e2e itself never exercises.
-2. **`spec.source.external.keyfileSecretRef` is not required** for the default (gRPC) deployment. It is only read by `ensureSourceKeyfile`, which only runs when the deprecated legacy wireproto server is force-enabled via the `mongodb.com/v1.force-search-wireproto` annotation. Neither this doc nor the e2e it's modeled on sets it; mongot authenticates to the sync source over SCRAM instead. It's omitted from the CR in this guide.
-3. **Duplicate `routerHostname`/`externalHostname` across clusters is not rejected.** The Go struct comments assert "must be distinct," but the actual validators (`validateRouterHostname`, `validateMCExternalHostnames`) only check presence and the `{shardName}` rule — see the troubleshooting table.
-4. **LB server certs are per-cluster, not per-shard**, despite `LoadBalancerServerCertForClusterShard` existing in the API and being checked by the admission-time resource-name validator. Both `mongodbsearchenvoy_controller.go` (only mounts `LoadBalancerServerCert`) and the e2e's own `create_lb_certificates` helper (docstring: "One server
-   + client cert is created per cluster index") confirm this independently.
-5. **`secrets_presence.go`'s CA-ConfigMap presence check has a resource-kind bug** (checks a `Secret` where a `ConfigMap` lives) — see the troubleshooting table entry above. It produces a harmless but permanent false "missing secret" requeue/log line for every external source with `tls.ca` set, which is every deployment in this guide.
+1. **The source topology itself.** An earlier draft of this scenario modeled the source as a `ra-08`-style sharded MongoDB spread across the same two physical clusters as Search, with each cluster's mongot syncing locally. The tested topology is different: a **single-cluster** sharded source, with the Automation Config pointing ALL of its processes at ONE chosen search cluster at a time (the "flip"). This doc now matches that on those two load-bearing points -- but not on cluster count: the operator's e2e test uses a **third** member cluster for the source, one that runs no search operator (a test-harness ownership constraint, not a product one), while this doc co-locates the source with search cluster 0 to keep the footprint at two clusters. That co-location is expected to be safe -- the per-cluster Search operator watches only `mongodbsearch` -- but be aware it is a configuration the e2e itself never exercises.
+2. **`spec.source.external.keyfileSecretRef` is not required** for the default (gRPC) deployment. It is only consumed when the deprecated legacy wireproto server is force-enabled via the `mongodb.com/v1.force-search-wireproto` annotation. Neither this doc nor the e2e it's modeled on sets it; mongot authenticates to the sync source over SCRAM instead. It's omitted from the CR in this guide.
+3. **Duplicate `routerHostname`/`externalHostname` across clusters is not rejected.** The API documentation says they must be distinct, but the operator only validates presence and the shardName-placeholder rule -- nothing stops you deploying a duplicate; see the troubleshooting entry.
+4. **LB server certs are per-cluster, not per-shard**, despite a per-shard cert name existing in the API. The Envoy tier only ever mounts the per-cluster pair, and the e2e tests create exactly that: one server + one client cert per cluster index.
+5. **The operator's secrets-presence check has a resource-kind bug for the CA ConfigMap** (it looks the name up as a Secret where a ConfigMap lives) — see the troubleshooting entry above. It produces a harmless but permanent false "missing secret" requeue/log line for every external source with `tls.ca` set, which is every deployment in this guide.
 6. **The central operator does not silently skip a multi-cluster MongoDBSearch CR.** An earlier draft of this guide claimed a central operator with no `OPERATOR_CLUSTER_NAME` cleanly ignores a CR with more than one `spec.clusters[]` entry. In fact it writes status `Invalid` ("multi-cluster MongoDBSearch is not supported yet") on every reconcile before skipping further work — which fights the per-cluster Search operator's `Running` status on cluster 0, where both operators watch the same namespace. Step 3b (`13_0110_stop_central_operator_watching_search.sh`) removes `mongodbsearch` from the central operator's watched resources to avoid this.
