@@ -17,6 +17,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 func newSecretsPresenceScheme(t *testing.T) *runtime.Scheme {
@@ -37,13 +38,13 @@ func newSecretObj(name, namespace string) *corev1.Secret {
 	}
 }
 
-func newClientWithSecrets(t *testing.T, secrets ...*corev1.Secret) client.Client {
+func newClientWithSecrets(t *testing.T, secrets ...*corev1.Secret) kubernetesClient.Client {
 	t.Helper()
 	objs := make([]client.Object, 0, len(secrets))
 	for _, s := range secrets {
 		objs = append(objs, s)
 	}
-	return fake.NewClientBuilder().WithScheme(newSecretsPresenceScheme(t)).WithObjects(objs...).Build()
+	return kubernetesClient.NewClient(fake.NewClientBuilder().WithScheme(newSecretsPresenceScheme(t)).WithObjects(objs...).Build())
 }
 
 func newSearchWithExternalSource(name, namespace string) *searchv1.MongoDBSearch {
@@ -67,7 +68,7 @@ func TestCheckSecretsPresence_HappyPath(t *testing.T) {
 	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	east := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	west := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
-	members := map[string]client.Client{"east": east, "west": west}
+	members := map[string]kubernetesClient.Client{"east": east, "west": west}
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 
@@ -83,7 +84,7 @@ func TestCheckSecretsPresence_MissingSecret(t *testing.T) {
 	central := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	east := newClientWithSecrets(t, newSecretObj("search-sync-password", "ns"))
 	west := newClientWithSecrets(t)
-	members := map[string]client.Client{"east": east, "west": west}
+	members := map[string]kubernetesClient.Client{"east": east, "west": west}
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 
@@ -135,7 +136,7 @@ func TestCheckSecretsPresence_MCSharded_PerClusterCertNames(t *testing.T) {
 		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 1), "ns"),
 		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-1", 1), "ns"),
 	)
-	members := map[string]client.Client{"east": east, "west": west}
+	members := map[string]kubernetesClient.Client{"east": east, "west": west}
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 
@@ -156,7 +157,7 @@ func TestCheckSecretsPresence_MCSharded_MissingPerClusterCert(t *testing.T) {
 		newSecretObj("search-sync-password", "ns"),
 		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
 	)
-	members := map[string]client.Client{"east": east, "west": west}
+	members := map[string]kubernetesClient.Client{"east": east, "west": west}
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 
@@ -175,7 +176,7 @@ func TestCheckSecretsPresence_MCSharded_CentralSkipsPerShardCerts(t *testing.T) 
 		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
 		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-1", 0), "ns"),
 	)
-	members := map[string]client.Client{"east": east}
+	members := map[string]kubernetesClient.Client{"east": east}
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 
@@ -191,7 +192,7 @@ func TestCheckSecretsPresence_MCSharded_CentralReportsInvariantGap(t *testing.T)
 		newSecretObj("search-sync-password", "ns"),
 		newSecretObj(s_tlsShardNameAt("lt", "s", "shard-0", 0), "ns"),
 	)
-	members := map[string]client.Client{"east": east}
+	members := map[string]kubernetesClient.Client{"east": east}
 
 	got := CheckSecretsPresence(context.Background(), search, central, members)
 

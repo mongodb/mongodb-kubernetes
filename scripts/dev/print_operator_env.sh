@@ -65,6 +65,10 @@ OPERATOR_NAME=\"${OPERATOR_NAME}\"
     echo "MDB_AGENT_VERSION=${MDB_AGENT_VERSION}"
   fi
 
+  if [[ "${MDB_CUSTOM_AGENT_URL:-""}" != "" ]]; then
+    echo "MDB_CUSTOM_AGENT_URL=${MDB_CUSTOM_AGENT_URL}"
+  fi
+
   if [[ "${MDB_AGENT_DEBUG:-""}" != "" ]]; then
     echo "MDB_AGENT_DEBUG=${MDB_AGENT_DEBUG}"
   fi

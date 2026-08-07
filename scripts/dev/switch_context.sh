@@ -33,6 +33,7 @@ fi
 
 context_file="${contexts_dir}/${context}"
 local_development_default_file="${contexts_dir}/local-defaults-context"
+resolve_agent_version_file="${contexts_dir}/resolve-agent-version.sh"
 override_context_file="${contexts_dir}/private-context-override"
 additional_override_file="${contexts_dir}/${additional_override}"
 
@@ -50,18 +51,27 @@ echo "Generating context files from: ${context}"
 # any kind of current env var expansions
 if [ -n "${EVR_TASK_ID-}" ]; then
   # shellcheck disable=SC1090
-    source "${context_file}"
-    # shellcheck disable=SC2207
-    export CURRENT_VARIANT_CONTEXT="${context}"
-    current_envs=$(export -p)
+  source "${context_file}"
+  # shellcheck disable=SC1090
+  source "${resolve_agent_version_file}"
+  export CURRENT_VARIANT_CONTEXT="${context}"
+  current_envs=$(export -p)
 else
   # env -i makes sure to start the shell with an empty shell, such that we only save into context.env the env vars we have
   # defined.
+  # Source order (first -> last; later steps win):
+  #   1. local-defaults-context
+  #   2. variant context file
+  #   3. additional override (optional fzf arg)
+  #   4. resolve-agent-version.sh  — AGENT_* from CUSTOM_OM_VERSION (release.json)
+  #   5. private-context-override  — optional; highest precedence
   base_command="source ${local_development_default_file} && source ${context_file}"
   if [ -n "${additional_override}" ]; then
       echo "Using additional override file: ${additional_override_file}."
       base_command+=" && source ${additional_override_file}"
-  elif [ -f "${override_context_file}" ]; then
+  fi
+  base_command+=" && source ${resolve_agent_version_file}"
+  if [ -f "${override_context_file}" ]; then
       echo "Using override file: ${override_context_file}. If you do not want to use one, remove the file or its contents."
       base_command+=" && source ${override_context_file}"
   fi

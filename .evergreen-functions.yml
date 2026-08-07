@@ -8,8 +8,6 @@ variables:
       - cognito_user_password
       - cognito_workload_url
       - cognito_workload_user_id
-      - ARTIFACTORY_PASSWORD
-      - ARTIFACTORY_USERNAME
       - GRS_PASSWORD
       - GRS_USERNAME
       - OVERRIDE_VERSION_ID
@@ -629,7 +627,25 @@ functions:
         env:
           PLATFORM: ${platform}
 
+  assume_devprod_platforms_ecr_role: &assume_devprod_platforms_ecr_role
+    command: ec2.assume_role
+    display_name: Assume DevProd Platforms ECR readonly IAM role
+    params:
+      role_arn: ${devprod_platforms_ecr_readonly_role_arn}
+
+  write_devprod_platforms_ecr_aws_profile: &write_devprod_platforms_ecr_aws_profile
+    command: subprocess.exec
+    display_name: Write DevProd Platforms ECR AWS profile
+    type: setup
+    params:
+      shell: bash
+      include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
+
   pipeline:
+    - *assume_devprod_platforms_ecr_role
+    - *write_devprod_platforms_ecr_aws_profile
     - command: subprocess.exec
       retry_on_failure: true
       type: setup
@@ -646,6 +662,7 @@ functions:
           FLAGS: ${flags}
           AGENT_VERSION_OVERRIDE: ${agent_version}
           AGENT_TOOLS_VERSION: ${agent_tools_version}
+          MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
 
   teardown_cloud_qa_all:
     - command: shell.exec
@@ -690,6 +707,39 @@ functions:
         add_to_path:
           - ${workdir}/bin
         command: scripts/evergreen/operator-sdk/prepare-openshift-bundles.sh
+
+  # Downloads the certified openshift bundle from S3 and pushes a branch containing it
+  # to the mongodb-forks certified-operators and community-operators repos. It does NOT
+  # open the PRs: the script prints the "create PR" URLs and the manual review checklist.
+  # Only one Evergreen-managed GitHub App can be installed per project (already used by CI),
+  # so this does NOT use the built-in github.generate_token command. Instead the script mints
+  # its own token from a dedicated GitHub App installed on the mongodb-forks org, via
+  # `scripts/mckci github app-token` (see scripts/release/publish-openshift-bundles-to-rh.sh).
+  # Requires three EVG project variables: rh_gh_app_id and rh_gh_app_installation_id (plain,
+  # public variables), and rh_gh_app_pem_b64 (must be configured as a Private project variable).
+  publish_openshift_bundles_to_rh:
+    - command: shell.exec
+      type: setup
+      params:
+        shell: bash
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - mongodbOperator
+          - rh_gh_app_id
+          - rh_gh_app_installation_id
+          - rh_gh_app_pem_b64
+          - rh_dryrun
+          - requester
+        env:
+          VERSION: ${mongodbOperator}
+          RH_DRYRUN: ${rh_dryrun}
+          REQUESTER: ${requester}
+          RH_GH_APP_ID: ${rh_gh_app_id}
+          RH_GH_APP_INSTALLATION_ID: ${rh_gh_app_installation_id}
+          RH_GH_APP_PEM_B64: ${rh_gh_app_pem_b64}
+        script: |
+          source .generated/context.export.env
+          scripts/release/publish-openshift-bundles-to-rh.sh
 
   # Performs some AWS cleanup
   cleanup_aws:
@@ -739,6 +789,8 @@ functions:
           - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
+        env:
+          MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
         binary: scripts/evergreen/e2e/e2e.sh
 
   e2e_test_perf:
@@ -766,6 +818,7 @@ functions:
           PERF_TASK_DEPLOYMENTS: ${PERF_TASK_DEPLOYMENTS}
           PERF_TASK_REPLICAS: ${PERF_TASK_REPLICAS}
           TEST_NAME_OVERRIDE: ${TEST_NAME_OVERRIDE}
+          MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
         binary: scripts/evergreen/e2e/e2e.sh
 
   test_golang_unit:
@@ -897,6 +950,7 @@ functions:
           - AI_MONGODB_EMBEDDING_QUERY_KEY
         add_to_path:
           - ${workdir}/bin
+          - ${workdir}/google-cloud-sdk/bin
         script: |
           ./scripts/code_snippets/tests/${task_name}
 
@@ -913,6 +967,45 @@ functions:
           unzip -u macos-notary.zip
           chmod 755 ./linux_amd64/macnotary
 
+  # Strips the "old-"/"new-" trigger-tag prefix (see .evergreen.yml
+  # git_tag_aliases) and publishes the bare version as the RELEASE_VERSION
+  # expansion, for tasks that need the real version rather than the literal
+  # trigger tag. A no-op (identity) for any other triggered_by_git_tag shape.
+  compute_release_version:
+    - command: shell.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        shell: bash
+        script: |
+          set -e
+          VERSION="${triggered_by_git_tag}"
+          VERSION="${VERSION#old-}"
+          VERSION="${VERSION#new-}"
+          echo "RELEASE_VERSION: ${VERSION}" > release_version_expansion.yaml
+    - command: expansions.update
+      params:
+        file: src/github.com/mongodb/mongodb-kubernetes/release_version_expansion.yaml
+
+  # Strips the trigger-tag prefix (${prefix}), pushes bare "X.Y.Z" at the
+  # triggering commit, and deletes the trigger tag. Runs after the release
+  # pipeline succeeds; "X.Y.Z" is not itself a git_tag_aliases trigger.
+  push_release_tag:
+    - command: github.generate_token
+      params:
+        expansion_name: GH_TOKEN
+    - command: subprocess.exec
+      type: test
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        include_expansions_in_env:
+          - GH_TOKEN
+          - triggered_by_git_tag
+          - revision
+        env:
+          GH_TOKEN: ${GH_TOKEN}
+        binary: scripts/evergreen/push_release_tag.sh ${prefix}
+
   create_chart_release_pr:
     - command: github.generate_token
       params:
@@ -928,7 +1021,7 @@ functions:
           - OPERATOR_VERSION
         env:
           GH_TOKEN: ${GH_TOKEN}
-        binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*triggered_by_git_tag}
+        binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*RELEASE_VERSION}
 
   add_releaseinfo_to_github_assets:
     - command: github.generate_token
@@ -942,12 +1035,14 @@ functions:
           - OPERATOR_VERSION
         env:
           GH_TOKEN: ${GH_TOKEN}
-        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
+        binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*RELEASE_VERSION}
 
   release_kubectl_mongodb_plugin:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
+    - *assume_devprod_platforms_ecr_role
+    - *write_devprod_platforms_ecr_aws_profile
     - command: subprocess.exec
       type: setup
       params:
@@ -956,8 +1051,6 @@ functions:
           - GRS_USERNAME
           - GRS_PASSWORD
           - PKCS11_URI
-          - ARTIFACTORY_URL
-          - ARTIFACTORY_PASSWORD
           - SIGNING_IMAGE_URI
           - macos_notary_keyid
           - macos_notary_secret

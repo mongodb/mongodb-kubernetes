@@ -16,7 +16,8 @@ class AutomationConfigTester:
     def __init__(self, ac: Optional[Dict] = None):
         if ac is None:
             ac = KubernetesTester.get_automation_config()
-        self.automation_config = ac
+        assert ac is not None
+        self.automation_config: dict = ac
 
     def get_replica_set_processes(self, rs_name: str) -> List[Dict]:
         """Returns all processes for the specified replica set"""
@@ -38,6 +39,9 @@ class AutomationConfigTester:
 
     def get_automation_agent_password(self):
         return self.automation_config["auth"]["autoPwd"]
+
+    def get_auth_key(self):
+        return self.automation_config["auth"].get("key", "")
 
     def assert_expected_users(self, expected_users: int):
         automation_config_users = 0

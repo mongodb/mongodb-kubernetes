@@ -59,7 +59,7 @@ func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler
 	result, e := reconciler.Reconcile(ctx, requestFromObject(m))
 	assert.NoError(t, e)
 	if shouldRequeue {
-		assert.True(t, result.Requeue || result.RequeueAfter > 0)
+		assert.True(t, result.RequeueAfter > 0)
 	} else {
 		assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
 	}

@@ -419,7 +419,7 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-                      This is an alpha field and requires enabling the
+                      This field depends on the
                       DynamicResourceAllocation feature gate.
 
                       This field is immutable. It can only be set for containers.
@@ -4833,7 +4833,7 @@ spec:
                                     Claims lists the names of resources, defined in spec.resourceClaims,
                                     that are used by this container.
 
-                                    This is an alpha field and requires enabling the
+                                    This field depends on the
                                     DynamicResourceAllocation feature gate.
 
                                     This field is immutable. It can only be set for containers.
@@ -5204,7 +5204,7 @@ spec:
                             Claims lists the names of resources, defined in spec.resourceClaims,
                             that are used by this container.
 
-                            This is an alpha field and requires enabling the
+                            This field depends on the
                             DynamicResourceAllocation feature gate.
 
                             This field is immutable. It can only be set for containers.
@@ -5538,7 +5538,7 @@ spec:
                                   Claims lists the names of resources, defined in spec.resourceClaims,
                                   that are used by this container.
 
-                                  This is an alpha field and requires enabling the
+                                  This field depends on the
                                   DynamicResourceAllocation feature gate.
 
                                   This field is immutable. It can only be set for containers.
@@ -5680,6 +5680,12 @@ spec:
                 - message: clusters[].index is required on every entry when more than
                     one cluster is specified
                   rule: size(self) <= 1 || self.all(c, has(c.index))
+                - message: clusters[].name is immutable for an existing cluster index;
+                    remove and re-add the entry to change it
+                  rule: 'self.all(c, oldSelf.all(o, (has(o.index) ? o.index : 0) !=
+                    (has(c.index) ? c.index : 0) || (has(o.name) ? o.name : '''')
+                    == '''' || (has(o.name) ? o.name : '''') == (has(c.name) ? c.name
+                    : '''')))'
               featureFlags:
                 description: |-
                   FeatureFlags configures mongot feature flags. When a flag is set to true in the CR,
@@ -5805,7 +5811,7 @@ spec:
                               Claims lists the names of resources, defined in spec.resourceClaims,
                               that are used by this container.
 
-                              This is an alpha field and requires enabling the
+                              This field depends on the
                               DynamicResourceAllocation feature gate.
 
                               This field is immutable. It can only be set for containers.

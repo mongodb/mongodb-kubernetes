@@ -193,6 +193,10 @@ spec:
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ .Values.agent.version }}"
             - name: {{ $agentImageRepository }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}"
+            {{- if .Values.agent.customAgentUrl }}
+            - name: MDB_CUSTOM_AGENT_URL
+              value: "{{ .Values.agent.customAgentUrl }}"
+            {{- end }}
             - name: {{ $mongodbImageEnv }}
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
@@ -289,10 +293,6 @@ spec:
               value: "{{ .Values.search.envoyImage }}"
             - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
               value: "{{ .Values.search.metricsForwarderImage }}"
-      {{- if and (hasKey .Values.search "enableMultiCluster") (ne (printf "%v" .Values.search.enableMultiCluster) "false") }}
-            - name: MDB_SEARCH_ENABLE_MULTI_CLUSTER
-              value: "{{ .Values.search.enableMultiCluster }}"
-      {{- end }}
     {{- end }}
     {{- if .Values.voyageai }}
             - name: MDB_VOYAGEAI_REPO_URL

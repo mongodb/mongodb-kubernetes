@@ -73,6 +73,7 @@ const (
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
 	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
+	EnvVarCustomAgentURL   = "MDB_CUSTOM_AGENT_URL"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
@@ -227,10 +228,6 @@ const (
 	SearchVersionEnv         = "MDB_SEARCH_VERSION"
 	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
 	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
-	// SearchEnableMultiClusterEnv lets a single operator reconcile a MongoDBSearch with
-	// more than one spec.clusters entry; defaults to false (block on) when unset, so an
-	// accidentally-set or zero-value bool fails safe to blocking.
-	SearchEnableMultiClusterEnv = "MDB_SEARCH_ENABLE_MULTI_CLUSTER"
 
 	// VoyageAI environment variables
 	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"

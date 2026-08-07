@@ -59,6 +59,9 @@ spec:
             - --source=service
             - --source=ingress
             - --provider=google
+            - --google-zone-visibility=private
+            - --zone-id-filter=${DNS_ZONE}
+            - --domain-filter=${CUSTOM_DOMAIN}
             - --log-format=json # google cloud logs parses severity of the "text" log format incorrectly
             - --interval=10s
             - --policy=upsert-only # would prevent ExternalDNS from deleting any records, omit to enable full synchronization

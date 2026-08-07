@@ -28,6 +28,7 @@ func NewRoot() *cobra.Command {
 
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newReleaseCmd())
+	root.AddCommand(newGitHubCmd())
 
 	return root
 }

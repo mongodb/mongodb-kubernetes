@@ -523,7 +523,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 		// should set port #0 to new one
 		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 		require.NoError(t, err)
-		assert.True(t, res.Requeue)
+		assert.True(t, res.RequeueAfter > 0)
 
 		currentAc := assertAutomationConfigVersion(ctx, t, mgr.Client, mdb, 2)
 		require.Len(t, currentAc.Processes, 4)
@@ -549,7 +549,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 
 		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 		require.NoError(t, err)
-		assert.True(t, res.Requeue)
+		assert.True(t, res.RequeueAfter > 0)
 		currentAc := assertAutomationConfigVersion(ctx, t, mgr.Client, mdb, 3)
 		require.Len(t, currentAc.Processes, 4)
 		assert.Equal(t, newPort, currentAc.Processes[0].GetPort())
@@ -574,7 +574,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 
 		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 		require.NoError(t, err)
-		assert.True(t, res.Requeue)
+		assert.True(t, res.RequeueAfter > 0)
 		currentAc := assertAutomationConfigVersion(ctx, t, mgr.Client, mdb, 4)
 		require.Len(t, currentAc.Processes, 4)
 		assert.Equal(t, newPort, currentAc.Processes[0].GetPort())
@@ -599,7 +599,7 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 
 		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: mdb.Namespace, Name: mdb.Name}})
 		assert.NoError(t, err)
-		assert.True(t, res.Requeue)
+		assert.True(t, res.RequeueAfter > 0)
 		currentAc := assertAutomationConfigVersion(ctx, t, mgr.Client, mdb, 5)
 		require.Len(t, currentAc.Processes, 4)
 		assert.Equal(t, newPort, currentAc.Processes[0].GetPort())
@@ -622,10 +622,9 @@ func TestService_changesMongodPortOnRunningClusterWithArbiters(t *testing.T) {
 		createOrUpdatePodsWithVersions(ctx, t, mgr.GetClient(), namespacedName, []string{"5", "5", "5"})
 		createOrUpdatePodsWithVersions(ctx, t, mgr.GetClient(), arbiterNamespacedName, []string{"5"})
 
-		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: namespacedName})
 		assert.NoError(t, err)
 		// no need to requeue, port change is finished
-		assert.False(t, res.Requeue)
 		// there should not be any changes in config anymore
 		currentAc := assertAutomationConfigVersion(ctx, t, mgr.Client, mdb, 5)
 		require.Len(t, currentAc.Processes, 4)
@@ -988,7 +987,7 @@ func TestReplicaSet_IsScaledDown_OneMember_AtATime_WhenItAlreadyExists(t *testin
 	err = mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb)
 	assert.NoError(t, err)
 
-	assert.Equal(t, true, res.Requeue)
+	assert.True(t, res.RequeueAfter > 0)
 	assert.Equal(t, 4, mdb.Status.CurrentMongoDBMembers)
 
 	makeStatefulSetReady(ctx, t, mgr.GetClient(), mdb)
@@ -999,7 +998,6 @@ func TestReplicaSet_IsScaledDown_OneMember_AtATime_WhenItAlreadyExists(t *testin
 
 	err = mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb)
 	assert.NoError(t, err)
-	assert.Equal(t, false, res.Requeue)
 	assert.Equal(t, 3, mdb.Status.CurrentMongoDBMembers)
 }
 
@@ -1031,7 +1029,7 @@ func TestReplicaSet_IsScaledUp_OneMember_AtATime_WhenItAlreadyExists(t *testing.
 	err = mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb)
 
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue)
+	assert.True(t, res.RequeueAfter > 0)
 	assert.Equal(t, 4, mdb.Status.CurrentMongoDBMembers)
 
 	makeStatefulSetReady(ctx, t, mgr.GetClient(), mdb)
@@ -1045,7 +1043,6 @@ func TestReplicaSet_IsScaledUp_OneMember_AtATime_WhenItAlreadyExists(t *testing.
 	err = mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb)
 	assert.NoError(t, err)
 
-	assert.Equal(t, false, res.Requeue)
 	assert.Equal(t, 5, mdb.Status.CurrentMongoDBMembers)
 }
 
@@ -1413,7 +1410,6 @@ func generatePasswordsForAllUsers(ctx context.Context, mdb mdbv1.MongoDBCommunit
 
 func assertReconciliationSuccessful(t *testing.T, result reconcile.Result, err error) {
 	assert.NoError(t, err)
-	assert.Equal(t, false, result.Requeue)
 	assert.Equal(t, time.Duration(0), result.RequeueAfter)
 }
 

@@ -350,6 +350,29 @@ KUSTOMIZE ?= $(shell which kustomize 2>/dev/null || echo $(shell pwd)/bin/kustom
 kustomize:
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
 
+# envtest: local Kubernetes control plane (etcd + kube-apiserver) used by Go tests
+# (see test/envtest). ENVTEST_K8S_VERSION defaults to the minimum supported Kubernetes
+# version from kubernetes-versions.json, reduced to a minor-version wildcard (e.g.
+# 1.34.3 -> 1.34.x) so that setup-envtest resolves the latest available patch release.
+ENVTEST_K8S_VERSION ?= $(shell jq -r '.kubernetes.min' kubernetes-versions.json | cut -d. -f1-2).x
+SETUP_ENVTEST = $(shell pwd)/bin/setup-envtest
+ENVTEST_ASSETS_DIR = $(shell pwd)/bin/envtest
+# setup-envtest (a downloader for the envtest binaries) is versioned independently of
+# controller-runtime; the module only publishes tags since v0.24.0.
+SETUP_ENVTEST_VERSION ?= v0.24.1
+
+# Download setup-envtest locally if necessary
+setup-envtest:
+	$(call go-install-tool,$(SETUP_ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION))
+
+# Download the envtest binaries (etcd, kube-apiserver, kubectl); idempotent
+envtest-assets: setup-envtest
+	$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_ASSETS_DIR)
+
+# Print the envtest binaries path on stdout (used to set KUBEBUILDER_ASSETS)
+envtest-assets-path: setup-envtest
+	@$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_ASSETS_DIR) -p path
+
 # go-install-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 define go-install-tool
