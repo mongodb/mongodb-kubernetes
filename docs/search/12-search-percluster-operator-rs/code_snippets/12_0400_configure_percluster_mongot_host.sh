@@ -5,15 +5,10 @@
 : "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
 : "${SEARCH_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
 
-echo "=============================================================================="
-echo "WARNING: this step talks to the Ops Manager Automation Config REST API DIRECTLY,"
-echo "bypassing the operator's own reconcile. It deliberately sets mongotHost /"
-echo "searchIndexManagementHostAndPort per mongod PROCESS -- a per-process granularity"
-echo "no MongoDBMultiCluster CR field exposes. Because the operator never learns these"
-echo "values (they never appear in any CR spec), it never overwrites them on a later"
-echo "reconcile. This is expected, deliberate, and the only way to get each cluster's"
-echo "mongod talking to ITS OWN local mongot in this deployment model."
-echo "=============================================================================="
+# This step deliberately bypasses the operator and writes per-PROCESS values into
+# the Ops Manager Automation Config -- see the README's warning on this step for
+# why that is safe and required in this deployment model.
+echo "Pointing each mongod at its own cluster's proxy (per-process, via the OM Automation Config)..."
 
 # Ops Manager connection details come from what ra-06/ra-07 already created on
 # ${K8S_CLUSTER_0_CONTEXT_NAME} -- there are no OPS_MANAGER_API_* env vars in this

@@ -3,11 +3,9 @@
 : "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
 
 echo "Inserting sample documents (text + small vectors) through the replica set..."
-echo "Written ONCE via a replica-set connection string; every cluster's mongot then"
-echo "syncs them independently from its local members."
 
 mdb_script=$(cat <<'EOF'
-use sample_search;
+db = db.getSiblingDB("sample_search");
 db.movies.drop();
 // Tiny deterministic dataset: text fields for $search, an 8-dim vector for
 // $vectorSearch. Vectors are hand-picked so "space adventure"-like docs cluster
@@ -22,14 +20,14 @@ db.movies.insertMany([
   { title: "Fastball",        plot: "An aging baseball pitcher mentors a rookie through a losing season.", genres: ["Sport", "Drama"], vec: [0.4, 0.4, 0.8, 0.1, 0.1, 0.1, 0.0, 0.0] },
   { title: "The Ninth Inning",plot: "A small-town baseball team makes an improbable playoff run.", genres: ["Sport"], vec: [0.35, 0.35, 0.85, 0.05, 0.1, 0.0, 0.1, 0.1] }
 ]);
-db.movies.countDocuments();
+print("documents in sample_search.movies: " + db.movies.countDocuments());
 EOF
 )
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" \
   mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo '${mdb_script}' > /tmp/insert.js
-mongosh --quiet "${MDB_CONNECTION_STRING}" < /tmp/insert.js
+mongosh --quiet "${MDB_CONNECTION_STRING}" --file /tmp/insert.js
 EOF
 )"
 

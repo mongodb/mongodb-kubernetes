@@ -56,7 +56,7 @@ for i in 0 1 2; do
   kubectl exec --context "${ctx}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo 'const expectedMongotHost = "${expected_mongot_host}";' > /tmp/assert.js
 echo '${assert_script}' >> /tmp/assert.js
-mongosh --quiet "${local_uri}" < /tmp/assert.js
+mongosh --quiet "${local_uri}" --file /tmp/assert.js
 EOF
 )"
 done

@@ -3,25 +3,35 @@
 : "${MDB_NAMESPACE:?not set -- source the env files first (see README, Environment section)}"
 
 echo "Creating a \$search index and a \$vectorSearch index..."
-echo "Index creation itself exercises the 12_0400 wiring: the mongod that receives"
-echo "createSearchIndex forwards it to searchIndexManagementHostAndPort -- its own"
-echo "cluster's local proxy -- and the metadata then replicates to every mongot."
 
-# Safe to re-run: createSearchIndex errors on an existing index, so each
-# creation is skipped when an index of that name is already there.
-kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
-  mongosh --quiet "${MDB_CONNECTION_STRING}" \
-    --eval "use sample_search" \
-    --eval 'db.movies.getSearchIndexes().some(ix => ix.name == "default") || db.movies.createSearchIndex("default", { mappings: { dynamic: true } });' \
-    --eval 'db.movies.getSearchIndexes().some(ix => ix.name == "vector_index") || db.movies.createSearchIndex("vector_index", "vectorSearch", { fields: [ { type: "vector", path: "vec", numDimensions: 8, similarity: "cosine" } ] });'
+create_script=$(cat <<'EOF'
+db = db.getSiblingDB("sample_search");
+// Safe to re-run: creation is skipped when an index of that name already exists.
+if (!db.movies.getSearchIndexes().some(ix => ix.name == "default")) {
+  db.movies.createSearchIndex("default", { mappings: { dynamic: true } });
+  print("created $search index 'default'");
+}
+if (!db.movies.getSearchIndexes().some(ix => ix.name == "vector_index")) {
+  db.movies.createSearchIndex("vector_index", "vectorSearch",
+    { fields: [ { type: "vector", path: "vec", numDimensions: 8, similarity: "cosine" } ] });
+  print("created $vectorSearch index 'vector_index'");
+}
+EOF
+)
+
+kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" \
+  mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
+echo '${create_script}' > /tmp/create_indexes.js
+mongosh --quiet "${MDB_CONNECTION_STRING}" --file /tmp/create_indexes.js
+EOF
+)"
 
 echo "Waiting for both indexes to reach READY (index metadata + initial sync on every mongot)..."
 ready=0
 for _ in $(seq 1 30); do
   ready=$(kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
     mongosh --quiet "${MDB_CONNECTION_STRING}" \
-      --eval "use sample_search" \
-      --eval 'db.movies.getSearchIndexes().filter(i => i.status == "READY").length' | tail -1)
+      --eval 'db.getSiblingDB("sample_search").movies.getSearchIndexes().filter(i => i.status == "READY").length' | tail -1)
   if [[ "${ready}" == "2" ]]; then
     break
   fi
@@ -31,8 +41,7 @@ done
 
 kubectl exec --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- \
   mongosh --quiet "${MDB_CONNECTION_STRING}" \
-    --eval "use sample_search" \
-    --eval 'db.movies.getSearchIndexes().map(i => ({name: i.name, type: i.type, status: i.status, queryable: i.queryable}))'
+    --eval 'db.getSiblingDB("sample_search").movies.getSearchIndexes().map(i => ({name: i.name, status: i.status, queryable: i.queryable}))'
 
 if [[ "${ready}" != "2" ]]; then
   echo "error: the indexes did not reach READY within 5 minutes -- stop here."

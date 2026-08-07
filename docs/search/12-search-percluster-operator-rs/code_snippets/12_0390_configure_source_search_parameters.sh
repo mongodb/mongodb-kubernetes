@@ -3,9 +3,6 @@
 : "${RS_RESOURCE_NAME:?not set -- source the env files first (see README, Environment section)}"
 
 echo "Setting the source's search connection parameters (gRPC + TLS + auth)..."
-echo "Without these, mongod's search client completes a TLS handshake to the proxy"
-echo "WITHOUT offering ALPN h2, Envoy falls back to HTTP/1, and every search call"
-echo "hangs ~20s and fails with 'Error connecting to Search Index Management service.'"
 
 # These four parameters are the same for every mongod, so they belong on the CR
 # (the operator persists them across reconciles). Only the per-process

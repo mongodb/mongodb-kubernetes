@@ -4,9 +4,6 @@
 : "${SEARCH_ADMIN_USER_PASSWORD:?not set -- source the env files first (see README, Environment section)}"
 
 echo "Running \$search and \$vectorSearch against a LOCAL member of every cluster..."
-echo "Each query connects directly (directConnection) to that cluster's own replica-set"
-echo "member, so serving it requires that cluster's own mongot -- three green clusters"
-echo "prove every cluster's search deployment independently synced and serves queries."
 
 query_script=$(cat <<'EOF'
 // Runtime proof that 12_0400 landed on THIS process:
@@ -41,7 +38,7 @@ for i in 0 1 2; do
   echo "--- ${ctx} (index ${i}), querying local member ${RS_RESOURCE_NAME}-${i}-0 ---"
   kubectl exec --context "${ctx}" -n "${MDB_NAMESPACE}" mongodb-tools-pod -- /bin/bash -eu -c "$(cat <<EOF
 echo '${query_script}' > /tmp/query.js
-mongosh --quiet "${local_uri}" < /tmp/query.js
+mongosh --quiet "${local_uri}" --file /tmp/query.js
 EOF
 )"
 done
