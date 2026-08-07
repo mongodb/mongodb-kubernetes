@@ -98,6 +98,7 @@ type MongoDBOpsManagerList struct {
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)",message="at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set"
 type MongoDBOpsManagerSpec struct {
 	// The configuration properties passed to Ops Manager/Backup Daemon
 	// +optional

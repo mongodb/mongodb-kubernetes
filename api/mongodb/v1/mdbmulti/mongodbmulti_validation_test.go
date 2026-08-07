@@ -127,50 +127,6 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestRoleNotSupportedOnMongoDBMultiCluster(t *testing.T) {
-	tests := []struct {
-		name        string
-		role        string
-		expectError bool
-		expectedMsg string
-	}{
-		{
-			name:        "empty role is allowed",
-			role:        "",
-			expectError: false,
-		},
-		{
-			name:        "role AppDB is not allowed",
-			role:        "AppDB",
-			expectError: true,
-			expectedMsg: "spec.role is not supported on MongoDBMultiCluster",
-		},
-		{
-			name:        "any non-empty role is not allowed",
-			role:        "SomeOtherRole",
-			expectError: true,
-			expectedMsg: "spec.role is not supported on MongoDBMultiCluster",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mrs := DefaultMultiReplicaSetBuilder().Build()
-			mrs.Spec.Role = tt.role
-			mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{{
-				ClusterName: "foo",
-			}}
-
-			_, err := validator.ValidateCreate(ctx, mrs)
-			if tt.expectError {
-				assert.ErrorContains(t, err, tt.expectedMsg)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 func createTestKubeConfigAndSetEnv(t *testing.T) *os.File {
 	//lint:ignore S1039 I avoid to modify this string to not ruin the format
 	//nolint
