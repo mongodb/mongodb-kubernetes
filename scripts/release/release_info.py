@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import sys
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import (
@@ -171,6 +172,13 @@ def latest_search_version(release_data):
 
 
 if __name__ == "__main__":
+    # This records real production digests (quay.io/mongodb/*) for the GitHub
+    # release assets, so it is meaningless (and would fail) against a
+    # dry-run's redirected registry: skip entirely.
+    if os.environ.get("IS_DRYRUN", "false").lower() == "true":
+        logger.info("IS_DRYRUN is set, skipping add_releaseinfo_to_github_assets")
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(
         description="Create relevant release artifacts information in JSON format.",
         formatter_class=argparse.RawTextHelpFormatter,

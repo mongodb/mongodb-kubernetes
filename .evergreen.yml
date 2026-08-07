@@ -307,7 +307,9 @@ git_tag_aliases:
     task: ".*"
   # New process: publishes the already-promoted images for the given commit
   # without rebuilding or retesting. See .evergreen-release-publish.yml.
-  - git_tag: "^new-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+  # The optional "test-" infix marks a dry run: targets an override registry
+  # instead of the real production one, still gated on the same tasks.
+  - git_tag: "^new-(test-)?(\\d+\\.)?(\\d+\\.)?(\\d+)$"
     variant_tags: [ "release-publish" ]
     task: ".*"
 

@@ -19,6 +19,11 @@ on:
         description: 'Expected release version implied by the given commit (version at release.json .mongodbOperator field). The release fails if they do not match.'
         required: true
         type: string
+      dry_run:
+        description: 'Dry run: publish to an override test registry instead of the real production one, tag "new-test-X.Y.Z" instead of "new-X.Y.Z", draft the GitHub release under "test-X.Y.Z", and never publish it. Requires the Evergreen project var "dryrun_registry_override" to be set.'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   create_tag_and_draft_release:
@@ -65,21 +70,34 @@ jobs:
 
       - name: Generate draft release
         run: |
-          gh release create $VERSION --target $COMMIT_SHA --draft --latest --notes-file release_notes_final.md --title "Release of MCK $VERSION"
+          release_tag="$VERSION"
+          release_title="Release of MCK $VERSION"
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            release_tag="test-$VERSION"
+            release_title="[TEST] Release of MCK $VERSION"
+          fi
+          gh release create "$release_tag" --target "$COMMIT_SHA" --draft --latest --notes-file release_notes_final.md --title "$release_title"
         env:
           VERSION: ${{ steps.verify_release_commit.outputs.version }}
           COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create git tag
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a "new-$VERSION" -m "Release of MCK $VERSION" $COMMIT_SHA
-          git push origin "new-$VERSION"
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            tag="new-test-$VERSION"
+          else
+            tag="new-$VERSION"
+          fi
+          git tag -a "$tag" -m "Release of MCK $VERSION" "$COMMIT_SHA"
+          git push origin "$tag"
         env:
           VERSION: ${{ steps.verify_release_commit.outputs.version }}
           COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   wait_for_evergreen_and_prep_pr:
@@ -124,6 +142,7 @@ jobs:
 
   publish_release:
     name: Publish Release
+    if: ${{ github.event.inputs.dry_run != 'true' }} # Hard stop: never publish on dry runs
     environment: production # Manual gate
     runs-on: ubuntu-latest
     needs: wait_for_evergreen_and_prep_pr
