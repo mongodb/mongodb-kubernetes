@@ -241,32 +241,23 @@ Everything below assumes you're inside that checkout.
 
 ### Environment
 
+One file does the whole sourcing dance -- the prerequisite reference-architecture env files in the right order, the Search version floors after them (they'd be silently overwritten in any other order), then this scenario's own variables:
+
 ```bash
 cd docs/search/12-search-percluster-operator-rs
 
-# Prerequisite env files first, in this order, in the SAME shell (this
-# scenario's env file reads ${K8S_CLUSTER_0_CONTEXT_NAME} and friends at
-# source time). On kind, replace the ra-01 line with your own context
-# exports, e.g.:
+# Not on GKE? Export your own contexts FIRST (env.sh then skips the GKE derivation):
 #   export K8S_CLUSTER_0_CONTEXT_NAME=kind-e2e-cluster-1
 #   export K8S_CLUSTER_1_CONTEXT_NAME=kind-e2e-cluster-2
 #   export K8S_CLUSTER_2_CONTEXT_NAME=kind-e2e-cluster-3
-source ../../../public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
-source ../../../public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
-source ../../../public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
-source ../../../public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh
 
-# Search minimums, AFTER the ra files (they hard-set older defaults --
-# exporting these any earlier gets silently overwritten; see Prerequisites)
-export OPS_MANAGER_VERSION=8.0.25
-export MONGODB_VERSION=8.3.4-ent
-
-# Edit env_variables.sh -- cluster identities, resource names, credentials
+# Edit env_variables.sh first -- cluster identities, resource names, credentials
 vi env_variables.sh
 
-# Then this scenario's own variables
-source env_variables.sh
+source env.sh
 ```
+
+The environment lives in your shell, not on disk: **re-run `source env.sh` in every new terminal** before running any snippet. If you forget, the snippet itself stops on its first line with a `not set -- source the env files first` message instead of failing somewhere confusing.
 
 > **Run the snippets with bash.** The snippet files have no shebang (repo convention). From a bash shell, `./code_snippets/<name>.sh` works; from zsh or any other shell, run `bash ./code_snippets/<name>.sh` -- otherwise the kernel hands the file to `/bin/sh`, which cannot parse bash-isms like process substitution (`syntax error near unexpected token '('`).
 
