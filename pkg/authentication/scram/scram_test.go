@@ -140,7 +140,7 @@ func TestConvertMongoDBUserToAutomationConfigUser(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, user.Username, acUser.Username)
-		assert.Equal(t, user.Database, "admin")
+		assert.Equal(t, user.AuthSource, "admin")
 		assert.Equal(t, len(user.Roles), len(acUser.Roles))
 		assert.NotNil(t, acUser.ScramSha1Creds)
 		assert.NotNil(t, acUser.ScramSha256Creds)

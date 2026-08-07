@@ -240,8 +240,9 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 	}{
 		{
 			MongoDBUser{
-				Name: "mdb-0",
-				DB:   "admin",
+				Name:                     "mdb-0",
+				DB:                       "admin",
+				ConnectionStringDatabase: "admin",
 				Roles: []Role{
 					// roles on testing db for general connectivity
 					{
@@ -268,8 +269,9 @@ func TestGetScramCredentialsSecretName(t *testing.T) {
 		},
 		{
 			MongoDBUser{
-				Name: "mdb-1",
-				DB:   "admin",
+				Name:                     "mdb-1",
+				DB:                       "admin",
+				ConnectionStringDatabase: "admin",
 				Roles: []Role{
 					// roles on testing db for general connectivity
 					{
@@ -310,6 +312,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 			MongoDBUser{
 				Name:                       "mdb-0",
 				DB:                         "admin",
+				ConnectionStringDatabase:   "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-admin-mdb-0",
@@ -318,6 +321,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 			MongoDBUser{
 				Name:                       "?_normalize/_-username/?@with/[]?no]?/:allowed:chars[only?",
 				DB:                         "admin",
+				ConnectionStringDatabase:   "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-admin-normalize-username-with-no-allowed-chars-only",
@@ -326,6 +330,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 			MongoDBUser{
 				Name:                       "AppUser",
 				DB:                         "Administrators",
+				ConnectionStringDatabase:   "Administrators",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
 			"replica-set-administrators-appuser",
@@ -334,6 +339,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 			MongoDBUser{
 				Name:                       "mdb-0",
 				DB:                         "admin",
+				ConnectionStringDatabase:   "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 				ConnectionStringSecretName: "connection-string-secret",
 			},
@@ -343,6 +349,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 			MongoDBUser{
 				Name:                            "mdb-2",
 				DB:                              "admin",
+				ConnectionStringDatabase:        "admin",
 				ScramCredentialsSecretName:      "scram-credential-secret-name-2",
 				ConnectionStringSecretName:      "connection-string-secret-2",
 				ConnectionStringSecretNamespace: "other-namespace",
@@ -358,47 +365,48 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 
 func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	testuser := authtypes.User{
-		Username: "testuser",
-		Database: "admin",
+		Username:                 "testuser",
+		AuthSource:               "admin",
+		ConnectionStringDatabase: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 
 	tests := []args{
 		{
 			additionalConnectionStringConfig: map[string]interface{}{},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=secondary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=secondary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"retryReads": true},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&retryReads=true&readPreference=primary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin&retryReads=true&readPreference=primary",
 		},
 	}
 
@@ -410,62 +418,63 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
-	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false")
-	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false")
+	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", ConnectionStringDatabase: "admin"}
+	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin")
+	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 
 	testuser = authtypes.User{
-		Username: "testuser",
-		Database: "$external",
+		Username:   "testuser",
+		AuthSource: "$external",
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/$external?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&ssl=false&authSource=$external")
 }
 
 func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	testuser := authtypes.User{
-		Username: "testuser",
-		Database: "admin",
+		Username:                 "testuser",
+		AuthSource:               "admin",
+		ConnectionStringDatabase: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
 
 	tests := []args{
 		{
 			additionalConnectionStringConfig: map[string]interface{}{},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=primary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=secondary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin&readPreference=secondary",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"retryReads": true},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&retryReads=true&readPreference=primary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin&retryReads=true&readPreference=primary",
 		},
 	}
 
@@ -477,17 +486,17 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false")
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false")
+	spaceUser := authtypes.User{Username: "rob", AuthSource: "admin", ConnectionStringDatabase: "admin"}
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&authSource=admin")
 
 	testuser = authtypes.User{
-		Username: "testuser",
-		Database: "$external",
+		Username:   "testuser",
+		AuthSource: "$external",
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/$external?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&ssl=false&authSource=$external")
 }
 
 func TestConvertAuthModeToAuthMechanism(t *testing.T) {
@@ -520,9 +529,10 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	mdb := newReplicaSet(3, "mdb", "mongodb")
 	mdb.Spec.Users = []MongoDBUser{
 		{
-			Name:              "my-user",
-			DB:                "admin",
-			PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
+			Name:                     "my-user",
+			DB:                       "admin",
+			ConnectionStringDatabase: "admin",
+			PasswordSecretRef:        rootv1.SecretKeyReference{Name: "my-user-password"},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -534,9 +544,10 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 			AdditionalConnectionStringConfig: rootv1.MapWrapper{},
 		},
 		{
-			Name:              "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
-			DB:                "$external",
-			PasswordSecretRef: rootv1.SecretKeyReference{},
+			Name:                     "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
+			DB:                       "$external",
+			ConnectionStringDatabase: "$external",
+			PasswordSecretRef:        rootv1.SecretKeyReference{},
 			Roles: []Role{
 				{
 					DB:   "admin",
@@ -552,8 +563,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 	authUsers := mdb.GetAuthUsers()
 
 	assert.Equal(t, authtypes.User{
-		Username: "my-user",
-		Database: "admin",
+		Username:                 "my-user",
+		AuthSource:               "admin",
+		ConnectionStringDatabase: "admin",
 		Roles: []authtypes.Role{{
 			Database: "admin",
 			Name:     "readWriteAnyDatabase",
@@ -566,8 +578,9 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		ConnectionStringOptions:         nil,
 	}, authUsers[0])
 	assert.Equal(t, authtypes.User{
-		Username: "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
-		Database: "$external",
+		Username:                 "CN=my-x509-authenticated-user,OU=organizationalunit,O=organization",
+		AuthSource:               "$external",
+		ConnectionStringDatabase: "$external",
 		Roles: []authtypes.Role{{
 			Database: "admin",
 			Name:     "readWriteAnyDatabase",
@@ -579,6 +592,36 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		ConnectionStringSecretNamespace: mdb.Namespace,
 		ConnectionStringOptions:         nil,
 	}, authUsers[1])
+}
+
+func TestMongoDBCommunity_GetAuthUsers_EmptyDBIsNotDefaulted(t *testing.T) {
+	// The admin default lives on the CRD only. Nothing here re-applies it, so an empty
+	// db is passed through untouched rather than coerced.
+	mdb := newReplicaSet(2, "my-rs", "my-namespace")
+	mdb.Spec.Users = []MongoDBUser{{
+		Name:              "my-user",
+		DB:                "",
+		PasswordSecretRef: rootv1.SecretKeyReference{Name: "my-user-password"},
+	}}
+
+	authUsers := mdb.GetAuthUsers()
+
+	require.Len(t, authUsers, 1)
+	assert.Empty(t, authUsers[0].AuthSource)
+	// with no auth database there is no authSource to write
+	assert.NotContains(t, mdb.MongoAuthUserURI(authUsers[0], "pw"), "authSource=")
+}
+
+func TestMongoDBCommunity_MongoAuthUserURI_WithAuthSource(t *testing.T) {
+	mdb := newReplicaSet(2, "my-rs", "my-namespace")
+	testuser := authtypes.User{
+		Username:                 "testuser",
+		ConnectionStringDatabase: "myapp",
+		AuthSource:               "admin",
+	}
+	uri := mdb.MongoAuthUserURI(testuser, "password")
+	assert.Contains(t, uri, "/myapp?")
+	assert.Contains(t, uri, "authSource=admin")
 }
 
 func newReplicaSet(members int, name, namespace string) MongoDBCommunity {

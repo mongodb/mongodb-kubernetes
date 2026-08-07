@@ -18,7 +18,7 @@ import (
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password string, scheme Scheme, connectionParams map[string]string) string
+	BuildConnectionString(userName, password, authSource, connectionStringDatabase string, scheme Scheme, connectionParams map[string]string) string
 }
 
 // Scheme states the connection string format.
@@ -49,6 +49,9 @@ type builder struct {
 	isTLSEnabled        bool
 
 	hostnames []string
+	// connectionStringDatabase is the database placed in the URI path
+	connectionStringDatabase string
+	authSource               string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -124,6 +127,16 @@ func (b *builder) SetHostnames(hostnames []string) *builder {
 	return b
 }
 
+func (b *builder) SetConnectionStringDatabase(connectionStringDatabase string) *builder {
+	b.connectionStringDatabase = connectionStringDatabase
+	return b
+}
+
+func (b *builder) SetAuthSource(authSource string) *builder {
+	b.authSource = authSource
+	return b
+}
+
 func (b *builder) SetScheme(scheme Scheme) *builder {
 	b.scheme = scheme
 	return b
@@ -167,16 +180,17 @@ func (b *builder) Build() string {
 	if b.isReplicaSet {
 		connectionParams["replicaSet"] = b.name
 	}
+
 	if b.isTLSEnabled {
 		connectionParams["ssl"] = "true"
 	}
 
-	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)
-	if authSource != "" {
-		connectionParams["authSource"] = authSource
+	// callers supply the auth source, the CRD defaults it to admin
+	if b.authSource != "" {
+		connectionParams["authSource"] = b.authSource
 	}
-	if authMechanism != "" {
-		connectionParams["authMechanism"] = authMechanism
+	if mech := resolveAuthMechanism(b.authenticationModes, b.version); mech != "" {
+		connectionParams["authMechanism"] = mech
 	}
 
 	// Merge received (b.connectionParams) on top of local (connectionParams)
@@ -189,7 +203,7 @@ func (b *builder) Build() string {
 	for k := range connectionParams {
 		keys = append(keys, k)
 	}
-	uri += "/?"
+	uri += "/" + URIPathDatabase(b.connectionStringDatabase) + "?"
 
 	// sorting parameters to make a url stable
 	sort.Strings(keys)
@@ -199,6 +213,15 @@ func (b *builder) Build() string {
 	return strings.TrimSuffix(uri, "&")
 }
 
+// URIPathDatabase returns the database to use in the URI path component.
+// $external is an auth-only pseudo-database and must not appear in the path.
+func URIPathDatabase(db string) string {
+	if db == "$external" {
+		return ""
+	}
+	return db
+}
+
 func Builder() *builder {
 	return &builder{
 		port:             util.MongoDbDefaultPort,
@@ -206,27 +229,21 @@ func Builder() *builder {
 	}
 }
 
-// authSourceAndMechanism returns AuthSource and AuthMechanism.
-func authSourceAndMechanism(authenticationModes []string, version string) (string, string) {
-	var authSource string
-	var authMechanism string
+// resolveAuthMechanism returns the authMechanism for the URI.
+// SCRAM-SHA-1 mode takes precedence over version-based SCRAM negotiation.
+func resolveAuthMechanism(authenticationModes []string, version string) string {
+	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
+		return "SCRAM-SHA-1"
+	}
 	if stringutil.Contains(authenticationModes, util.SCRAM) {
-		authSource = util.DefaultUserDatabase
-
 		comparison, err := util.CompareVersions(version, util.MinimumScramSha256MdbVersion)
 		if err != nil {
-			return "", ""
+			return ""
 		}
 		if comparison < 0 {
-			authMechanism = "SCRAM-SHA-1"
-		} else {
-			authMechanism = "SCRAM-SHA-256"
+			return "SCRAM-SHA-1"
 		}
+		return "SCRAM-SHA-256"
 	}
-
-	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
-		authMechanism = "SCRAM-SHA-1"
-	}
-
-	return authSource, authMechanism
+	return ""
 }

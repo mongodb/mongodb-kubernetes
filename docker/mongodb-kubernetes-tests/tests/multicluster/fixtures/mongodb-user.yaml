@@ -8,6 +8,7 @@ spec:
     key: password
   username: "mms-user-1"
   db: "admin"
+  connectionStringDatabase: "admin"
   mongodbResourceRef:
     name: "multi-replica-set"
     namespace: <namespace>

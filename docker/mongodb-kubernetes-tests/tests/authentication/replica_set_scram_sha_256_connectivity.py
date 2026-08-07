@@ -36,6 +36,11 @@ PLUS_PASSWORD_USER_NAME = "mms-user-4"
 PLUS_PASSWORD_SECRET_NAME = "mms-user-4-password"
 PLUS_PASSWORD_USER_PASSWORD = "my:p@ss/w?rd# %[+]!$&'()*,;=~-._"
 
+DIFFERENT_DATABASE_USER_NAME = "mms-user-5"
+DIFFERENT_DATABASE_SECRET_NAME = "mms-user-5-password"
+DIFFERENT_DATABASE_USER_PASSWORD = "my-password-5"
+DIFFERENT_CONNECTION_STRING_DATABASE = "myapp"
+
 
 def create_password_secret(namespace: str) -> str:
     create_or_update_secret(
@@ -93,6 +98,13 @@ def space_password_standard_secret(replica_set: MongoDB):
 @fixture(scope="function")
 def plus_password_standard_secret(replica_set: MongoDB):
     secret_name = "{}-{}-{}".format(replica_set.name, PLUS_PASSWORD_USER_NAME, USER_DATABASE)
+    return read_secret(replica_set.namespace, secret_name)
+
+
+@fixture(scope="function")
+def different_database_standard_secret(replica_set: MongoDB):
+    # the connection string secret name is keyed by spec.db, not connectionStringDatabase
+    secret_name = "{}-{}-{}".format(replica_set.name, DIFFERENT_DATABASE_USER_NAME, USER_DATABASE)
     return read_secret(replica_set.namespace, secret_name)
 
 
@@ -251,6 +263,7 @@ def test_create_user_with_space_in_password(replica_set: MongoDB, namespace: str
     resource["spec"] = {
         "username": SPACE_PASSWORD_USER_NAME,
         "db": USER_DATABASE,
+        "connectionStringDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": SPACE_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -298,6 +311,7 @@ def test_create_user_with_plus_in_password(replica_set: MongoDB, namespace: str)
     resource["spec"] = {
         "username": PLUS_PASSWORD_USER_NAME,
         "db": USER_DATABASE,
+        "connectionStringDatabase": USER_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": PLUS_PASSWORD_SECRET_NAME, "key": "password"},
         "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
@@ -340,6 +354,60 @@ def test_plus_password_credentials_can_connect_to_db_with_srv(
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_create_user_with_different_connection_string_database(replica_set: MongoDB, namespace: str):
+    """spec.db and spec.connectionStringDatabase are independent: this user authenticates
+    against USER_DATABASE ("admin") but has a different connectionStringDatabase, which must
+    show up in the connection string URI path while authSource stays "admin" in the query."""
+    create_or_update_secret(namespace, DIFFERENT_DATABASE_SECRET_NAME, {"password": DIFFERENT_DATABASE_USER_PASSWORD})
+    resource = MongoDBUser(name=DIFFERENT_DATABASE_USER_NAME, namespace=namespace)
+    resource["spec"] = {
+        "username": DIFFERENT_DATABASE_USER_NAME,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": DIFFERENT_CONNECTION_STRING_DATABASE,
+        "mongodbResourceRef": {"name": replica_set.name},
+        "passwordSecretKeyRef": {"name": DIFFERENT_DATABASE_SECRET_NAME, "key": "password"},
+        # readWrite on the connectionStringDatabase so the connectivity checks below can
+        # write to the database in the URI path, not just to admin
+        "roles": [{"db": DIFFERENT_CONNECTION_STRING_DATABASE, "name": "readWrite"}],
+    }
+    try_load(resource)
+    resource.update()
+    resource.assert_reaches_phase(Phase.Updated, timeout=150)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_connection_string_database_credentials_secret_is_created(
+    different_database_standard_secret: Dict[str, str],
+):
+    assert "connectionString.standard" in different_database_standard_secret
+    assert "connectionString.standardSrv" in different_database_standard_secret
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        conn = different_database_standard_secret[key]
+        # authSource must reflect spec.db, not connectionStringDatabase
+        assert f"authSource={USER_DATABASE}" in conn
+        # the URI path segment must reflect connectionStringDatabase, not spec.db
+        assert f"/{DIFFERENT_CONNECTION_STRING_DATABASE}?" in conn
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_connection_string_database_credentials_can_connect_to_db(
+    replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
+):
+    replica_set.assert_connectivity_from_connection_string(
+        different_database_standard_secret["connectionString.standard"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_connection_string_database_credentials_can_connect_to_db_with_srv(
+    replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
+):
+    replica_set.assert_connectivity_from_connection_string(
+        different_database_standard_secret["connectionString.standardSrv"], tls=False
+    )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_update_user_with_connection_string_secret(scram_user: MongoDBUser):
     scram_user.load()
     scram_user["spec"]["connectionStringSecretName"] = CONNECTION_STRING_SECRET_NAME
@@ -374,7 +442,7 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
             tester.assert_has_user(USER_NAME)
             tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
             tester.assert_authentication_enabled()
-            tester.assert_expected_users(4)
+            tester.assert_expected_users(5)
             tester.assert_authoritative_set(False)
             return True
         except AssertionError:
@@ -396,7 +464,7 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         # we have explicitly set authentication to be disabled
         try:
             tester.assert_has_user(USER_NAME)
-            tester.assert_authentication_disabled(remaining_users=4)
+            tester.assert_authentication_disabled(remaining_users=5)
             return True
         except AssertionError:
             return False

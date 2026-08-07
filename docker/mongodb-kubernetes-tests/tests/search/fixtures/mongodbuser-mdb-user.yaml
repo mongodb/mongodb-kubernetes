@@ -6,6 +6,7 @@ metadata:
 spec:
   username: mdb-user
   db: admin
+  connectionStringDatabase: admin
   mongodbResourceRef:
     name: mdb-rs
   passwordSecretKeyRef:

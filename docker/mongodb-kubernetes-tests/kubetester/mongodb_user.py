@@ -98,16 +98,24 @@ class Role:
 def generic_user(
     namespace: str,
     username: str,
-    db: str = "admin",
+    db: Optional[str] = None,
+    connection_string_database: Optional[str] = None,
     password: Optional[str] = None,
     mongodb_resource: Optional[MongoDB] = None,
 ) -> MongoDBUser:
-    """Returns a generic User with a username and a pseudo-random k8s name."""
+    """Returns a generic User with a username and a pseudo-random k8s name.
+
+    db and connection_string_database are left unset unless explicitly provided;
+    the operator applies its own defaults for these fields.
+    """
     user = MongoDBUser(name=random_k8s_name("user-"), namespace=namespace)
     user["spec"] = {
         "username": username,
-        "db": db,
     }
+    if db is not None:
+        user["spec"]["db"] = db
+    if connection_string_database is not None:
+        user["spec"]["connectionStringDatabase"] = connection_string_database
 
     if mongodb_resource is not None:
         user["spec"]["mongodbResourceRef"] = {"name": mongodb_resource.name}

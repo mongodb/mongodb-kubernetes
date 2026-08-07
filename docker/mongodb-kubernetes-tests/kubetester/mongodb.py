@@ -237,8 +237,13 @@ class MongoDB(CustomObject, MongoDBCommon):
     def assert_connectivity_from_connection_string(self, cnx_string: str, tls: bool, ca_path: Optional[str] = None):
         """
         Tries to connect to a database using a connection string only.
+
+        The authenticated action runs against the database in the URI path, so the path
+        is checked for being usable and not just for being spelled correctly. Connection
+        strings with an empty path fall back to admin.
         """
-        return MongoTester(cnx_string, tls, ca_path).assert_connectivity()
+        db = urllib.parse.urlsplit(cnx_string).path.lstrip("/") or "admin"
+        return MongoTester(cnx_string, tls, ca_path).assert_connectivity(db=db)
 
     def __repr__(self):
         # FIX: this should be __unicode__
@@ -332,8 +337,19 @@ class MongoDB(CustomObject, MongoDBCommon):
     def read_configmap(self) -> Dict[str, str]:
         return KubernetesTester.read_configmap(self.namespace, self.config_map_name)
 
-    def mongo_uri(self, user_name: Optional[str] = None, password: Optional[str] = None) -> str:
-        """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'"""
+    def mongo_uri(
+        self,
+        user_name: Optional[str] = None,
+        password: Optional[str] = None,
+        auth_source: str = "",
+        connection_string_database: str = "",
+    ) -> str:
+        """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'.
+
+        auth_source defaults to "admin" to mirror the operator's own default for
+        spec.db. connection_string_database is not defaulted: the operator leaves the URI
+        path empty when spec.connectionStringDatabase is unset.
+        """
         proto = "mongodb://"
         auth = ""
         params = {"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
@@ -343,7 +359,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 urllib.parse.quote(user_name, safe=""),
                 urllib.parse.quote(password, safe=""),
             )
-            params["authSource"] = "admin"
+            params["authSource"] = auth_source or "admin"
             if self.get_version().startswith("3.6"):
                 params["authMechanism"] = "SCRAM-SHA-1"
             else:
@@ -359,7 +375,7 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)
-        return proto + auth + hosts + "/?" + joined_params
+        return proto + auth + hosts + "/" + connection_string_database + "?" + joined_params
 
     def get_members(self) -> int:
         return self["spec"]["members"]

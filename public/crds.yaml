@@ -6345,9 +6345,18 @@ spec:
             type: object
           spec:
             properties:
+              connectionStringDatabase:
+                description: |-
+                  ConnectionStringDatabase is the database placed in the connection string URI path.
+                  Leaves the URI path empty when unset. Ignored when Database is "$external",
+                  since it is an auth only pseudo database and must not appear in the URI path.
+                type: string
               connectionStringSecretName:
                 type: string
               db:
+                default: admin
+                description: Database is the authentication database for the user.
+                  Defaults to "admin".
                 type: string
               mongodbResourceRef:
                 properties:
@@ -6386,7 +6395,6 @@ spec:
               username:
                 type: string
             required:
-            - db
             - username
             type: object
           status:
@@ -9109,6 +9117,12 @@ spec:
                       nullable: true
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
+                    connectionStringDatabase:
+                      description: |-
+                        ConnectionStringDatabase is the database placed in the connection string URI path.
+                        Leaves the URI path empty when unset. Ignored when DB is "$external",
+                        since it is an auth only pseudo database and must not appear in the URI path.
+                      type: string
                     connectionStringSecretAnnotations:
                       additionalProperties:
                         type: string
@@ -9128,8 +9142,8 @@ spec:
                       type: string
                     db:
                       default: admin
-                      description: DB is the database the user is stored in. Defaults
-                        to "admin"
+                      description: DB is the authentication database for the user.
+                        Defaults to "admin".
                       type: string
                     name:
                       description: Name is the username of the user

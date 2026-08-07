@@ -102,7 +102,9 @@ func TestReplicaSetArbiter(t *testing.T) {
 						t.Fatal(err)
 					}
 					scramUser := mdb.GetAuthUsers()[0]
-					expectedCnxStr := fmt.Sprintf("mongodb+srv://%s-user:%s@%s-svc.%s.svc.cluster.local/admin?replicaSet=%s&ssl=false", mdb.Name, pwd, mdb.Name, mdb.Namespace, mdb.Name)
+					// the URI path stays empty because connectionStringDatabase is unset, while
+					// db still drives the authSource parameter
+					expectedCnxStr := fmt.Sprintf("mongodb+srv://%s-user:%s@%s-svc.%s.svc.cluster.local/?replicaSet=%s&ssl=false&authSource=admin", mdb.Name, pwd, mdb.Name, mdb.Namespace, mdb.Name)
 					cnxStrSrv := mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser)
 					assert.Equal(t, expectedCnxStr, cnxStrSrv)
 					tester.ConnectivitySucceeds(mongotester.WithURI(cnxStrSrv))
