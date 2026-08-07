@@ -184,8 +184,9 @@ func (b *builder) Build() string {
 		connectionParams["ssl"] = "true"
 	}
 
-	if src := resolveAuthSource(b.authenticationModes, b.authSource); src != "" {
-		connectionParams["authSource"] = src
+	// callers supply the auth source, the CRD defaults it to admin
+	if b.authSource != "" {
+		connectionParams["authSource"] = b.authSource
 	}
 	if mech := resolveAuthMechanism(b.authenticationModes, b.version); mech != "" {
 		connectionParams["authMechanism"] = mech
@@ -225,18 +226,6 @@ func Builder() *builder {
 		port:             util.MongoDbDefaultPort,
 		connectionParams: map[string]string{"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"},
 	}
-}
-
-// resolveAuthSource returns the authSource for the URI. An explicit authSource takes precedence;
-// when empty, any SCRAM variant falls back to the default user database.
-func resolveAuthSource(authenticationModes []string, authSource string) string {
-	if authSource != "" {
-		return authSource
-	}
-	if stringutil.Contains(authenticationModes, util.SCRAM) || stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
-		return util.DefaultUserDatabase
-	}
-	return ""
 }
 
 // resolveAuthMechanism returns the authMechanism for the URI.
