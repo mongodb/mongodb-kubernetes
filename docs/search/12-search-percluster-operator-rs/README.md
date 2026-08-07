@@ -162,16 +162,26 @@ In this model, everything that crosses cluster boundaries is your job -- the per
 
 Two things are deliberately NOT on your plate: the mongot StatefulSets and Envoy Deployments (each cluster's operator creates them once the CR and secrets are present -- that's its whole job), and cross-cluster status aggregation (it doesn't exist in this model; each cluster's `MongoDBSearch.status` is independent by design, not a gap).
 
-## Prerequisites
+## Getting Started
 
-This scenario **composes with**, and does not duplicate, the existing multi-cluster reference architecture:
+### Getting the Files
 
-- [`public/architectures/setup-multi-cluster/ra-01-setup-gke`](../../../public/architectures/setup-multi-cluster/ra-01-setup-gke) through `ra-05-setup-cert-manager` -- 3 Kubernetes clusters, Istio east-west connectivity, cert-manager + a shared CA on `K8S_CLUSTER_0_CONTEXT_NAME`.
-- [`ra-02-setup-operator`](../../../public/architectures/setup-multi-cluster/ra-02-setup-operator) -- the central hub-and-spoke operator, `kubectl mongodb multicluster setup`, and the `MDB_NAMESPACE`/`OM_NAMESPACE` namespaces (with pre-created ServiceAccounts/Roles) in every member cluster.
-- [`public/architectures/ra-06-ops-manager-multi-cluster`](../../../public/architectures/ra-06-ops-manager-multi-cluster) -- Ops Manager, and the `mdb-org-owner-credentials` Secret / `mdb-org-project-config` ConfigMap this scenario reuses to talk to the OM API. Any reachable OM 8.0.25+ satisfies this -- ra-06 is the lab recipe, and its multi-cluster shape is optional here (see Build Order stage 4).
-- [`public/architectures/ra-07-mongodb-replicaset-multi-cluster`](../../../public/architectures/ra-07-mongodb-replicaset-multi-cluster) -- the `MongoDBMultiCluster` replica set (`RS_RESOURCE_NAME`) this scenario uses as the Search source.
+This guide lives in the public [mongodb-kubernetes](https://github.com/mongodb/mongodb-kubernetes) repository, and its snippets compose with files elsewhere in the repo (the `public/architectures` reference suites and the snippet runner). A sparse checkout fetches exactly what you need.
 
-The `ra-01` recipe targets GKE, but nothing in this scenario is GKE-specific: any three Kubernetes clusters with cross-cluster pod connectivity and a service mesh that resolves the other clusters' Services by name (the prerequisite `ra-04` verifies) will do -- run the same ra-02..ra-07 steps against them.
+To make the runbook match the operator version you're deploying (recommended -- `master` moves with operator development), add `--branch <tag>` to the clone below, using that version's release tag from the [releases page](https://github.com/mongodb/mongodb-kubernetes/releases), e.g. `--branch 1.10.0`.
+
+```bash
+git clone --filter=blob:none --sparse --depth 1 \
+  https://github.com/mongodb/mongodb-kubernetes.git
+cd mongodb-kubernetes
+git sparse-checkout set \
+  docs/search/12-search-percluster-operator-rs \
+  docs/search/13-search-percluster-operator-sharded \
+  public/architectures \
+  scripts/code_snippets
+```
+
+Everything below assumes you're inside that checkout.
 
 ### Tools
 
@@ -200,50 +210,6 @@ helm show values mongodb/mongodb-kubernetes | grep -A2 'agent:'
 
 Two more version gates on the same path: Ops Manager only deploys server versions present in its **version manifest** (refresh it if your target version postdates the OM install), and a pod stuck in `ImagePullBackOff` on a documented tag means the tag rotted -- bump to the closest available tag at or above the floor, not blindly to latest.
 
-### Build Order
-
-The ra-* suites were written as standalone recipes; this scenario needs them **interleaved** in a specific order, with two decisions made up front. Follow this sequence instead of each suite's own numbering -- each stage ends with a checkpoint that tells you it's safe to continue:
-
-1. **Clusters and mesh** -- ra-01 on GKE, or your own three clusters. *Checkpoint:* `ra-04` passes, including its cross-cluster check that a Service existing in only ONE cluster resolves by name from the others. If your substrate can't provide that (local kind can't), read the [substrate appendix](#appendix-running-on-a-constrained-substrate-kind-local-docker) before continuing -- two later stages will need its workarounds.
-2. **Namespaces, mesh labels, then the central operator** -- start ra-02 and stop after its namespace-creation snippets; label `MDB_NAMESPACE` and `OM_NAMESPACE` with `istio-injection=enabled` in every cluster (ra-03's labeling step) BEFORE any workload pod exists, because pods only get their sidecar at creation time; then finish ra-02 (multicluster setup + operator install). Finally, apply the agent floor from the table above: `helm upgrade --reuse-values --set agent.version=<current agent>` on the release. Getting this wrong surfaces confusingly late -- in stage 5, when mongods refuse to run your MongoDB version. *Checkpoint:* the operator Deployment is 1/1 and `helm get values` shows your `agent.version`.
-3. **cert-manager and the shared CA (ra-05)**, cluster 0 only. *Checkpoint:* `root-secret` and `my-ca-issuer` exist in the `cert-manager` namespace on cluster 0.
-4. **Ops Manager (ra-06)** -- this scenario needs *an* Ops Manager (8.0.25+), not a resilient multi-cluster one. The OM application is stateless: any instance serves any request as long as it reads the same Application Database, so one reachable OM is enough, and resilience belongs in the AppDB replica set, not in extra OM instances. Three shapes, pick one:
-   - **The customer already runs OM** (the common field reality): skip ra-06 entirely -- all this scenario needs is an org API key Secret and a project ConfigMap, i.e. what `ra-06_0610` creates.
-   - **Deploy with ra-06, single-cluster** (sufficient here): run `ra-06_0250` through `0312`, then `0610` -- skip the add-second-cluster steps (`0320`-`0322`); they buy OM-app HA this scenario never exercises, and the reference architectures reserve multi-cluster OM for control-plane DR (where it also expects S3 backup).
-   - **Full ra-06** if you specifically want to exercise the resilient-OM reference architecture too.
-   
-   Source ra-06's `env_variables.sh` and only THEN `export OPS_MANAGER_VERSION=<your version>` (the ra env files hard-set their own defaults, so exporting earlier gets silently overwritten). **Decide about backup now:** ra-07's replica set enables OM backup by default, so either run ra-06's backup steps (`0400`-`0522`, MinIO + S3 stores) or plan to disable backup on the CR in stage 5. Expect 20-40 minutes. *Checkpoint:* `om` reports `Running`, and `mdb-org-owner-credentials` / `mdb-org-project-config` exist in `MDB_NAMESPACE` on cluster 0 -- scenario 12 reads its OM access from those.
-5. **The source replica set (ra-07)** -- source its env file, THEN `export MONGODB_VERSION=<your version>` (same overwrite trap as stage 4). If you skipped OM backup: right after the CR is applied, `kubectl patch mdbmc <name> -n ${MDB_NAMESPACE} --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'` -- otherwise the CR parks in `Failed` ("Failed to configure backup for MongoDBMultiCluster RS") even though every member is healthy. Search does not use backup. ra-07's CR also carries none of the search-specific mongod parameters -- that's expected; scenario 12's Step 12 adds them (the sharded scenario 13 sets them inline on its own source CR instead). *Checkpoint:* the `MongoDBMultiCluster` reports `Running`.
-
-After stage 5 you are where scenario 12's Step 1 expects you to be.
-
-> **The TLS rule of this model, in one line: certificates are issued once, on cluster 0; only the resulting Secrets travel.**
->
-> - ra-05 installs cert-manager and the shared CA (`root-secret` / `my-ca-issuer`) on `K8S_CLUSTER_0_CONTEXT_NAME` only, and this scenario keeps it that way -- clusters 1 and 2 never run cert-manager.
-> - Every Search certificate (the mongot cert and each per-cluster LB cert pair) is issued there too, then the Kubernetes **Secret** is copied to whichever cluster needs it. (The operator's own end-to-end tests do exactly the same -- certificates are never issued per cluster.)
-> - Why it matters: this model has **no cross-cluster secret replication**. A Secret a cluster's mongot or Envoy mounts must physically exist in that cluster, or its operator stays `Pending`. Copying Secrets is the single biggest thing to get right here.
-
-## Getting Started
-
-### Getting the Files
-
-This guide lives in the public [mongodb-kubernetes](https://github.com/mongodb/mongodb-kubernetes) repository, and its snippets compose with files elsewhere in the repo (the `public/architectures` reference suites and the snippet runner). A sparse checkout fetches exactly what you need.
-
-To make the runbook match the operator version you're deploying (recommended -- `master` moves with operator development), add `--branch <tag>` to the clone below, using that version's release tag from the [releases page](https://github.com/mongodb/mongodb-kubernetes/releases), e.g. `--branch 1.10.0`.
-
-```bash
-git clone --filter=blob:none --sparse --depth 1 \
-  https://github.com/mongodb/mongodb-kubernetes.git
-cd mongodb-kubernetes
-git sparse-checkout set \
-  docs/search/12-search-percluster-operator-rs \
-  docs/search/13-search-percluster-operator-sharded \
-  public/architectures \
-  scripts/code_snippets
-```
-
-Everything below assumes you're inside that checkout.
-
 ### Environment
 
 One file does the whole sourcing dance -- the prerequisite reference-architecture env files in the right order, the Search version floors after them (they'd be silently overwritten in any other order), then this scenario's own variables:
@@ -266,15 +232,114 @@ The environment lives in your shell, not on disk: **re-run `source env.sh` in ev
 
 > **Run the snippets with bash.** The snippet files have no shebang (repo convention). From a bash shell, `./code_snippets/<name>.sh` works; from zsh or any other shell, run `bash ./code_snippets/<name>.sh` -- otherwise the kernel hands the file to `/bin/sh`, which cannot parse bash-isms like process substitution (`syntax error near unexpected token '('`).
 
-To run all steps automatically:
+## Part 1: Prerequisites
+
+This scenario **composes with**, and does not duplicate, the existing multi-cluster reference-architecture (`ra-*`) suites. They were written as standalone recipes, so this part sequences their scripts the way this scenario needs them -- run each stage from this directory, in a shell where you've sourced `env.sh`, and check the checkpoint before moving on. (Skip any stage your environment already satisfies -- the checkpoint tells you.)
+
+The `ra-01` recipe targets GKE, but nothing here is GKE-specific: any three Kubernetes clusters with cross-cluster pod connectivity and a service mesh that resolves the other clusters' Services by name will do.
+
+### Stage 1: Clusters and Mesh Connectivity
+
+Bring three clusters ([`ra-01`](../../../public/architectures/setup-multi-cluster/ra-01-setup-gke) on GKE, or your own) with Istio east-west connectivity ([`ra-03`](../../../public/architectures/setup-multi-cluster/ra-03-setup-istio)), then prove it:
+
+```bash
+bash ../../../public/architectures/setup-multi-cluster/ra-04-verify-connectivity/test.sh
+```
+
+*Checkpoint:* `ra-04` passes, including its cross-cluster check that a Service existing in only ONE cluster resolves by name from the others. If your substrate can't provide that (local kind can't), read the [substrate appendix](#appendix-running-on-a-constrained-substrate-kind-local-docker) before continuing -- two later stages will need its workarounds.
+
+### Stage 2: Namespaces, Mesh Labels, then the Central Operator
+
+Order matters here: pods only get their Istio sidecar at creation time, so the namespaces must be labeled **before** the operator (the first workload) exists. That's why ra-03's labeling step runs in the middle of ra-02's sequence:
+
+```bash
+ra02=../../../public/architectures/setup-multi-cluster/ra-02-setup-operator/code_snippets
+bash ${ra02}/ra-02_0045_create_namespaces.sh
+bash ${ra02}/ra-02_0046_create_image_pull_secrets.sh
+bash ../../../public/architectures/setup-multi-cluster/ra-03-setup-istio/code_snippets/ra-03_0050_label_namespaces.sh
+bash ${ra02}/ra-02_0200_kubectl_mongodb_configure_multi_cluster.sh
+bash ${ra02}/ra-02_0205_helm_configure_repo.sh
+bash ${ra02}/ra-02_0210_helm_install_operator.sh
+bash ${ra02}/ra-02_0211_check_operator_deployment.sh
+
+# Apply the automation-agent floor (see Versions above) -- skipping this
+# surfaces confusingly late, in stage 5, as mongods refusing your MongoDB version:
+helm upgrade --reuse-values --kube-context "${K8S_CLUSTER_0_CONTEXT_NAME}" \
+  -n "${OPERATOR_NAMESPACE}" --set agent.version=<current agent> \
+  mongodb-kubernetes-operator-multi-cluster "${OPERATOR_HELM_CHART}"
+```
+
+*Checkpoint:* the operator Deployment is 1/1 and `helm get values` shows your `agent.version`.
+
+### Stage 3: cert-manager and the Shared CA
+
+Cluster 0 only -- see the TLS note below for why that's the only place certificates are ever issued.
+
+```bash
+bash ../../../public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
+```
+
+*Checkpoint:* `root-secret` and `my-ca-issuer` exist in the `cert-manager` namespace on cluster 0.
+
+### Stage 4: Ops Manager
+
+This scenario needs *an* Ops Manager (8.0.25+), not a resilient multi-cluster one: the OM application is stateless behind its Application Database, so one reachable instance is enough, and resilience belongs in the AppDB replica set. Pick one of three shapes:
+
+- **The customer already runs OM** (the common field reality): skip the deploy -- all this scenario needs is the org API key Secret and project ConfigMap, i.e. what `ra-06_0610` (last line below) creates.
+- **Deploy single-cluster with ra-06** (the sufficient default, below).
+- **Full [`ra-06`](../../../public/architectures/ra-06-ops-manager-multi-cluster)** if you specifically want to exercise the resilient-OM reference architecture too (its add-second-cluster steps buy OM-app HA this scenario never uses).
+
+```bash
+ra06=../../../public/architectures/ra-06-ops-manager-multi-cluster/code_snippets
+bash ${ra06}/ra-06_0250_generate_certs.sh
+bash ${ra06}/ra-06_0300_ops_manager_create_admin_credentials.sh
+bash ${ra06}/ra-06_0310_ops_manager_deploy_on_single_member_cluster.sh
+bash ${ra06}/ra-06_0311_ops_manager_wait_for_pending_state.sh
+bash ${ra06}/ra-06_0312_ops_manager_wait_for_running_state.sh
+bash ${ra06}/ra-06_0610_create_mdb_org_and_get_credentials.sh
+```
+
+Expect 20-40 minutes, dominated by the OM app start. (`env.sh` already pinned `OPS_MANAGER_VERSION` for you; edit it there if you need a different version.) This skips ra-06's backup steps (`0400`-`0522`, MinIO + S3 stores) -- Search doesn't use backup, and stage 5 disables it on the source instead. Run them only if you want OM backup for other reasons.
+
+*Checkpoint:* the `MongoDBOpsManager` reports `Running`, and `mdb-org-owner-credentials` / `mdb-org-project-config` exist in `MDB_NAMESPACE` on cluster 0 -- this scenario reads its OM access from those.
+
+### Stage 5: The Source Replica Set
+
+```bash
+ra07=../../../public/architectures/ra-07-mongodb-replicaset-multi-cluster/code_snippets
+bash ${ra07}/ra-07_1050_generate_certs.sh
+bash ${ra07}/ra-07_1100_mongodb_replicaset_multi_cluster.sh
+
+# The suite's CR enables OM backup, which stage 4 skipped -- without this the CR
+# parks in Failed ("Failed to configure backup for MongoDBMultiCluster RS")
+# even though every member is healthy. Search does not use backup.
+kubectl patch mdbmc "${RS_RESOURCE_NAME}" -n "${MDB_NAMESPACE}" \
+  --context "${K8S_CLUSTER_0_CONTEXT_NAME}" \
+  --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'
+
+bash ${ra07}/ra-07_1110_mongodb_replicaset_multi_cluster_wait_for_running_state.sh
+bash ${ra07}/ra-07_1200_create_mongodb_user.sh
+```
+
+(`env.sh` already pinned `MONGODB_VERSION`. ra-07's final `ra-07_1210` mongosh-over-LoadBalancer check is optional and needs LB IPs reachable from your workstation -- skip it on a constrained substrate.) ra-07's CR carries none of the search-specific mongod parameters -- that's expected; Part 2's Step 12 adds them.
+
+*Checkpoint:* the `MongoDBMultiCluster` reports `Running`. You are now where Part 2's Step 1 expects you to be.
+
+> **The TLS rule of this model, in one line: certificates are issued once, on cluster 0; only the resulting Secrets travel.**
+>
+> - ra-05 installs cert-manager and the shared CA (`root-secret` / `my-ca-issuer`) on `K8S_CLUSTER_0_CONTEXT_NAME` only, and this scenario keeps it that way -- clusters 1 and 2 never run cert-manager.
+> - Every Search certificate (the mongot cert and each per-cluster LB cert pair) is issued there too, then the Kubernetes **Secret** is copied to whichever cluster needs it. (The operator's own end-to-end tests do exactly the same -- certificates are never issued per cluster.)
+> - Why it matters: this model has **no cross-cluster secret replication**. A Secret a cluster's mongot or Envoy mounts must physically exist in that cluster, or its operator stays `Pending`. Copying Secrets is the single biggest thing to get right here.
+
+## Part 2: The Search Deployment
+
+Run these steps in order, in a shell where you've run `source env.sh` (see Environment above). Reminder: run each snippet with `bash` if your shell isn't bash -- `bash ./code_snippets/<name>.sh`.
+
+To run all of Part 2 unattended instead (prerequisites are not included):
 
 ```bash
 ./test.sh
 ```
-
-## Step-by-Step Execution
-
-Run these steps in order, in a shell where you've run `source env.sh` (see Environment above). Reminder: run each snippet with `bash` if your shell isn't bash -- `bash ./code_snippets/<name>.sh`.
 
 ### Set Up Kubernetes and the Per-Cluster Search Operator
 
