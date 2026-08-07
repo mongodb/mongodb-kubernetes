@@ -39,9 +39,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
@@ -932,7 +932,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	r.automationAgentVersion = automationAgentVersion
 
 	// Connectivity dry-run: handle before any reconciliation that modifies state.
-	if sc.Annotations[util.MigrationDryRunAnnotation] == "true" {
+	if sc.IsMigrationDryRun() {
 		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
@@ -1971,9 +1971,9 @@ type deploymentOptions struct {
 	agentCertPath        string
 	agentCertHash        string
 
-	finalizing           bool
-	processNames         []string
-	prometheusCertHash   string
+	finalizing         bool
+	processNames       []string
+	prometheusCertHash string
 	// externalAgentVersion is set from OM when spec.externalMembers is non-empty (see updateOmDeploymentShardedCluster).
 	externalAgentVersion string
 }
@@ -2711,7 +2711,7 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 
 	mongosHostnames := make([]string, 0)
 	for _, m := range sc.Spec.GetExternalMembers() {
-		if m.Type == "mongos" {
+		if m.Type == mdbv1.ExternalMemberTypeMongos {
 			mongosHostnames = append(mongosHostnames, m.Hostname)
 		}
 	}

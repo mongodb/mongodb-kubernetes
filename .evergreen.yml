@@ -890,7 +890,14 @@ task_groups:
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_mongot_replicaset_x509_auth
-      # VM Migration
+
+  # VM migration tests (migrating an existing VM-hosted deployment into Kubernetes).
+  # Kept separate from the search task groups since they share no setup with MongoDBSearch.
+  # Added to cloudqa-large variants.
+  - name: e2e_vm_migration_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks:
       - e2e_vm_migration_replicaset_x509
       - e2e_vm_migration_replicaset_ldap
       - e2e_vm_migration_replicaset_prometheus
@@ -1532,6 +1539,7 @@ buildvariants:
     tasks:
       - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
+      - name: e2e_vm_migration_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
@@ -1542,6 +1550,7 @@ buildvariants:
     tasks:
       - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
+      - name: e2e_vm_migration_task_group
 
   # We do not want to run openshift variants on every PR.
   - name: e2e_mdb_openshift_ubi_cloudqa

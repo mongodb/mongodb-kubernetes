@@ -99,20 +99,34 @@ type oidcFieldMapping struct {
 }
 
 var oidcFieldMappings = []oidcFieldMapping{
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.AuthNamePrefix = c.ConfigurationName },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.ConfigurationName = a.AuthNamePrefix }},
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.Audience = c.Audience },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.Audience = a.Audience }},
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.IssuerUri = c.IssuerURI },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.IssuerURI = a.IssuerUri }},
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.ClientId = c.ClientId },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.ClientId = a.ClientId }},
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.RequestedScopes = c.RequestedScopes },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.RequestedScopes = a.RequestedScopes }},
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.UserClaim = c.UserClaim },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.UserClaim = a.UserClaim }},
-	{func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.GroupsClaim = c.GroupsClaim },
-		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.GroupsClaim = a.GroupsClaim }},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.AuthNamePrefix = c.ConfigurationName },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.ConfigurationName = a.AuthNamePrefix },
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.Audience = c.Audience },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.Audience = a.Audience },
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.IssuerUri = c.IssuerURI },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.IssuerURI = a.IssuerUri },
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.ClientId = c.ClientId },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.ClientId = a.ClientId },
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.RequestedScopes = c.RequestedScopes },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.RequestedScopes = a.RequestedScopes },
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.UserClaim = c.UserClaim },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.UserClaim = a.UserClaim },
+	},
+	{
+		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) { a.GroupsClaim = c.GroupsClaim },
+		func(a *oidc.ProviderConfig, c *mdbv1.OIDCProviderConfig) { c.GroupsClaim = a.GroupsClaim },
+	},
 	{
 		func(c *mdbv1.OIDCProviderConfig, a *oidc.ProviderConfig) {
 			a.SupportsHumanFlows = c.AuthorizationMethod == mdbv1.OIDCAuthorizationMethodWorkforceIdentityFederation

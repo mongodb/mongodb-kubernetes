@@ -44,7 +44,6 @@ spec:
       emptyDir: { }
     - name: tests-home-dir
       emptyDir: { }
-  {{ if .Values.multiCluster.memberClusters }}
     - name: kube-config-volume
       secret:
         defaultMode: 420
@@ -237,7 +236,6 @@ spec:
         mountPath: /tmp/diagnostics
       - name: tests-home-dir
         mountPath: /home/tests-home
-    {{ if .Values.multiCluster.memberClusters }}
       - mountPath: /etc/config
         name: kube-config-volume
     {{ if .Values.multiCluster.memberClusters }}

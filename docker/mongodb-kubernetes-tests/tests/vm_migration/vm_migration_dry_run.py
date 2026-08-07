@@ -63,7 +63,7 @@ def generate_wrong_ca_pem() -> str:
     """Return a self-signed CA certificate PEM that did not sign any of the VM server certs."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = crypto_x509.Name([crypto_x509.NameAttribute(NameOID.COMMON_NAME, "wrong-test-ca")])
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     cert = (
         crypto_x509.CertificateBuilder()
         .subject_name(name)

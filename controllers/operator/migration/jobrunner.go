@@ -4,15 +4,16 @@ import (
 	"context"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectivityexit"
 	"github.com/mongodb/mongodb-kubernetes/pkg/migration"
 )

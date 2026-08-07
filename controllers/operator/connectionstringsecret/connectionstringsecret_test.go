@@ -41,7 +41,7 @@ func TestPublishForMongoDB_ReplicaSet_UsesProvidedHostnames(t *testing.T) {
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs-connection-string"}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 
@@ -78,7 +78,7 @@ func TestPublishForMongoDB_PassesThroughCallerHostnamesIncludingExternal(t *test
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs-connection-string"}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 	assert.Contains(t, std, "vm-0.example.com:27017")
@@ -98,7 +98,7 @@ func TestPublishForMongoDB_Idempotent(t *testing.T) {
 	require.NoError(t, c.List(context.Background(), list, client.InNamespace("ns-1")))
 	count := 0
 	for _, s := range list.Items {
-		if s.Name == "my-rs-connection-string" {
+		if s.Name == "my-rs"+SecretNameSuffix {
 			count++
 		}
 	}
@@ -118,7 +118,7 @@ func TestPublishForMongoDB_ReplicaSetParam_DefaultsToResourceName(t *testing.T) 
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs-connection-string"}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 	assert.Contains(t, std, "replicaSet=my-rs",
@@ -144,7 +144,7 @@ func TestPublishForMongoDB_ReplicaSetParam_UsesReplicaSetNameOverride(t *testing
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs-connection-string"}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 	assert.Contains(t, std, "replicaSet=custom-replica-set",

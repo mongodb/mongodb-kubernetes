@@ -7,14 +7,14 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
 // SecretNameSuffix is appended to the MongoDB resource name to form the
-// secret name: "<mdb-name>-connection-string".
-const SecretNameSuffix = "-connection-string"
+// secret name: "<mdb-name>-cluster-connection-string".
+const SecretNameSuffix = "-cluster-connection-string"
 
 // SecretName returns the Kubernetes name of the credential-less secret
 // for the given MongoDB resource.

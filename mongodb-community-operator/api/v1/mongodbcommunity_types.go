@@ -326,7 +326,6 @@ func (m MongoDBUser) GetConnectionStringSecretNamespace(resourceNamespace string
 	return resourceNamespace
 }
 
-
 // Role is the database role this user should have
 type Role struct {
 	// DB is the database the role can act on

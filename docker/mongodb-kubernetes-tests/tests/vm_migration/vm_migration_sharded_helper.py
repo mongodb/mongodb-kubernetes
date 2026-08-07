@@ -20,6 +20,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     MIGRATION_DRY_RUN_ANNOTATION,
     _deploy_vm_statefulset_from_fixture,
     assert_migration_tool_version_annotation,
+    cluster_connection_string_secret_name,
     generated_mongodb_doc,
 )
 from tests.vm_migration.vm_migration_dry_run import (
@@ -205,19 +206,17 @@ def apply_generated_sharded_cluster_resource(
 def sharded_connection_string_tester(
     mdb_migration: MongoDB, use_ssl: bool = False, ca_path: str | None = None
 ) -> MongoTester:
-    """Return a MongoTester seeded from the operator-managed <name>-connection-string secret.
+    """Return a MongoTester seeded from the operator-managed <name>-cluster-connection-string secret.
 
     Unlike mdb_migration.tester() (which builds K8s mongos FQDNs from spec.mongosCount and therefore
     targets nothing while mongosCount == 0), the standard connection string lists the CURRENT active
     mongos routers: the external VM mongos early in migration and the K8s mongos once they exist.
     """
     try_load(mdb_migration)
-    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
+    secret_name = cluster_connection_string_secret_name(mdb_migration)
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, secret_name)
     conn_str = secret.get("connectionString.standard", "")
-    assert conn_str, (
-        f"connection-string secret {mdb_migration.name}-connection-string has no "
-        f"'connectionString.standard' value yet"
-    )
+    assert conn_str, f"connection-string secret {secret_name} has no 'connectionString.standard' value yet"
     return MongoTester(conn_str, use_ssl, ca_path)
 
 

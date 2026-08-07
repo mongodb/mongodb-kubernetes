@@ -73,6 +73,7 @@ func IsLegacyDeployment(existingProcessIds map[string]int, externalMembers []str
 	// Therefore, we continue using the old naming scheme.
 	return !foundNewMember
 }
+
 // ConvertPodNamesToProcessNames converts bare pod names to k8s/<namespace>/<pod> process names when
 // the existing deployment uses the new naming scheme. For legacy deployments the pod names are
 // returned unchanged.

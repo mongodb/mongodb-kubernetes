@@ -52,7 +52,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_scale_shards_name_overrides
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_scale_shards_name_overrides

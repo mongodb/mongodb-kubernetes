@@ -272,7 +272,7 @@ def test_insert_migration_data(namespace: str, scram_opts: list[dict]):
 
 @mark.e2e_vm_migration_replicaset_oidc_group
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 # Generated CR checks

@@ -35,11 +35,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -1128,9 +1128,6 @@ func TestAgentVersionFromURL(t *testing.T) {
 		})
 	}
 }
-// ---------------------------------------------------------------------------
-// Package-level helpers shared by Tasks 8–11
-// ---------------------------------------------------------------------------
 
 func buildRsByProcessesHelper(rsName string, processes []om.Process) om.ReplicaSetWithProcesses {
 	options := make([]automationconfig.MemberOptions, len(processes))
@@ -1164,10 +1161,6 @@ type failingOMConn struct {
 func (f failingOMConn) ReadDeployment() (om.Deployment, error) {
 	return om.NewDeployment(), fmt.Errorf("forced error")
 }
-
-// ---------------------------------------------------------------------------
-// Task 8: checkExternalMembersDrift
-// ---------------------------------------------------------------------------
 
 func TestCheckExternalMembersDrift_EmptyList(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
@@ -1209,10 +1202,6 @@ func TestCheckExternalMembersDrift_HostnameMismatch(t *testing.T) {
 	status := checkExternalMembersDrift(conn, externalMembers)
 	assert.False(t, status.IsOK())
 }
-
-// ---------------------------------------------------------------------------
-// Task 9: validateACForMigration
-// ---------------------------------------------------------------------------
 
 func TestValidateACForMigration_EmptyList(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
@@ -1409,10 +1398,6 @@ func TestValidateACForMigration_NonVotingK8sMembersViaConfig_NotCounted(t *testi
 	st := validateACForMigration(conn, mdb)
 	assert.True(t, st.IsOK(), "expected OK, got: %+v", st)
 }
-
-// ---------------------------------------------------------------------------
-// Helpers for validateACForMigration tests
-// ---------------------------------------------------------------------------
 
 // mongoDBForMigrationTest builds a minimal *mdbv1.MongoDB suitable for the migration validator.
 // The validator only reads Name, Namespace, and Spec.{Members,MemberConfig,ExternalMembers,
@@ -1787,10 +1772,6 @@ func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardV
 	return d
 }
 
-// ---------------------------------------------------------------------------
-// Task 10: checkIfHasExcessProcesses
-// ---------------------------------------------------------------------------
-
 func TestCheckIfHasExcessProcesses_ReadDeploymentError(t *testing.T) {
 	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
 	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
@@ -1818,10 +1799,6 @@ func TestCheckIfHasExcessProcesses_MultipleResources(t *testing.T) {
 	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
 	assert.False(t, status.IsOK())
 }
-
-// ---------------------------------------------------------------------------
-// Task 11: getReplicaSetProcessIdsFromReplicaSets
-// ---------------------------------------------------------------------------
 
 func TestGetReplicaSetProcessIdsFromReplicaSets_NotFound(t *testing.T) {
 	d := om.NewDeployment()

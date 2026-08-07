@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blang/semver"
@@ -20,14 +21,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -443,6 +444,12 @@ type ExternalMember struct {
 	ReplicaSetName string `json:"replicaSetName"`
 }
 
+const (
+	// ExternalMemberTypeMongod and ExternalMemberTypeMongos are the allowed values of ExternalMember.Type.
+	ExternalMemberTypeMongod = "mongod"
+	ExternalMemberTypeMongos = "mongos"
+)
+
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	// +kubebuilder:validation:Required
@@ -550,28 +557,28 @@ func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
 }
 
-func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
-	return d.ExternalMembers
+func (m *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return m.ExternalMembers
 }
 
-func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
-	return externalMemberProcessNames(d.ExternalMembers)
+func (m *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	return externalMemberProcessNames(m.ExternalMembers)
 }
 
 // GetExternalMembersForRS filters to mongod members matching the given replicaSetName.
-func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
+func (m *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	var members []ExternalMember
-	for _, m := range d.ExternalMembers {
-		if m.Type == "mongod" && m.ReplicaSetName == rsName {
-			members = append(members, m)
+	for _, em := range m.ExternalMembers {
+		if em.Type == ExternalMemberTypeMongod && em.ReplicaSetName == rsName {
+			members = append(members, em)
 		}
 	}
 	return members
 }
 
 // GetExternalMemberProcessNamesForRS returns process names for mongod external members in the given replica set.
-func (d *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
-	return externalMemberProcessNames(d.GetExternalMembersForRS(rsName))
+func (m *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
+	return externalMemberProcessNames(m.GetExternalMembersForRS(rsName))
 }
 
 // GetExternalMemberProcessNamesForConfigRS returns process names for external mongod members of the config server.
@@ -582,11 +589,11 @@ func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
 
 // GetExternalMemberProcessNamesForMongos returns process names for external mongos members.
 // Mongos processes carry no replica set name, so filtering is by type rather than by RS name.
-func (d *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
+func (m *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
 	var mongos []ExternalMember
-	for _, m := range d.ExternalMembers {
-		if m.Type == "mongos" {
-			mongos = append(mongos, m)
+	for _, em := range m.ExternalMembers {
+		if em.Type == ExternalMemberTypeMongos {
+			mongos = append(mongos, em)
 		}
 	}
 	return externalMemberProcessNames(mongos)
@@ -961,9 +968,9 @@ func (m *MongoDB) GetExternalMembersHostnames() []string {
 	var allowed func(em ExternalMember) bool
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
-		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == "mongod" }
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == ExternalMemberTypeMongod }
 	case ShardedCluster:
-		allowed = func(em ExternalMember) bool { return em.Type == "mongos" }
+		allowed = func(em ExternalMember) bool { return em.Type == ExternalMemberTypeMongos }
 	}
 	if allowed != nil {
 		for _, em := range m.Spec.ExternalMembers {
@@ -1552,6 +1559,14 @@ func (m *MongoDB) IsOIDCEnabled() bool {
 	return m.Spec.Security.Authentication.IsOIDCEnabled()
 }
 
+// IsMigrationDryRun returns true if the migration dry-run annotation is enabled on the resource.
+// In dry-run mode the operator runs a connectivity validation Job instead of performing the
+// normal reconciliation.
+func (m *MongoDB) IsMigrationDryRun() bool {
+	enabled, _ := strconv.ParseBool(m.GetAnnotations()[util.MigrationDryRunAnnotation])
+	return enabled
+}
+
 func (m *MongoDB) applyComputedReplicaSetMigrationStatus(phase status.Phase, priorStatusMembers int) {
 	extCount := len(m.Spec.GetExternalMembers())
 
@@ -1573,7 +1588,7 @@ func (m *MongoDB) applyComputedReplicaSetMigrationStatus(phase status.Phase, pri
 		return
 	}
 
-	isDryRun := m.GetAnnotations()[util.MigrationDryRunAnnotation] == "true"
+	isDryRun := m.IsMigrationDryRun()
 	desiredK8sMembers := m.Spec.Members
 
 	migratingReason := status.ComputeMigratingConditionReason(isDryRun, extCount, m.Status.MigrationObservedExternalMembersCount, desiredK8sMembers, priorStatusMembers)
@@ -1660,7 +1675,7 @@ func (m *MongoDB) applyComputedShardedClusterMigrationStatus(phase status.Phase,
 		return
 	}
 
-	isDryRun := m.GetAnnotations()[util.MigrationDryRunAnnotation] == "true"
+	isDryRun := m.IsMigrationDryRun()
 	// The spec's desired in-cluster member count (the fixed target), analogous to ReplicaSet's spec.Members.
 	desiredK8sMembers := m.shardedClusterSpecMemberCount()
 

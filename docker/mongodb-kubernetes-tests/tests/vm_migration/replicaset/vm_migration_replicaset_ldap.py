@@ -296,7 +296,7 @@ def test_insert_migration_data(namespace: str, ldap_app_user: LDAPUser):
 
 @mark.e2e_vm_migration_replicaset_ldap
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 # Generated CR checks

@@ -27,12 +27,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
-	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
+	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 )
 
 const (
@@ -112,7 +113,7 @@ func writePEMFile(t *testing.T, path string, certDER, keyDER []byte) {
 	var buf bytes.Buffer
 	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
 	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0644))
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o644))
 }
 
 // TestValidate_SingleMongod uses MongoDB 8 only. Keyfile __system uses SCRAM-SHA-256 credentials;
@@ -248,7 +249,7 @@ func generateClusterCertBundle(t *testing.T) string {
 	require.NoError(t, err)
 	var caBuf bytes.Buffer
 	require.NoError(t, pem.Encode(&caBuf, &pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), caBuf.Bytes(), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), caBuf.Bytes(), 0o644))
 
 	// ── Server cert (CA-signed, localhost SAN, matching O/OU) ────────────────
 	srvKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

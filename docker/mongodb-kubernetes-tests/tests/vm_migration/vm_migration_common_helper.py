@@ -34,6 +34,13 @@ MIGRATION_DATA_COLLECTION = "sentinel"
 MIGRATION_DATA_ID = "vm-migration"
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
 MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION = "mongodb.com/migrate-tool-version"
+# Must match connectionstringsecret.SecretNameSuffix in the operator.
+CLUSTER_CONNECTION_STRING_SECRET_SUFFIX = "-cluster-connection-string"
+
+
+def cluster_connection_string_secret_name(mdb: MongoDB) -> str:
+    """Name of the operator-managed credential-less connection string secret for a MongoDB resource."""
+    return f"{mdb.name}{CLUSTER_CONNECTION_STRING_SECRET_SUFFIX}"
 
 
 def _deploy_vm_statefulset_from_fixture(

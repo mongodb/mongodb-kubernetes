@@ -1,4 +1,5 @@
 from _pytest.fixtures import fixture
+from kubetester import downgrade_pss_to_warn
 from kubetester.operator import Operator
 from tests.conftest import (
     get_central_cluster_client,
@@ -11,6 +12,17 @@ from tests.conftest import (
     get_operator_installation_config,
     is_multi_cluster,
 )
+
+
+@fixture(scope="module")
+def namespace(namespace: str) -> str:
+    """Downgrade PSS from enforce to warn for VM migration tests.
+
+    These tests simulate a non-Kubernetes VM host by running the MongoDB Agent as root
+    (runAsUser: 0) in the vm_*_statefulset.yaml fixtures, which PSS-restricted rejects.
+    """
+    downgrade_pss_to_warn(namespace)
+    return namespace
 
 
 @fixture(scope="module")

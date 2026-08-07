@@ -200,7 +200,7 @@ def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, c
 
 @mark.e2e_vm_migration_replicaset_prometheus
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_vm_migration_replicaset_prometheus
