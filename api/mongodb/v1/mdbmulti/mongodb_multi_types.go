@@ -655,7 +655,7 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password, authSour
 		SetScheme(scheme).
 		SetConnectionParams(connectionParams).
 		SetAuthSource(authSource).
-		SetDatabase(connectionStringDatabase)
+		SetConnectionStringDatabase(connectionStringDatabase)
 
 	return builder.Build()
 }

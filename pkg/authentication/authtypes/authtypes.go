@@ -84,9 +84,9 @@ type User struct {
 	ConnectionStringOptions map[string]interface{}
 }
 
-// GetPathDatabase returns the database to place in the connection string URI path.
+// GetConnectionStringDatabase returns the database to place in the connection string URI path.
 // $external is an auth only pseudo database, so it never appears in the path.
-func (u User) GetPathDatabase() string {
+func (u User) GetConnectionStringDatabase() string {
 	if u.ConnectionStringDatabase == constants.ExternalDB {
 		return ""
 	}
