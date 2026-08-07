@@ -366,7 +366,9 @@ def test_create_user_with_different_connection_string_database(replica_set: Mong
         "connectionStringDatabase": DIFFERENT_CONNECTION_STRING_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": DIFFERENT_DATABASE_SECRET_NAME, "key": "password"},
-        "roles": [{"db": USER_DATABASE, "name": "readWrite"}],
+        # readWrite on the connectionStringDatabase so the connectivity checks below can
+        # write to the database in the URI path, not just to admin
+        "roles": [{"db": DIFFERENT_CONNECTION_STRING_DATABASE, "name": "readWrite"}],
     }
     try_load(resource)
     resource.update()
@@ -391,8 +393,12 @@ def test_different_connection_string_database_credentials_secret_is_created(
 def test_different_connection_string_database_credentials_can_connect_to_db(
     replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
 ):
+    # write against the database in the URI path, so this checks the path is usable
+    # rather than only that it is spelled correctly
     replica_set.assert_connectivity_from_connection_string(
-        different_database_standard_secret["connectionString.standard"], tls=False
+        different_database_standard_secret["connectionString.standard"],
+        tls=False,
+        db=DIFFERENT_CONNECTION_STRING_DATABASE,
     )
 
 
@@ -401,7 +407,9 @@ def test_different_connection_string_database_credentials_can_connect_to_db_with
     replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
 ):
     replica_set.assert_connectivity_from_connection_string(
-        different_database_standard_secret["connectionString.standardSrv"], tls=False
+        different_database_standard_secret["connectionString.standardSrv"],
+        tls=False,
+        db=DIFFERENT_CONNECTION_STRING_DATABASE,
     )
 
 
@@ -440,7 +448,7 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
             tester.assert_has_user(USER_NAME)
             tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
             tester.assert_authentication_enabled()
-            tester.assert_expected_users(4)
+            tester.assert_expected_users(5)
             tester.assert_authoritative_set(False)
             return True
         except AssertionError:
