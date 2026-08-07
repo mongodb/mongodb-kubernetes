@@ -54,14 +54,6 @@ func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-func applicationDatabaseOrExternalRefIsSet(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB == nil && os.ExternalApplicationDatabaseRef == nil {
-		return v1.OpsManagerResourceValidationError("at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set", status.OpsManager)
-	}
-
-	return v1.ValidationSuccess()
-}
-
 func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	version := os.AppDB.GetMongoDBVersion()
 	if _, err := semver.Make(version); err != nil {
@@ -292,7 +284,6 @@ func warnMonitoringAgentContainer(os MongoDBOpsManagerSpec) v1.ValidationResult 
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
-		applicationDatabaseOrExternalRefIsSet,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
 		kmipValidation,
 		validateTopologyIsSpecified,
@@ -301,7 +292,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	}
 
 	// AppDB validators apply only to an internal AppDB
-	if om.Spec.ExternalApplicationDatabaseRef == nil {
+	if om.Spec.ExternalApplicationDatabaseRef == nil && om.Spec.AppDB != nil {
 		validators = append(validators,
 			validAppDBVersion,
 			connectivityIsNotConfigurable,
@@ -330,7 +321,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		if om.Spec.ExternalApplicationDatabaseRef.Name != expectedName {
 			validationResults = append(validationResults, v1.OpsManagerResourceValidationError(fmt.Sprintf("spec.externalApplicationDatabaseRef.name must be %s", expectedName), status.OpsManager))
 		}
-	} else if om.Spec.AppDB.IsMultiCluster() {
+	} else if om.Spec.AppDB != nil && om.Spec.AppDB.IsMultiCluster() {
 		// Explicit tests for AppDB multi-cluster
 		multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
 			mdb.ValidateUniqueClusterNames,
