@@ -182,6 +182,8 @@ git sparse-checkout set \
 
 Everything below assumes you're inside that checkout.
 
+Prefer a single file? `python3 make_html.py` in this directory builds `guide.html`, a self-contained offline copy of this runbook with every snippet inlined -- handy for sharing outside the repo. Regenerate it after any README change.
+
 ### Tools
 
 You need `kubectl`, `helm`, `jq`, `curl`, and `mongosh` on your PATH, plus one thing no suite installs for you: the **`kubectl mongodb` plugin** (ra-02 uses it). Download `kubectl-mongodb_<version>_<os>_<arch>.tar.gz` from your operator version's [GitHub release assets](https://github.com/mongodb/mongodb-kubernetes/releases) and put the binary on your PATH; `kubectl mongodb --help` confirms it works.

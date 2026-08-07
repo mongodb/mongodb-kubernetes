@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Build a self-contained HTML version of this runbook from README.md.
+
+    python3 make_html.py [--ref master] [--out guide.html]
+
+The README is the single source of truth -- this script adds no content.
+What it does:
+  * inlines every "Snippet: [...](code_snippets/...)" reference as a
+    collapsible block with the script's full source, so the HTML is useful
+    without a repo checkout;
+  * rewrites repo-relative links (../../../public/architectures/...) to
+    GitHub URLs at --ref, so they still work from a standalone file;
+  * embeds the markdown renderer (marked) and diagram renderer (mermaid)
+    INSIDE the output, so the file works offline as a single artifact.
+
+The two JS libraries are downloaded once into vendor/ (kept out of git) and
+reused on later runs. Only the first run needs internet access.
+"""
+
+import argparse
+import html
+import json
+import pathlib
+import re
+import sys
+import urllib.request
+
+HERE = pathlib.Path(__file__).resolve().parent
+REPO_BLOB = "https://github.com/mongodb/mongodb-kubernetes/blob/{ref}/"
+REPO_TREE = "https://github.com/mongodb/mongodb-kubernetes/tree/{ref}/"
+
+VENDOR = {
+    "marked.min.js": "https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js",
+    "mermaid.min.js": "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js",
+}
+
+CSS = """
+:root { --green:#00684A; --dark:#001E2B; --mist:#E3FCF7; --line:#E8EDEB; }
+* { box-sizing:border-box; }
+body { margin:0; font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+       color:#1C2D38; }
+main { max-width:900px; margin:0 auto; padding:2rem 1.5rem 6rem; }
+h1,h2,h3,h4 { line-height:1.25; color:var(--dark); }
+h1 { font-size:1.9rem; border-bottom:3px solid var(--green); padding-bottom:.4rem; }
+h2 { font-size:1.5rem; margin-top:2.5em; border-bottom:1px solid var(--line); padding-bottom:.3rem; }
+h3 { font-size:1.2rem; margin-top:2em; }
+h4 { font-size:1.05rem; margin-top:1.6em; }
+a { color:var(--green); }
+code { background:#F4F6F5; border-radius:4px; padding:.1em .35em; font-size:.9em; }
+pre { background:var(--dark); color:#E6EDF3; border-radius:8px; padding:1rem; overflow-x:auto; }
+pre code { background:none; color:inherit; padding:0; font-size:.85rem; }
+blockquote { border-left:4px solid var(--green); background:#F7FBFA; margin:1em 0;
+             padding:.6em 1em; color:#33454F; }
+blockquote p { margin:.4em 0; }
+table { border-collapse:collapse; width:100%; margin:1em 0; font-size:.92rem; }
+th,td { border:1px solid var(--line); padding:.5em .7em; text-align:left; vertical-align:top; }
+th { background:var(--mist); color:var(--dark); }
+details.snippet { margin:.8em 0 1.4em; border:1px solid var(--line); border-radius:8px; }
+details.snippet summary { cursor:pointer; padding:.55em .9em; font-family:ui-monospace,Menlo,monospace;
+                          font-size:.85rem; color:var(--green); font-weight:600; }
+details.snippet[open] summary { border-bottom:1px solid var(--line); }
+details.snippet pre { margin:0; border-radius:0 0 8px 8px; }
+.mermaid { background:#fff; text-align:center; margin:1.5em 0; }
+"""
+
+PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>{css}</style>
+</head>
+<body>
+<main id="content">JavaScript is required to render this guide.</main>
+<script>{marked_js}</script>
+<script>{mermaid_js}</script>
+<script>
+const SOURCE = {source_json};
+document.getElementById("content").innerHTML = marked.parse(SOURCE);
+// GitHub-style heading ids so the README's internal #anchor links keep working
+// (marked v5+ no longer generates them itself).
+const seen = {{}};
+for (const h of document.querySelectorAll("#content h1,#content h2,#content h3,#content h4")) {{
+  let slug = h.textContent.trim().toLowerCase()
+    .replace(/[^\\w\\s-]/g, "").replace(/\\s+/g, "-");
+  if (slug in seen) {{ slug = `${{slug}}-${{++seen[slug]}}`; }} else {{ seen[slug] = 0; }}
+  h.id = slug;
+}}
+// marked renders ```mermaid fences as <pre><code class="language-mermaid">; hand them to mermaid.
+for (const code of document.querySelectorAll("code.language-mermaid")) {{
+  const div = document.createElement("div");
+  div.className = "mermaid";
+  div.textContent = code.textContent;
+  code.closest("pre").replaceWith(div);
+}}
+mermaid.initialize({{ startOnLoad: false, theme: "base" }});
+mermaid.run();
+</script>
+</body>
+</html>
+"""
+
+
+def vendor_js(name: str) -> str:
+    path = HERE / "vendor" / name
+    if not path.exists():
+        path.parent.mkdir(exist_ok=True)
+        url = VENDOR[name]
+        print(f"downloading {url} -> vendor/{name} (first run only)")
+        with urllib.request.urlopen(url) as resp:
+            path.write_bytes(resp.read())
+    return path.read_text()
+
+
+def inline_snippets(md: str) -> str:
+    """Replace 'Snippet: [name](code_snippets/x.sh)' lines with the file's source."""
+    def repl(m: re.Match) -> str:
+        rel = m.group(2)
+        target = HERE / rel
+        if not target.exists():
+            sys.exit(f"error: README references missing snippet {rel}")
+        body = html.escape(target.read_text())
+        return (f'<details class="snippet"><summary>{html.escape(m.group(1))}</summary>'
+                f"<pre><code>{body}</code></pre></details>")
+
+    return re.sub(r"^Snippet: \[([^\]]+)\]\((code_snippets/[^)]+)\)\s*$",
+                  repl, md, flags=re.MULTILINE)
+
+
+def rewrite_repo_links(md: str, ref: str) -> str:
+    blob, tree = REPO_BLOB.format(ref=ref), REPO_TREE.format(ref=ref)
+    # directory links like ../../../public/architectures/... -> GitHub tree URLs
+    md = re.sub(r"\]\(\.\./\.\./\.\./([^)#]+?)/?\)", rf"]({tree}\1)", md)
+    # sibling-file links (env.sh, env_variables.sh, test.sh) -> GitHub blob URLs
+    md = re.sub(r"\]\((env\.sh|env_variables\.sh|test\.sh)\)",
+                rf"]({blob}docs/search/12-search-percluster-operator-rs/\1)", md)
+    return md
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--ref", default="master", help="git ref for rewritten GitHub links")
+    ap.add_argument("--out", default="guide.html", help="output file (relative to this dir)")
+    args = ap.parse_args()
+
+    md = (HERE / "README.md").read_text()
+    title_match = re.match(r"# (.+)", md)
+    title = title_match.group(1) if title_match else "MongoDB Search Runbook"
+
+    md = inline_snippets(md)
+    md = rewrite_repo_links(md, args.ref)
+
+    out = HERE / args.out
+    out.write_text(PAGE.format(
+        title=html.escape(title),
+        css=CSS,
+        marked_js=vendor_js("marked.min.js"),
+        mermaid_js=vendor_js("mermaid.min.js"),
+        source_json=json.dumps(md).replace("</", "<\\/"),  # keep </script> inert
+    ))
+    print(f"wrote {out} ({out.stat().st_size // 1024} KB)")
+
+
+if __name__ == "__main__":
+    main()
