@@ -41,14 +41,9 @@ func (r *OpsManagerReconciler) createNewExternalAppDBReconciler(log *zap.Sugared
 // detach-and-adopt migration of any pre-existing internal AppDB (idempotent, no-op once
 // complete), and establishes a watch on the referenced CR.
 func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (reconcile.Result, error) {
-	refObject, err := e.validateExternalAppDBReference(ctx, opsManager)
-	if err != nil {
+	if err := e.validateExternalAppDBReference(ctx, opsManager); err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error validating externalApplicationDatabaseRef: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
-
-	// Set TLS configuration so that it is easily retrievable later in Ops Manager reconciler
-	opsManager.Spec.ExternalApplicationDatabaseRef.IsTLSEnabled = refObject.IsTLSEnabled()
-	opsManager.Spec.ExternalApplicationDatabaseRef.CAConfigMapName = refObject.GetCAConfigMapName()
 
 	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager); err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error detaching internal AppDB StatefulSet: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
@@ -57,29 +52,46 @@ func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, o
 	return e.updateStatus(ctx, opsManager, workflow.Disabled(), e.log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
 }
 
-// BuildAppDBConnectionURL computes the AppDB connection string from the referenced MongoDB CR.
-func (e *ReconcileExternalAppDBReplicaSet) BuildAppDBConnectionURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	return e.computeExternalAppDBConnectionString(ctx, opsManager)
-}
-
-// validateExternalAppDBReference validates that opsManager's spec.externalApplicationDatabaseRef
-func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (ExternalAppDB, error) {
+// GetAppDBConfig computes the AppDB configuration including connection string and TLS settings from the referenced MongoDB CR.
+func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (*AppDBConfig, error) {
 	ref := opsManager.Spec.ExternalApplicationDatabaseRef
-	if ref == nil {
-		return nil, xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
-	}
-
 	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
-	role := refObject.GetRole()
-	if role != mdbv1.RoleAppDB {
-		return nil, xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
+	password, err := secret.ReadKey(ctx, e.SecretClient, util.OpsManagerPasswordKey, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to read shared password secret: %w", err)
 	}
 
-	return refObject, nil
+	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil)
+
+	return &AppDBConfig{
+		IsTLSEnabled:     refObject.IsTLSEnabled(),
+		CAConfigMapName:  refObject.GetCAConfigMapName(),
+		ConnectionString: connectionString,
+	}, nil
+}
+
+// validateExternalAppDBReference validates that opsManager's spec.externalApplicationDatabaseRef
+func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
+	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	if ref == nil {
+		return xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
+	}
+
+	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
+	if err != nil {
+		return xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
+	}
+
+	role := refObject.GetRole()
+	if role != mdbv1.RoleAppDB {
+		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
+	}
+
+	return nil
 }
 
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
@@ -124,25 +136,6 @@ func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx cont
 	}
 
 	return nil
-}
-
-// computeExternalAppDBConnectionString fetches the referenced MongoDB CR and
-// the shared mongodb-ops-manager password secret, computes the connection string directly via
-// BuildConnectionString.
-func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
-	ref := opsManager.Spec.ExternalApplicationDatabaseRef
-
-	password, err := secret.ReadKey(ctx, e.SecretClient, util.OpsManagerPasswordKey, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)))
-	if err != nil {
-		return "", xerrors.Errorf("failed to read shared password secret: %w", err)
-	}
-
-	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
-	if err != nil {
-		return "", xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
-	}
-
-	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
 }
 
 type externalAppDBRefObject struct {

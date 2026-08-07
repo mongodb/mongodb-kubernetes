@@ -183,6 +183,12 @@ func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitec
 	}
 }
 
+func WithAppDBTLSCAConfigMapName(name string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBTlsCAConfigMapName = name
+	}
+}
+
 // updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
 func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Context, centralClusterSecretClient secrets.SecretClient, memberCluster multicluster.MemberCluster, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
 	// Return immediately if no Certificate is provided
@@ -280,14 +286,13 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
-		OwnerName:               opsManager.Name,
-		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
-		AppDBTlsCAConfigMapName: opsManager.Spec.GetAppDBCAConfigMapName(),
-		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
-		Namespace:               opsManager.Namespace,
-		Labels:                  opsManager.Labels,
-		StsLabels:               opsManager.GetOwnerLabels(),
+		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
+		OwnerName:           opsManager.Name,
+		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
+		EnvVars:             opsManagerConfigurationToEnvVars(opsManager),
+		Namespace:           opsManager.Namespace,
+		Labels:              opsManager.Labels,
+		StsLabels:           opsManager.GetOwnerLabels(),
 	}
 }
 
