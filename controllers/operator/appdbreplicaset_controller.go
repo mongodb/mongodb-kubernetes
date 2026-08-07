@@ -956,14 +956,20 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	return r.updateStatus(ctx, opsManager, workflow.OK(), log, appDbStatusOption, status.AppDBMemberOptions(appDBScalers...), status.NewPVCsStatusOptionEmptyStatus())
 }
 
-// BuildAppDBConnectionURL returns the connection string to the AppDB, reading the Ops Manager user password.
+// GetAppDBConfig returns the connection string to the AppDB and the TLS configuration.
 // It assumes ReconcileAppDB has already been called and the password secret exists.
-func (r *ReconcileAppDbReplicaSet) BuildAppDBConnectionURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
+func (r *ReconcileAppDbReplicaSet) GetAppDBConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*AppDBConfig, error) {
 	password, err := r.readAppDbPassword(ctx, opsManager, log)
 	if err != nil {
-		return "", xerrors.Errorf("Error getting AppDB password: %w", err)
+		return nil, xerrors.Errorf("Error getting AppDB password: %w", err)
 	}
-	return buildMongoConnectionUrl(opsManager, password, r.getCurrentStatefulsetHostnames(opsManager)), nil
+	connectionString := buildMongoConnectionUrl(opsManager, password, r.getCurrentStatefulsetHostnames(opsManager))
+
+	return &AppDBConfig{
+		IsTLSEnabled:     opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled(),
+		CAConfigMapName:  opsManager.Spec.AppDB.GetCAConfigMapName(),
+		ConnectionString: connectionString,
+	}, nil
 }
 
 // buildMongoConnectionUrl returns a connection URL to the appdb.
