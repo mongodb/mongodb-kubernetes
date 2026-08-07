@@ -315,7 +315,6 @@ type WatcherResource interface {
 }
 
 // SetupCommonWatchers is the common shared method for all controller to watch the following resources:
-//   - OM related cm and secret
 //   - TLS related secrets, if enabled, this includes x509 internal authentication secrets
 //
 // Note: everything is watched under the same namespace as the objectKey
@@ -1035,7 +1034,15 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return false
 	}
 
+	if currentSts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		log.Debugf("Statefulset %s has the forward migration ready annotation set to true.", currentSts.Name)
+		return false
+	}
+
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	if databaseContainer == nil {
+		return false
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 
 	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {

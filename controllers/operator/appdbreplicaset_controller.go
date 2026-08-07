@@ -622,6 +622,115 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, ops
 	return true, nil
 }
 
+// ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
+//   - absent: nothing to own - the reconcile continues and creates AppDB Statefulset from scratch
+//   - owned by this OM: proceed
+//   - foreign-owned (a MongoDB CR): request reverse migration via util.AppDBReverseMigrationReadyAnnotation and wait
+//   - ownerless: reclaim - set this OM's OwnerReference, clear both migration annotations and reclaim AppDB secrets
+func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) workflow.Status {
+	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name())
+	sts := appsv1.StatefulSet{}
+	if err := r.client.Get(ctx, stsKey, &sts); err != nil {
+		// If appDB statefulset does not exist proceed with reconciliation
+		if apiErrors.IsNotFound(err) {
+			return workflow.OK()
+		}
+
+		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
+	}
+
+	// If appDB statefulset is owned by this OM proceed with reconciliation
+	for _, ref := range sts.OwnerReferences {
+		if ref.UID == opsManager.UID {
+			return workflow.OK()
+		}
+	}
+
+	// If appDB statefulset is owned by another resource (external MongoDB CR),
+	// request reverse migration and block until the other controller releases it.
+	if len(sts.OwnerReferences) > 0 {
+		if err := r.requestAppDBReverseMigration(ctx, sts); err != nil {
+			return workflow.Failed(err)
+		}
+
+		return workflow.Pending("waiting for MongoDB controller to release AppDB StatefulSet %s", sts.GetName())
+	}
+
+	if err := r.reclaimAppDBStatefulset(ctx, opsManager, sts); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.reclaimAppDBSecrets(ctx, opsManager); err != nil {
+		return workflow.Failed(err)
+	}
+
+	return workflow.OK()
+}
+
+func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Context, sts appsv1.StatefulSet) error {
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+		return nil
+	}
+
+	if sts.Annotations == nil {
+		sts.Annotations = map[string]string{}
+	}
+	sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] = trueString
+	if err := r.client.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to request StatefulSet release: %w", err)
+	}
+
+	return nil
+}
+
+// reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears migration annotations
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
+	sts.OwnerReferences = kube.BaseOwnerReference(opsManager)
+	// stale forward migration annotation cleanup
+	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
+	if err := r.client.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+// reclaimAppDBSecrets transfers the shared handover secrets (password, keyfile) to this OM's
+// ownership at adoption, so the eventual post-handover deletion of the MongoDB CR doesn't
+// garbage-collect secrets the running internal AppDB depends on
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBSecrets(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
+	secretNamesToReclaim := []string{
+		omv1.OpsManagerUserPasswordSecretName(opsManager.Spec.AppDB.Name()),
+		opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name,
+	}
+
+	for _, secretName := range secretNamesToReclaim {
+		if err := r.reclaimAppDBSecret(ctx, opsManager, secretName); err != nil {
+			return xerrors.Errorf("failed to reclaim secret %s: %w", secretName, err)
+		}
+	}
+
+	return nil
+}
+
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBSecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, name string) error {
+	secretToReclaim := corev1.Secret{}
+	if err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, name), &secretToReclaim); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+
+		return xerrors.Errorf("failed to fetch secret %s while reclaiming its ownership: %w", name, err)
+	}
+
+	secretToReclaim.OwnerReferences = kube.BaseOwnerReference(opsManager)
+	if err := r.client.Update(ctx, &secretToReclaim); err != nil {
+		return xerrors.Errorf("failed to update secret %s: %w", name, err)
+	}
+
+	return nil
+}
+
 // ReconcileAppDB deploys the "headless" agent, and wait until it reaches the goal state
 func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (res reconcile.Result, e error) {
 	rs := opsManager.Spec.AppDB
@@ -633,6 +742,13 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Info("AppDB ReplicaSet.Reconcile")
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
+
+	// Ops Manager must own the AppDB StatefulSet before touching anything: a StatefulSet
+	// still owned by a MongoDB CR (reverse migration) is asked to be released and waited for.
+	appDBStatefulsetOwnershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, opsManager)
+	if !appDBStatefulsetOwnershipStatus.IsOK() {
+		return r.updateStatus(ctx, opsManager, appDBStatefulsetOwnershipStatus, log, appDbStatusOption)
+	}
 
 	if err := r.ensureResourcesForArchitectureChange(ctx, opsManager); err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring resources for upgrade from 1 to 3 container AppDB: %w", err)), log, appDbStatusOption)
@@ -754,16 +870,16 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
-	allStatefulSetsExist, err := r.allStatefulSetsExist(ctx, opsManager, log)
+	allStatefulSetsExistAndValid, err := r.allStatefulSetsExistsInValidState(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)
 	}
 
-	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExist, log)
+	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExistAndValid, log)
 
 	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExist, appdbOpts)
+			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExistAndValid, appdbOpts)
 		},
 		func() workflow.Status {
 			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
@@ -1003,10 +1119,10 @@ func getPlaceholderReplacer(appdb omv1.AppDBSpec, memberCluster multicluster.Mem
 		mdbv1.ReplicaSet)
 }
 
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExist bool, log *zap.SugaredLogger) bool {
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExistAndValid bool, log *zap.SugaredLogger) bool {
 	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
 	// TODO this feels insufficient. Shouldn't we check if there is actual change in TLS settings requiring to push sts first? Now it will always publish sts first when TLS enabled
-	automationConfigFirst := !allStatefulSetsExist || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
+	automationConfigFirst := !allStatefulSetsExistAndValid || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
 
 	if r.isChangingVersion(opsManager) {
 		log.Info("Version change in progress, the StatefulSet must be updated first")
@@ -1578,7 +1694,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 				params[k] = v
 			}
 			if requireValidCert {
-				params["sslRequireValidMMSServerCertificates"] = "true"
+				params["sslRequireValidMMSServerCertificates"] = trueString
 			} else {
 				params["sslRequireValidMMSServerCertificates"] = "false"
 			}
@@ -2257,23 +2373,27 @@ func (r *ReconcileAppDbReplicaSet) getCurrentStatefulsetHostnames(opsManager *om
 	})
 }
 
-func (r *ReconcileAppDbReplicaSet) allStatefulSetsExist(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
-	allStsExist := true
+func (r *ReconcileAppDbReplicaSet) allStatefulSetsExistsInValidState(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (bool, error) {
 	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 		stsName := opsManager.Spec.AppDB.NameForCluster(r.helper.getMemberClusterIndex(memberCluster.Name))
-		_, err := memberCluster.Client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
+		sts, err := memberCluster.Client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, stsName))
 		if err != nil {
 			if apiErrors.IsNotFound(err) {
 				// we do not return immediately here to check all clusters and also leave the information on other sts in the debug logs
 				log.Debugf("Statefulset %s/%s does not exist.", memberCluster.Name, stsName)
-				allStsExist = false
-			} else {
-				return false, err
+				return false, nil
 			}
+
+			return false, err
+		}
+
+		if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+			log.Debugf("Statefulset %s/%s has the reverse migration ready annotation set to true.", memberCluster.Name, stsName)
+			return false, nil
 		}
 	}
 
-	return allStsExist, nil
+	return true, nil
 }
 
 // migrateToNewDeploymentState reads old config maps with the deployment state and writes them to the new deploymentState structure.

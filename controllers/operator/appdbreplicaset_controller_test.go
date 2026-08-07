@@ -19,6 +19,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1855,6 +1856,7 @@ func createRunningAppDB(ctx context.Context, t *testing.T, startingMembers int, 
 		SetServiceName(serviceName).
 		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimTemplates()).
 		SetReplicas(startingMembers).
+		SetOwnerReference(kube.BaseOwnerReference(opsManager)).
 		Build()
 
 	assert.NoError(t, err)
@@ -2121,4 +2123,197 @@ func monitoringAutomationConfigSecretName(appdb *omv1.AppDBSpec) string {
 
 func monitoringAutomationConfigConfigMapName(appdb *omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-automation-config-version"
+}
+
+func TestReconcileAppDbReplicaSet_BuildAppDBConnectionURL(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().Build()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	_, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	appDbReconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	require.NoError(t, appDbReconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName()).
+		SetNamespace(testOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "test-password").
+		Build()))
+
+	connString, err := appDbReconciler.BuildAppDBConnectionURL(ctx, testOm, zap.S())
+	require.NoError(t, err)
+	assert.Contains(t, connString, util.OpsManagerMongoDBUserName)
+}
+
+// TestReconcileAppDB_ReshapesReAdoptedStatefulSet reproduces the reverse-migration state right
+// after re-adoption: the StatefulSet is OM-owned again but still carries the
+// AppDBReverseMigrationReadyAnnotation, signaling that the pod template must be rewritten.
+// A single ReconcileAppDB pass must rewrite the pod template to the internal-AppDB shape
+// instead of deadlocking on the agent goal-state wait.
+func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	opsManager := DefaultOpsManagerBuilder().Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "pass"))
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	matchLabels, serviceName := appDBStatefulSetLabelsAndServiceName(opsManager.Name)
+	sts, err := statefulset.NewBuilder().
+		SetName(opsManager.Spec.AppDB.Name()).
+		SetNamespace(opsManager.Namespace).
+		SetMatchLabels(matchLabels).
+		SetServiceName(serviceName).
+		AddVolumeClaimTemplates(appDBStatefulSetVolumeClaimTemplates()).
+		SetReplicas(3).
+		SetOwnerReference(kube.BaseOwnerReference(opsManager)).
+		Build()
+	require.NoError(t, err)
+	sts.Annotations = map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}
+	sts.Spec.Template.Spec.Containers = []corev1.Container{{Name: util.DatabaseContainerName, Image: "busybox"}}
+	require.NoError(t, kubeClient.CreateStatefulSet(ctx, sts))
+
+	res, err := reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	// first pass after re-adoption ends with a short requeue to configure monitoring;
+	// the point is that it deploys the StatefulSet instead of blocking on the agent goal-state
+	// wait which the CR-shaped pods can never satisfy
+	assert.Equal(t, reconcile.Result{RequeueAfter: time.Second}, res, "reconcile must not block on the agent goal-state wait for a CR-shaped StatefulSet")
+
+	result, err := kubeClient.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
+	require.NoError(t, err)
+	containerNames := make([]string, 0, len(result.Spec.Template.Spec.Containers))
+	for _, c := range result.Spec.Template.Spec.Containers {
+		containerNames = append(containerNames, c.Name)
+	}
+	assert.Contains(t, containerNames, util.MongodbContainerName, "pod template must be rewritten to the internal-AppDB shape")
+	assert.NotContains(t, containerNames, util.DatabaseContainerName, "the MongoDB-CR container must not survive the reshape")
+	assert.NotContains(t, result.Annotations, util.AppDBReverseMigrationReadyAnnotation, "reverse migration annotation must be cleared after STS reshape")
+	assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation, "forward migration annotation must not be present after STS reshape")
+}
+
+func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
+	const crUID = "cr-uid-2222"
+
+	tests := []struct {
+		name string
+		// sts builds the pre-existing AppDB StatefulSet; nil means it doesn't exist
+		sts                       func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet
+		omUID                     types.UID
+		expectedOwned             bool
+		expectedOMOwnerRef        bool
+		expectedReverseAnnotation bool
+		expectedForwardAnnotation bool
+	}{
+		{
+			name:          "StatefulSet absent: recreate-from-scratch path proceeds",
+			expectedOwned: true,
+		},
+		{
+			name:  "already OM-owned: proceeds untouched",
+			omUID: "om-uid-1111",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+					SetOwnerReferences(kube.BaseOwnerReference(testOm)).Build()
+			},
+			expectedOwned:      true,
+			expectedOMOwnerRef: true,
+		},
+		{
+			name:  "CR-owned: requests release and blocks",
+			omUID: "om-uid-1111",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+					SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: crUID}}).Build()
+			},
+			expectedOwned:             false,
+			expectedReverseAnnotation: true,
+		},
+		{
+			name:  "ownerless with release request: adopts and keeps reverse annotation for reshape",
+			omUID: "om-uid-1111",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+					SetOwnerReferences(nil).
+					SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
+			},
+			expectedOwned:             true,
+			expectedOMOwnerRef:        true,
+			expectedReverseAnnotation: true,
+		},
+		{
+			name:  "ownerless with stale forward annotation: adopts and clears it",
+			omUID: "om-uid-1111",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+					SetOwnerReferences(nil).
+					SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).Build()
+			},
+			expectedOwned:      true,
+			expectedOMOwnerRef: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().SetName("test-om").Build()
+			testOm.UID = tt.omUID
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+			require.NoError(t, err)
+			if tt.sts != nil {
+				sts := tt.sts(testOm)
+				require.NoError(t, kubeClient.Create(ctx, &sts))
+			}
+
+			ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+			assert.Equal(t, tt.expectedOwned, ownershipStatus.IsOK())
+
+			if tt.sts != nil {
+				result := appsv1.StatefulSet{}
+				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &result))
+				hasOMRef := false
+				for _, ref := range result.OwnerReferences {
+					if ref.UID == testOm.UID {
+						hasOMRef = true
+					}
+				}
+				assert.Equal(t, tt.expectedOMOwnerRef, hasOMRef)
+				assert.Equal(t, tt.expectedReverseAnnotation, result.Annotations[util.AppDBReverseMigrationReadyAnnotation] == "true")
+				assert.Equal(t, tt.expectedForwardAnnotation, result.Annotations[util.AppDBMigrationReadyAnnotation] == "true")
+			}
+		})
+	}
+}
+
+func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetName("test-om").Build()
+	testOm.UID = types.UID("om-uid-1111")
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+		SetOwnerReferences(nil).
+		SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+
+	crOwnerRef := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: "cr-uid-2222"}}
+	for _, name := range []string{omv1.OpsManagerUserPasswordSecretName("test-om-db"), testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
+		s := secret.Builder().SetName(name).SetNamespace(testOm.Namespace).SetField("k", "v").SetOwnerReferences(crOwnerRef).Build()
+		require.NoError(t, kubeClient.CreateSecret(ctx, s))
+	}
+
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+	require.True(t, ownershipStatus.IsOK())
+
+	for _, name := range []string{omv1.OpsManagerUserPasswordSecretName("test-om-db"), testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
+		s := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, name), &s))
+		require.Len(t, s.OwnerReferences, 1, name)
+		assert.Equal(t, testOm.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the OM at adoption", name)
+	}
 }

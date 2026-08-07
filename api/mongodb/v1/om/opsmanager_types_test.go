@@ -268,3 +268,46 @@ func TestOpsManager_UnmarshalJSON_ExternalRefLeavesAppDBNil(t *testing.T) {
 	assert.NotNil(t, om.Spec.ExternalApplicationDatabaseRef)
 	assert.Nil(t, om.Spec.AppDB)
 }
+
+func TestUpdateStatusAppDb_ExternalApplicationDatabaseRefResetsStatus(t *testing.T) {
+	t.Run("external ref set + nil AppDB resets AppDbStatus", func(t *testing.T) {
+		resource := &MongoDBOpsManager{
+			Spec: MongoDBOpsManagerSpec{
+				ExternalApplicationDatabaseRef: &ExternalApplicationDatabaseRef{
+					Name: "test-om-db",
+					Kind: "MongoDB",
+				},
+			},
+		}
+		resource.Status.AppDbStatus.Members = 3
+		resource.Status.AppDbStatus.Version = "4.4.20"
+		resource.Status.AppDbStatus.FeatureCompatibilityVersion = "4.4"
+		resource.Status.AppDbStatus.ClusterStatusList = []status.ClusterStatusItem{{ClusterName: "cluster-1"}}
+		resource.Status.AppDbStatus.Warnings = []status.Warning{"stale warning;"}
+
+		require.NotPanics(t, func() {
+			resource.UpdateStatus(status.PhaseDisabled, status.NewOMPartOption(status.AppDb))
+		})
+
+		assert.Equal(t, status.PhaseDisabled, resource.Status.AppDbStatus.Phase)
+		assert.Empty(t, resource.Status.AppDbStatus.Members)
+		assert.Empty(t, resource.Status.AppDbStatus.Version)
+		assert.Empty(t, resource.Status.AppDbStatus.FeatureCompatibilityVersion)
+		assert.Empty(t, resource.Status.AppDbStatus.ClusterStatusList)
+		assert.Empty(t, resource.Status.AppDbStatus.Warnings)
+	})
+
+	t.Run("internal AppDB does not reset AppDbStatus", func(t *testing.T) {
+		resource := &MongoDBOpsManager{
+			Spec: MongoDBOpsManagerSpec{
+				AppDB: &AppDBSpec{},
+			},
+		}
+		resource.Status.AppDbStatus.Members = 3
+
+		resource.UpdateStatus(status.PhaseRunning, status.NewOMPartOption(status.AppDb))
+
+		assert.Equal(t, status.PhaseRunning, resource.Status.AppDbStatus.Phase)
+		assert.Equal(t, 3, resource.Status.AppDbStatus.Members)
+	})
+}

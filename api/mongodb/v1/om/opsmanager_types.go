@@ -188,6 +188,9 @@ type ExternalApplicationDatabaseRef struct {
 	// +kubebuilder:validation:Enum=MongoDB
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
+
+	// Transient fields
+	Namespace string `json:"-"`
 }
 
 type Logging struct {
@@ -309,9 +312,14 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 }
 
 func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
+	if ms.ExternalApplicationDatabaseRef != nil {
+		return ""
+	}
+
 	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
 		return ms.AppDB.Security.TLSConfig.CA
 	}
+
 	return ""
 }
 
@@ -677,6 +685,8 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.AppDB.Namespace = om.Namespace
 		om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
 		om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+	} else {
+		om.Spec.ExternalApplicationDatabaseRef.Namespace = om.Namespace
 	}
 }
 
@@ -770,6 +780,12 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	if om.Spec.ExternalApplicationDatabaseRef != nil {
+		om.Status.AppDbStatus = AppDbStatus{}
+		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
+		return
+	}
+
 	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
