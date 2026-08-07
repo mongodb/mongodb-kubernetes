@@ -2,57 +2,13 @@
 
 set -eou pipefail
 source scripts/dev/set_env_context.sh
+source scripts/code_snippets/tests/cleanup_load_balancer_services.sh
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 
 _SNIPPETS_OUTPUT_DIR="$(dirname "${script_name}")/outputs/$(basename "${script_name%.*}")"
 export _SNIPPETS_OUTPUT_DIR
 mkdir -p "${_SNIPPETS_OUTPUT_DIR}"
-
-list_load_balancer_services() {
-  local context="${1}"
-  local namespace="${2}"
-
-  kubectl get services --context "${context}" --namespace "${namespace}" --ignore-not-found \
-    -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.name}{"\n"}{end}'
-}
-
-cleanup_load_balancer_services() {
-  local context namespace services service remaining
-
-  for context in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8S_CLUSTER_2_CONTEXT_NAME}"; do
-    for namespace in "${OM_NAMESPACE}" "${MDB_NAMESPACE}"; do
-      if ! services="$(list_load_balancer_services "${context}" "${namespace}")"; then
-        echo "Failed to list LoadBalancer Services in ${namespace} on ${context}" >&2
-        return 1
-      fi
-
-      while IFS= read -r service; do
-        if [ -z "${service}" ]; then
-          continue
-        fi
-
-        echo "Deleting LoadBalancer Service ${service} in ${namespace} on ${context}"
-        if ! kubectl delete service "${service}" --context "${context}" --namespace "${namespace}" \
-          --wait=true --timeout=5m --ignore-not-found; then
-          echo "Failed to delete LoadBalancer Service ${service} in ${namespace} on ${context}" >&2
-          return 1
-        fi
-      done <<< "${services}"
-
-      if ! remaining="$(list_load_balancer_services "${context}" "${namespace}")"; then
-        echo "Failed to verify LoadBalancer Services in ${namespace} on ${context}" >&2
-        return 1
-      fi
-      if [ -n "${remaining}" ]; then
-        echo "LoadBalancer Services remain in ${namespace} on ${context}: ${remaining}" >&2
-        return 1
-      fi
-    done
-  done
-
-  return 0
-}
 
 function cleanup() {
   # Disable exit on error during cleanup to ensure all cleanup steps run
@@ -115,6 +71,7 @@ if [[ "${cmd}" == "dump_logs" ]]; then
   exit 0
 elif [[ "${cmd}" == "cleanup" ]]; then
   source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
   cleanup
   exit 0
 fi
