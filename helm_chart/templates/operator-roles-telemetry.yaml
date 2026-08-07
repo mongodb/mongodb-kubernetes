@@ -1,4 +1,5 @@
-{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
+{{ $ns := include "mongodb-kubernetes-operator.namespace" .  -}}
+{{- $clusterRoleName := printf "%s-%s-cluster-telemetry" .Values.operator.name $ns }}
 {{- $telemetry := default dict .Values.operator.telemetry }}
 
 {{/* We can't use default here, as 0, false and nil as determined as unset and thus set the default value */}}
@@ -37,7 +38,7 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-telemetry-binding
+  name: {{ .Values.operator.name }}-{{ $ns }}-cluster-telemetry-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -45,6 +46,6 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ .Values.operator.name }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+    namespace: {{ $ns }}
   {{- end}}{{/* if ne $telemetry.installClusterRole false */}}
 {{- end }}{{/* if ne $telemetry.enabled false */}}
