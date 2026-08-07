@@ -65,6 +65,7 @@ details.snippet summary { cursor:pointer; padding:.55em .9em; font-family:ui-mon
 details.snippet[open] summary { border-bottom:1px solid var(--line); }
 details.snippet pre { margin:0; border-radius:0 0 8px 8px; }
 .mermaid { background:#fff; text-align:center; margin:1.5em 0; }
+hr { border:none; border-top:1px solid var(--line); margin:2em 0; }
 """
 
 PAGE = """<!DOCTYPE html>

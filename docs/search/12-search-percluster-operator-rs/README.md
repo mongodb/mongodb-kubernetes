@@ -620,11 +620,15 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 
 **Check:** Operator log: `spec.clusters does not list this operator's cluster "<name>"; skipping (another operator owns this CR)`
 
+---
+
 #### `.status.phase` flaps between `Running` and `Invalid` ("multi-cluster MongoDBSearch is not supported yet: spec.clusters must contain a single entry")
 
 **Why:** The `ra-02` central hub-and-spoke operator still watches `mongodbsearch` in this namespace: it has no cluster identity, so it marks any multi-entry `spec.clusters[]` CR `Invalid` on every reconcile, racing the per-cluster operator's `Running` writes
 
 **Check:** Step 5 (`12_0110`): remove `mongodbsearch` from the central operator's `operator.watchedResources`; confirm with `kubectl get deploy mongodb-kubernetes-operator-multi-cluster -n ${OPERATOR_NAMESPACE} -o yaml | grep watch-resource`
+
+---
 
 #### Phase `Invalid`
 
@@ -632,11 +636,15 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 
 **Check:** `kubectl describe mongodbsearch`; the exact messages: `"running one operator per cluster requires spec.clusters to be set"`, `"running one operator per cluster requires index on every spec.clusters[] entry (missing on ...)"`, `"index N is set on more than one spec.clusters[] entry (... and ...); pinned indices must be distinct"`
 
+---
+
 #### Everything created, but `mongot` pods sit `PodInitializing`/`CrashLoopBackOff` in one cluster
 
 **Why:** A Secret or ConfigMap you copy by hand (password, mongot TLS cert, source CA) is missing in THAT cluster; there is no operator replication
 
 **Check:** Operator log line `MongoDBSearch missing customer-replicated secrets` with a `missing: [...]` list per cluster. This is a **log-only diagnostic requeue every 30s**: it does not gate `.status.phase`, so a stuck-but-not-Failed phase elsewhere is a separate symptom to chase.
+
+---
 
 #### The source CA ConfigMap's name keeps appearing in that `missing: [...]` list even though the ConfigMap exists
 
@@ -644,11 +652,15 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 
 **Check:** Confirm the ConfigMap exists in that cluster and disregard that one entry; only chase names that are real Secrets
 
+---
+
 #### `createSearchIndex` (or any `$search`) hangs ~20s, then `Error connecting to Search Index Management service.`, on EVERY cluster, while all CRs are `Running` and TLS handshakes to the proxy succeed
 
 **Why:** The source CR is missing the Step 12 `setParameter`s (`useGrpcForSearch` etc.): mongod's TLS handshake to Envoy completes *without ALPN h2*, Envoy silently parses the connection as HTTP/1, and the request never completes
 
 **Check:** `cat /data/automation-mongod.conf` in any mongod pod: `setParameter` must list `useGrpcForSearch`/`searchTLSMode` alongside `mongotHost`; on the Envoy pod's admin API, `downstream_cx_http1_total` climbing while `downstream_cx_http2_total` stays 0 is this exact bug
+
+---
 
 #### Search works in cluster A, returns nothing (or times out) in cluster B
 
@@ -656,11 +668,15 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 
 **Check:** `cat /data/automation-mongod.conf` in a B mongod pod, check `setParameter.mongotHost`; `openssl s_client -connect <B proxy-svc>:27028 -servername <B proxy-svc FQDN>` for a TLS/SAN mismatch
 
+---
+
 #### CR `Running` everywhere, but queries return nothing in EVERY cluster and index counts stay at 0
 
 **Why:** mongot syncs from the seed list of RS member FQDNs spanning all clusters; if the service mesh doesn't resolve or route another cluster's Service names, that sync silently fails while the CR stays `Running`. This is easy to misread as the mongotHost/SAN row above
 
 **Check:** mongot pod logs for `no such host` / connection timeouts on `<RS_RESOURCE_NAME>-<idx>-<member>-svc...` names; from a tools pod, `nslookup` another cluster's member Service FQDN. The mesh must pass the `ra-04` connectivity check
+
+---
 
 #### A cluster's LB (Envoy) pod is `CrashLoopBackOff` / fails TLS handshake, but no "missing secret" log line appears
 
@@ -668,11 +684,15 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 
 **Check:** `kubectl describe pod` on the Envoy pod for volume-mount errors; `kubectl logs` for TLS errors
 
+---
+
 #### ra-07's mongods never reach MongoDB 8.3.x (agents log an unsupported-version or upgrade error), long after ra-02 seemed fine
 
 **Why:** The central operator's chart defaults `agent.version` to an automation agent older than the **108.0.13.8870** floor MongoDB 8.2+ needs; the failure surfaces two suites away from its cause
 
 **Check:** `helm upgrade --reuse-values --set agent.version=<current agent>` on the ra-02 operator release (see Minimum versions); restart the operator
+
+---
 
 #### Step 13 exits with `om-svc-ext has no LoadBalancer IP yet`
 
@@ -680,17 +700,23 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 
 **Check:** `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's
 
+---
+
 #### Old StatefulSet/Service left behind after changing a cluster's `index`
 
 **Why:** `index` is a pinned, effectively-immutable identifier baked into every resource name; changing it does not rename or garbage-collect the old-indexed resources
 
 **Check:** `kubectl get sts,svc,deploy -n ${MDB_NAMESPACE}` for orphans at the old index; delete them manually
 
+---
+
 #### Connection to the proxy is silently dropped right after the TLS ClientHello, with no handshake error logged anywhere
 
 **Why:** Envoy's single listener (0.0.0.0:27028, there is no other port) matches filter chains by **SNI**; a client that doesn't send the expected proxy-service name as SNI matches no chain and is dropped, which looks like a hang
 
 **Check:** Envoy's per-stream JSON access log (`kubectl logs` the LB pod): a missing log line for your connection means no chain matched; each logged line's `%UPSTREAM_HOST%`/`%RESPONSE_FLAGS%` also tells you which mongot Envoy actually picked
+
+---
 
 #### CR rejected with a duplicate-hostname validation error
 
