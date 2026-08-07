@@ -28,6 +28,10 @@ spec:
   roles:
   - name: readWriteAnyDatabase
     db: admin
+  # clusterMonitor lets the verification steps read each member's runtime
+  # mongotHost (getParameter) -- the locality proof in the final step.
+  - name: clusterMonitor
+    db: admin
 EOF
 
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" wait \

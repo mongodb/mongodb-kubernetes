@@ -26,7 +26,7 @@ Search uses this model -- and no other CRD does -- because mongot is co-located 
 
 Between each cluster's mongod and its mongot sits a small proxy tier the operator manages: a stable **proxy Service** backed by an **Envoy** Deployment. mongod is pointed at the proxy Service rather than at mongot pods directly because the Service name stays valid across mongot restarts and rescaling, and Envoy terminates TLS in front of mongot (in the sharded variant it also routes each connection to the right per-shard mongot group by SNI).
 
-Two mongod server parameters make a mongod actually use Search: `mongotHost`, where it sends `$search`/`$vectorSearch` query traffic, and `searchIndexManagementHostAndPort`, where it sends index-management commands like `createSearchIndex`. Both must point at the mongod's **own cluster's** proxy Service. No `MongoDBMultiCluster` CR field can express that per-cluster value, so this guide sets both directly in the **Ops Manager Automation Config** -- the JSON document Ops Manager pushes to every automation agent, telling it exactly how to run each mongod process. Values written there live in OM, not in any CR, so the operator never sees them and never reverts them (Step 12).
+Two mongod server parameters make a mongod actually use Search: `mongotHost`, where it sends `$search`/`$vectorSearch` query traffic, and `searchIndexManagementHostAndPort`, where it sends index-management commands like `createSearchIndex`. Both must point at the mongod's **own cluster's** proxy Service. No `MongoDBMultiCluster` CR field can express that per-cluster value, so this guide sets both directly in the **Ops Manager Automation Config** -- the JSON document Ops Manager pushes to every automation agent, telling it exactly how to run each mongod process. Values written there live in OM, not in any CR, so the operator never sees them and never reverts them (Step 13).
 
 ### Hub-and-Spoke vs. Operator-Per-Cluster
 
@@ -212,7 +212,7 @@ The ra-* suites were written as standalone recipes; this scenario needs them **i
    - **Full ra-06** if you specifically want to exercise the resilient-OM reference architecture too.
    
    Source ra-06's `env_variables.sh` and only THEN `export OPS_MANAGER_VERSION=<your version>` (the ra env files hard-set their own defaults, so exporting earlier gets silently overwritten). **Decide about backup now:** ra-07's replica set enables OM backup by default, so either run ra-06's backup steps (`0400`-`0522`, MinIO + S3 stores) or plan to disable backup on the CR in stage 5. Expect 20-40 minutes. *Checkpoint:* `om` reports `Running`, and `mdb-org-owner-credentials` / `mdb-org-project-config` exist in `MDB_NAMESPACE` on cluster 0 -- scenario 12 reads its OM access from those.
-5. **The source replica set (ra-07)** -- source its env file, THEN `export MONGODB_VERSION=<your version>` (same overwrite trap as stage 4). If you skipped OM backup: right after the CR is applied, `kubectl patch mdbmc <name> -n ${MDB_NAMESPACE} --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'` -- otherwise the CR parks in `Failed` ("Failed to configure backup for MongoDBMultiCluster RS") even though every member is healthy. Search does not use backup. *Checkpoint:* the `MongoDBMultiCluster` reports `Running`.
+5. **The source replica set (ra-07)** -- source its env file, THEN `export MONGODB_VERSION=<your version>` (same overwrite trap as stage 4). If you skipped OM backup: right after the CR is applied, `kubectl patch mdbmc <name> -n ${MDB_NAMESPACE} --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'` -- otherwise the CR parks in `Failed` ("Failed to configure backup for MongoDBMultiCluster RS") even though every member is healthy. Search does not use backup. ra-07's CR also carries none of the search-specific mongod parameters -- that's expected; scenario 12's Step 12 adds them (the sharded scenario 13 sets them inline on its own source CR instead). *Checkpoint:* the `MongoDBMultiCluster` reports `Running`.
 
 After stage 5 you are where scenario 12's Step 1 expects you to be.
 
@@ -431,9 +431,30 @@ Expect a few minutes per cluster (image pulls dominate on first deploy); the sni
 
 Snippet: [12_0325_wait_for_search_resources.sh](code_snippets/12_0325_wait_for_search_resources.sh)
 
+### Configure the Source's Search Connection (gRPC + TLS)
+
+#### Step 12: Set the Source's Search Connection Parameters on the CR
+
+mongod does not talk gRPC to the search tier unless told to. Four `setParameter`s make its search client speak gRPC over TLS (offering ALPN `h2`, which the Envoy proxy's listener expects) and authenticate to mongot. Without them, the TLS handshake to the proxy still *succeeds* -- but with no ALPN, Envoy silently falls back to HTTP/1, and every search call later hangs for ~20 seconds before failing with `Error connecting to Search Index Management service.` That failure surfaces six steps from its cause (Step 18), which is why this step exists as its own checkpoint.
+
+These four values are identical for every mongod, so they go on the `MongoDBMultiCluster` CR itself (`spec.additionalMongodConfig.setParameter`) where the operator persists them -- unlike the **per-process** `mongotHost` values in the next step, which no CR field can express:
+
+```yaml
+useGrpcForSearch: true                              # search traffic is gRPC (HTTP/2) -- this is the ALPN switch
+searchTLSMode: requireTLS                           # TLS to the proxy, verified against the source CA
+skipAuthenticationToMongot: false                   # mongod authenticates to mongot
+skipAuthenticationToSearchIndexManagementServer: false
+```
+
+```bash
+./code_snippets/12_0390_configure_source_search_parameters.sh
+```
+
+Snippet: [12_0390_configure_source_search_parameters.sh](code_snippets/12_0390_configure_source_search_parameters.sh)
+
 ### Configure Per-Cluster mongotHost
 
-#### Step 12: Configure mongotHost via the Ops Manager Automation Config
+#### Step 13: Configure mongotHost via the Ops Manager Automation Config
 
 > **WARNING -- this bypasses the operator's own reconcile on purpose.** A `MongoDBMultiCluster` resource has no per-process `additionalMongodConfig`, so there is no CR field that can point cluster 1's mongods at cluster 1's mongot and cluster 2's mongods at cluster 2's mongot. This step PUTs `mongotHost` and `searchIndexManagementHostAndPort` directly onto each mongod **process** in the Ops Manager Automation Config, keyed by the cluster index embedded in that process's name. Because these values never appear in any CR spec, the operator never learns them and never reverts them on a later reconcile -- that is the entire point.
 >
@@ -449,7 +470,7 @@ Snippet: [12_0400_configure_percluster_mongot_host.sh](code_snippets/12_0400_con
 
 ### Verify the Deployment
 
-#### Step 13: Verify Per-Cluster Resources and Isolation
+#### Step 14: Verify Per-Cluster Resources and Isolation
 
 Confirms each cluster only created its own index-suffixed resources, its `MongoDBSearch.status.phase` is independently `Running`, and no foreign cluster's resources leaked in.
 
@@ -463,11 +484,11 @@ Snippet: [12_0410_verify_percluster_resources.sh](code_snippets/12_0410_verify_p
 
 ### Functional Verification
 
-Steps 1-13 prove the deployment *converges*; these steps prove it *works*: insert data, build both index types, and answer `$search`/`$vectorSearch` queries from every cluster's own local member.
+Steps 1-14 prove the deployment *converges*; these steps prove it *works*: insert data, build both index types, and answer `$search`/`$vectorSearch` queries from every cluster's own local member.
 
-#### Step 14: Create an Admin User for Data and Queries
+#### Step 15: Create an Admin User for Data and Queries
 
-A plain `readWriteAnyDatabase` user, applied once through the **central** operator that owns the source `MongoDBMultiCluster` (same pattern as Step 7's sync-source user). Used only by the verification steps below.
+A `readWriteAnyDatabase` + `clusterMonitor` user (the latter only so the final step can read each member's runtime `mongotHost`), applied once through the **central** operator that owns the source `MongoDBMultiCluster` (same pattern as Step 7's sync-source user). Used only by the verification steps below.
 
 ```bash
 ./code_snippets/12_0500_create_search_admin_user.sh
@@ -475,7 +496,7 @@ A plain `readWriteAnyDatabase` user, applied once through the **central** operat
 
 Snippet: [12_0500_create_search_admin_user.sh](code_snippets/12_0500_create_search_admin_user.sh)
 
-#### Step 15: Run a mongodb-tools Pod in Every Member Cluster
+#### Step 16: Run a mongodb-tools Pod in Every Member Cluster
 
 A small `mongodb-community-server` pod per cluster with `mongosh` and the source CA mounted at `/tls/ca.crt`. The remaining steps run from inside these pods because the seed-list and proxy-service FQDNs only resolve in-cluster.
 
@@ -485,7 +506,7 @@ A small `mongodb-community-server` pod per cluster with `mongosh` and the source
 
 Snippet: [12_0510_run_mongodb_tools_pods.sh](code_snippets/12_0510_run_mongodb_tools_pods.sh)
 
-#### Step 16: Insert Sample Data
+#### Step 17: Insert Sample Data
 
 A small deterministic dataset (text fields for `$search`, 8-dimension vectors for `$vectorSearch`), written **once** through a replica-set connection string -- every cluster's mongot then syncs it independently from its local members.
 
@@ -495,9 +516,9 @@ A small deterministic dataset (text fields for `$search`, 8-dimension vectors fo
 
 Snippet: [12_0520_insert_sample_data.sh](code_snippets/12_0520_insert_sample_data.sh)
 
-#### Step 17: Create the Search Indexes and Wait for READY
+#### Step 18: Create the Search Indexes and Wait for READY
 
-Creates one dynamic-mapping `$search` index and one `vectorSearch` index, then polls until both report `READY`. Index creation itself exercises Step 12's wiring: the mongod receiving `createSearchIndex` forwards it to its own cluster's proxy (`searchIndexManagementHostAndPort`). The snippet stops with an error if the indexes aren't `READY` within 5 minutes -- don't continue past that; check the mongot pod logs instead.
+Creates one dynamic-mapping `$search` index and one `vectorSearch` index, then polls until both report `READY`. Index creation itself exercises Step 13's wiring: the mongod receiving `createSearchIndex` forwards it to its own cluster's proxy (`searchIndexManagementHostAndPort`). The snippet stops with an error if the indexes aren't `READY` within 5 minutes -- don't continue past that; check the mongot pod logs instead.
 
 ```bash
 ./code_snippets/12_0530_create_search_indexes.sh
@@ -505,7 +526,7 @@ Creates one dynamic-mapping `$search` index and one `vectorSearch` index, then p
 
 Snippet: [12_0530_create_search_indexes.sh](code_snippets/12_0530_create_search_indexes.sh)
 
-#### Step 18: Query Every Cluster's Local Member
+#### Step 19: Query Every Cluster's Local Member
 
 For each cluster: connect **directly** to that cluster's own replica-set member (`directConnection`, `readPreference=secondaryPreferred`), print its runtime `mongotHost`, and run one `$search` and one `$vectorSearch` query. Success looks like: all three clusters return the same results (the baseball titles for `$search`, the space titles for `$vectorSearch`), and each member's `mongotHost` is **its own cluster's** proxy service -- the proof that queries are served locally, with no cross-cluster search traffic.
 
@@ -534,12 +555,14 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 | Phase `Invalid` | `spec.clusters[]` missing/empty, or an entry has no `index`, or two entries share an `index` | `kubectl describe mongodbsearch`; exact messages from `ValidateOperatorPerClusterIndices`: `"running one operator per cluster requires spec.clusters to be set"`, `"running one operator per cluster requires index on every spec.clusters[] entry (missing on ...)"`, `"index N is set on more than one spec.clusters[] entry (... and ...); pinned indices must be distinct"` |
 | Everything created, but `mongot` pods sit `PodInitializing`/`CrashLoopBackOff` in one cluster | A customer-replicated Secret or ConfigMap (password, mongot TLS cert, source CA) is missing in THAT cluster -- there is no operator replication | Operator log line `MongoDBSearch missing customer-replicated secrets` with a `missing: [...]` list per cluster (`controllers/searchcontroller/secrets_presence.go`). This is a **log-only diagnostic requeue every 30s** -- it does not gate `.status.phase`, so a stuck-but-not-Failed phase elsewhere is a separate symptom to chase. |
 | The source CA ConfigMap's name keeps appearing in that `missing: [...]` list even though the ConfigMap exists | The presence check does a Secret `Get` for every listed name, including the CA ConfigMap's -- a ConfigMap can never satisfy it | Confirm the ConfigMap exists in that cluster and disregard that one entry; only chase names that are real Secrets |
+| `createSearchIndex` (or any `$search`) hangs ~20s, then `Error connecting to Search Index Management service.` -- on EVERY cluster, while all CRs are `Running` and TLS handshakes to the proxy succeed | The source CR is missing the Step 12 `setParameter`s (`useGrpcForSearch` etc.): mongod's TLS handshake to Envoy completes *without ALPN h2*, Envoy silently parses the connection as HTTP/1, and the request never completes | `cat /data/automation-mongod.conf` in any mongod pod: `setParameter` must list `useGrpcForSearch`/`searchTLSMode` alongside `mongotHost`; on the Envoy pod's admin API, `downstream_cx_http1_total` climbing while `downstream_cx_http2_total` stays 0 is this exact bug |
 | Search works in cluster A, returns nothing (or times out) in cluster B | B's mongod still points `mongotHost` at the WRONG proxy (stale/never-patched OM Automation Config), or B's mongot TLS cert SANs don't cover B's own `-search-B-svc`/`-search-B-proxy-svc` names | `cat /data/automation-mongod.conf` in a B mongod pod, check `setParameter.mongotHost`; `openssl s_client -connect <B proxy-svc>:27028 -servername <B proxy-svc FQDN>` for a TLS/SAN mismatch |
 | CR `Running` everywhere, but queries return nothing in EVERY cluster and index counts stay at 0 | mongot syncs from the seed list of RS member FQDNs spanning all clusters; if the service mesh doesn't resolve or route another cluster's Service names, that sync silently fails while the CR stays `Running` -- easy to misread as the mongotHost/SAN row above | mongot pod logs for `no such host` / connection timeouts on `<RS_RESOURCE_NAME>-<idx>-<member>-svc...` names; from a tools pod, `nslookup` another cluster's member Service FQDN -- the mesh must pass the `ra-04` connectivity check |
 | A cluster's LB (Envoy) pod is `CrashLoopBackOff` / fails TLS handshake, but no "missing secret" log line appears | LB server/client certs (`{prefix}-{name}-search-lb-{idx}-cert`/`-client-cert`) are **not** covered by the secrets-presence diagnostic at all -- their absence surfaces as a mount/handshake failure, not a logged gap | `kubectl describe pod` on the Envoy pod for volume-mount errors; `kubectl logs` for TLS errors |
 | ra-07's mongods never reach MongoDB 8.3.x (agents log an unsupported-version or upgrade error), long after ra-02 seemed fine | The central operator's chart defaults `agent.version` to an automation agent older than the **108.0.13.8870** floor MongoDB 8.2+ needs -- the failure surfaces two suites away from its cause | `helm upgrade --reuse-values --set agent.version=<current agent>` on the ra-02 operator release (see Minimum versions); restart the operator |
-| Step 12 exits with `om-svc-ext has no LoadBalancer IP yet` | Ops Manager's external Service is `type: LoadBalancer` and the IP never got assigned -- no MetalLB on kind, or the cloud LB is still provisioning/out of quota | `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's |
+| Step 13 exits with `om-svc-ext has no LoadBalancer IP yet` | Ops Manager's external Service is `type: LoadBalancer` and the IP never got assigned -- no MetalLB on kind, or the cloud LB is still provisioning/out of quota | `kubectl get svc om-svc-ext -n ${OM_NAMESPACE} --context ${K8S_CLUSTER_0_CONTEXT_NAME}`: an `EXTERNAL-IP` of `<pending>` is the LB provisioner's problem, not this scenario's |
 | Old StatefulSet/Service left behind after changing a cluster's `index` | `index` is a pinned, effectively-immutable identifier baked into every resource name; changing it does not rename or garbage-collect the old-indexed resources | `kubectl get sts,svc,deploy -n ${MDB_NAMESPACE}` for orphans at the old index; delete them manually |
+| Connection to the proxy is silently dropped right after the TLS ClientHello -- no handshake error logged anywhere | Envoy's single listener (0.0.0.0:27028, there is no other port) matches filter chains by **SNI**; a client that doesn't send the expected proxy-service name as SNI matches no chain and is dropped, which looks like a hang | Envoy's per-stream JSON access log (`kubectl logs` the LB pod): a missing log line for your connection means no chain matched; each logged line's `%UPSTREAM_HOST%`/`%RESPONSE_FLAGS%` also tells you which mongot Envoy actually picked |
 | CR rejected with a duplicate-hostname validation error | Two `spec.clusters[].loadBalancer.managed.externalHostname` values are identical -- every cluster's hostname must be distinct (SNI) | `ManagedLBConfig.ExternalHostname` doc comment in `mongodbsearch_types.go`: "In multi-cluster deployments, every cluster's hostname must be distinct." |
 
 ## Glossary
@@ -554,7 +577,7 @@ Snippet: [12_9010_delete_resources.sh](code_snippets/12_9010_delete_resources.sh
 | **Hub-and-spoke** | The alternative multi-cluster pattern (every other CRD) -- one central operator with kubeconfig clients for every member cluster |
 | **Central operator** | The hub-and-spoke operator installed by `ra-02` on cluster 0; in this scenario it keeps managing the source `MongoDBMultiCluster` while the per-cluster operators own Search |
 | **Member cluster** | One of the Kubernetes clusters participating in the multi-cluster deployment (contexts `K8S_CLUSTER_0/1/2_CONTEXT_NAME`) |
-| **Automation Config** | The JSON document Ops Manager pushes to each automation agent describing exactly how to run every mongod process; Step 12 writes `mongotHost` there, outside any CR |
+| **Automation Config** | The JSON document Ops Manager pushes to each automation agent describing exactly how to run every mongod process; Step 13 writes `mongotHost` there, outside any CR |
 | **Seed list** | `spec.source.external.hostAndPorts` -- the replica-set member addresses mongot connects to for syncing data from the source |
 | **SAN** | Subject Alternative Name -- a hostname a TLS certificate is valid for; Search certs must list every cluster's service names (see Step 8) |
 | **SNI** | Server Name Indication -- the TLS extension Envoy uses to route incoming connections by hostname, one filter chain per cluster |
@@ -572,7 +595,7 @@ A compliant environment -- three clusters, cross-cluster routing, a mesh whose D
 
 ### 2. LoadBalancer IPs are not reachable from your workstation
 
-`ra-06_0610` and Step 12 (`12_0400`) call the Ops Manager API on `om-svc-ext`'s LoadBalancer IP. On kind with MetalLB that IP lives on the Docker network -- reachable between clusters, but (on macOS/Windows Docker Desktop) not from your shell. **Symptom:** those scripts hang or report `could not resolve project id` while everything looks healthy. **Fix:** `kubectl port-forward svc/om-svc 18443:8443` on cluster 0, copy the affected snippet to a scratch location, and point its `om_base_url` at `https://127.0.0.1:18443/api/public/v1.0`; everything else in the snippet stays unchanged.
+`ra-06_0610` and Step 13 (`12_0400`) call the Ops Manager API on `om-svc-ext`'s LoadBalancer IP. On kind with MetalLB that IP lives on the Docker network -- reachable between clusters, but (on macOS/Windows Docker Desktop) not from your shell. **Symptom:** those scripts hang or report `could not resolve project id` while everything looks healthy. **Fix:** `kubectl port-forward svc/om-svc 18443:8443` on cluster 0, copy the affected snippet to a scratch location, and point its `om_base_url` at `https://127.0.0.1:18443/api/public/v1.0`; everything else in the snippet stays unchanged.
 
 ### 3. Cross-cluster DNS is not federated (Service IPs route, names don't)
 

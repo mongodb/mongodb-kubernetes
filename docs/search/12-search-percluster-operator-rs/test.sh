@@ -66,6 +66,12 @@ run 12_0320_create_mongodb_search_resource.sh
 run_for_output 12_0325_wait_for_search_resources.sh
 
 # ============================================================================
+# SOURCE SEARCH PARAMETERS (gRPC + TLS, on the source CR)
+# ============================================================================
+
+run_for_output 12_0390_configure_source_search_parameters.sh
+
+# ============================================================================
 # PER-CLUSTER MONGOTHOST (OPS MANAGER AUTOMATION CONFIG)
 # ============================================================================
 
