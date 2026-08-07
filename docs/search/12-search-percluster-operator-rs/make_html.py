@@ -20,8 +20,10 @@ reused on later runs. Only the first run needs internet access.
 import argparse
 import html
 import json
+import os
 import pathlib
 import re
+import subprocess
 import sys
 import urllib.request
 
@@ -72,11 +74,16 @@ PAGE = """<!DOCTYPE html>
 <style>{css}</style>
 </head>
 <body>
+<div style="background:var(--mist);border-bottom:1px solid var(--line);padding:.6em 1.5rem;font-size:.85rem;">
+This is a generated offline copy. Canonical source, always current:
+<a href="{repo_dir}">docs/search/12-search-percluster-operator-rs</a> in the mongodb-kubernetes repository.
+</div>
 <main id="content">JavaScript is required to render this guide.</main>
 <script>{marked_js}</script>
 <script>{mermaid_js}</script>
 <script>
 const SOURCE = {source_json};
+const SNIPPETS = {snippets_json};
 document.getElementById("content").innerHTML = marked.parse(SOURCE);
 // GitHub-style heading ids so the README's internal #anchor links keep working
 // (marked v5+ no longer generates them itself).
@@ -96,6 +103,19 @@ for (const code of document.querySelectorAll("code.language-mermaid")) {{
 }}
 mermaid.initialize({{ startOnLoad: false, theme: "base" }});
 mermaid.run();
+// Inject snippet sources as text (never through the markdown parser).
+for (const slot of document.querySelectorAll(".snippet-slot")) {{
+  const details = document.createElement("details");
+  details.className = "snippet";
+  const summary = document.createElement("summary");
+  summary.textContent = slot.dataset.name;
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = SNIPPETS[slot.dataset.src];
+  pre.appendChild(code);
+  details.append(summary, pre);
+  slot.replaceWith(details);
+}}
 </script>
 </body>
 </html>
@@ -113,19 +133,27 @@ def vendor_js(name: str) -> str:
     return path.read_text()
 
 
-def inline_snippets(md: str) -> str:
-    """Replace 'Snippet: [name](code_snippets/x.sh)' lines with the file's source."""
+def inline_snippets(md: str) -> tuple[str, dict]:
+    """Replace 'Snippet: [name](code_snippets/x.sh)' lines with placeholders.
+
+    The sources are injected client-side with textContent AFTER markdown
+    parsing: raw HTML blocks in markdown end at the first blank line, so
+    embedding the code directly would hand half of it to the markdown parser
+    (YAML lists became bullet points).
+    """
+    sources: dict[str, str] = {}
+
     def repl(m: re.Match) -> str:
         rel = m.group(2)
         target = HERE / rel
         if not target.exists():
             sys.exit(f"error: README references missing snippet {rel}")
-        body = html.escape(target.read_text())
-        return (f'<details class="snippet"><summary>{html.escape(m.group(1))}</summary>'
-                f"<pre><code>{body}</code></pre></details>")
+        sources[rel] = target.read_text()
+        return f'<div class="snippet-slot" data-name="{html.escape(m.group(1))}" data-src="{rel}"></div>'
 
-    return re.sub(r"^Snippet: \[([^\]]+)\]\((code_snippets/[^)]+)\)\s*$",
-                  repl, md, flags=re.MULTILINE)
+    md = re.sub(r"^Snippet: \[([^\]]+)\]\((code_snippets/[^)]+)\)\s*$",
+                repl, md, flags=re.MULTILINE)
+    return md, sources
 
 
 def rewrite_repo_links(md: str, ref: str) -> str:
@@ -138,28 +166,62 @@ def rewrite_repo_links(md: str, ref: str) -> str:
     return md
 
 
+def upload(out: pathlib.Path) -> None:
+    """Publish/update the page on the internal static-page service.
+
+    Set PAGES_BASE_URL to the service's API base URL (internal; not committed
+    here because this repository is public). Auth comes from kanopy-oidc.
+    The returned slug is cached next to this script so later uploads update
+    the same page (stable URL) instead of creating a new one.
+    """
+    base = os.environ.get("PAGES_BASE_URL")
+    if not base:
+        sys.exit("error: set PAGES_BASE_URL to the internal page service's API base URL")
+    token = subprocess.run(["kanopy-oidc", "login"], capture_output=True, text=True, check=True).stdout.strip()
+    slug_file = HERE / ".page-slug"
+    if slug_file.exists():
+        url = f"{base}/api/pages/{slug_file.read_text().strip()}/versions"
+    else:
+        url = f"{base}/api/upload"
+    result = subprocess.run(
+        ["curl", "-sf", "-X", "POST", url,
+         "-H", f"Authorization: Bearer {token}",
+         "-F", f"file=@{out}"],
+        capture_output=True, text=True, check=True)
+    info = json.loads(result.stdout)
+    slug_file.write_text(info["slug"])
+    print(f"published: {info['url']} (version {info.get('version', '?')})")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ref", default="master", help="git ref for rewritten GitHub links")
     ap.add_argument("--out", default="guide.html", help="output file (relative to this dir)")
+    ap.add_argument("--upload", action="store_true",
+                    help="after building, publish to the internal page service (see upload())")
     args = ap.parse_args()
 
     md = (HERE / "README.md").read_text()
     title_match = re.match(r"# (.+)", md)
     title = title_match.group(1) if title_match else "MongoDB Search Runbook"
 
-    md = inline_snippets(md)
+    md, snippets = inline_snippets(md)
     md = rewrite_repo_links(md, args.ref)
 
     out = HERE / args.out
     out.write_text(PAGE.format(
+        repo_dir=REPO_TREE.format(ref=args.ref) + "docs/search/12-search-percluster-operator-rs",
         title=html.escape(title),
         css=CSS,
         marked_js=vendor_js("marked.min.js"),
         mermaid_js=vendor_js("mermaid.min.js"),
         source_json=json.dumps(md).replace("</", "<\\/"),  # keep </script> inert
+        snippets_json=json.dumps(snippets).replace("</", "<\\/"),
     ))
     print(f"wrote {out} ({out.stat().st_size // 1024} KB)")
+
+    if args.upload:
+        upload(out)
 
 
 if __name__ == "__main__":
