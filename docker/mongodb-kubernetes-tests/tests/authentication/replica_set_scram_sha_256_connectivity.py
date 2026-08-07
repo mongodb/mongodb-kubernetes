@@ -393,12 +393,8 @@ def test_different_connection_string_database_credentials_secret_is_created(
 def test_different_connection_string_database_credentials_can_connect_to_db(
     replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
 ):
-    # write against the database in the URI path, so this checks the path is usable
-    # rather than only that it is spelled correctly
     replica_set.assert_connectivity_from_connection_string(
-        different_database_standard_secret["connectionString.standard"],
-        tls=False,
-        db=DIFFERENT_CONNECTION_STRING_DATABASE,
+        different_database_standard_secret["connectionString.standard"], tls=False
     )
 
 
@@ -407,9 +403,7 @@ def test_different_connection_string_database_credentials_can_connect_to_db_with
     replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
 ):
     replica_set.assert_connectivity_from_connection_string(
-        different_database_standard_secret["connectionString.standardSrv"],
-        tls=False,
-        db=DIFFERENT_CONNECTION_STRING_DATABASE,
+        different_database_standard_secret["connectionString.standardSrv"], tls=False
     )
 
 

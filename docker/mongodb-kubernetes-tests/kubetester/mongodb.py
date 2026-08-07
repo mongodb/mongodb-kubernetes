@@ -234,16 +234,15 @@ class MongoDB(CustomObject, MongoDBCommon):
             self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
             self.update()
 
-    def assert_connectivity_from_connection_string(
-        self, cnx_string: str, tls: bool, ca_path: Optional[str] = None, db: str = "admin"
-    ):
+    def assert_connectivity_from_connection_string(self, cnx_string: str, tls: bool, ca_path: Optional[str] = None):
         """
         Tries to connect to a database using a connection string only.
 
-        db is the database the authenticated action is performed against. Pass the
-        database from the connection string URI path to check that path is usable,
-        rather than only that it renders correctly.
+        The authenticated action runs against the database in the URI path, so the path
+        is checked for being usable and not just for being spelled correctly. Connection
+        strings with an empty path fall back to admin.
         """
+        db = urllib.parse.urlsplit(cnx_string).path.lstrip("/") or "admin"
         return MongoTester(cnx_string, tls, ca_path).assert_connectivity(db=db)
 
     def __repr__(self):
