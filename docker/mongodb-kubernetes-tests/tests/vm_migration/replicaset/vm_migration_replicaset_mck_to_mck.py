@@ -9,13 +9,7 @@ other vm_migration replica set tests, the migration source is a genuine MCK depl
 StatefulSet fixture, and the migration runs operator -> operator across namespaces.
 """
 
-from kubetester import (
-    create_or_update_configmap,
-    create_or_update_secret,
-    read_configmap,
-    read_secret,
-    try_load,
-)
+from kubetester import create_or_update_configmap, create_or_update_secret, read_configmap, read_secret
 from kubetester.kubetester import KubernetesTester, create_testing_namespace, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
@@ -25,11 +19,7 @@ from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import (
-    get_central_cluster_client,
-    get_evergreen_task_id,
-    get_operator_installation_config,
-)
+from tests.conftest import get_central_cluster_client, get_evergreen_task_id, get_operator_installation_config
 from tests.vm_migration.vm_migration_common_helper import (
     assert_migration_data_exists,
     generated_mongodb_doc,
@@ -187,7 +177,7 @@ def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
 def test_install_source_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
@@ -221,7 +211,7 @@ def test_prepare_target_namespace(namespace: str, target_namespace: str):
 @mark.e2e_vm_migration_replicaset_mck_to_mck
 def test_install_target_operator(target_operator: Operator):
     """Installed after operator A is gone, so operator B owns the cluster webhook."""
-    target_operator.assert_is_running()
+    target_operator.wait_for_operator_ready()
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
