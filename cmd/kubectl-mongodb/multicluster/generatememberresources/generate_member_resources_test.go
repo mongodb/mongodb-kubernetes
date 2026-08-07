@@ -21,8 +21,8 @@ func TestNormalizeWorkloadNamespaces(t *testing.T) {
 		{name: "multiple entries", raw: "ns1,ns2", memberNs: "mongodb", want: []string{"ns1", "ns2"}},
 		{name: "entries are trimmed", raw: " ns1 , ns2 ", memberNs: "mongodb", want: []string{"ns1", "ns2"}},
 		{name: "duplicates are deduped", raw: "ns1,ns2,ns1", memberNs: "mongodb", want: []string{"ns1", "ns2"}},
-		{name: "wildcard rejected", raw: "*", memberNs: "mongodb", wantError: "--cluster-scoped"},
-		{name: "wildcard in a list rejected", raw: "ns1,*", memberNs: "mongodb", wantError: "--cluster-scoped"},
+		{name: "wildcard rejected", raw: "*", memberNs: "mongodb", wantError: "--operator-cluster-scoped"},
+		{name: "wildcard in a list rejected", raw: "ns1,*", memberNs: "mongodb", wantError: "--operator-cluster-scoped"},
 		{name: "empty entry rejected", raw: "ns1,,ns2", memberNs: "mongodb", wantError: "non-empty"},
 		{name: "trailing comma rejected", raw: "ns1,", memberNs: "mongodb", wantError: "non-empty"},
 	}
