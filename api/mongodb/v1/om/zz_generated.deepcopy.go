@@ -613,6 +613,11 @@ func (in *MongoDBOpsManagerSpec) DeepCopyInto(out *MongoDBOpsManagerSpec) {
 		*out = new(AppDBSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.ExternalApplicationDatabaseRef != nil {
+		in, out := &in.ExternalApplicationDatabaseRef, &out.ExternalApplicationDatabaseRef
+		*out = new(ExternalApplicationDatabaseRef)
+		**out = **in
+	}
 	if in.Logging != nil {
 		in, out := &in.Logging, &out.Logging
 		*out = new(Logging)
@@ -653,11 +658,6 @@ func (in *MongoDBOpsManagerSpec) DeepCopyInto(out *MongoDBOpsManagerSpec) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
-	}
-	if in.ExternalApplicationDatabaseRef != nil {
-		in, out := &in.ExternalApplicationDatabaseRef, &out.ExternalApplicationDatabaseRef
-		*out = new(ExternalApplicationDatabaseRef)
-		**out = **in
 	}
 }
 

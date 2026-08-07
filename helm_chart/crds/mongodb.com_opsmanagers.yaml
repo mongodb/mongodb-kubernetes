@@ -1813,6 +1813,10 @@ spec:
             required:
             - version
             type: object
+            x-kubernetes-validations:
+            - message: at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef
+                must be set
+              rule: has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)
           status:
             properties:
               applicationDatabase:

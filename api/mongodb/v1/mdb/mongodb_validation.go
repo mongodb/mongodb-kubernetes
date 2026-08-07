@@ -383,18 +383,6 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// roleImmutable blocks any spec.role transition after creation. Removing role: AppDB would
-// orphan the appdb-detach finalizer and re-enable the full Ops Manager state teardown on
-// deletion, shutting down a database an Ops Manager may still depend on; adding it to an
-// existing resource is an undesigned conversion flow. The only supported way to stop using a
-// resource as AppDB is reverse migration (deleting the resource).
-func roleImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
-	if newObj.Role != oldObj.Role {
-		return v1.ValidationError("spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)")
-	}
-	return v1.ValidationSuccess()
-}
-
 // This validation blocks topology migrations for any MongoDB resource (Standalone, ReplicaSet, ShardedCluster)
 func noTopologyMigration(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if oldObj.GetTopology() != newObj.GetTopology() {
@@ -439,56 +427,6 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// appDBRoleRequiresScram checks that resources with spec.role: AppDB satisfy the same
-// authentication requirements the internal Application Database hardcodes unconditionally:
-// SCRAM authentication enabled and ignoreUnknownUsers set to true.
-// The minimum member count requirement is validated separately per resource kind (MongoDB,
-// MongoDBMultiCluster), since member count is not part of DbCommonSpec.
-func appDBRoleRequiresScram(d DbCommonSpec) v1.ValidationResult {
-	if d.Role != RoleAppDB {
-		return v1.ValidationSuccess()
-	}
-
-	authSpec := d.Security.Authentication
-	if authSpec == nil || !authSpec.Enabled || !IsAuthPresent(authSpec.Modes, util.SCRAM) {
-		return v1.ValidationError("spec.security.authentication must have SCRAM enabled when spec.role is AppDB")
-	}
-
-	if !authSpec.IgnoreUnknownUsers {
-		return v1.ValidationError("spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB")
-	}
-
-	return v1.ValidationSuccess()
-}
-
-// appDBRoleRequiresSingleClusterReplicaSet: an AppDB-role resource is always an ordinary
-// single-cluster replica set; sharded clusters have no AppDB equivalent, and multi-cluster
-// AppDB is the MongoDBMultiCluster kind's concern.
-func appDBRoleRequiresSingleClusterReplicaSet(ms MongoDbSpec) v1.ValidationResult {
-	if ms.Role != RoleAppDB {
-		return v1.ValidationSuccess()
-	}
-	if ms.ResourceType != ReplicaSet {
-		return v1.ValidationError("spec.resourceType must be ReplicaSet when spec.role is AppDB")
-	}
-	if ms.GetTopology() == ClusterTopologyMultiCluster {
-		return v1.ValidationError("spec.topology MultiCluster is not supported when spec.role is AppDB")
-	}
-	return v1.ValidationSuccess()
-}
-
-// appDBRoleRequiresMinimumMembers checks that resources with spec.role: AppDB have at least 3
-// members, matching the requirement the internal Application Database hardcodes unconditionally.
-func appDBRoleRequiresMinimumMembers(ms MongoDbSpec) v1.ValidationResult {
-	if ms.Role != RoleAppDB {
-		return v1.ValidationSuccess()
-	}
-	if ms.Members < 3 {
-		return v1.ValidationError("spec.members must be >= 3 when spec.role is AppDB")
-	}
-	return v1.ValidationSuccess()
-}
-
 func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResult {
 	validators := []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -502,7 +440,6 @@ func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResul
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
 		featureCompatibilityVersionValidation,
-		appDBRoleRequiresScram,
 	}
 
 	validators = append(validators, oidcAuthValidators(db)...)
@@ -543,13 +480,10 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,
 		replicasetMemberIsSpecified,
-		appDBRoleRequiresMinimumMembers,
-		appDBRoleRequiresSingleClusterReplicaSet,
 	}
 
 	updateValidators := []func(newObj MongoDbSpec, oldObj MongoDbSpec) v1.ValidationResult{
 		resourceTypeImmutable,
-		roleImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
 	}
