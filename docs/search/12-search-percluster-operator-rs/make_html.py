@@ -164,8 +164,7 @@ def inline_snippets(md: str) -> tuple[str, dict]:
         # of the HTML block, which ate the next heading.
         return f"@@SNIPPET|{rel}|{m.group(1)}@@"
 
-    md = re.sub(r"^Snippet: \[([^\]]+)\]\((code_snippets/[^)]+)\)\s*$",
-                repl, md, flags=re.MULTILINE)
+    md = re.sub(r"^Snippet: \[([^\]]+)\]\((code_snippets/[^)]+)\)\s*$", repl, md, flags=re.MULTILINE)
     return md, sources
 
 
@@ -174,8 +173,9 @@ def rewrite_repo_links(md: str, ref: str) -> str:
     # directory links like ../../../public/architectures/... -> GitHub tree URLs
     md = re.sub(r"\]\(\.\./\.\./\.\./([^)#]+?)/?\)", rf"]({tree}\1)", md)
     # sibling-file links (env.sh, env_variables.sh, test.sh) -> GitHub blob URLs
-    md = re.sub(r"\]\((env\.sh|env_variables\.sh|test\.sh)\)",
-                rf"]({blob}docs/search/12-search-percluster-operator-rs/\1)", md)
+    md = re.sub(
+        r"\]\((env\.sh|env_variables\.sh|test\.sh)\)", rf"]({blob}docs/search/12-search-percluster-operator-rs/\1)", md
+    )
     return md
 
 
@@ -197,10 +197,11 @@ def upload(out: pathlib.Path) -> None:
     else:
         url = f"{base}/api/upload"
     result = subprocess.run(
-        ["curl", "-sf", "-X", "POST", url,
-         "-H", f"Authorization: Bearer {token}",
-         "-F", f"file=@{out}"],
-        capture_output=True, text=True, check=True)
+        ["curl", "-sf", "-X", "POST", url, "-H", f"Authorization: Bearer {token}", "-F", f"file=@{out}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     info = json.loads(result.stdout)
     slug_file.write_text(info["slug"])
     print(f"published: {info['url']} (version {info.get('version', '?')})")
@@ -210,8 +211,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ref", default="master", help="git ref for rewritten GitHub links")
     ap.add_argument("--out", default="guide.html", help="output file (relative to this dir)")
-    ap.add_argument("--upload", action="store_true",
-                    help="after building, publish to the internal page service (see upload())")
+    ap.add_argument(
+        "--upload", action="store_true", help="after building, publish to the internal page service (see upload())"
+    )
     args = ap.parse_args()
 
     md = (HERE / "README.md").read_text()
@@ -222,17 +224,19 @@ def main() -> None:
     md = rewrite_repo_links(md, args.ref)
 
     out = HERE / args.out
-    out.write_text(PAGE.format(
-        repo_dir=REPO_TREE.format(ref=args.ref) + "docs/search/12-search-percluster-operator-rs",
-        title=html.escape(title),
-        css=CSS,
-        marked_js=vendor_js("marked.min.js"),
-        mermaid_js=vendor_js("mermaid.min.js"),
-        highlight_js=vendor_js("highlight.min.js"),
-        highlight_css=vendor_js("highlight-theme.css").replace("</", "<\\/"),
-        source_json=json.dumps(md).replace("</", "<\\/"),  # keep </script> inert
-        snippets_json=json.dumps(snippets).replace("</", "<\\/"),
-    ))
+    out.write_text(
+        PAGE.format(
+            repo_dir=REPO_TREE.format(ref=args.ref) + "docs/search/12-search-percluster-operator-rs",
+            title=html.escape(title),
+            css=CSS,
+            marked_js=vendor_js("marked.min.js"),
+            mermaid_js=vendor_js("mermaid.min.js"),
+            highlight_js=vendor_js("highlight.min.js"),
+            highlight_css=vendor_js("highlight-theme.css").replace("</", "<\\/"),
+            source_json=json.dumps(md).replace("</", "<\\/"),  # keep </script> inert
+            snippets_json=json.dumps(snippets).replace("</", "<\\/"),
+        )
+    )
     print(f"wrote {out} ({out.stat().st_size // 1024} KB)")
 
     if args.upload:
