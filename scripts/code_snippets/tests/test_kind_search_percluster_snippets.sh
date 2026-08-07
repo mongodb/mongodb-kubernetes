@@ -185,15 +185,54 @@ mirror_om_svc() {
 }
 mirror_om_svc &
 
-# Phase 1: Ops Manager (ra-06) -- the slow step
+# Phase 1: Ops Manager (ra-06) -- the slow step. We run the suite's snippets
+# directly instead of its test.sh so we can leave out its last part (minio +
+# S3 backup, ra-06_04xx/05xx): Search never uses OM backup, and on these CI
+# hosts the backup phase never reaches Running. Everything scenario 12 needs
+# from ra-06 -- OM itself and the org credentials from ra-06_0610 -- comes
+# from the snippets below, in the suite's own order.
 source public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
 export OPS_MANAGER_VERSION=8.0.25 # Search minimum; ra-06 defaults to 8.0.5
-./public/architectures/ra-06-ops-manager-multi-cluster/test.sh
+(
+  script_dir="public/architectures/ra-06-ops-manager-multi-cluster"
+  source scripts/code_snippets/sample_test_runner.sh
+  pushd "${script_dir}"
+  prepare_snippets
+  run ra-06_0250_generate_certs.sh
+  run ra-06_0300_ops_manager_create_admin_credentials.sh
+  run ra-06_0310_ops_manager_deploy_on_single_member_cluster.sh
+  run_for_output ra-06_0311_ops_manager_wait_for_pending_state.sh
+  run_for_output ra-06_0312_ops_manager_wait_for_running_state.sh
+  run ra-06_0320_ops_manager_add_second_cluster.sh
+  run_for_output ra-06_0321_ops_manager_wait_for_pending_state.sh
+  run_for_output ra-06_0322_ops_manager_wait_for_running_state.sh
+  run ra-06_0610_create_mdb_org_and_get_credentials.sh
+  popd
+)
 
-# Phase 1: the source replica set (ra-07)
+# Phase 1: the source replica set (ra-07). Same treatment as ra-06 above:
+# the CR the suite applies has backup.mode=enabled, which needs the OM backup
+# setup we skipped, so the operator parks the CR in Failed ("Failed to
+# configure backup for MongoDBMultiCluster RS", attempt 17). Search never
+# uses backup, so run the snippets directly and disable backup on the CR
+# right after applying it.
 source public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh
 export MONGODB_VERSION=8.3.4-ent # Search minimum is 8.3.0; the 8.0.5-ent default lacks the searchCoordinator role
-./public/architectures/ra-07-mongodb-replicaset-multi-cluster/test.sh
+(
+  script_dir="public/architectures/ra-07-mongodb-replicaset-multi-cluster"
+  source scripts/code_snippets/sample_test_runner.sh
+  pushd "${script_dir}"
+  prepare_snippets
+  run ra-07_1050_generate_certs.sh
+  run ra-07_1100_mongodb_replicaset_multi_cluster.sh
+  kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${MDB_NAMESPACE}" \
+    patch mdbmc "${RS_RESOURCE_NAME}" --type merge -p '{"spec":{"backup":{"mode":"disabled"}}}'
+  run ra-07_1110_mongodb_replicaset_multi_cluster_wait_for_running_state.sh
+  run ra-07_1200_create_mongodb_user.sh
+  sleep 10
+  run_for_output ra-07_1210_verify_mongosh_connection.sh
+  popd
+)
 
 # Phase 2: scenario 12 (operator-per-cluster Search), snippets verbatim
 test_dir="./docs/search/12-search-percluster-operator-rs"
