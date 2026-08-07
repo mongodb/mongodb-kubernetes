@@ -142,14 +142,14 @@ for attempt in 1 2 3; do
   sleep 30
 done
 
-# ra-06's Application Database spans all three clusters, and its agents on
-# clusters 2 and 3 reach Ops Manager by the name om-svc, which exists only on
-# cluster 0 -- exactly the remote-only resolution the CI mesh cannot provide
-# (see the ra-04 note above). Mirror the Service instead: in the other two
-# clusters, a selectorless Service named om-svc plus an EndpointSlice whose
-# endpoint is cluster 0's om-svc clusterIP; Service IPs are routable across
-# the interconnected kind clusters. Runs in the background because om-svc
-# only appears once ra-06 has applied its Ops Manager resource.
+# The ra-07 source's automation agents on clusters 2 and 3 reach Ops Manager
+# by the name om-svc, which exists only on cluster 0 -- exactly the
+# remote-only resolution the CI mesh cannot provide (see the ra-04 note
+# above). Mirror the Service instead: in the other two clusters, a
+# selectorless Service named om-svc plus an EndpointSlice whose endpoint is
+# cluster 0's om-svc clusterIP; Service IPs are routable across the
+# interconnected kind clusters. Runs in the background because om-svc only
+# appears once ra-06 has applied its Ops Manager resource.
 mirror_om_svc() {
   local om_ip=""
   for _ in $(seq 1 90); do
@@ -186,11 +186,14 @@ mirror_om_svc() {
 mirror_om_svc &
 
 # Phase 1: Ops Manager (ra-06) -- the slow step. We run the suite's snippets
-# directly instead of its test.sh so we can leave out its last part (minio +
-# S3 backup, ra-06_04xx/05xx): Search never uses OM backup, and on these CI
-# hosts the backup phase never reaches Running. Everything scenario 12 needs
-# from ra-06 -- OM itself and the org credentials from ra-06_0610 -- comes
-# from the snippets below, in the suite's own order.
+# directly instead of its test.sh, and only the single-cluster deploy:
+# scenario 12 needs AN Ops Manager, not a resilient one. The OM application
+# is stateless (any instance works while it reads the same AppDB), so the
+# suite's add-second-cluster steps (0320-0322) buy HA this test never
+# exercises, and its backup part (minio + S3, 04xx/05xx) never reaches
+# Running on these CI hosts and is not used by Search. Everything scenario
+# 12 needs from ra-06 -- OM itself and the org credentials from ra-06_0610
+# -- comes from the snippets below, in the suite's own order.
 source public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
 export OPS_MANAGER_VERSION=8.0.25 # Search minimum; ra-06 defaults to 8.0.5
 (
@@ -203,9 +206,6 @@ export OPS_MANAGER_VERSION=8.0.25 # Search minimum; ra-06 defaults to 8.0.5
   run ra-06_0310_ops_manager_deploy_on_single_member_cluster.sh
   run_for_output ra-06_0311_ops_manager_wait_for_pending_state.sh
   run_for_output ra-06_0312_ops_manager_wait_for_running_state.sh
-  run ra-06_0320_ops_manager_add_second_cluster.sh
-  run_for_output ra-06_0321_ops_manager_wait_for_pending_state.sh
-  run_for_output ra-06_0322_ops_manager_wait_for_running_state.sh
   run ra-06_0610_create_mdb_org_and_get_credentials.sh
   popd
 )
