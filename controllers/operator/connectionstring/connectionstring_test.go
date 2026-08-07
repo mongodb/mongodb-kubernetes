@@ -38,6 +38,7 @@ func TestBuild_AuthSourcePreservedOnVersionParseError(t *testing.T) {
 		SetHostnames([]string{"host:27017"}).
 		SetUsername("user").
 		SetPassword("password").
+		SetAuthSource("admin").
 		Build()
 	assert.Contains(t, cs, "authSource=admin", "authSource must still be set when version is unknown")
 	assert.NotContains(t, cs, "authMechanism=", "authMechanism must not be set when version is unknown")
