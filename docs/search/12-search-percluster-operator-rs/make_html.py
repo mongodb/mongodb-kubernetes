@@ -108,18 +108,20 @@ for (const code of document.querySelectorAll("code.language-mermaid")) {{
 mermaid.initialize({{ startOnLoad: false, theme: "base" }});
 mermaid.run();
 // Inject snippet sources as text (never through the markdown parser).
-for (const slot of document.querySelectorAll(".snippet-slot")) {{
+for (const p of document.querySelectorAll("#content p")) {{
+  const m = p.textContent.trim().match(/^@@SNIPPET\|([^|]+)\|(.+)@@$/);
+  if (!m) continue;
   const details = document.createElement("details");
   details.className = "snippet";
   const summary = document.createElement("summary");
-  summary.textContent = slot.dataset.name;
+  summary.textContent = m[2];
   const pre = document.createElement("pre");
   const code = document.createElement("code");
-  code.textContent = SNIPPETS[slot.dataset.src];
+  code.textContent = SNIPPETS[m[1]];
   code.className = "language-bash";
   pre.appendChild(code);
   details.append(summary, pre);
-  slot.replaceWith(details);
+  p.replaceWith(details);
 }}
 // Syntax coloring for bash/yaml blocks (mermaid blocks were already replaced above).
 for (const code of document.querySelectorAll("pre code")) {{ hljs.highlightElement(code); }}
@@ -156,7 +158,10 @@ def inline_snippets(md: str) -> tuple[str, dict]:
         if not target.exists():
             sys.exit(f"error: README references missing snippet {rel}")
         sources[rel] = target.read_text()
-        return f'<div class="snippet-slot" data-name="{html.escape(m.group(1))}" data-src="{rel}"></div>'
+        # Plain-text marker, swapped for a <details> block after parsing. A raw
+        # HTML placeholder here makes marked treat the following line as part
+        # of the HTML block, which ate the next heading.
+        return f"@@SNIPPET|{rel}|{m.group(1)}@@"
 
     md = re.sub(r"^Snippet: \[([^\]]+)\]\((code_snippets/[^)]+)\)\s*$",
                 repl, md, flags=re.MULTILINE)
