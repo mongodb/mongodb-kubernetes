@@ -188,7 +188,7 @@ func (b *builder) Build() string {
 		connectionParams["ssl"] = "false"
 	}
 
-	// callers supply the auth source, the CRD defaults it to admin
+	// callers supply the auth source explicitly
 	if b.authSource != "" {
 		connectionParams["authSource"] = b.authSource
 	}
