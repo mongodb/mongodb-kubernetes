@@ -171,6 +171,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         parallel_factor=args.parallel_factor,
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
+        custom_agent_url=args.custom_agent_url,
     )
 
 
@@ -306,6 +307,14 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         "--architecture-suffix",
         action=argparse.BooleanOptionalAction,
         help="Append architecture suffix to image tags for single platform builds. Can be true or false. This will override the value from build_info.json",
+    )
+    parser.add_argument(
+        "--custom-agent-url",
+        metavar="",
+        action="store",
+        type=str,
+        default="",
+        help="Custom agent URL for testing. Overrides the prod agent download URL.",
     )
 
     args = parser.parse_args()

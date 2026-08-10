@@ -124,7 +124,7 @@ class TestOperatorUpgrade:
         operator = get_default_operator(
             namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
         )
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
         logger.info("Installing the operator built from master")
         # Dumping deployments in logs ensures we are using the correct operator version
         log_deployments_info(namespace)

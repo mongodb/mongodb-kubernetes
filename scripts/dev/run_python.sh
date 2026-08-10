@@ -5,12 +5,11 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
+# set_env_context.sh (sourced above) activates the venv; fail loudly if it didn't.
 # shellcheck disable=SC2154
-if [ -f "${PROJECT_DIR}/venv/bin/activate" ]; then
-    source "${PROJECT_DIR}/venv/bin/activate"
-else
-  echo "Cannot find python venv in ${PROJECT_DIR}"
-  ls -al "${PROJECT_DIR}"
+if [[ -z "${VIRTUAL_ENV:-}" ]]; then
+  echo "Cannot find active python venv (expected ${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv})."
+  echo "Run scripts/dev/recreate_python_venv.sh first."
   exit 1
 fi
 

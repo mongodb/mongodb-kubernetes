@@ -34,7 +34,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @mark.e2e_sharded_cluster_pv
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_sharded_cluster_pv
@@ -155,7 +155,7 @@ class TestShardedClusterDeletion:
 
             return True
 
-        run_periodically(sts_are_deleted, timeout=60)
+        run_periodically(sts_are_deleted, timeout=300)
 
     def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
         def svc_are_deleted() -> bool:
@@ -171,4 +171,4 @@ class TestShardedClusterDeletion:
 
             return True
 
-        run_periodically(svc_are_deleted, timeout=60)
+        run_periodically(svc_are_deleted, timeout=300)

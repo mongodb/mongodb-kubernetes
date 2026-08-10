@@ -1,0 +1,342 @@
+{{- /*gotype: github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller.MetricsForwarderConfigParams*/ -}}
+extensions:
+  basicauth/agent:
+    client_auth:
+      password_file: /mongodb-automation/agent-api-key/agentApiKey
+      username: {{ .GroupID }}
+receivers:
+  prometheus:
+    config:
+      global:
+        scrape_interval: {{ .ScrapeInterval }}
+      scrape_configs:
+        - job_name: {{ .MongotName }}
+          dns_sd_configs:
+          - names:
+            {{ range .ShardNames }}
+            - _prometheus._tcp.{{ $.MongotName }}-search-{{ $.ClusterIndex }}-{{ . }}-svc
+            {{ else }}
+            - _prometheus._tcp.{{ $.MongotName }}-search-{{ $.ClusterIndex }}-svc
+            {{ end }}
+            type: SRV
+            refresh_interval: 30s
+          metrics_path: /metrics
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: ${env:MEMORY_LIMITER_SPIKE_PERCENTAGE}
+  filter/drop_unwanted_series:
+    metrics:
+      datapoint:
+      - (metric.name == "mongot_jvm_memory_used_bytes" or metric.name == "mongot_jvm_memory_max_bytes")
+        and attributes["area"] != "heap" and attributes["area"] != "nonheap"
+      - metric.name == "mongot_jvm_memory_max_bytes" and value_double < 0
+  metrics_transform/rename:
+    transforms:
+    - include: mongot_search_metrics_searchCommandTotalCount_total
+      action: update
+      new_name: mongot.query.total
+    - include: mongot_search_metrics_searchCommandInvalidQueries_total
+      action: update
+      new_name: mongot.query.failed.total
+    - include: mongot_search_metrics_vectorSearchCommandTotalCount_total
+      action: update
+      new_name: mongot.query.vector_search.total
+    - include: mongot_search_metrics_vectorSearchCommandInvalidQueries_total
+      action: update
+      new_name: mongot.query.vector_search.failed.total
+  metricsgeneration:
+    rules:
+    - name: mongot.process.cpu.normalized
+      type: scale
+      metric1: mongot_process_cpu_usage
+      operation: multiply
+      scale_by: 100
+    - name: mongot.query.latency.max
+      type: scale
+      metric1: mongot_command_searchCommandTotalLatency_seconds_max
+      operation: multiply
+      scale_by: 1000
+    - name: mongot.query.vector_search.latency.max
+      type: scale
+      metric1: mongot_command_vectorSearchCommandTotalLatency_seconds_max
+      operation: multiply
+      scale_by: 1000
+  transform/extract_summary_components:
+    metric_statements:
+    - context: metric
+      statements:
+      - extract_count_metric(true) where name == "mongot_command_searchCommandTotalLatency_seconds"
+      - extract_sum_metric(true) where name == "mongot_command_searchCommandTotalLatency_seconds"
+      - extract_count_metric(true) where name == "mongot_command_vectorSearchCommandTotalLatency_seconds"
+      - extract_sum_metric(true) where name == "mongot_command_vectorSearchCommandTotalLatency_seconds"
+  cumulativetodelta/latency:
+    include:
+      match_type: strict
+      metrics:
+      - mongot_command_searchCommandTotalLatency_seconds_sum
+      - mongot_command_searchCommandTotalLatency_seconds_count
+      - mongot_command_vectorSearchCommandTotalLatency_seconds_sum
+      - mongot_command_vectorSearchCommandTotalLatency_seconds_count
+  metricsgeneration/latency_avg_seconds:
+    rules:
+    - name: mongot.query.latency.avg.seconds
+      type: calculate
+      metric1: mongot_command_searchCommandTotalLatency_seconds_sum
+      metric2: mongot_command_searchCommandTotalLatency_seconds_count
+      operation: divide
+    - name: mongot.query.vector_search.latency.avg.seconds
+      type: calculate
+      metric1: mongot_command_vectorSearchCommandTotalLatency_seconds_sum
+      metric2: mongot_command_vectorSearchCommandTotalLatency_seconds_count
+      operation: divide
+  metricsgeneration/latency_avg_ms:
+    rules:
+    - name: mongot.query.latency.avg
+      type: scale
+      metric1: mongot.query.latency.avg.seconds
+      operation: multiply
+      scale_by: 1000
+    - name: mongot.query.vector_search.latency.avg
+      type: scale
+      metric1: mongot.query.vector_search.latency.avg.seconds
+      operation: multiply
+      scale_by: 1000
+  metrics_transform/aggregate_and_rename:
+    transforms:
+    - include: mongot_replication_mongodb_indexManagerState
+      match_type: strict
+      experimental_match_labels:
+        state: STEADY_STATE
+      action: insert
+      new_name: mongot.health.index_manager_state
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_replication_mongodb_indexManagerState
+      match_type: strict
+      experimental_match_labels:
+        state: FAILED
+      action: insert
+      new_name: mongot.health.index_manager_state.failed
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_replication_mongodb_indexManagerState
+      match_type: strict
+      experimental_match_labels:
+        state: FAILED_EXCEEDED
+      action: insert
+      new_name: mongot.health.index_manager_state.failed_exceeded
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_index_stats_numLuceneDocs
+      match_type: strict
+      action: update
+      new_name: mongot.index.lucene.docs
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_index_stats_indexSizeBytes
+      match_type: strict
+      action: update
+      new_name: mongot.index.size.bytes
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_jvm_gc_pause_seconds_max
+      match_type: strict
+      action: update
+      new_name: mongot.jvm.gc.pause.max.seconds
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: max
+    - include: mongot_jvm_memory_used_bytes
+      match_type: strict
+      experimental_match_labels:
+        area: heap
+      action: insert
+      new_name: mongot.jvm.memory.heap.used
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_jvm_memory_max_bytes
+      match_type: strict
+      experimental_match_labels:
+        area: heap
+      action: insert
+      new_name: mongot.jvm.memory.heap.max
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+    - include: mongot_process_uptime_seconds
+      match_type: strict
+      action: update
+      new_name: process.uptime
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: max
+    - include: mongot_system_disk_space_data_path_free_bytes
+      match_type: strict
+      action: insert
+      new_name: mongot.system.disk.space.data.path.free.bytes
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: max
+    - include: mongot_system_disk_space_data_path_total_bytes
+      match_type: strict
+      action: insert
+      new_name: mongot.system.disk.space.data.path.total.bytes
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: max
+    - include: mongot_index_stats_segment_count
+      match_type: strict
+      action: update
+      new_name: mongot.index.segment.count
+      operations:
+      - action: aggregate_labels
+        label_set: []
+        aggregation_type: sum
+  metricsgeneration/disk_used_bytes:
+    rules:
+    - name: mongot.system.disk.space.data.path.used.bytes
+      type: calculate
+      metric1: mongot.system.disk.space.data.path.total.bytes
+      metric2: mongot.system.disk.space.data.path.free.bytes
+      operation: subtract
+  metricsgeneration/disk_percent_used:
+    rules:
+    - name: mongot.system.disk.space.data.path.percent.used
+      type: calculate
+      metric1: mongot.system.disk.space.data.path.used.bytes
+      metric2: mongot.system.disk.space.data.path.total.bytes
+      operation: percent
+  transform/source_resource_attrs:
+    metric_statements:
+    - context: datapoint
+      statements:
+      - set(resource.attributes["mongodb.opsmanager.host.memory.size"], Int(value_double))
+        where metric.name == "mongot_system_memory_phys_total_bytes"
+  filter/keep_only_mapped:
+    metrics:
+      include:
+        match_type: strict
+        metric_names:
+        - mongot.process.cpu.normalized
+        - process.uptime
+        - mongot.jvm.memory.heap.used
+        - mongot.jvm.memory.heap.max
+        - mongot.jvm.gc.pause.max.seconds
+        - mongot.system.disk.space.data.path.percent.used
+        - mongot.index.size.bytes
+        - mongot.index.lucene.docs
+        - mongot.index.segment.count
+        - mongot.query.total
+        - mongot.query.failed.total
+        - mongot.query.latency.max
+        - mongot.query.latency.avg
+        - mongot.query.vector_search.total
+        - mongot.query.vector_search.failed.total
+        - mongot.query.vector_search.latency.max
+        - mongot.query.vector_search.latency.avg
+        - mongot.health.index_manager_state
+        - mongot.health.index_manager_state.failed
+        - mongot.health.index_manager_state.failed_exceeded
+  resource/ops_manager_discovery_attributes:
+    attributes:
+      - action: upsert
+        key: mongodb.opsmanager.service.type
+        value: mongot
+      - action: upsert
+        key: mongodb.opsmanager.service.version
+        value: {{ .MongotVersion }}
+      - action: upsert
+        key: mongodb.opsmanager.service.name
+        value: {{ .MongotName }}
+      - action: upsert
+        key: mongodb.opsmanager.service.port
+        value: {{ .MongotGRPCPort }}
+      - action: upsert
+        key: k8s.namespace.name
+        value: ${env:MONGOT_NAMESPACE}
+      {{ if .ClusterName }}
+      - action: upsert
+        key: k8s.cluster.name
+        value: {{ .ClusterName }}
+      {{ end }}
+      - action: upsert
+        key: mongodb.opsmanager.os.type
+        value: linux
+  transform/compute_identity_labels:
+    metric_statements:
+      - context: resource
+        statements:
+        - set(attributes["mongodb.opsmanager.host.name"], attributes["server.address"])
+        - set(attributes["mongodb.opsmanager.host.id"], attributes["server.address"])
+        - replace_pattern(attributes["mongodb.opsmanager.host.id"], "^([^.]+)\\..*$", "{{ .GroupID }}-${env:MONGOT_NAMESPACE}-$$1")
+        - set(attributes["mongodb.opsmanager.host.id"], SHA1(attributes["mongodb.opsmanager.host.id"]))
+        {{ if gt (len .ShardNames) 0 }}
+        - set(attributes["mongodb.opsmanager.shard.name"], attributes["server.address"])
+        - replace_pattern(attributes["mongodb.opsmanager.shard.name"], "^.+\\.{{ .MongotName }}-search-{{ .ClusterIndex }}-(.+)-svc\\..+$", "$$1")
+        {{ end }}
+  batch:
+    send_batch_size: ${env:BATCH_SIZE}
+    timeout: ${env:BATCH_TIMEOUT}
+exporters:
+  otlp_http:
+    auth:
+      authenticator: basicauth/agent
+    metrics_endpoint: {{ .OMBaseURL }}/agents/api/otlp/{{ .GroupID }}/v1/metrics
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_elapsed_time: 300s
+      max_interval: 30s
+    sending_queue:
+      enabled: true
+      queue_size: ${env:SENDING_QUEUE_SIZE}
+    tls:
+      {{ if .HasOMCaCert }}
+      ca_file: /mongodb-automation/certs/mms-ca.crt
+      {{ end }}
+      insecure_skip_verify: {{ .RequireValidMMSServerCertificates | not }}
+service:
+  extensions:
+    - basicauth/agent
+  pipelines:
+    metrics:
+      receivers:
+        - prometheus
+      processors:
+        - memory_limiter
+        - filter/drop_unwanted_series
+        - metrics_transform/rename
+        - metricsgeneration
+        - transform/extract_summary_components
+        - cumulativetodelta/latency
+        - metricsgeneration/latency_avg_seconds
+        - metricsgeneration/latency_avg_ms
+        - metrics_transform/aggregate_and_rename
+        - metricsgeneration/disk_used_bytes
+        - metricsgeneration/disk_percent_used
+        - transform/source_resource_attrs
+        - filter/keep_only_mapped
+        - resource/ops_manager_discovery_attributes
+        - transform/compute_identity_labels
+        - batch
+      exporters:
+        - otlp_http

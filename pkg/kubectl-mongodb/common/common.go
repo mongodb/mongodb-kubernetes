@@ -396,6 +396,11 @@ func getCentralRules() []rbacv1.PolicyRule {
 			},
 			APIGroups: []string{"mongodbcommunity.mongodb.com"},
 		},
+		{
+			Verbs:     []string{"*"},
+			Resources: []string{"voyageais", "voyageais/finalizers", "voyageais/status"},
+			APIGroups: []string{"ai.mongodb.com"},
+		},
 	}
 }
 

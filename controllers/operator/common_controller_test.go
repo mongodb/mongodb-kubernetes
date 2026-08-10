@@ -83,6 +83,34 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
 }
 
+func TestPrepareOpsManagerConnection_TagNamespace(t *testing.T) {
+	callPrepare := func(tagNamespace bool) *om.MockedOmConnection {
+		ctx := context.Background()
+		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+		controller := NewReconcileCommonController(ctx, kubeClient)
+		projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
+		require.NoError(t, err)
+		credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
+		require.NoError(t, err)
+		conn, _, err := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mock.TestNamespace, tagNamespace, zap.S())
+		require.NoError(t, err)
+		return conn.(*om.MockedOmConnection)
+	}
+
+	t.Run("namespace tag is added when tagNamespace is true", func(t *testing.T) {
+		mockOm := callPrepare(true)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.Contains(t, tags, strings.ToUpper(mock.TestNamespace))
+	})
+
+	t.Run("namespace tag is not added and UpdateProject is not called when tagNamespace is false", func(t *testing.T) {
+		mockOm := callPrepare(false)
+		tags := mockOm.FindGroup(om.TestGroupName).Tags
+		assert.NotContains(t, tags, strings.ToUpper(mock.TestNamespace))
+		mockOm.CheckOperationsDidntHappen(t, reflect.ValueOf(mockOm.UpdateProject))
+	})
+}
+
 // TestPrepareOmConnection_FindExistingGroup finds existing group when org ID is specified, no new Project or Organization
 // is created
 func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
@@ -830,7 +858,7 @@ func prepareConnection(ctx context.Context, controller *ReconcileCommonControlle
 	credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
 	assert.NoError(t, err)
 
-	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, zap.S())
+	conn, _, e := connection.PrepareOpsManagerConnection(ctx, controller.SecretClient, projectConfig, credsConfig, omConnectionFunc, mock.TestNamespace, true, zap.S())
 	mockOm := conn.(*om.MockedOmConnection)
 	assert.NoError(t, e)
 	return mockOm, newPodVars(conn, projectConfig, mdbv1.Warn)
@@ -870,6 +898,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 	// fields common to all resource types
 	assert.Equal(t, object.Spec.Version, object.Status.Version)
 	assert.Equal(t, expectedLink, object.Status.Link)
+	assert.Equal(t, om.TestGroupID, object.Status.ProjectId)
 	assert.NotNil(t, object.Status.LastTransition)
 	assert.NotEqual(t, object.Status.LastTransition, "")
 
@@ -893,7 +922,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 
 func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
-	expected := reconcile.Result{Requeue: true}
+	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 
@@ -922,7 +951,7 @@ func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler 
 func checkOMReconciliationPending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	assert.NoError(t, err)
-	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
+	assert.True(t, res.RequeueAfter > 0)
 }
 
 func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client client.Client) {
@@ -1053,6 +1082,46 @@ func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV stri
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("Version=%s", tc.version), func(t *testing.T) {
 			verifyFCV(tc.version, tc.expectedFCV, tc.fcvOverride, t)
+		})
+	}
+}
+
+func TestAgentVersionFromURL(t *testing.T) {
+	testCases := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "rhel8 x86_64",
+			url:      "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz",
+			expected: "108.0.26.9047-1",
+		},
+		{
+			name:     "amzn2 aarch64",
+			url:      "https://example.com/mongodb-mms-automation-agent-107.0.23.8833-1.amzn2_aarch64.tar.gz",
+			expected: "107.0.23.8833-1",
+		},
+		{
+			name:     "linux x86_64",
+			url:      "https://example.com/mongodb-mms-automation-agent-11.0.5.6963-1.linux_x86_64.tar.gz",
+			expected: "11.0.5.6963-1",
+		},
+		{
+			name:     "rhel8 ppc64le",
+			url:      "https://example.com/mongodb-mms-automation-agent-13.10.0.8620-1.rhel8_ppc64le.tar.gz",
+			expected: "13.10.0.8620-1",
+		},
+		{
+			name:     "empty string",
+			url:      "",
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, agentVersionFromURL(tc.url))
 		})
 	}
 }

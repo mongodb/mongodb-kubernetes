@@ -118,6 +118,7 @@ skip_if_static_containers = pytest.mark.skipif(
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 skip_if_multi_cluster = pytest.mark.skipif(is_multi_cluster(), reason="Only run in Kubernetes single cluster")
+skip_if_single_cluster = pytest.mark.skipif(not is_multi_cluster(), reason="Only run in Kubernetes multi cluster")
 # time to sleep between retries
 SLEEP_TIME = 2
 # no timeout (loop forever)
@@ -806,21 +807,26 @@ class KubernetesTester(object):
         return cls.wait_for_condition_stateful_set(cls.get_namespace(), name, attribute, expected_value)
 
     @classmethod
-    def wait_for_condition_stateful_set(cls, namespace, name, attribute, expected_value):
+    def wait_for_condition_stateful_set(cls, namespace, name, attribute, expected_value, timeout=600):
         appsv1 = KubernetesTester.clients("appsv1")
-        namespace = KubernetesTester.get_namespace()
-        ready_to_go = False
-        while not ready_to_go:
+        deadline = time.time() + timeout
+        last_status = None
+        while time.time() < deadline:
             try:
                 sts = appsv1.read_namespaced_stateful_set(name, namespace)
                 ready_to_go = get_nested_attribute(sts, attribute) == expected_value
+                if ready_to_go:
+                    return
+                last_status = sts.status
             except ApiException:
                 pass
 
-            if ready_to_go:
-                return
-
             time.sleep(0.5)
+
+        raise Exception(
+            f"Timeout ({timeout}s) waiting for StatefulSet {name} in {namespace}: "
+            f"expected {attribute} == {expected_value}, last status: {last_status}"
+        )
 
     def setup_method(self):
         self.client = client

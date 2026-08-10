@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 
-# This script recreates local python venv using uv in the ${PROJECT_DIR} directory.
-# For the pip-based alternative, see recreate_python_venv_pip.sh.
+# This script recreates the local python venv using uv. By default the venv lives
+# in ${PROJECT_DIR}/venv (per-worktree). Export PROJECT_VENV_PATH to opt into a
+# shared location instead. For the pip-based alternative, see recreate_python_venv_pip.sh.
 
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+
+# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+venv_path="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
 
 install_uv() {
     if [[ "${RUNNING_IN_EVG:-}" == "true" ]]; then
@@ -56,9 +60,9 @@ ensure_required_python() {
 }
 
 cd "${PROJECT_DIR}"
-if [[ -d "venv" ]]; then
-    echo "Removing existing venv..." >&2
-    rm -rf "venv"
+if [[ -d "${venv_path}" ]]; then
+    echo "Removing existing venv at ${venv_path}..." >&2
+    rm -rf "${venv_path}"
     echo "Existing venv removed" >&2
 else
     echo "No existing venv found" >&2
@@ -68,14 +72,15 @@ install_uv
 
 ensure_required_python
 
-echo "Creating venv with Python ${PYTHON_VERSION} using uv..."
-uv venv venv --python "${PYTHON_VERSION}"
+echo "Creating venv with Python ${PYTHON_VERSION} using uv at ${venv_path}..."
+mkdir -p "$(dirname "${venv_path}")"
+uv venv "${venv_path}" --python "${PYTHON_VERSION}"
 
 # uv's python build statically link OpenSSL and that might get confused by the system-wide OpenSSL config.
 # see https://github.com/astral-sh/python-build-standalone/issues/999
-echo "export OPENSSL_CONF=/dev/null" >> venv/bin/activate
+echo "export OPENSSL_CONF=/dev/null" >> "${venv_path}/bin/activate"
 
-source venv/bin/activate
+source "${venv_path}/bin/activate"
 
 echo "Installing requirements.txt..."
 uv pip install -r requirements.txt

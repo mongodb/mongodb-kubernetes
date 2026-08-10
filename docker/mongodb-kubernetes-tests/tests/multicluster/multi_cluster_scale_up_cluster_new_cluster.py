@@ -76,7 +76,7 @@ def test_deploy_operator(
     run_kube_config_creation_tool(member_cluster_names[:-1], namespace, namespace, member_cluster_names)
     # deploy the operator without the final cluster
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names[:-1])
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
@@ -126,7 +126,7 @@ def test_re_deploy_operator(
 
     # deploy the operator without all clusters
     operator = install_multi_cluster_operator_set_members_fn(member_cluster_names)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster

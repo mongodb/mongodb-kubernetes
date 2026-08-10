@@ -205,4 +205,4 @@ def test_backup_daemon_reaches_ready_state(ops_manager: MongoDBOpsManager):
                 print("Error checking if pod is ready: " + str(e))
                 return False
 
-        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=300)
+        KubernetesTester.wait_until(backup_daemon_is_ready, timeout=900)

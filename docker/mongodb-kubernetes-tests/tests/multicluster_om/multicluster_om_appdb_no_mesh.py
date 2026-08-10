@@ -532,7 +532,7 @@ def create_project_config_map(om: MongoDBOpsManager, mdb_name, project_name, cli
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
 def test_deploy_operator(multi_cluster_operator_with_monitored_appdb: Operator):
-    multi_cluster_operator_with_monitored_appdb.assert_is_running()
+    multi_cluster_operator_with_monitored_appdb.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_om_appdb_no_mesh
@@ -621,4 +621,4 @@ def test_telemetry_configmap(namespace: str):
         assert payload[1]["properties"]["type"] == "OpsManager"
         assert payload[1]["properties"]["externalDomains"] == "Mixed"
     except json.JSONDecodeError:
-        pytest.fail("payload contains invalid JSON data")  # ty: ignore[invalid-argument-type]
+        pytest.fail("payload contains invalid JSON data")

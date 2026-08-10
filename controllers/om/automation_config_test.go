@@ -1164,3 +1164,25 @@ func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {
 	assert.NoError(t, err)
 	return overTheWire
 }
+
+func TestAuthNewKeyRoundTrip(t *testing.T) {
+	deployment := Deployment{
+		"auth": map[string]interface{}{
+			"key":      "current-key",
+			"newKey":   "rotation-key",
+			"disabled": false,
+		},
+	}
+
+	ac, err := BuildAutomationConfigFromDeployment(deployment)
+	require.NoError(t, err)
+	assert.Equal(t, "current-key", ac.Auth.Key)
+	assert.Equal(t, "rotation-key", ac.Auth.NewKey)
+
+	err = ac.Apply()
+	require.NoError(t, err)
+
+	authMap := ac.Deployment["auth"].(map[string]interface{})
+	assert.Equal(t, "current-key", authMap["key"])
+	assert.Equal(t, "rotation-key", authMap["newKey"])
+}

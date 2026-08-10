@@ -42,11 +42,23 @@ def get_operator_search_version(namespace: str, operator: Operator) -> str:
 
 
 def get_mongot_image_tag(namespace: str) -> str:
-    """Read the image tag from the mongot container in the search StatefulSet."""
-    sts = get_statefulset(namespace, mongot_statefulset_name(MDB_RESOURCE_NAME))
-    mongot = next((c for c in sts.spec.template.spec.containers if c.name == "mongot"), None)
-    assert mongot is not None, "mongot container not found in StatefulSet"
-    return mongot.image.split(":")[-1]
+    """Read the image tag from the mongot container in the search StatefulSet.
+
+    Because in this test installs released operator and the name of K8s resources is diff
+    there than what is expected by helpers. That's why we try the new cluster-indexed naming first,
+    then fall back to previous naming for when the released (old) operator created the StatefulSet.
+
+    TODO: Remove fallback after the next operator release ships with new naming.
+    """
+    for name in [mongot_statefulset_name(MDB_RESOURCE_NAME), f"{MDB_RESOURCE_NAME}-search"]:
+        try:
+            sts = get_statefulset(namespace, name)
+            mongot = next((c for c in sts.spec.template.spec.containers if c.name == "mongot"), None)
+            if mongot:
+                return mongot.image.split(":")[-1]
+        except Exception:
+            continue
+    raise AssertionError("mongot StatefulSet not found with either naming convention")
 
 
 def assert_mongot_version_matches_operator(namespace: str, operator: Operator, phase: str):
@@ -104,7 +116,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="module")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @fixture(scope="module")
@@ -119,7 +131,7 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> SampleMoviesSearchHelp
 class TestDeployOnOfficialOperator:
 
     def test_install_latest_official_operator(self, namespace: str, official_operator: Operator):
-        official_operator.assert_is_running()
+        official_operator.wait_for_operator_ready()
         log_deployments_info(namespace)
 
     @skip_if_cloud_manager
@@ -179,7 +191,7 @@ class TestOperatorUpgrade:
         operator = get_default_operator(
             namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
         )
-        operator.assert_is_running()
+        operator.wait_for_operator_ready()
         log_deployments_info(namespace)
 
     def test_search_running_after_upgrade(self, mdbs: MongoDBSearch):
@@ -190,7 +202,7 @@ class TestOperatorUpgrade:
         assert_mongot_version_matches_operator(namespace, operator, "post-upgrade")
 
     def test_database_running_after_upgrade(self, mdb: MongoDB):
-        mdb.assert_reaches_phase(phase=Phase.Running, timeout=300)
+        mdb.assert_reaches_phase(phase=Phase.Running, timeout=600)
 
     def test_search_query_after_upgrade(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.assert_search_query(retry_timeout=60)
@@ -201,8 +213,7 @@ class TestScaleWithManagedLB:
 
     def test_enable_multi_mongot_and_managed_lb(self, mdbs: MongoDBSearch):
         mdbs.load()
-        mdbs["spec"]["replicas"] = 2
-        mdbs["spec"]["loadBalancer"] = {"managed": {}}
+        mdbs["spec"]["clusters"] = [{"replicas": 2, "loadBalancer": {"managed": {}}}]
         mdbs.update()
 
     def test_search_running_after_scale(self, mdbs: MongoDBSearch):

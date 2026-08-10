@@ -58,7 +58,7 @@ def file_to_resource_name(file_name: str) -> str:
 
 @mark.e2e_multi_cluster_sharded_snippets
 def test_deploy_operator(multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_sharded_snippets

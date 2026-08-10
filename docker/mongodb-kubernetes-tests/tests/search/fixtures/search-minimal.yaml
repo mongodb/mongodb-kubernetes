@@ -4,4 +4,6 @@ metadata:
   name: mdbc-rs
 spec:
   logLevel: DEBUG
+  clusters:
+    - {}
 

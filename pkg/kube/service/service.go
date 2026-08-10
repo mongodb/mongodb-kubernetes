@@ -106,6 +106,7 @@ func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
 	dest.Spec.Type = source.Spec.Type
 	dest.Spec.LoadBalancerIP = source.Spec.LoadBalancerIP
 	dest.Spec.ExternalTrafficPolicy = source.Spec.ExternalTrafficPolicy
+	dest.OwnerReferences = source.OwnerReferences
 	return dest
 }
 

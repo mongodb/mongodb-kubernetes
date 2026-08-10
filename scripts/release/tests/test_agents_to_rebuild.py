@@ -2,17 +2,10 @@
 """
 Tests for scripts.release.agent.agents_to_rebuild.py
 """
-import json
 import unittest
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
-from scripts.release.agent.agents_to_rebuild import (
-    extract_ops_manager_mapping,
-    get_all_agents_for_rebuild,
-    get_currently_used_agents,
-    get_tools_version_for_agent,
-    load_current_release_json,
-)
+from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
 
 
 class TestDetectOpsManagerChanges(unittest.TestCase):
@@ -82,32 +75,35 @@ variables:
         self.assertIn(("107.0.11.8645-1", "100.10.0"), result)
         self.assertIn(("13.37.0.9590-1", "100.12.2"), result)
 
-    @patch("scripts.release.agent.agents_to_rebuild.glob.glob")
+    @patch("scripts.release.agent.agents_to_rebuild.get_tools_version_for_agent")
     @patch("scripts.release.agent.agents_to_rebuild.load_current_release_json")
-    @patch("builtins.open", new_callable=mock_open)
-    @patch("os.path.isfile", return_value=True)
-    def test_get_currently_used_agents_with_context_files(self, mock_isfile, mock_file, mock_load, mock_glob):
-        """Test getting currently used agents from context files"""
-        release_data = {
-            "agentVersion": "13.37.0.9590-1",
+    def test_get_currently_used_agents(self, mock_load, mock_tools):
+        """Currently used agents = latest per OM major + cloud_manager + default agentVersion."""
+        mock_load.return_value = {
+            "agentVersion": "108.0.12.8846-1",
+            "latestOpsManagerAgentMapping": [
+                {"7": {"opsManagerVersion": "7.0.23", "agentVersion": "107.0.23.8833-1"}},
+                {"8": {"opsManagerVersion": "8.0.25", "agentVersion": "108.0.25.9029-1"}},
+            ],
             "supportedImages": {
                 "mongodb-agent": {
                     "opsManagerMapping": {
                         "cloud_manager": "13.37.0.9590-1",
                         "cloud_manager_tools": "100.12.2",
-                        "ops_manager": {},
                     }
                 }
             },
         }
-        mock_load.return_value = release_data
-        mock_glob.return_value = ["scripts/dev/contexts/test_context"]
-        mock_file.return_value.read.return_value = "export AGENT_VERSION=12.0.34.7888-1\n"
+        mock_tools.side_effect = lambda v: {"107.0.23.8833-1": "100.15.0", "108.0.25.9029-1": "100.17.0"}.get(
+            v, "100.12.2"
+        )
 
         result = get_currently_used_agents()
 
-        self.assertIn(("12.0.34.7888-1", "100.12.2"), result)  # falls back to cloud_manager_tools
+        self.assertIn(("107.0.23.8833-1", "100.15.0"), result)
+        self.assertIn(("108.0.25.9029-1", "100.17.0"), result)
         self.assertIn(("13.37.0.9590-1", "100.12.2"), result)
+        self.assertIn(("108.0.12.8846-1", "100.12.2"), result)
 
 
 if __name__ == "__main__":

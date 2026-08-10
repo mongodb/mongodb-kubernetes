@@ -92,7 +92,7 @@ def replica_set(
 # Installs the latest officially released version of MEKO, from Quay
 @mark.e2e_meko_mck_upgrade
 def test_install_latest_official_operator(official_meko_operator: Operator, namespace: str):
-    official_meko_operator.assert_is_running()
+    official_meko_operator.wait_for_operator_ready()
     # Dumping deployments in logs ensures we are using the correct operator version
     log_deployments_info(namespace)
 
@@ -138,7 +138,7 @@ def test_upgrade_operator(
             name=OPERATOR_NAME,
         )
         operator.install()
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
     log_deployments_info(namespace)
 
 
@@ -162,7 +162,7 @@ def test_operator_still_running(namespace: str, central_cluster_client: client.A
         namespace=namespace,
     )
     logger.info(f"Checking status of operator '{operator_name}' in namespace '{namespace}'")
-    operator_instance.assert_is_running()
+    operator_instance.wait_for_operator_ready()
     log_deployments_info(namespace)
 
     if is_multi_cluster():

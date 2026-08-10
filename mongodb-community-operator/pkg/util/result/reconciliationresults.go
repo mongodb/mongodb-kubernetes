@@ -25,7 +25,10 @@ func FailedState() (reconcile.Result, error, bool) {
 }
 
 func retry(after int, isComplete bool) (reconcile.Result, error, bool) {
-	return reconcile.Result{Requeue: true, RequeueAfter: time.Second * time.Duration(after)}, nil, isComplete
+	if after == 0 {
+		after = 1
+	}
+	return reconcile.Result{RequeueAfter: time.Second * time.Duration(after)}, nil, isComplete
 }
 
 func OK() (reconcile.Result, error) {
@@ -33,7 +36,10 @@ func OK() (reconcile.Result, error) {
 }
 
 func Retry(after int) (reconcile.Result, error) {
-	return reconcile.Result{Requeue: true, RequeueAfter: time.Second * time.Duration(after)}, nil
+	if after == 0 {
+		after = 1
+	}
+	return reconcile.Result{RequeueAfter: time.Second * time.Duration(after)}, nil
 }
 
 func Failed() (reconcile.Result, error) {

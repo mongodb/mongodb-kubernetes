@@ -43,7 +43,7 @@ def ops_manager(
 
 @mark.e2e_multi_cluster_appdb_validation
 def test_install_multi_cluster_operator(namespace: str, multi_cluster_operator: Operator):
-    multi_cluster_operator.assert_is_running()
+    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.usefixtures("multi_cluster_operator")

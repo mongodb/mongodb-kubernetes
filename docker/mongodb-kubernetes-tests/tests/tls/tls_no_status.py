@@ -10,7 +10,7 @@ MDB_RESOURCE = "test-no-tls-no-status"
 
 @pytest.mark.e2e_standalone_no_tls_no_status_is_set
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_standalone_no_tls_no_status_is_set

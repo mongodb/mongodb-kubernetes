@@ -4,7 +4,7 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 go version
-go install github.com/google/go-licenses@v1.6.0
+go install github.com/nammn/go-licenses/v2@e31cc8503e393f00683c7f1a1272e4ae4e31256f
 
 # Define the root of the repo and the scripts directory
 REPO_DIR=$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")
@@ -28,7 +28,7 @@ process_licenses() {
     PATH="${REAL_GOROOT}/bin:$(go env GOPATH)/bin:${PATH}" \
     GOTOOLCHAIN=local GOROOT="${REAL_GOROOT}" \
     GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" \
-    go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
+    "$(go env GOPATH)"/bin/go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
 
     # Filter and sort the licenses report
     # Use LC_ALL=C to ensure consistent ASCII sorting across macOS and Linux
@@ -42,5 +42,6 @@ process_licenses() {
 
 process_licenses "${REPO_DIR}"
 process_licenses "${REPO_DIR}/cmd/kubectl-mongodb"
+process_licenses "${REPO_DIR}/mongodb-community-operator/cmd/readiness"
 
 echo "License processing complete for all modules."

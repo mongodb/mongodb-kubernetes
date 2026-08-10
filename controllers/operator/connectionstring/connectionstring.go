@@ -9,7 +9,6 @@ package connectionstring
 
 import (
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 
@@ -143,7 +142,7 @@ func (b *builder) Build() string {
 	scramEnabled := stringutil.Contains(b.authenticationModes, util.SCRAM) ||
 		stringutil.Contains(b.authenticationModes, util.SCRAMSHA1)
 	if scramEnabled && b.username != "" && b.password != "" {
-		userAuth = fmt.Sprintf("%s:%s@", url.QueryEscape(b.username), url.QueryEscape(b.password))
+		userAuth = fmt.Sprintf("%s:%s@", stringutil.EncodeUserinfoComponent(b.username), stringutil.EncodeUserinfoComponent(b.password))
 	}
 
 	var uri string

@@ -18,9 +18,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -203,7 +205,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
@@ -244,7 +246,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 		return err
 	}
 
-	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, log)
+	_, _, err = connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, user.Namespace, false, log)
 	if err != nil {
 		log.Errorf("Failed to prepare Ops Manager connection: %s", err)
 		return err
@@ -276,30 +278,37 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	if err != nil && !apiErrors.IsNotFound(err) {
 		return err
 	}
-	if err == nil && !secret.HasOwnerReferences(existingSecret, user.GetOwnerReferences()) {
-		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+	if err == nil {
+		existingController := metav1.GetControllerOf(&existingSecret)
+		if existingController != nil && existingController.UID != user.UID {
+			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+		}
 	}
 
 	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
 	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
-	connectionStringSecret := secret.Builder().
+	memberClusterSecret := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
 		SetField("username", user.Spec.Username).
 		SetField("password", password).
-		SetOwnerReferences(user.GetOwnerReferences()).
 		Build()
 
 	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(ctx, c, connectionStringSecret)
+		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
 		if err != nil {
 			return err
 		}
 	}
-	return secret.CreateOrUpdate(ctx, r.SecretClient, connectionStringSecret)
+
+	centralClusterSecret := memberClusterSecret
+	if err := controllerutil.SetControllerReference(&user, &centralClusterSecret, r.client.Scheme()); err != nil {
+		return err
+	}
+	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
@@ -419,7 +428,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	}
 
 	log.Infof("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -469,7 +478,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	}
 
 	log.Infow("Finished reconciliation for MongoDBUser!")
-	return r.updateStatus(ctx, user, workflow.OK(), log)
+	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
 func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
@@ -509,6 +518,13 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	}, log)
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
+	}
+
+	secretKey := kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName())
+	for clusterName, c := range r.memberClusterSecretClientsMap {
+		if err := c.DeleteSecret(ctx, secretKey); err != nil && !apiErrors.IsNotFound(err) {
+			return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to delete connection string secret from member cluster %s: %w", clusterName, err)), log)
+		}
 	}
 
 	if finalizerRemoved := controllerutil.RemoveFinalizer(user, util.UserFinalizer); !finalizerRemoved {

@@ -37,7 +37,8 @@ const (
 // BackupDaemonStatefulSet fully constructs the Backup StatefulSet.
 func BackupDaemonStatefulSet(ctx context.Context, centralClusterSecretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
 	opts := backupOptions(memberCluster, additionalOpts...)(opsManager)
-	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferences, log); err != nil {
+
+	if err := opts.updateHTTPSCertSecret(ctx, centralClusterSecretClient, memberCluster, opsManager.OwnerReferenceForMemberCluster(), log); err != nil {
 		return appsv1.StatefulSet{}, err
 	}
 

@@ -34,7 +34,7 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
 class TestShardedClusterScalingInitial:
 
     def test_deploy_operator(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
 
     def test_create(self, sc: MongoDB, custom_mdb_version: str, issuer_ca_configmap: str):
         sc["spec"]["shardCount"] = 3

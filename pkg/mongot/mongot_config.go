@@ -15,13 +15,18 @@ func Apply(modifications ...Modification) func(*Config) {
 }
 
 type Config struct {
-	SyncSource  ConfigSyncSource  `json:"syncSource"`
-	Storage     ConfigStorage     `json:"storage"`
-	Server      ConfigServer      `json:"server"`
-	Metrics     ConfigMetrics     `json:"metrics"`
-	HealthCheck ConfigHealthCheck `json:"healthCheck"`
-	Logging     ConfigLogging     `json:"logging"`
-	Embedding   *EmbeddingConfig  `json:"embedding,omitempty"`
+	SyncSource   ConfigSyncSource    `json:"syncSource"`
+	Storage      ConfigStorage       `json:"storage"`
+	Server       ConfigServer        `json:"server"`
+	Metrics      ConfigMetrics       `json:"metrics"`
+	HealthCheck  ConfigHealthCheck   `json:"healthCheck"`
+	Logging      ConfigLogging       `json:"logging"`
+	Embedding    *EmbeddingConfig    `json:"embedding,omitempty"`
+	FeatureFlags *ConfigFeatureFlags `json:"featureflags,omitempty"`
+}
+
+type ConfigFeatureFlags struct {
+	OverloadRetrySignal *bool `json:"overloadRetrySignal,omitempty"`
 }
 
 type EmbeddingConfig struct {
@@ -32,31 +37,49 @@ type EmbeddingConfig struct {
 }
 
 type ConfigSyncSource struct {
-	ReplicaSet               ConfigReplicaSet `json:"replicaSet"`
-	Router                   *ConfigRouter    `json:"router,omitempty"`
-	CertificateAuthorityFile *string          `json:"caFile,omitempty"`
+	ReplicaSet        ConfigReplicaSet         `json:"replicaSet"`
+	Router            *ConfigRouter            `json:"router,omitempty"`
+	ReplicationReader *ConfigReplicationReader `json:"replicationReader,omitempty"`
+}
+
+type ConfigReplicationReader struct {
+	ReadPreference *string       `json:"readPreference,omitempty"`
+	TagSets        [][]ConfigTag `json:"tagSets,omitempty"`
+}
+
+type ConfigTag struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 type ConfigRouter struct {
-	HostAndPort  []string    `json:"hostAndPort"`
-	Username     string      `json:"username,omitempty"`
-	PasswordFile string      `json:"passwordFile,omitempty"`
-	TLS          *bool       `json:"tls,omitempty"`
-	AuthSource   *string     `json:"authSource,omitempty"`
-	X509         *ConfigX509 `json:"x509,omitempty"`
+	HostAndPort []string         `json:"hostAndPort"`
+	X509        *ConfigX509      `json:"x509,omitempty"`
+	ScramAuth   *ConfigScramAuth `json:"scramAuth,omitempty"`
 }
 
 type ConfigReplicaSet struct {
-	HostAndPort    []string    `json:"hostAndPort"`
-	Username       string      `json:"username,omitempty"`
-	PasswordFile   string      `json:"passwordFile,omitempty"`
-	TLS            *bool       `json:"tls,omitempty"`
-	ReadPreference *string     `json:"readPreference,omitempty"`
-	AuthSource     *string     `json:"authSource,omitempty"`
-	X509           *ConfigX509 `json:"x509,omitempty"`
+	HostAndPort []string         `json:"hostAndPort"`
+	X509        *ConfigX509      `json:"x509,omitempty"`
+	ScramAuth   *ConfigScramAuth `json:"scramAuth,omitempty"`
+}
+
+type ConfigScramAuth struct {
+	Username     string        `json:"username"`
+	PasswordFile string        `json:"passwordFile"`
+	TLS          *ScramAuthTLS `json:"tls,omitempty"`
+	AuthSource   *string       `json:"authSource,omitempty"`
+}
+
+type ScramAuthTLS struct {
+	Enabled                           bool    `json:"enabled"`
+	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
+	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
+	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
 }
 
 type ConfigX509 struct {
+	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
 	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
 	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
 }
@@ -66,6 +89,7 @@ type ConfigStorage struct {
 }
 
 type ConfigServer struct {
+	Name      string           `json:"name,omitempty"`
 	Wireproto *ConfigWireproto `json:"wireproto,omitempty"`
 	Grpc      *ConfigGrpc      `json:"grpc,omitempty"`
 }
@@ -100,9 +124,10 @@ type ConfigWireprotoTLS struct {
 }
 
 type ConfigGrpcTLS struct {
-	Mode                     ConfigTLSMode `json:"mode"`
-	CertificateKeyFile       *string       `json:"certificateKeyFile,omitempty"`
-	CertificateAuthorityFile *string       `json:"caFile,omitempty"`
+	Mode                           ConfigTLSMode `json:"mode"`
+	CertificateKeyFile             *string       `json:"certificateKeyFile,omitempty"`
+	CertificateKeyFilePasswordFile *string       `json:"certificateKeyFilePasswordFile,omitempty"`
+	CertificateAuthorityFile       *string       `json:"caFile,omitempty"`
 }
 
 type ConfigMetrics struct {

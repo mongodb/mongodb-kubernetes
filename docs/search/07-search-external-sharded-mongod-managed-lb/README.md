@@ -6,7 +6,7 @@ This guide walks you through deploying **MongoDB Search** against your **existin
 
 ### What is "Managed Envoy"?
 
-When you set `spec.loadBalancer.managed: {}` in your MongoDBSearch resource, the operator automatically:
+When you set `spec.clusters[].loadBalancer.managed: {}` in your MongoDBSearch resource, the operator automatically:
 
 1. **Deploys an Envoy proxy** - A Deployment that handles L7 (application layer) load balancing
 2. **Generates routing configuration** - SNI-based routing rules for each shard
@@ -211,7 +211,7 @@ Both must be signed by the same CA that mongod and mongot trust.
 
 #### Step 10: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `loadBalancer.managed: {}` and external cluster source configuration:
+Applies the MongoDBSearch CR with `clusters[].loadBalancer.managed: {}` and external cluster source configuration:
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -219,7 +219,12 @@ kind: MongoDBSearch
 metadata:
   name: ${MDB_SEARCH_RESOURCE_NAME}
 spec:
-  replicas: ${MDB_MONGOT_REPLICAS}
+  clusters:
+    - replicas: ${MDB_MONGOT_REPLICAS}
+      loadBalancer:
+        managed:
+          externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-{shardName}-proxy-svc.${MDB_NS}.svc.cluster.local
+          routerHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
   source:
     username: search-sync-source
     passwordSecretRef:
@@ -243,11 +248,9 @@ spec:
   security:
     tls:
       certsSecretPrefix: ${MDB_TLS_CERT_SECRET_PREFIX}
-  loadBalancer:
-    managed: {}
 ```
 
-There is no `spec.loadBalancer.unmanaged.endpoint` — the operator creates and exposes the endpoints automatically.
+There is no `spec.clusters[].loadBalancer.unmanaged.endpoint` — the operator creates and exposes the endpoints automatically.
 
 ```bash
 ./code_snippets/07_0320_create_mongodb_search_resource.sh

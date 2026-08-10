@@ -25,7 +25,7 @@ def mdb(namespace: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
 
 @pytest.mark.e2e_replica_set_tls_allow
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_replica_set_tls_allow

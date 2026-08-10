@@ -1,15 +1,13 @@
 package authtypes
 
 import (
-	"fmt"
-	"net/url"
-
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/contains"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // Options contains a set of values that can be used for more fine-grained configuration of authentication.
@@ -85,9 +83,7 @@ type User struct {
 
 func (u User) GetLoginString(password string) string {
 	if u.Database != constants.ExternalDB {
-		return fmt.Sprintf("%s:%s@",
-			url.QueryEscape(u.Username),
-			url.QueryEscape(password))
+		return stringutil.EncodeUserinfoComponent(u.Username) + ":" + stringutil.EncodeUserinfoComponent(password) + "@"
 	}
 	return ""
 }

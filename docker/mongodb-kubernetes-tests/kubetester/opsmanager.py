@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 import requests
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
-from kubetester import create_configmap, create_or_update_secret, read_secret
+from kubetester import create_configmap, create_or_update_secret, read_configmap, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_pods, is_default_architecture_static
 from kubetester.mongodb_common import MongoDBCommon
@@ -905,19 +905,22 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         return old_secret_name
 
     def agent_api_key(self, api_client: Optional[kubernetes.client.ApiClient] = None) -> Optional[str]:
-        secret_name = None
         member_cluster = self.pick_one_appdb_member_cluster_name()
+        member_client = get_member_cluster_api_client(member_cluster)
         appdb_sts = self.read_appdb_statefulset(member_cluster_name=member_cluster)
 
         for volume in appdb_sts.spec.template.spec.volumes:
             if volume.name == "agent-api-key":
-                secret_name = volume.secret.secret_name
-                break
+                return read_secret(self.namespace, volume.secret.secret_name, member_client)["agentApiKey"]
 
-        if secret_name == None:
+        # The agent-api-key volume is absent in the single-agent monitoring design.
+        # Derive the secret name from the project-id ConfigMap instead.
+        try:
+            cm = read_configmap(self.namespace, self.app_db_name() + "-project-id", member_client)
+            project_id = cm["projectId"]
+            return read_secret(self.namespace, f"{project_id}-group-secret", member_client)["agentApiKey"]
+        except Exception:
             return None
-
-        return read_secret(self.namespace, secret_name, get_member_cluster_api_client(member_cluster))["agentApiKey"]
 
     def om_sts_name(self, member_cluster_name: Optional[str] = None) -> str:
         if is_member_cluster(member_cluster_name):

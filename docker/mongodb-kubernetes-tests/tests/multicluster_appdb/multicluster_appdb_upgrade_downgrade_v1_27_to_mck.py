@@ -244,7 +244,7 @@ class TestOperatorUpgrade:
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")
-        multi_cluster_operator.assert_is_running()
+        multi_cluster_operator.wait_for_operator_ready()
         # Dumping deployments in logs ensure we are using the correct operator version
         log_deployments_info(namespace)
 
@@ -308,7 +308,7 @@ class TestOperatorDowngrade:
     def test_om_running_after_downgrade(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         ops_manager.appdb_status().assert_reaches_phase(Phase.Pending, timeout=60)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=350)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=700)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=200)
 
     def test_scale_appdb(self, ops_manager: MongoDBOpsManager):

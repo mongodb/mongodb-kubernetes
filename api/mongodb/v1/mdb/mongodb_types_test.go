@@ -493,6 +493,18 @@ func TestGetTransportSecurity(t *testing.T) {
 	}
 }
 
+func TestUpdateStatus_SetsProjectId(t *testing.T) {
+	m := &MongoDB{}
+	m.UpdateStatus(status.PhaseRunning, status.NewProjectIdOption("test-project-id"))
+	assert.Equal(t, "test-project-id", m.Status.ProjectId)
+}
+
+func TestUpdateStatus_DoesNotSetProjectIdWhenOptionAbsent(t *testing.T) {
+	m := &MongoDB{Status: MongoDbStatus{ProjectId: "existing-id"}}
+	m.UpdateStatus(status.PhaseRunning)
+	assert.Equal(t, "existing-id", m.Status.ProjectId)
+}
+
 func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	mdb := MongoDB{Spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()

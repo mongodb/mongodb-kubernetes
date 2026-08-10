@@ -9,7 +9,17 @@ source scripts/code_snippets/sample_test_runner.sh
 
 pushd "${script_dir}"
 
+# Source env_variables.sh so gcloud_retry() is available in this process.
+# The parent test runner also sources this, but functions aren't inherited
+# by subprocesses — only exported variables are.
+source env_variables.sh
+
 prepare_snippets
+
+# Pre-clean any global GCP LB resources left by a retried execution of this same
+# run. The resource names are run-scoped (KUBE-268), so this only affects
+# resources from the current run suffix, not concurrent runs.
+bash code_snippets/ra-10_9000_cleanup_gke_lb.sh || true
 
 run ra-10_0100_generate_certs.sh
 sleep 10 # wait for cert-manager to generate secrets

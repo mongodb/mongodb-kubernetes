@@ -10,7 +10,7 @@ type unsupportedStatus struct {
 }
 
 func Unsupported(msg string, params ...interface{}) *unsupportedStatus {
-	return &unsupportedStatus{okStatus: &okStatus{requeue: false, commonStatus: newCommonStatus(msg, params...)}}
+	return &unsupportedStatus{okStatus: &okStatus{commonStatus: newCommonStatus(msg, params...)}}
 }
 
 func (d unsupportedStatus) Phase() status.Phase {

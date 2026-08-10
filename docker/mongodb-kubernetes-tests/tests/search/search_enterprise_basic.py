@@ -71,13 +71,13 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBUser:
-    return helper.mongot_user_resource(mdbs, MONGOT_USER_NAME)
+    return helper.mongot_user_resource(mdbs.name, MONGOT_USER_NAME)
 
 
 @mark.e2e_search_enterprise_basic
 def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_enterprise_basic
@@ -118,19 +118,24 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_basic
 def test_wait_for_database_resource_ready(mdb: MongoDB):
-    mdb.assert_abandons_phase(Phase.Running, timeout=300)
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
-
-    for idx in range(mdb.get_members()):
-        mongod_config = yaml.safe_load(
-            KubernetesTester.run_command_in_pod_container(
-                f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
+    # The mongot wiring is applied as an in-memory automation-config override and does not bump
+    # the MongoDB generation, so there is no phase/generation transition to wait on; poll the
+    # mongods for the search parameters directly.
+    def mongot_params_wired(m: MongoDB) -> bool:
+        if m.get_status_phase() != Phase.Running:
+            return False
+        for idx in range(m.get_members()):
+            mongod_config = yaml.safe_load(
+                KubernetesTester.run_command_in_pod_container(
+                    f"{m.name}-{idx}", m.namespace, ["cat", "/data/automation-mongod.conf"]
+                )
             )
-        )
-        setParameter = mongod_config.get("setParameter", {})
-        assert (
-            "mongotHost" in setParameter and "searchIndexManagementHostAndPort" in setParameter
-        ), "mongot parameters not found in mongod config"
+            set_parameter = mongod_config.get("setParameter", {})
+            if "mongotHost" not in set_parameter or "searchIndexManagementHostAndPort" not in set_parameter:
+                return False
+        return True
+
+    mdb.wait_for(mongot_params_wired, timeout=600, should_raise=True)
 
 
 @fixture(scope="function")

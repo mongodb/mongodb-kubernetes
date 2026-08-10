@@ -3,8 +3,10 @@ package watch
 import (
 	"reflect"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -133,9 +135,7 @@ func PredicatesForStatefulSet() predicate.Funcs {
 			val, ok := newSts.Annotations["type"]
 
 			if ok && val == "Replicaset" {
-				if !reflect.DeepEqual(oldSts.Status, newSts.Status) && (newSts.Status.ReadyReplicas < *newSts.Spec.Replicas) {
-					return true
-				}
+				return statefulSetReadinessStatusChanged(oldSts, newSts)
 			}
 			return false
 		},
@@ -148,6 +148,80 @@ func PredicatesForStatefulSet() predicate.Funcs {
 		CreateFunc: func(e event.CreateEvent) bool {
 			return false
 		},
+	}
+}
+
+func PredicatesForShardedStatefulSet() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
+			newSts := e.ObjectNew.(*appsv1.StatefulSet)
+
+			val, ok := newSts.Annotations["type"]
+			if ok && val == "ShardedCluster" {
+				return statefulSetReadinessStatusChanged(oldSts, newSts)
+			}
+			return false
+		},
+		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+		CreateFunc:  func(e event.CreateEvent) bool { return false },
+	}
+}
+
+// PredicatesForOpsManagerStatefulSet is the predicate for the central cluster StatefulSet watch
+// of the Ops Manager reconciler. Ownership is resolved by the owner handler, so unlike the
+// database predicates this does not gate on a "type" annotation, which Ops Manager and AppDB
+// StatefulSets do not carry. It reacts to StatefulSet readiness status changes.
+func PredicatesForOpsManagerStatefulSet() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
+			newSts := e.ObjectNew.(*appsv1.StatefulSet)
+			return statefulSetReadinessStatusChanged(oldSts, newSts)
+		},
+		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+		CreateFunc:  func(e event.CreateEvent) bool { return false },
+	}
+}
+
+func statefulSetReadinessStatusChanged(oldSts, newSts *appsv1.StatefulSet) bool {
+	return !reflect.DeepEqual(oldSts.Status, newSts.Status) && (!statefulSetIsReady(oldSts) || !statefulSetIsReady(newSts))
+}
+
+func statefulSetIsReady(sts *appsv1.StatefulSet) bool {
+	if sts.Spec.Replicas == nil {
+		return false
+	}
+	wanted := *sts.Spec.Replicas
+	return sts.Status.UpdatedReplicas == wanted &&
+		sts.Status.ReadyReplicas == wanted &&
+		sts.Status.Replicas == wanted &&
+		sts.Status.ObservedGeneration == sts.Generation
+}
+
+// PredicatesForMultiClusterSearchResource filters watch events for resources
+// the MongoDBSearch controller places in member clusters. Owner references do
+// not cross cluster boundaries, so identification is by the search-owner
+// labels (handler.MongoDBSearchOwnerNameLabel +
+// handler.MongoDBSearchOwnerNamespaceLabel) rather than ownerRef.
+//
+// Create and Delete pass through only when both labels are present. Update
+// passes if either side carries them, so label add/remove transitions also
+// reconcile. Generic drops everything (informer-resync noise).
+//
+// Aligned with handler.EnqueueMemberClusterObjectToSearch — both readers
+// share the same label scheme.
+func PredicatesForMultiClusterSearchResource() predicate.Funcs {
+	hasOwnerLabels := func(obj client.Object) bool {
+		return handler.MapMemberClusterObjectToSearch(obj) != (reconcile.Request{})
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return hasOwnerLabels(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasOwnerLabels(e.Object) },
+		UpdateFunc:  func(e event.UpdateEvent) bool { return hasOwnerLabels(e.ObjectOld) || hasOwnerLabels(e.ObjectNew) },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
 	}
 }
 

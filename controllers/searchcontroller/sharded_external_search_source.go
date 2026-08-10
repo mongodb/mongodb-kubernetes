@@ -69,9 +69,9 @@ func (r *ShardedExternalSearchSource) TLSConfig() *TLSSourceConfig {
 
 	return &TLSSourceConfig{
 		CAFileName: tlsCACertName,
-		CAVolume:   statefulset.CreateVolumeFromSecret("ca", r.spec.TLS.CA.Name),
+		CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", r.spec.TLS.CA.Name),
 		ResourcesToWatch: map[watch.Type][]types.NamespacedName{
-			watch.Secret: {
+			watch.ConfigMap: {
 				{Namespace: r.namespace, Name: r.spec.TLS.CA.Name},
 			},
 		},
