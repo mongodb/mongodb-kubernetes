@@ -6345,6 +6345,12 @@ spec:
             type: object
           spec:
             properties:
+              connectionStringDatabase:
+                description: |-
+                  ConnectionStringDatabase is the database placed in the connection string URI path.
+                  Leaves the URI path empty when unset. Ignored when Database is "$external",
+                  since it is an auth only pseudo database and must not appear in the URI path.
+                type: string
               connectionStringSecretName:
                 type: string
               db:
