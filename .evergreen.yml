@@ -974,7 +974,10 @@ task_groups:
       - e2e_search_external_metrics_forwarder_sharded
 
   # this task group contains just a one task, which is smoke testing whether the operator
-  # works correctly when we run it without installing webhook cluster roles
+  # works correctly when installed with automatic admission webhook registration disabled
+  # (operator.webhook.registerConfiguration=false). In this mode the webhook cluster roles are not
+  # installed, and the operator does not serve the webhook endpoint nor register the
+  # ValidatingWebhookConfiguration, so the tests must not wait for the webhook to become ready.
   - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
     max_hosts: -1
     <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]

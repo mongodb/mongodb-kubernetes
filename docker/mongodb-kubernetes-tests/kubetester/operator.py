@@ -209,7 +209,22 @@ class Operator(object):
 
         raise Exception(f"Operator hasn't started in specified time after {retries} retries.")
 
+    def webhook_registration_enabled(self) -> bool:
+        """Returns False if the operator was installed with operator.webhook.registerConfiguration=false,
+        meaning the operator doesn't serve the admission webhook at all; it removes the operator-webhook
+        service and the ValidatingWebhookConfiguration on startup - so we likely want to skip checking the webhook"""
+        value = self.helm_arguments.get("operator.webhook.registerConfiguration", True)
+        if isinstance(value, str):
+            return value.lower() != "false"
+        return bool(value)
+
     def wait_for_operator_webhook_ready(self, retries: int = 10, multi_cluster: bool = False):
+        if not self.webhook_registration_enabled():
+            logger.info(
+                "Skipping waiting for the operator webhook: the operator was installed with "
+                "operator.webhook.registerConfiguration=false, so no webhook service is served"
+            )
+            return
         return wait_for_webhook(namespace=self.namespace, retries=retries, multi_cluster=multi_cluster)
 
     def print_diagnostics(self):
