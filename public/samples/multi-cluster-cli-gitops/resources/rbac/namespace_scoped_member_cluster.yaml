@@ -22,11 +22,16 @@ type: kubernetes.io/service-account-token
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-role
+  name: mck-member-member-cluster-role-multicluster
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 rules:
+  # deletecollection is required only for multi-cluster operation: owner references
+  # don't work across clusters, so removing a multi-cluster workload (or a whole member
+  # cluster) deletes its resources via DeleteAllOf. Single-cluster deletion relies on
+  # Kubernetes garbage collection instead, so the base installation role doesn't grant
+  # this verb on these resources.
   - apiGroups:
       - ''
     resources:
@@ -34,12 +39,6 @@ rules:
       - configmaps
       - services
     verbs:
-      - get
-      - list
-      - create
-      - update
-      - delete
-      - watch
       - deletecollection
   - apiGroups:
       - apps
@@ -47,33 +46,6 @@ rules:
       - statefulsets
       - deployments
     verbs:
-      - get
-      - list
-      - create
-      - update
-      - delete
-      - watch
-      - deletecollection
-  - apiGroups:
-      - ''
-    resources:
-      - persistentvolumeclaims
-    verbs:
-      - get
-      - list
-      - create
-      - update
-      - watch
-      - patch
-  - apiGroups:
-      - ''
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - watch
-      - delete
       - deletecollection
   # get on serviceaccounts lets the operator read the mck-member-<cluster-name>-sa
   # mongodb.com/rbac-version annotation to validate this cluster's RBAC.
@@ -87,14 +59,119 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-role-binding
+  name: mck-member-member-cluster-role-multicluster-binding
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mck-member-member-cluster-role
+  name: mck-member-member-cluster-role-multicluster
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-role-base
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - delete
+      - update
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - deletecollection
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-role-base-binding
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mck-member-member-cluster-role-base
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-pvc-resize
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-pvc-resize-binding
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mck-member-member-cluster-pvc-resize
 subjects:
   - kind: ServiceAccount
     name: mck-member-member-cluster-sa
