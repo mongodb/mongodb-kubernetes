@@ -69,8 +69,8 @@ get_operator_helm_values() {
     config+=("operator.telemetry.send.baseUrl=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}")
   fi
 
-  if [[ "${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE:-}" != "" ]]; then
-    config+=("operator.webhook.installClusterRole=${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE}")
+  if [[ "${MDB_HELM_OPERATOR_WEBHOOK_REGISTER_CONFIGURATION:-}" != "" ]]; then
+    config+=("operator.webhook.registerConfiguration=${MDB_HELM_OPERATOR_WEBHOOK_REGISTER_CONFIGURATION}")
   fi
 
   if [[ "${MDB_WEBHOOK_NAME:-}" != "" ]]; then
