@@ -10,8 +10,9 @@ import (
 
 func TestGetLoginString(t *testing.T) {
 	user := User{Username: "rob", Database: "admin"}
-	assert.Equal(t, "rob:password@", user.GetLoginString("password"))
 
+	assert.Equal(t, "rob:pass%20word@", user.GetLoginString("pass word"))
+	assert.Equal(t, "rob:pass%2Bword@", user.GetLoginString("pass+word"))
 	colonUser := User{Username: "rob:name", Database: "admin"}
 	assert.Equal(t, "rob%3Aname:password@", colonUser.GetLoginString("password"))
 
