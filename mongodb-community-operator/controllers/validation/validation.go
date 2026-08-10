@@ -47,6 +47,21 @@ func validateSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) error {
 		return err
 	}
 
+	if err := validateMemberCount(mdb); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateMemberCount bounds spec.members. The count is used as an allocation and loop bound (for
+// example when building the mongot host seeds), so an unbounded value lets a single CR drive a
+// multi-GB allocation and OOMKill the operator. This duplicates the CRD markers so the count is
+// still rejected on clusters running an older CRD.
+func validateMemberCount(mdb mdbv1.MongoDBCommunity) error {
+	if mdb.Spec.Members < 0 || mdb.Spec.Members > constants.MaxReplicaSetMembers {
+		return fmt.Errorf("spec.members must be between 0 and %d, got %d", constants.MaxReplicaSetMembers, mdb.Spec.Members)
+	}
 	return nil
 }
 

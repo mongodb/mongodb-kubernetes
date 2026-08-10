@@ -46,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -1939,4 +1940,66 @@ func generateAllHostsSingleCluster(sc *mdbv1.MongoDB, mongosCount int, configSrv
 		allPodNames = append(allPodNames, podNames...)
 	}
 	return allHosts, allPodNames
+}
+
+// TestClampSizeCounts covers the defence-in-depth half of KUBE-308: the deployment state ConfigMap
+// is a plain ConfigMap in the resource's namespace, so a principal who can write it can poison the
+// counts directly. Those counts feed the max(spec.ShardCount, state.ShardCount) loops and the
+// downstream slice allocations, and because the operator re-reads the ConfigMap on every restart a
+// poisoned value survives a fix to the CR itself.
+func TestClampSizeCounts(t *testing.T) {
+	newState := func() *ShardedClusterDeploymentState {
+		s := NewShardedClusterDeploymentState()
+		s.Status = &mdbv1.MongoDbStatus{
+			SizeStatusInClusters: &status.MongodbShardedSizeStatusInClusters{
+				ShardMongodsInClusters:        map[string]int{},
+				MongosCountInClusters:         map[string]int{},
+				ConfigServerMongodsInClusters: map[string]int{},
+				ShardOverridesInClusters:      map[string]map[string]int{},
+			},
+		}
+		return s
+	}
+
+	t.Run("out-of-range counts are clamped", func(t *testing.T) {
+		s := newState()
+		s.Status.ShardCount = 1_000_000_000
+		s.Status.MongodsPerShardCount = -1
+		s.Status.MongosCount = 51
+		s.Status.ConfigServerCount = 1_000_000_000
+		s.Status.Members = -7
+		s.Status.SizeStatusInClusters.ShardMongodsInClusters["c1"] = 1_000_000_000
+		s.Status.SizeStatusInClusters.MongosCountInClusters["c1"] = -1
+		s.Status.SizeStatusInClusters.ShardOverridesInClusters["sh0"] = map[string]int{"c1": 1_000_000_000}
+
+		s.clampSizeCounts(zap.S())
+
+		assert.Equal(t, constants.MaxShardCount, s.Status.ShardCount)
+		assert.Equal(t, 0, s.Status.MongodsPerShardCount)
+		assert.Equal(t, constants.MaxReplicaSetMembers, s.Status.MongosCount)
+		assert.Equal(t, constants.MaxReplicaSetMembers, s.Status.ConfigServerCount)
+		assert.Equal(t, 0, s.Status.Members)
+		assert.Equal(t, constants.MaxReplicaSetMembers, s.Status.SizeStatusInClusters.ShardMongodsInClusters["c1"])
+		assert.Equal(t, 0, s.Status.SizeStatusInClusters.MongosCountInClusters["c1"])
+		assert.Equal(t, constants.MaxReplicaSetMembers, s.Status.SizeStatusInClusters.ShardOverridesInClusters["sh0"]["c1"])
+	})
+
+	t.Run("in-range counts are left untouched", func(t *testing.T) {
+		s := newState()
+		s.Status.ShardCount = 2
+		s.Status.MongodsPerShardCount = 3
+		s.Status.MongosCount = 4
+		s.Status.ConfigServerCount = 3
+		s.Status.Members = 3
+		s.Status.SizeStatusInClusters.ShardMongodsInClusters["c1"] = 3
+
+		s.clampSizeCounts(zap.S())
+
+		assert.Equal(t, 2, s.Status.ShardCount)
+		assert.Equal(t, 3, s.Status.MongodsPerShardCount)
+		assert.Equal(t, 4, s.Status.MongosCount)
+		assert.Equal(t, 3, s.Status.ConfigServerCount)
+		assert.Equal(t, 3, s.Status.Members)
+		assert.Equal(t, 3, s.Status.SizeStatusInClusters.ShardMongodsInClusters["c1"])
+	})
 }

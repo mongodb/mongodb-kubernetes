@@ -287,6 +287,8 @@ type ClusterSpecItem struct {
 	// +optional
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 	// Amount of members for this MongoDB Replica Set
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
 	Members int `json:"members"`
 	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
 	// +optional
@@ -308,6 +310,8 @@ type ClusterSpecItemOverride struct {
 	ClusterName string `json:"clusterName,omitempty"`
 	// Amount of members for this MongoDB Replica Set
 	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
 	Members *int `json:"members"`
 	// MemberConfig allows to specify votes, priorities and tags for each of the mongodb process.
 	// +kubebuilder:pruning:PreserveUnknownFields
@@ -445,11 +449,16 @@ type DbCommonSpec struct {
 
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
-	DbCommonSpec                           `json:",inline"`
-	ShardedClusterSpec                     `json:",inline"`
-	status.MongodbShardedClusterSizeConfig `json:",inline"`
+	DbCommonSpec                         `json:",inline"`
+	ShardedClusterSpec                   `json:",inline"`
+	status.MongodbShardedClusterSizeSpec `json:",inline"`
+
+	// The Minimum below is 0 rather than 1 because this field is left unset on sharded clusters;
+	// that a replica set must specify it is enforced by replicasetMemberIsSpecified.
 
 	// Amount of members for this MongoDB Replica Set
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
 	Members int             `json:"members,omitempty"`
 	PodSpec *MongoDbPodSpec `json:"podSpec,omitempty"`
 	// DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.

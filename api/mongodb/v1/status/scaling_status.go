@@ -104,7 +104,11 @@ func (o ShardedClusterSizeStatusInClustersOption) Value() interface{} {
 	return o.SizeConfigInClusters
 }
 
-// MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside sharded cluster
+// MongodbShardedClusterSizeConfig describes the numbers and sizes of replica sets inside sharded cluster.
+// This is the status-side variant: it carries no validation markers, because the status reports the
+// counts the operator has actually reached (which transiently lag the spec during scaling) and a
+// rejected status subresource update would wedge reconciliation. The spec-side variant with the
+// magnitude bounds is MongodbShardedClusterSizeSpec.
 // +k8s:deepcopy-gen=true
 type MongodbShardedClusterSizeConfig struct {
 	ShardCount           int `json:"shardCount,omitempty"`
@@ -114,6 +118,32 @@ type MongodbShardedClusterSizeConfig struct {
 }
 
 func (m *MongodbShardedClusterSizeConfig) String() string {
+	return fmt.Sprintf("%+v", *m)
+}
+
+// MongodbShardedClusterSizeSpec is the spec-side counterpart of MongodbShardedClusterSizeConfig.
+// The fields are identical (same names and JSON tags, so the serialized form is unchanged), but each
+// one carries a magnitude bound: these counts are used directly as allocation and loop bounds, so an
+// unbounded value lets a single CR OOMKill the operator. The minimum is 0 rather than 1 because all
+// four fields are optional and left unset on non-sharded resources; "must be specified" for sharded
+// clusters stays in the webhook validators.
+// +k8s:deepcopy-gen=true
+type MongodbShardedClusterSizeSpec struct {
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=250
+	ShardCount int `json:"shardCount,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
+	MongodsPerShardCount int `json:"mongodsPerShardCount,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
+	MongosCount int `json:"mongosCount,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
+	ConfigServerCount int `json:"configServerCount,omitempty"`
+}
+
+func (m *MongodbShardedClusterSizeSpec) String() string {
 	return fmt.Sprintf("%+v", *m)
 }
 

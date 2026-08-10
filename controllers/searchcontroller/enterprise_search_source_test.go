@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -303,7 +304,7 @@ func newShardedClusterMongoDB(name, namespace string, shardCount int, version st
 				Version:      version,
 				ResourceType: mdbv1.ShardedCluster,
 			},
-			MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+			MongodbShardedClusterSizeSpec: status.MongodbShardedClusterSizeSpec{
 				ShardCount: shardCount,
 			},
 		},
@@ -370,4 +371,37 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 			assert.Equal(t, tc.expectedShards, shardNames)
 		})
 	}
+}
+
+func TestEnterpriseSearchSource_HostSeedsRejectsOutOfRangeMembers(t *testing.T) {
+	// HostSeeds does make([]string, members) on the raw spec value. A large-positive count drives a
+	// multi-GB allocation with no panic, so the operator is OOMKilled by its cgroup and
+	// controller-runtime's RecoverPanic cannot intercept it (KUBE-308).
+	for _, tc := range []struct {
+		name    string
+		members int
+	}{
+		{"large positive", 1_000_000_000},
+		{"negative", -1},
+		{"just above max", 51},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := newEnterpriseSearchSource("8.0.0", "SingleCluster", mdbv1.ReplicaSet, nil, "")
+			src.Spec.Members = tc.members
+
+			seeds, err := src.HostSeeds("")
+			require.Error(t, err)
+			assert.Nil(t, seeds)
+			assert.Contains(t, err.Error(), "spec.members must be between 0 and 50")
+		})
+	}
+
+	t.Run("in-range count still builds seeds", func(t *testing.T) {
+		src := newEnterpriseSearchSource("8.0.0", "SingleCluster", mdbv1.ReplicaSet, nil, "")
+		src.Spec.Members = 3
+
+		seeds, err := src.HostSeeds("")
+		require.NoError(t, err)
+		assert.Len(t, seeds, 3)
+	})
 }

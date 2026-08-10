@@ -1079,3 +1079,62 @@ func TestValidateShardOverrides(t *testing.T) {
 		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
 	})
 }
+
+// TestValidateReplicaCountsInRange covers KUBE-308: the mongot replica counts become StatefulSet
+// replica counts and loop bounds, so an unbounded value lets a single CR exhaust the operator's
+// memory. validateMultipleReplicasRequireLB had no magnitude cap.
+func TestValidateReplicaCountsInRange(t *testing.T) {
+	shard := func(name string) ExternalShardConfig {
+		return ExternalShardConfig{ShardName: name, Hosts: []string{"host:27017"}}
+	}
+
+	for _, tc := range []struct {
+		name      string
+		mutate    func(s *MongoDBSearch)
+		expectErr string
+	}{
+		{
+			"cluster replicas large positive",
+			func(s *MongoDBSearch) { s.Spec.Clusters[0].Replicas = ptr.To(int32(1_000_000_000)) },
+			"'spec.clusters[0].replicas' must be between 0 and 50, got 1000000000",
+		},
+		{
+			"cluster replicas negative",
+			func(s *MongoDBSearch) { s.Spec.Clusters[0].Replicas = ptr.To(int32(-1)) },
+			"'spec.clusters[0].replicas' must be between 0 and 50, got -1",
+		},
+		{
+			"envoy replicas out of range",
+			func(s *MongoDBSearch) {
+				s.Spec.Clusters[0].LoadBalancer = &LoadBalancerConfig{
+					Managed: &ManagedLBConfig{Replicas: ptr.To(int32(1_000_000_000))},
+				}
+			},
+			"'spec.clusters[0].loadBalancer.managed.replicas' must be between 0 and 50, got 1000000000",
+		},
+		{
+			"shard override replicas out of range",
+			func(s *MongoDBSearch) {
+				s.Spec.Clusters[0].ShardOverrides = []ShardOverride{
+					{ShardNames: []string{"shard0"}, Replicas: ptr.To(int32(51))},
+				}
+			},
+			"'spec.clusters[0].shardOverrides[0].replicas' must be between 0 and 50, got 51",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSearch("my-search", []ExternalShardConfig{shard("shard0")}, "", false, false)
+			tc.mutate(s)
+			res := validateReplicaCountsInRange(s)
+			assert.Equal(t, v1.ErrorLevel, res.Level)
+			assert.Equal(t, tc.expectErr, res.Msg)
+		})
+	}
+
+	t.Run("in-range counts pass", func(t *testing.T) {
+		s := newSearch("my-search", []ExternalShardConfig{shard("shard0")}, "", false, false)
+		s.Spec.Clusters[0].Replicas = ptr.To(int32(50))
+		s.Spec.Clusters[0].LoadBalancer = &LoadBalancerConfig{Managed: &ManagedLBConfig{Replicas: ptr.To(int32(3))}}
+		assert.Equal(t, v1.ValidationSuccess(), validateReplicaCountsInRange(s))
+	})
+}

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 var MemberConfigErrorMessage = "there must be at least as many entries in MemberConfig as specified in the 'members' field"
@@ -17,6 +18,7 @@ func ShardedClusterCommonValidators() []func(m MongoDB) v1.ValidationResult {
 		shardOverridesShardNamesCorrectValues,
 		shardOverridesClusterSpecListsCorrect,
 		shardCountSpecified,
+		clusterSpecListMemberCountsInRange,
 	}
 }
 
@@ -48,6 +50,55 @@ func shardCountSpecified(m MongoDB) v1.ValidationResult {
 	if m.Spec.ShardCount == 0 {
 		return v1.ValidationError("shardCount must be specified")
 	}
+	// The count is used as an allocation and loop bound before this point on clusters running an
+	// older CRD without the kubebuilder bounds, so reject out-of-range magnitudes here too.
+	if m.Spec.ShardCount < 0 || m.Spec.ShardCount > constants.MaxShardCount {
+		return v1.ValidationError("shardCount must be between 1 and %d, got %d", constants.MaxShardCount, m.Spec.ShardCount)
+	}
+	return v1.ValidationSuccess()
+}
+
+// clusterSpecListMemberCountsInRange bounds the per-cluster member counts of a multi-cluster sharded
+// spec, including shard overrides. Like shardCountSpecified this duplicates the kubebuilder bounds so
+// the counts are still rejected on clusters running an older CRD.
+func clusterSpecListMemberCountsInRange(m MongoDB) v1.ValidationResult {
+	checkList := func(path string, list ClusterSpecList) *v1.ValidationResult {
+		for i, item := range list {
+			if item.Members < 0 || item.Members > constants.MaxReplicaSetMembers {
+				res := v1.ValidationError("'%s[%d].members' must be between 1 and %d, got %d", path, i, constants.MaxReplicaSetMembers, item.Members)
+				return &res
+			}
+		}
+		return nil
+	}
+
+	lists := map[string]ClusterSpecList{}
+	if m.Spec.ShardSpec != nil {
+		lists["spec.shard.clusterSpecList"] = m.Spec.ShardSpec.ClusterSpecList
+	}
+	if m.Spec.MongosSpec != nil {
+		lists["spec.mongos.clusterSpecList"] = m.Spec.MongosSpec.ClusterSpecList
+	}
+	if m.Spec.ConfigSrvSpec != nil {
+		lists["spec.configSrv.clusterSpecList"] = m.Spec.ConfigSrvSpec.ClusterSpecList
+	}
+	for path, list := range lists {
+		if res := checkList(path, list); res != nil {
+			return *res
+		}
+	}
+
+	for i, override := range m.Spec.ShardOverrides {
+		for j, item := range override.ClusterSpecList {
+			if item.Members == nil {
+				continue
+			}
+			if *item.Members < 0 || *item.Members > constants.MaxReplicaSetMembers {
+				return v1.ValidationError("'spec.shardOverrides[%d].clusterSpecList[%d].members' must be between 1 and %d, got %d", i, j, constants.MaxReplicaSetMembers, *item.Members)
+			}
+		}
+	}
+
 	return v1.ValidationSuccess()
 }
 
@@ -56,6 +107,18 @@ func mandatorySingleClusterFieldsAreSpecified(m MongoDB) v1.ValidationResult {
 		m.Spec.MongosCount == 0 ||
 		m.Spec.ConfigServerCount == 0 {
 		return v1.ValidationError("The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount")
+	}
+	for _, f := range []struct {
+		name  string
+		value int
+	}{
+		{"mongodsPerShardCount", m.Spec.MongodsPerShardCount},
+		{"mongosCount", m.Spec.MongosCount},
+		{"configServerCount", m.Spec.ConfigServerCount},
+	} {
+		if f.value < 0 || f.value > constants.MaxReplicaSetMembers {
+			return v1.ValidationError("%s must be between 1 and %d, got %d", f.name, constants.MaxReplicaSetMembers, f.value)
+		}
 	}
 	return v1.ValidationSuccess()
 }

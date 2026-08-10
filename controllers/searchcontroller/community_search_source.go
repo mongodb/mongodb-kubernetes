@@ -15,6 +15,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func NewCommunityResourceSearchSource(mdbc *mdbcv1.MongoDBCommunity) SearchSourceDBResource {
@@ -29,7 +30,11 @@ func (r *CommunitySearchSource) HostSeeds(shardName string) ([]string, error) {
 	if shardName != "" {
 		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
-	seeds := make([]string, r.Spec.Members)
+	members := r.Spec.Members
+	if members < 0 || members > constants.MaxReplicaSetMembers {
+		return nil, fmt.Errorf("spec.members must be between 0 and %d, got %d", constants.MaxReplicaSetMembers, members)
+	}
+	seeds := make([]string, members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.GetMongodConfiguration().GetDBPort())

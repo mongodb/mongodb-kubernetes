@@ -181,6 +181,7 @@ spec:
                                 Replicas is the number of Envoy proxy pods to deploy.
                                 Defaults to 1 if not specified.
                               format: int32
+                              maximum: 50
                               minimum: 1
                               type: integer
                             resourceRequirements:
@@ -553,6 +554,7 @@ spec:
                         distribute traffic across mongot instances.
                         Set to 0 to take mongot offline: the StatefulSet scales to 0 while the MongoDBSearch CR stays.
                       format: int32
+                      maximum: 50
                       minimum: 0
                       type: integer
                     resourceRequirements:
@@ -887,6 +889,7 @@ spec:
                               Replicas replaces the cluster's mongot replica count for these shards.
                               Set to 0 to take these shards' mongot offline.
                             format: int32
+                            maximum: 50
                             minimum: 0
                             type: integer
                           resourceRequirements:

@@ -18,6 +18,12 @@ type ClusterBuilder struct {
 }
 
 func DefaultClusterBuilder() *ClusterBuilder {
+	sizeSpec := status.MongodbShardedClusterSizeSpec{
+		ShardCount:           2,
+		MongodsPerShardCount: 3,
+		ConfigServerCount:    3,
+		MongosCount:          4,
+	}
 	sizeConfig := status.MongodbShardedClusterSizeConfig{
 		ShardCount:           2,
 		MongodsPerShardCount: 3,
@@ -52,7 +58,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 				},
 			},
 		},
-		MongodbShardedClusterSizeConfig: sizeConfig,
+		MongodbShardedClusterSizeSpec: sizeSpec,
 		ShardedClusterSpec: mdb.ShardedClusterSpec{
 			ConfigSrvSpec:    &mdb.ShardedClusterComponentSpec{},
 			MongosSpec:       &mdb.ShardedClusterComponentSpec{},

@@ -225,3 +225,28 @@ func TestGetDNSNames(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDNSNamesBoundsReplicaCount(t *testing.T) {
+	// GetDNSNames is the shared sink for every replica/shard count in the CRDs. An unvalidated count
+	// reaching it either panics in make (negative) or allocates enough to get the operator OOMKilled
+	// (large positive) -- see KUBE-308.
+	t.Run("negative count yields no names instead of panicking", func(t *testing.T) {
+		hostnames, names := GetDNSNames("sts", "svc", "ns", "cluster.local", -1, nil)
+		assert.Empty(t, names)
+		assert.Empty(t, hostnames)
+	})
+
+	t.Run("huge count is clamped instead of allocating", func(t *testing.T) {
+		hostnames, names := GetDNSNames("sts", "svc", "ns", "cluster.local", 1_000_000_000, nil)
+		assert.Len(t, names, maxReplicas)
+		assert.Len(t, hostnames, maxReplicas)
+	})
+
+	t.Run("ordinary count is untouched", func(t *testing.T) {
+		hostnames, names := GetDNSNames("sts", "svc", "ns", "cluster.local", 3, nil)
+		assert.Len(t, names, 3)
+		assert.Len(t, hostnames, 3)
+		assert.Equal(t, "sts-0", names[0])
+		assert.Equal(t, "sts-0.svc.ns.svc.cluster.local", hostnames[0])
+	})
+}

@@ -728,3 +728,35 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestMongoDB_ProcessValidations_MembersMagnitudeIsBounded(t *testing.T) {
+	// spec.members is used as an allocation and loop bound (host seed and DNS name slices) before
+	// any effective validation, so a large-positive count OOMKills the operator (KUBE-308).
+	for _, tc := range []struct {
+		name      string
+		members   int
+		expectErr string
+	}{
+		{"large positive", 1_000_000_000, "'spec.members' must be between 1 and 50, got 1000000000"},
+		{"negative", -1, "'spec.members' must be between 1 and 50, got -1"},
+		{"just above max", 51, "'spec.members' must be between 1 and 50, got 51"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := NewReplicaSetBuilder().Build()
+			rs.Spec.Members = tc.members
+			err := rs.ProcessValidationsOnReconcile(nil)
+			require.Error(t, err)
+			assert.Equal(t, tc.expectErr, err.Error())
+		})
+	}
+
+	// The default builder trips an unrelated connection-spec validation, so assert only that the
+	// member-count rule does not fire at the boundary.
+	t.Run("at max is accepted", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().Build()
+		rs.Spec.Members = 50
+		if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
+			assert.NotContains(t, err.Error(), "'spec.members' must be between")
+		}
+	})
+}

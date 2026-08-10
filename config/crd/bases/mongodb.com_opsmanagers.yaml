@@ -417,6 +417,8 @@ spec:
                         members:
                           description: Amount of members for this MongoDB Replica
                             Set
+                          maximum: 50
+                          minimum: 0
                           type: integer
                         podSpec:
                           properties:
