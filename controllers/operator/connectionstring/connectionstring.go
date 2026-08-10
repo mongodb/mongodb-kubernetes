@@ -18,7 +18,7 @@ import (
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password, authSource, connectionStringDatabase string, scheme Scheme, connectionParams map[string]string) string
+	BuildConnectionString(userName, password, connectionStringDatabase string, scheme Scheme, connectionParams map[string]string) string
 }
 
 // Scheme states the connection string format.
@@ -51,7 +51,6 @@ type builder struct {
 	hostnames []string
 	// connectionStringDatabase is the database placed in the URI path
 	connectionStringDatabase string
-	authSource               string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -132,11 +131,6 @@ func (b *builder) SetConnectionStringDatabase(connectionStringDatabase string) *
 	return b
 }
 
-func (b *builder) SetAuthSource(authSource string) *builder {
-	b.authSource = authSource
-	return b
-}
-
 func (b *builder) SetScheme(scheme Scheme) *builder {
 	b.scheme = scheme
 	return b
@@ -180,7 +174,6 @@ func (b *builder) Build() string {
 	if b.isReplicaSet {
 		connectionParams["replicaSet"] = b.name
 	}
-
 	if b.isTLSEnabled {
 		connectionParams["ssl"] = "true"
 	} else if b.scheme == SchemeMongoDBSRV {
@@ -188,12 +181,12 @@ func (b *builder) Build() string {
 		connectionParams["ssl"] = "false"
 	}
 
-	// callers supply the auth source explicitly
-	if b.authSource != "" {
-		connectionParams["authSource"] = b.authSource
+	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)
+	if authSource != "" {
+		connectionParams["authSource"] = authSource
 	}
-	if mech := resolveAuthMechanism(b.authenticationModes, b.version); mech != "" {
-		connectionParams["authMechanism"] = mech
+	if authMechanism != "" {
+		connectionParams["authMechanism"] = authMechanism
 	}
 
 	// Merge received (b.connectionParams) on top of local (connectionParams)
@@ -232,21 +225,27 @@ func Builder() *builder {
 	}
 }
 
-// resolveAuthMechanism returns the authMechanism for the URI.
-// SCRAM-SHA-1 mode takes precedence over version-based SCRAM negotiation.
-func resolveAuthMechanism(authenticationModes []string, version string) string {
-	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
-		return "SCRAM-SHA-1"
-	}
+// authSourceAndMechanism returns AuthSource and AuthMechanism.
+func authSourceAndMechanism(authenticationModes []string, version string) (string, string) {
+	var authSource string
+	var authMechanism string
 	if stringutil.Contains(authenticationModes, util.SCRAM) {
+		authSource = util.DefaultUserDatabase
+
 		comparison, err := util.CompareVersions(version, util.MinimumScramSha256MdbVersion)
 		if err != nil {
-			return ""
+			return "", ""
 		}
 		if comparison < 0 {
-			return "SCRAM-SHA-1"
+			authMechanism = "SCRAM-SHA-1"
+		} else {
+			authMechanism = "SCRAM-SHA-256"
 		}
-		return "SCRAM-SHA-256"
 	}
-	return ""
+
+	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
+		authMechanism = "SCRAM-SHA-1"
+	}
+
+	return authSource, authMechanism
 }

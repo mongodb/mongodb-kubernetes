@@ -504,8 +504,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetIsReplicaSet(true).
 		SetIsTLSEnabled(m.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).
-		SetScheme(scheme).
-		SetAuthSource(util.DefaultUserDatabase)
+		SetScheme(scheme)
 
 	if m.IsMultiCluster() {
 		builder.SetReplicas(len(multiClusterHostnames))

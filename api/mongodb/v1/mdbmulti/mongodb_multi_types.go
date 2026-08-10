@@ -632,7 +632,7 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 //
 // Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
 // to complete.
-func (m *MongoDBMultiCluster) BuildConnectionString(username, password, authSource, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
 		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
@@ -654,7 +654,6 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password, authSour
 		SetHostnames(hostnames).
 		SetScheme(scheme).
 		SetConnectionParams(connectionParams).
-		SetAuthSource(authSource).
 		SetConnectionStringDatabase(connectionStringDatabase)
 
 	return builder.Build()
