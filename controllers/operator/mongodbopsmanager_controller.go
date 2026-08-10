@@ -1938,9 +1938,6 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Conte
 	userName := mongodbUser.Spec.Username
 	connectionStringDatabase := mongodbUser.Spec.ConnectionStringDatabase
 	authSource := mongodbUser.Spec.Database
-	if authSource == "" {
-		authSource = util.DefaultUserDatabase
-	}
 	password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
 	if err != nil {
 		return "", "", "", "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
@@ -1984,9 +1981,6 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 		}
 		userName = mongodbUser.Spec.Username
 		authSource = mongodbUser.Spec.Database
-		if authSource == "" {
-			authSource = util.DefaultUserDatabase
-		}
 		connectionStringDatabase = mongodbUser.Spec.ConnectionStringDatabase
 		password, err = mongodbUser.GetPassword(ctx, r.SecretClient)
 		if err != nil {

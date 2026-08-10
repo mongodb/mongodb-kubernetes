@@ -30,13 +30,3 @@ func TestGetConnectionStringDatabase(t *testing.T) {
 	external := User{Database: constants.ExternalDB, ConnectionStringDatabase: constants.ExternalDB}
 	assert.Equal(t, "", external.GetConnectionStringDatabase())
 }
-
-func TestGetAuthSource(t *testing.T) {
-	assert.Equal(t, "admin", User{Database: "admin"}.GetAuthSource())
-	assert.Equal(t, "mflix", User{Database: "mflix"}.GetAuthSource())
-}
-
-func TestIsExternalAuth(t *testing.T) {
-	assert.True(t, User{Database: constants.ExternalDB}.IsExternalAuth())
-	assert.False(t, User{Database: "admin"}.IsExternalAuth())
-}

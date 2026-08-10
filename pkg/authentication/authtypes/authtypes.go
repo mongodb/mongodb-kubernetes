@@ -93,17 +93,6 @@ func (u User) GetConnectionStringDatabase() string {
 	return u.ConnectionStringDatabase
 }
 
-// GetAuthSource returns the database used to authenticate this user (used in AutomationConfig
-// and as the authSource connection string parameter).
-func (u User) GetAuthSource() string {
-	return u.Database
-}
-
-// IsExternalAuth returns true if this user authenticates against an external database.
-func (u User) IsExternalAuth() bool {
-	return u.Database == constants.ExternalDB
-}
-
 func (u User) GetLoginString(password string) string {
 	if u.Database != constants.ExternalDB {
 		return stringutil.EncodeUserinfoComponent(u.Username) + ":" + stringutil.EncodeUserinfoComponent(password) + "@"
