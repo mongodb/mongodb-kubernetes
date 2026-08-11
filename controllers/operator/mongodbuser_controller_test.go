@@ -518,7 +518,7 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 
 	assert.Equal(t,
 		"mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local"+
-			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&tls=false",
 		string(secret.Data["connectionString.standardSrv"]))
 }
 

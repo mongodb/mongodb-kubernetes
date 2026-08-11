@@ -65,3 +65,40 @@ func TestBuild_CredentialEncoding(t *testing.T) {
 		assert.NotContains(t, scram("", "password"), "@")
 	})
 }
+
+func TestBuild_SRV_TLSParameter(t *testing.T) {
+	t.Run("SRV without TLS includes tls=false", func(t *testing.T) {
+		b := Builder().
+			SetScheme(SchemeMongoDBSRV).
+			SetService("my-rs-svc").
+			SetNamespace("my-ns").
+			SetClusterDomain("cluster.local").
+			SetIsReplicaSet(true).
+			SetName("my-rs")
+		assert.Contains(t, b.Build(), "tls=false")
+		assert.NotContains(t, b.Build(), "ssl=")
+	})
+
+	t.Run("SRV with TLS includes ssl=true", func(t *testing.T) {
+		b := Builder().
+			SetScheme(SchemeMongoDBSRV).
+			SetService("my-rs-svc").
+			SetNamespace("my-ns").
+			SetClusterDomain("cluster.local").
+			SetIsReplicaSet(true).
+			SetName("my-rs").
+			SetIsTLSEnabled(true)
+		assert.Contains(t, b.Build(), "ssl=true")
+		assert.NotContains(t, b.Build(), "tls=false")
+	})
+
+	t.Run("standard connection without TLS does not include tls=false", func(t *testing.T) {
+		b := Builder().
+			SetScheme(SchemeMongoDB).
+			SetHostnames([]string{"host:27017"}).
+			SetIsReplicaSet(true).
+			SetName("my-rs")
+		assert.NotContains(t, b.Build(), "tls=false")
+		assert.NotContains(t, b.Build(), "ssl=")
+	})
+}
