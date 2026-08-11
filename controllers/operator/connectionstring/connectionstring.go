@@ -171,7 +171,7 @@ func (b *builder) Build() string {
 		connectionParams["ssl"] = "true"
 	} else if b.scheme == SchemeMongoDBSRV {
 		// SRV connection strings assume TLS by default; explicitly disable when the cluster has no TLS.
-		connectionParams["tls"] = "false"
+		connectionParams["ssl"] = "false"
 	}
 
 	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)
