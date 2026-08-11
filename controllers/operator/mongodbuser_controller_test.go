@@ -581,7 +581,7 @@ func TestConnectionStringSecret_ScramSHA1_UsesAuthSource_AsAuthSource(t *testing
 
 	assert.Equal(t,
 		"mongodb+srv://my-user:password@my-rs-svc.my-namespace.svc.cluster.local"+
-			"/mydb?authMechanism=SCRAM-SHA-1&authSource=mydb&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+			"/mydb?authMechanism=SCRAM-SHA-1&authSource=mydb&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		string(secret.Data["connectionString.standardSrv"]))
 }
 
@@ -858,11 +858,6 @@ func (b *MongoDBUserBuilder) SetNamespace(namespace string) *MongoDBUserBuilder 
 
 func (b *MongoDBUserBuilder) SetDatabase(database string) *MongoDBUserBuilder {
 	b.database = database
-	return b
-}
-
-func (b *MongoDBUserBuilder) SetConnectionStringDatabase(db string) *MongoDBUserBuilder {
-	b.connectionStringDatabase = db
 	return b
 }
 

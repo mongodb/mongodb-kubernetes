@@ -384,7 +384,7 @@ func TestMongoDB_ConnectionURL_WithConnectionStringDatabase(t *testing.T) {
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAMSHA1}).Build()
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", "admin", "myapp", connectionstring.SchemeMongoDBSRV, nil)
 	assert.Equal(t, "mongodb+srv://the_user:the_passwd@test-mdb-svc.testNS.svc.cluster.local/myapp?"+
-		"authMechanism=SCRAM-SHA-1&authSource=admin&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		"authMechanism=SCRAM-SHA-1&authSource=admin&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
 		cnx)
 }
 
@@ -425,7 +425,7 @@ func TestMongoDB_ConnectionURL_WithAuthSourceAndConnectionStringDatabase(t *test
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAMSHA1}).Build()
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", "admin", "myapp", connectionstring.SchemeMongoDBSRV, nil)
 	assert.Equal(t, "mongodb+srv://the_user:the_passwd@test-mdb-svc.testNS.svc.cluster.local/myapp?"+
-		"authMechanism=SCRAM-SHA-1&authSource=admin&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		"authMechanism=SCRAM-SHA-1&authSource=admin&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
 		cnx)
 
 	// authSource with external domain
