@@ -251,7 +251,7 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 	// Explicit SCRAM-SHA-1 mode with SRV scheme
 	cnx = rs.BuildConnectionString("the_user", "the_passwd", connectionstring.SchemeMongoDBSRV, nil)
 	assert.Equal(t, "mongodb+srv://the_user:the_passwd@test-mdb-svc.testNS.svc.cluster.local/?authMechanism=SCRAM-SHA-1&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Caller-supplied authSource (as updateConnectionStringSecret always does) is added alongside authMechanism
