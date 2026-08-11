@@ -8,7 +8,7 @@ Jira Epic: CLOUDP-398575
 
 This feature is delivered in phases:
 
-- **Phase 1 (current)**: Single-cluster support only. The external AppDB must be a `MongoDB` CR (not `MongoDBMultiCluster`). TLS/CA parity for external AppDB is part of Phase 1 scope but the implementation is WIP and will ship immediately after the base stack.
+- **Phase 1 (current)**: Single-cluster support only. The external AppDB must be a `MongoDB` CR (not `MongoDBMultiCluster`). TLS/CA parity for external AppDB is part of Phase 1 and is implemented in a follow-up PR (#1468) that ships immediately after the base stack.
 - **Phase 2 (future)**: Multi-cluster support via `MongoDBMultiCluster` CR. This includes multi-cluster topology, cross-cluster ownership handoff, and per-cluster finalizer state.
 
 ## Product Goals and Summary
@@ -39,7 +39,7 @@ The implementation transitions the Ops Manager AppDB from an implicit, internall
 
 - **Direct Connection String Computation**: The referenced CR does not generate its own connection-string secret. Instead, the Ops Manager controller computes the connection string directly from the live CR object using the shared `BuildConnectionString` method. The result is written to the primary OM's fixed, long-lived connection-string secret. This design preserves the pod's volume mount identity, preventing unnecessary restarts when switching between internal and external management modes.
 
-- **TLS and CA management (WIP)**: Because we can now use the MongoDB CRD as AppDB, the TLS and CA have to be configured for it. The StatefulSet from OpsManager mounts a CA configmap to trust the TLS cert of AppDB, but the CA is currently taken from the internal spec `opsManager.Spec.AppDB.GetCAConfigName()`. When the MongoDB CRD is referenced, the `spec.applicationDatabase` field is not set, which always gives an empty CA configmap (properties: `mongodb.ssl.CAFile` and `mongodb.SSL` are not set). OpsManager doesn't trust the TLS cert of the external AppDB (MongoDB CR). The planned fix resolves the MongoDB CR to extract the `security.tls.ca` field and TLS flag and use these in the reconciler. This is WIP and will ship immediately after the base stack as part of Phase 1.
+- **TLS and CA management**: Because we can now use the MongoDB CRD as AppDB, the TLS and CA have to be configured for it. The StatefulSet from OpsManager mounts a CA ConfigMap to trust the TLS cert of AppDB. The `AppDBReconciler` interface now exposes a `GetAppDBConfig` method that returns an `AppDBConfig` struct containing the connection string, TLS-enabled flag, and CA ConfigMap name. For the internal AppDB, these are derived from `opsManager.Spec.AppDB`. For the external AppDB, the OM controller resolves the referenced MongoDB CR's `security.tls.ca` field and TLS flag via the `ExternalAppDB` interface (`GetCAConfigMapName()` and `IsTLSEnabled()`). The `AppDBConfig` is passed through the OM reconciliation flow to `ensureConfiguration` (which sets `mms.mongoSSL` and `mms.mongoCA`), `replicateAppDBTLSCAInMemberClusters` (which replicates the CA ConfigMap to member clusters), and the StatefulSet construction (via `WithAppDBTLSCAConfigMapName`). This is implemented in PR #1468.
 
 - **Two-Annotation Migration Protocol**: The implementation uses two distinct annotations:
   - `mongodb.com/appdb-migration-ready`: set by the OM controller during forward migration (internal → external)
@@ -194,6 +194,28 @@ Enforces a strict `<om-name>-db` naming convention for the external CR, allowing
 
 The shared password secret is named `<om-name>-db-om-password` (derived as `OpsManagerUserPasswordSecretName(<appdb-name>)` where `<appdb-name>` = `<om-name>-db`).
 
+### AppDB Configuration and TLS/CA Management
+
+The `AppDBReconciler` interface exposes a `GetAppDBConfig` method that returns an `AppDBConfig` struct:
+
+```go
+type AppDBConfig struct {
+    IsTLSEnabled     bool
+    CAConfigMapName  string
+    ConnectionString string
+}
+```
+
+- **Internal AppDB** (`ReconcileAppDbReplicaSet`): derives `IsTLSEnabled` from `opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()`, `CAConfigMapName` from `opsManager.Spec.AppDB.GetCAConfigMapName()`, and `ConnectionString` from `buildMongoConnectionUrl`.
+- **External AppDB** (`ReconcileExternalAppDBReplicaSet`): resolves the referenced MongoDB CR via the `ExternalAppDB` interface, which now includes `GetCAConfigMapName()` (reads `security.tls.ca`) and `IsTLSEnabled()` (reads the TLS flag). The connection string is computed via `BuildConnectionString`.
+
+The `AppDBConfig` is threaded through the OM reconciliation flow:
+- `ensureConfiguration` sets `mms.mongoSSL` and `mms.mongoCA` from `appDBConfig.IsTLSEnabled` and `appDBConfig.CAConfigMapName`.
+- `replicateAppDBTLSCAInMemberClusters` replicates the CA ConfigMap to member clusters using `appDBConfig.CAConfigMapName`.
+- StatefulSet construction receives the CA ConfigMap name via the `WithAppDBTLSCAConfigMapName` construct option, which mounts it as a volume on both OM and Backup Daemon pods.
+
+The `GetAppDbCA()` method on `MongoDBOpsManagerSpec` has been removed — TLS/CA resolution is now unified through `AppDBConfig` for both internal and external modes.
+
 ### Connection String Management
 
 The referenced MongoDB CR **never creates its own connection-string secret.** Instead, the OM controller computes Primary OM's connection string itself, directly from the live CR object:
@@ -257,7 +279,7 @@ Users must be informed that:
 - **`PasswordSecretKeyRef` is not supported during forward migration.** The `AppDBSpec` might be completely empty when `ExternalApplicationDatabaseRef` is set, so reading `PasswordSecretKeyRef` is unreliable. A new password is generated instead. Customer-provided password secrets will be rotated.
 - **`AutomationConfigOverride` is not supported** for external AppDB. The MongoDB CR does not have an equivalent field.
 - **Multi-cluster topology is not supported in Phase 1.** `MongoDBMultiCluster` CRs are rejected at admission. `MongoDB` CRs with multi-cluster topology are also rejected.
-- **TLS/CA parity for external AppDB is WIP.** External mode currently does not configure `mms.mongoSSL` or `mms.mongoCA`. TLS-enabled external AppDBs using a private CA may fail connectivity until the TLS fix ships.
+- ~~**TLS/CA parity for external AppDB is WIP.** External mode currently does not configure `mms.mongoSSL` or `mms.mongoCA`. TLS-enabled external AppDBs using a private CA may fail connectivity until the TLS fix ships.~~ (Resolved in PR #1468 — TLS/CA is now resolved from the referenced MongoDB CR.)
 - **1-2 minute downtime might occur during migration** if the configuration of the MongoDB/AppDB role CR differs from the internal AppDB configuration (different pod template, container set, etc.). If the configurations are semantically identical, no downtime should be present.
 
 ## Phase 2 — Multi-Cluster Support (Future)
@@ -273,5 +295,5 @@ Phase 2 will add support for `MongoDBMultiCluster` as the external AppDB. This r
 
 ## Open Questions
 
-- TLS/CA parity implementation details (WIP, shipping soon after base stack)
+- ~~TLS/CA parity implementation details (WIP, shipping soon after base stack)~~ (Resolved in PR #1468)
 - Feature usage tracking (telemetry)
