@@ -1,12 +1,13 @@
 """
 MCK-to-MCK VM migration.
 
-Deploys a real MCK-managed no-auth replica set in the source namespace, stops the
-source operator, then migrates the deployment into a second namespace using
-kubectl-mongodb migrate-to-mck and the VM-migration promote & prune flow. Unlike the
-other vm_migration replica set tests, the migration source is a genuine MCK deployment
-(MCK-style process names/hostnames in the automation config) rather than the raw agent
-StatefulSet fixture, and the migration runs operator -> operator across namespaces.
+Deploys a real MCK-managed SCRAM-SHA-256 replica set (with an application MongoDBUser)
+in the source namespace, stops the source operator, then migrates the deployment into a
+second namespace using kubectl-mongodb migrate-to-mck and the VM-migration promote &
+prune flow. Unlike the other vm_migration replica set tests, the migration source is a
+genuine MCK deployment (MCK-style process names/hostnames, an operator-managed agent user
+and keyfile in the automation config) rather than the raw agent StatefulSet fixture, and
+the migration runs operator -> operator across namespaces.
 """
 
 from kubetester import create_or_update_configmap, create_or_update_secret, read_configmap, read_secret
@@ -14,13 +15,16 @@ from kubetester.kubetester import KubernetesTester, create_testing_namespace, en
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import MongoDBBackgroundTester
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import MongoDBBackgroundTester, with_scram
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from kubetester.scram import build_scram_user_resource
 from pytest import fixture, mark
 from tests.conftest import get_central_cluster_client, get_evergreen_task_id, get_operator_installation_config
 from tests.vm_migration.vm_migration_common_helper import (
+    apply_user_crs_and_verify_ac,
     assert_migration_data_exists,
     generated_mongodb_doc,
     generated_user_docs,
@@ -39,6 +43,11 @@ from tests.vm_migration.vm_migration_replicaset_helper import (
 
 SOURCE_MEMBERS = 3
 SOURCE_RS_NAME = "source-rs"
+# Application user created in the source namespace by the source operator and later re-created
+# in the target namespace from the MongoDBUser CR the import tool generates.
+APP_USER_NAME = "app-user"
+APP_USER_PASSWORD = "appUser123!"
+APP_USER_SECRET = "app-user-password"
 # Distinct from the source operator's default name so the two operators' cluster-scoped
 # Helm resources do not collide (see target_operator fixture).
 TARGET_OPERATOR_NAME = "mongodb-kubernetes-operator-target"
@@ -128,8 +137,32 @@ def source_mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
         namespace=namespace,
     )
     resource["spec"]["members"] = SOURCE_MEMBERS
+    resource["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     resource.set_version(ensure_ent_version(custom_mdb_version))
     return resource
+
+
+@fixture(scope="module")
+def source_user(namespace: str) -> MongoDBUser:
+    """Application user managed by the source operator; also creates its password Secret."""
+    user = build_scram_user_resource(
+        namespace,
+        APP_USER_NAME,
+        APP_USER_PASSWORD,
+        APP_USER_SECRET,
+        SOURCE_RS_NAME,
+    )
+    # The migration sentinel lives in its own database, so readWrite on admin is not enough.
+    user["spec"]["roles"] = [
+        {"db": "admin", "name": "readWrite"},
+        {"db": "migration_data", "name": "readWrite"},
+    ]
+    return user
+
+
+@fixture(scope="module")
+def scram_opts() -> list[dict]:
+    return [with_scram(APP_USER_NAME, APP_USER_PASSWORD, "SCRAM-SHA-256")]
 
 
 @fixture(scope="module")
@@ -148,7 +181,10 @@ def target_operator(target_namespace: str) -> Operator:
 
 @fixture(scope="module")
 def generated_cr_yaml(target_namespace: str) -> str:
-    return run_generate_cr(target_namespace)
+    # migrate-to-mck users validates the password Secret in the namespace it generates for, so the
+    # app user's Secret has to exist in the target namespace before the tool runs.
+    create_or_update_secret(target_namespace, APP_USER_SECRET, {"password": APP_USER_PASSWORD})
+    return run_generate_cr(target_namespace, user_secrets={f"{APP_USER_NAME}:admin": APP_USER_SECRET})
 
 
 @fixture(scope="module")
@@ -168,8 +204,11 @@ def source_stub() -> dict:
 
 
 @fixture(scope="module")
-def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(mdb_migration.tester(use_ssl=False))
+def mdb_health_checker(mdb_migration: MongoDB, scram_opts: list[dict]) -> MongoDBBackgroundTester:
+    return MongoDBBackgroundTester(
+        mdb_migration.tester(use_ssl=False),
+        health_function_params={"attempts": 1, "opts": scram_opts},
+    )
 
 
 # --- test flow (ordered; runs under -x) ---
@@ -187,20 +226,43 @@ def test_deploy_source_mdb(source_mdb: MongoDB):
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
-@skip_if_local()
-def test_connectivity_before_migration(source_mdb: MongoDB):
-    source_mdb.tester(use_ssl=False).assert_connectivity()
+def test_create_source_user(source_user: MongoDBUser):
+    """Created while operator A is still running -- it owns reconciling the user into the AC."""
+    source_user.update()
+    source_user.assert_reaches_phase(Phase.Updated, timeout=600)
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
-def test_insert_migration_data(source_mdb: MongoDB):
-    insert_migration_data(source_mdb.tester(use_ssl=False))
+@skip_if_local()
+def test_user_connectivity_before_migration(source_mdb: MongoDB):
+    source_mdb.tester(use_ssl=False).assert_scram_sha_authentication(
+        username=APP_USER_NAME, password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
+
+
+@mark.e2e_vm_migration_replicaset_mck_to_mck
+def test_insert_migration_data(source_mdb: MongoDB, scram_opts: list[dict]):
+    insert_migration_data(source_mdb.tester(use_ssl=False), opts=scram_opts)
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
 def test_stop_source_operator(operator: Operator):
     """Stop operator A. Source pods and agents keep running; the OM automation config is frozen."""
     operator.delete_operator_deployment()
+
+
+@mark.e2e_vm_migration_replicaset_mck_to_mck
+def test_release_source_user_finalizer(source_user: MongoDBUser):
+    """Strip the user finalizer the stopped source operator left behind.
+
+    The MongoDBUser controller adds mongodb.com/v1.userRemovalFinalizer; with operator A gone
+    nothing removes it, so tearing down the source namespace would hang on the orphaned CR.
+    Stripping it here (after operator A is stopped, so no reconcile re-adds it) leaves the
+    automation config -- the actual migration source -- untouched.
+    """
+    source_user.reload()
+    source_user["metadata"]["finalizers"] = []
+    source_user.patch()
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
@@ -230,13 +292,19 @@ def test_external_members_point_at_source(generated_cr: dict, namespace: str):
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
-def test_no_security_in_cr(generated_cr: dict):
-    assert "security" not in generated_cr.get("spec", {})
+def test_scram_in_cr(generated_cr: dict):
+    authentication = generated_cr["spec"]["security"]["authentication"]
+    assert authentication["enabled"] is True
+    assert authentication["modes"] == ["SCRAM"], f"Unexpected auth modes: {authentication}"
+    # The source operator's agent user is the operator default, so it is not spelled out in the CR.
+    assert "automationUserName" not in authentication.get("agents", {}), f"Unexpected agents block: {authentication}"
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
-def test_no_user_crs_emitted(generated_cr_yaml: str):
-    assert len(generated_user_docs(generated_cr_yaml)) == 0
+def test_user_crs_emitted(generated_cr_yaml: str):
+    """Only the application user is emitted -- the automation agent user is skipped."""
+    usernames = {doc["spec"]["username"] for doc in generated_user_docs(generated_cr_yaml)}
+    assert usernames == {APP_USER_NAME}, f"Unexpected user CRs: {usernames}"
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
@@ -248,6 +316,20 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 def test_migrate_to_target(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
     assert_connection_string_contains_current_hosts(mdb_migration)
+
+
+@mark.e2e_vm_migration_replicaset_mck_to_mck
+def test_user_crs_reach_updated(generated_cr_yaml: str, target_namespace: str, mdb_migration: MongoDB):
+    """The generated MongoDBUser is adopted by the target operator, keeping both credential sets."""
+    apply_user_crs_and_verify_ac(generated_cr_yaml, target_namespace, _target_om_tester(target_namespace))
+
+
+@mark.e2e_vm_migration_replicaset_mck_to_mck
+@skip_if_local()
+def test_user_connectivity_after_migration(mdb_migration: MongoDB):
+    mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
+        username=APP_USER_NAME, password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
@@ -281,10 +363,12 @@ def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBB
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
 @skip_if_local()
-def test_connectivity_after_promote(mdb_migration: MongoDB):
-    mdb_migration.tester(use_ssl=False).assert_connectivity()
+def test_user_connectivity_after_promote(mdb_migration: MongoDB):
+    mdb_migration.tester(use_ssl=False).assert_scram_sha_authentication(
+        username=APP_USER_NAME, password=APP_USER_PASSWORD, auth_mechanism="SCRAM-SHA-256"
+    )
 
 
 @mark.e2e_vm_migration_replicaset_mck_to_mck
-def test_migration_data_exists_after_promote(mdb_migration: MongoDB):
-    assert_migration_data_exists(mdb_migration.tester(use_ssl=False))
+def test_migration_data_exists_after_promote(mdb_migration: MongoDB, scram_opts: list[dict]):
+    assert_migration_data_exists(mdb_migration.tester(use_ssl=False), opts=scram_opts)
