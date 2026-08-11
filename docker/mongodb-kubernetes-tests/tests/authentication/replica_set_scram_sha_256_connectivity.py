@@ -13,7 +13,11 @@ from kubetester import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.mongotester import assert_connectivity_from_connection_string
+from kubetester.mongotester import (
+    assert_connectivity_from_connection_string,
+    assert_user_can_write_using_connection_string,
+    assert_user_cannot_write_using_connection_string,
+)
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
@@ -351,8 +355,8 @@ def test_create_user_with_different_connection_string_database(replica_set: Mong
         "connectionStringDatabase": DIFFERENT_CONNECTION_STRING_DATABASE,
         "mongodbResourceRef": {"name": replica_set.name},
         "passwordSecretKeyRef": {"name": DIFFERENT_DATABASE_SECRET_NAME, "key": "password"},
-        # readWrite on the connectionStringDatabase so the connectivity checks below can
-        # write to the database in the URI path, not just to admin
+        # Grant access only on connectionStringDatabase, not on admin, so connectivity must
+        # use the URI path database rather than succeeding via admin privileges.
         "roles": [{"db": DIFFERENT_CONNECTION_STRING_DATABASE, "name": "readWrite"}],
     }
     try_load(resource)
@@ -376,20 +380,12 @@ def test_different_connection_string_database_credentials_secret_is_created(
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_different_connection_string_database_credentials_can_connect_to_db(
-    replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
+    different_database_standard_secret: Dict[str, str],
 ):
-    replica_set.assert_connectivity_from_connection_string(
-        different_database_standard_secret["connectionString.standard"], tls=False
-    )
-
-
-@mark.e2e_replica_set_scram_sha_256_user_connectivity
-def test_different_connection_string_database_credentials_can_connect_to_db_with_srv(
-    replica_set: MongoDB, different_database_standard_secret: Dict[str, str]
-):
-    replica_set.assert_connectivity_from_connection_string(
-        different_database_standard_secret["connectionString.standardSrv"], tls=False
-    )
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        conn = different_database_standard_secret[key]
+        assert_user_can_write_using_connection_string(conn, DIFFERENT_CONNECTION_STRING_DATABASE)
+        assert_user_cannot_write_using_connection_string(conn, USER_DATABASE)
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
