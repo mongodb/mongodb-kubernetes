@@ -7,7 +7,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.mongotester import MongoTester, ShardedClusterTester
+from kubetester.mongotester import ShardedClusterTester, assert_connectivity_from_connection_string
 from kubetester.phase import Phase
 from pytest import fixture
 
@@ -160,16 +160,18 @@ def test_credentials_secret_is_created(standard_secret: Dict[str, str]):
     # authSource in the connection string must match the user's spec.db
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" not in standard_secret["connectionString.standard"]
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db(standard_secret: Dict[str, str]):
-    MongoTester(standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
+    assert_connectivity_from_connection_string(standard_secret["connectionString.standard"])
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db_with_srv(standard_secret: Dict[str, str]):
-    MongoTester(standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
+    assert_connectivity_from_connection_string(standard_secret["connectionString.standardSrv"])
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
@@ -191,13 +193,15 @@ def test_non_admin_db_credentials_secret_is_created(non_admin_standard_secret: D
     # authSource in the connection string must match the user's spec.db (non-admin database)
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" not in non_admin_standard_secret["connectionString.standard"]
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 def test_non_admin_credentials_can_connect_to_db(non_admin_standard_secret: Dict[str, str]):
-    MongoTester(non_admin_standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
+    assert_connectivity_from_connection_string(non_admin_standard_secret["connectionString.standard"])
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
 def test_non_admin_credentials_can_connect_to_db_with_srv(non_admin_standard_secret: Dict[str, str]):
-    MongoTester(non_admin_standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
+    assert_connectivity_from_connection_string(non_admin_standard_secret["connectionString.standardSrv"])

@@ -8,7 +8,7 @@ from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.mongotester import with_scram
+from kubetester.mongotester import assert_connectivity_from_connection_string, with_scram
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -154,6 +154,10 @@ def test_connection_string_secret_was_created(
         assert "password" in secret_data
         assert "connectionString.standard" in secret_data
         assert "connectionString.standardSrv" in secret_data
+        assert f"authSource={USER_DATABASE}" in secret_data["connectionString.standard"]
+        assert f"authSource={USER_DATABASE}" in secret_data["connectionString.standardSrv"]
+        assert "ssl=false" in secret_data["connectionString.standardSrv"]
+        assert "ssl=false" not in secret_data["connectionString.standard"]
 
 
 @pytest.mark.e2e_multi_cluster_scram
@@ -219,12 +223,7 @@ def test_replica_set_connectivity_from_connection_string_standard(
         f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}",
         api_client=member_cluster_clients[-1].api_client,
     )
-    tester = mongodb_multi.tester()
-    tester.cnx_string = secret_data["connectionString.standard"]
-    tester.assert_connectivity(
-        db="admin",
-        opts=[with_scram(USER_NAME, NEW_USER_PASSWORD)],
-    )
+    assert_connectivity_from_connection_string(secret_data["connectionString.standard"])
 
 
 @pytest.mark.e2e_multi_cluster_scram
@@ -238,14 +237,7 @@ def test_replica_set_connectivity_from_connection_string_standard_srv(
         f"{mongodb_multi.name}-{USER_RESOURCE}-{USER_DATABASE}",
         api_client=member_cluster_clients[-1].api_client,
     )
-    tester = mongodb_multi.tester()
-    tester.cnx_string = secret_data["connectionString.standardSrv"]
-    tester.assert_connectivity(
-        db="admin",
-        opts=[
-            with_scram(USER_NAME, NEW_USER_PASSWORD),
-        ],
-    )
+    assert_connectivity_from_connection_string(secret_data["connectionString.standardSrv"])
 
 
 @pytest.mark.e2e_multi_cluster_scram
