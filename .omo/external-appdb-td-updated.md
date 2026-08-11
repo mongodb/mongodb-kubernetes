@@ -37,7 +37,7 @@ The implementation transitions the Ops Manager AppDB from an implicit, internall
 
 - **Deterministic Naming Convention**: To eliminate the need for manual credential copying, all AppDB-role CRs must follow the naming convention `<om-name>-db`. This allows both the Ops Manager and MongoDB controllers to derive the well-known password secret name (`<om-name>-db-om-password`) independently and consistently.
 
-- **Direct Connection String Computation**: The referenced CR does not generate its own connection-string secret. Instead, the Ops Manager controller computes the connection string directly from the live CR object using the shared `BuildConnectionString` method. The result is written to the primary OM's fixed, long-lived connection-string secret. This design preserves the pod's volume mount identity, preventing unnecessary restarts when switching between internal and external management modes.
+- **Direct AppDB Configuration Computation**: The referenced CR does not generate its own connection-string secret. Instead, the Ops Manager controller calls `GetAppDBConfig` on the `AppDBReconciler` to obtain an `AppDBConfig` struct (connection string, TLS flag, CA ConfigMap name) directly from the live CR object. The connection string is written to the primary OM's fixed, long-lived connection-string secret. This design preserves the pod's volume mount identity, preventing unnecessary restarts when switching between internal and external management modes.
 
 - **TLS and CA management**: Because we can now use the MongoDB CRD as AppDB, the TLS and CA have to be configured for it. The StatefulSet from OpsManager mounts a CA ConfigMap to trust the TLS cert of AppDB. The `AppDBReconciler` interface now exposes a `GetAppDBConfig` method that returns an `AppDBConfig` struct containing the connection string, TLS-enabled flag, and CA ConfigMap name. For the internal AppDB, these are derived from `opsManager.Spec.AppDB`. For the external AppDB, the OM controller resolves the referenced MongoDB CR's `security.tls.ca` field and TLS flag via the `ExternalAppDB` interface (`GetCAConfigMapName()` and `IsTLSEnabled()`). The `AppDBConfig` is passed through the OM reconciliation flow to `ensureConfiguration` (which sets `mms.mongoSSL` and `mms.mongoCA`), `replicateAppDBTLSCAInMemberClusters` (which replicates the CA ConfigMap to member clusters), and the StatefulSet construction (via `WithAppDBTLSCAConfigMapName`). This is implemented in PR #1468.
 
@@ -57,29 +57,22 @@ The implementation relies on three reconciliation procedures:
 
 ### Procedure 1 (Fresh Start)
 
-When a MongoDB CR with `spec.role: AppDB` is created, the MongoDB controller handles validation, ensures the `mongodb-ops-manager` user exists, and creates the StatefulSet. The OM controller, upon seeing a reference, validates it and computes the connection string directly, establishing a watch on the external resource.
+When a MongoDB CR with `spec.role: AppDB` is created, the MongoDB controller handles validation, ensures the `mongodb-ops-manager` user exists, and creates the StatefulSet. The OM controller, upon seeing a reference, validates it and calls `GetAppDBConfig` to obtain the AppDB configuration (connection string + TLS/CA), establishing a watch on the external resource.
 
 **Prerequisite**: The MongoDB CR must be managed by an existing Ops Manager (the "Meta OM") — the MongoDB reconciler requires an Ops Manager connection to function (project config, credentials, agent registration). A new Ops Manager cannot start without AppDB, while the AppDB-role MongoDB CR cannot reconcile without an available Ops Manager.
 
-1. **Webhook validation** (admission-time): reject unless all of —
-   - `spec.security.authentication.enabled: true` with SCRAM in modes
-   - `spec.security.authentication.ignoreUnknownUsers: true`
-   - `spec.members >= 3`
-   - MongoDB version >= 4.0.0
-   - Single-cluster topology only (multi-cluster rejected in Phase 1)
+1. **MongoDB controller reconciles.** StatefulSet ownership check finds no StatefulSet at all for this CR's name → no adoption gate applies, proceed directly to normal creation.
 
-2. **MongoDB controller reconciles.** StatefulSet ownership check finds no StatefulSet at all for this CR's name → no adoption gate applies, proceed directly to normal creation.
-
-3. **Ensure the `mongodb-ops-manager` user**, mirroring the internal AppDB reconciler's `ensureAppDbPassword` + `AppDBSpec.GetAuthUsers()` pattern — relocated into this controller's own logic rather than going through a separate MongoDBUser CR:
+2. **Ensure the `mongodb-ops-manager` user**, mirroring the internal AppDB reconciler's `ensureAppDbPassword` + `AppDBSpec.GetAuthUsers()` pattern — relocated into this controller's own logic rather than going through a separate MongoDBUser CR:
    - Check whether the well-known password secret for this CR's derived OM name (`<om-name>-db-om-password`) already exists — it doesn't (fresh start).
    - Generate a new password, create the secret under that name.
    - Inject a synthetic `mongodb-ops-manager` user (roles from shared `AppDBUserRoles` in `appdb_types.go`) directly into this CR's own automation-config user list.
 
-4. **Create the StatefulSet**, with this CR's own OwnerReference set on it. This CR never creates a connection-string secret of its own.
+3. **Create the StatefulSet**, with this CR's own OwnerReference set on it. This CR never creates a connection-string secret of its own.
 
-5. Resource reaches Running.
+4. Resource reaches Running.
 
-6. **Separately, order-independent**: whenever `spec.externalApplicationDatabaseRef` is set on an OM CR pointing at this resource, the OM controller validates that the reference's name matches the required naming convention and that `role: AppDB` and version >= 4.0.0 hold on the target, skips `ReconcileAppDB()`/`SetupCommonWatchers`, fetches the target CR, and computes Primary OM's fixed connection-string secret directly via `BuildConnectionString`, using the shared password secret's credentials. The OM controller also establishes a watch on this CR. No detach steps run in this procedure.
+5. **OM controller** calls `GetAppDBConfig` to obtain the `AppDBConfig` (connection string, TLS flag, CA ConfigMap name) from the referenced MongoDB CR. The connection string is written into Primary OM's own **fixed** connection-string secret. The TLS/CA settings are used to configure `mms.mongoSSL`, `mms.mongoCA`, and the CA ConfigMap volume mount on the OM StatefulSet. The OM controller also establishes a watch on the referenced CR. The internal AppDB status is marked as `Disabled`. No detach steps run in this procedure. (Reference validation — naming convention, role, existence — is handled by the API Validation layer, see API Validation section.)
 
 ### Procedure 2 (Forward Migration)
 
@@ -88,11 +81,9 @@ Upon creation of a companion MongoDB CR and reference update, the OM controller 
 1. **Trigger**: user creates a MongoDB CR named identically to the existing AppDB StatefulSet (`<om-name>-db`) with `spec.role: AppDB`, **and** sets `spec.externalApplicationDatabaseRef` on the OM CR to point at it. These are companion actions performed together.
 
 2. **OM controller, seeing the new reference, performs a one-time detach** (idempotent):
-   a. Skip `ReconcileAppDB()` — conditional on `ExternalApplicationDatabaseRef == nil`.
-   b. Skip `SetupCommonWatchers` for the AppDB objects — conditional on `ExternalApplicationDatabaseRef == nil`.
-   c. Validate the reference: fetch the target, fail fast if `spec.role != "AppDB"` or its name doesn't match `<om-name>-db`.
-   d. Strip OwnerReferences from the AppDB StatefulSet (STS and shared secrets only — no ConfigMaps are transferred).
-   e. Only after a–d succeed: annotate the StatefulSet with `mongodb.com/appdb-migration-ready: "true"`.
+   a. Skip the internal AppDB reconciler — conditional on `ExternalApplicationDatabaseRef == nil`.
+   b. Strip OwnerReferences from the AppDB StatefulSet (STS and shared secrets only — no ConfigMaps are transferred).
+   c. Only after a–b succeed: annotate the StatefulSet with `mongodb.com/appdb-migration-ready: "true"`.
 
    **Note on staged handover**: Only the StatefulSet OwnerReferences are stripped by the OM controller. The password and keyfile secrets are subsequently claimed by the MongoDB CR controller via `claimAppDBRoleSecrets`. No ConfigMaps are transferred.
 
@@ -105,7 +96,7 @@ Upon creation of a companion MongoDB CR and reference update, the OM controller 
    - Ensure the `mongodb-ops-manager` user: password secret already exists (same secret internal AppDB was using) → reuse those exact credentials unchanged.
    - This CR never creates a connection-string secret of its own.
 
-4. **OM controller** computes Primary OM's connection string directly from the MongoDB CR via `BuildConnectionString` and writes it into Primary OM's own **fixed** connection-string secret. The OM controller also establishes a watch on the referenced CR.
+4. **OM controller** calls `GetAppDBConfig` to obtain the `AppDBConfig` (connection string, TLS flag, CA ConfigMap name) from the referenced MongoDB CR. The connection string is written into Primary OM's own **fixed** connection-string secret. The TLS/CA settings are used to configure `mms.mongoSSL`, `mms.mongoCA`, and the CA ConfigMap volume mount on the OM StatefulSet. The OM controller also establishes a watch on the referenced CR. The internal AppDB status is marked as `Disabled`.
 
 ### Procedure 3 (Reverse Migration)
 
@@ -130,7 +121,7 @@ Reverse migration is **annotation-based**, not finalizer-based. The safe sequenc
    - Sets its own OwnerReference on the StatefulSet.
    - Reclaims the shared secrets (password, keyfile).
    - The `mongodb.com/appdb-reverse-migration-ready` annotation persists and is used by `allStatefulSetsExistsInValidState` to force StatefulSet-first deployment ordering during the reshape.
-   - Resumes `ReconcileAppDB()` and `SetupCommonWatchers`.
+   - Resumes the internal AppDB reconciler.
    - Reads the password via existing `ensureAppDbPassword` logic → same shared secret, no rotation.
    - Connection string computed the internal way again.
 
@@ -188,6 +179,39 @@ Role string `json:"role,omitempty"`
 
 The `ExternalApplicationDatabaseRef` points to a MongoDB custom resource that customers create in order to be able to back up their AppDB. The `Role` field is required to define if the resource acts as AppDB. **Phase 1 supports only `Kind: MongoDB`**. `MongoDBMultiCluster` support is planned for Phase 2.
 
+### API Validation
+
+Validation is enforced at two layers: **CEL** (admission-time, on the CRD, enforced by the Kubernetes API server via `x-kubernetes-validations`) and **runtime** (during reconcile, via `RunValidations` / `ProcessValidationsOnReconcile` and controller-level checks). When `ExternalApplicationDatabaseRef` is set, internal-AppDB-specific validators (version, connectivity, cloud manager config, credentials, cluster spec list, FCV, external domains, monitoring agent) are skipped.
+
+**MongoDB CR (`spec.role: AppDB`)**
+
+| Rule | Type | Error message |
+|---|---|---|
+| SCRAM required | CEL | `spec.security.authentication must have SCRAM enabled when spec.role is AppDB` |
+| ignoreUnknownUsers required | CEL | `spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB` |
+| ReplicaSet only | CEL | `spec.resourceType must be ReplicaSet when spec.role is AppDB` |
+| Single-cluster only | CEL | `spec.topology MultiCluster is not supported when spec.role is AppDB` |
+| Members >= 3 | CEL | `spec.members must be >= 3 when spec.role is AppDB` |
+| Role enum | CEL | `spec.role must be 'AppDB' when set` |
+| Role immutable | CEL | `spec.role is immutable: it cannot be added, removed, or changed after creation` |
+
+**MongoDBMultiCluster CR**
+
+| Rule | Type | Error message |
+|---|---|---|
+| Role not supported | CEL | `spec.role is not supported on MongoDBMultiCluster` |
+
+**MongoDBOpsManager CR**
+
+| Rule | Type | Error message |
+|---|---|---|
+| AppDB or external ref required | CEL | `at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set` |
+| External ref naming convention | Runtime (`RunValidations`) | `spec.externalApplicationDatabaseRef.name must be <om-name>-db` |
+| Ref not nil | Runtime (`validateExternalAppDBReference`) | `externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference` |
+| Ref name matches naming convention | Runtime (`validateExternalAppDBReference`) | `externalApplicationDatabaseRef.name "..." does not match required naming convention "<om-name>-db"` |
+| Referenced CR exists | Runtime (`validateExternalAppDBReference`) | `externalApplicationDatabaseRef points to MongoDB ... which does not exist` |
+| Referenced CR has role AppDB | Runtime (`validateExternalAppDBReference`) | `externalApplicationDatabaseRef ... must have spec.role set to "AppDB"` |
+
 ### Naming Conventions
 
 Enforces a strict `<om-name>-db` naming convention for the external CR, allowing deterministic derivation of secret names shared between internal and external modes, eliminating the need for credential copying.
@@ -206,8 +230,8 @@ type AppDBConfig struct {
 }
 ```
 
-- **Internal AppDB** (`ReconcileAppDbReplicaSet`): derives `IsTLSEnabled` from `opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()`, `CAConfigMapName` from `opsManager.Spec.AppDB.GetCAConfigMapName()`, and `ConnectionString` from `buildMongoConnectionUrl`.
-- **External AppDB** (`ReconcileExternalAppDBReplicaSet`): resolves the referenced MongoDB CR via the `ExternalAppDB` interface, which now includes `GetCAConfigMapName()` (reads `security.tls.ca`) and `IsTLSEnabled()` (reads the TLS flag). The connection string is computed via `BuildConnectionString`.
+- **Internal AppDB** (`ReconcileAppDbReplicaSet`): derives `IsTLSEnabled` from `opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()`, `CAConfigMapName` from `opsManager.Spec.AppDB.GetCAConfigMapName()`, and `ConnectionString` from the internal AppDB's process hostnames and password.
+- **External AppDB** (`ReconcileExternalAppDBReplicaSet`): resolves the referenced MongoDB CR via the `ExternalAppDB` interface, which now includes `GetCAConfigMapName()` (reads `security.tls.ca`) and `IsTLSEnabled()` (reads the TLS flag). The connection string is computed from the referenced CR's `BuildConnectionString` method.
 
 The `AppDBConfig` is threaded through the OM reconciliation flow:
 - `ensureConfiguration` sets `mms.mongoSSL` and `mms.mongoCA` from `appDBConfig.IsTLSEnabled` and `appDBConfig.CAConfigMapName`.
@@ -218,10 +242,10 @@ The `GetAppDbCA()` method on `MongoDBOpsManagerSpec` has been removed — TLS/CA
 
 ### Connection String Management
 
-The referenced MongoDB CR **never creates its own connection-string secret.** Instead, the OM controller computes Primary OM's connection string itself, directly from the live CR object:
+The referenced MongoDB CR **never creates its own connection-string secret.** Instead, the OM controller calls `GetAppDBConfig` on the `AppDBReconciler`, which returns an `AppDBConfig` struct containing the connection string, TLS flag, and CA ConfigMap name:
 
-- The OM controller fetches the referenced MongoDB object and calls its exported `BuildConnectionString(username, password, scheme, connectionParams)` method, using credentials from the shared password secret.
-- The OM controller writes the result directly into Primary OM's own **fixed** connection-string secret — the same secret used for internal AppDB, same name regardless of mode.
+- For the external AppDB, the `ReconcileExternalAppDBReplicaSet` resolves the referenced MongoDB CR, reads the password from the shared secret via `SecretClient`, and calls the CR's `BuildConnectionString` method to compute the connection string.
+- The OM controller writes the connection string into Primary OM's own **fixed** connection-string secret — the same secret used for internal AppDB, same name regardless of mode.
 - To recompute the connection string whenever the external AppDB's live state changes, the OM controller establishes a dynamic watch on the referenced CR.
 - The password is read via `secret.ReadKey` through the Vault-aware `SecretClient`, not via the raw Kubernetes client.
 
