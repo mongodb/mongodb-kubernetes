@@ -240,9 +240,7 @@ def test_non_admin_credentials_can_connect_to_db(non_admin_standard_secret: Dict
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_non_admin_credentials_can_connect_to_db_with_srv(non_admin_standard_secret: Dict[str, str]):
-    assert_connectivity_from_connection_string(
-        non_admin_standard_secret["connectionString.standardSrv"]
-    )
+    assert_connectivity_from_connection_string(non_admin_standard_secret["connectionString.standardSrv"])
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -283,9 +281,7 @@ def test_space_password_credentials_can_connect_to_db(space_password_standard_se
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_space_password_credentials_can_connect_to_db_with_srv(space_password_standard_secret: Dict[str, str]):
-    assert_connectivity_from_connection_string(
-        space_password_standard_secret["connectionString.standardSrv"]
-    )
+    assert_connectivity_from_connection_string(space_password_standard_secret["connectionString.standardSrv"])
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -327,9 +323,7 @@ def test_plus_password_credentials_can_connect_to_db(plus_password_standard_secr
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_plus_password_credentials_can_connect_to_db_with_srv(plus_password_standard_secret: Dict[str, str]):
-    assert_connectivity_from_connection_string(
-        plus_password_standard_secret["connectionString.standardSrv"]
-    )
+    assert_connectivity_from_connection_string(plus_password_standard_secret["connectionString.standardSrv"])
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
