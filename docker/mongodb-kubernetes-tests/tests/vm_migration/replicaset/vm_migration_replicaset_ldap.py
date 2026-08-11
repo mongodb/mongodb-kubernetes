@@ -106,8 +106,9 @@ def _configure_ac(
 ):
     """Configure the VM replica set for native LDAP (PLAIN) authentication.
 
-    Authorization is taken from explicit usersWanted entries (db: $external) rather than LDAP groups,
-    so only authentication flows through LDAP. Internal cluster auth uses the keyfile (SCRAM for
+    Authorization for application users is taken from explicit usersWanted entries (db: $external)
+    rather than LDAP groups, so only authentication flows through LDAP. The agent is referenced only by
+    auth.autoUser and has no usersWanted entry. Internal cluster auth uses the keyfile (SCRAM for
     __system@local), so authenticationMechanisms keeps SCRAM-SHA-256 alongside PLAIN.
     """
     mdb_version = ensure_ent_version(mdb_version)
@@ -141,12 +142,6 @@ def _configure_ac(
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
         "usersWanted": [
-            {
-                "user": agent_dn,
-                "db": "$external",
-                "roles": [{"role": "root", "db": "admin"}],
-                "authenticationRestrictions": [],
-            },
             {
                 "user": app_user_dn,
                 "db": "$external",

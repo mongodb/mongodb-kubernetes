@@ -183,19 +183,6 @@ def _configure_ac_with_tls(namespace: str, om_tester: OMTester, vm_sts: dict, vm
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": "mms-automation-agent",
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": {
-                    "iterationCount": 15000,
-                    "salt": "VvGtJFS/4euDEKqliOPW6idGBu4SMey5HgtRoQ==",
-                    "serverKey": "xsHGbx5OJnYtZS19a4EboChhlD3mhDt7qOJss+FrShY=",
-                    "storedKey": "1z/5Z7A5mlHt5lu/ZXUig5bwrBfOn3tzqTzn93Bf/Oo=",
-                },
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": "app-user",
                 "db": "admin",
                 "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],

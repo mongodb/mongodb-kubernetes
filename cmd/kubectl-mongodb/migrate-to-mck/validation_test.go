@@ -612,18 +612,19 @@ func TestValidation_EmptyAutoUser(t *testing.T) {
 	assert.True(t, hasError, "expected error when autoUser is empty and auth is enabled")
 }
 
-func TestValidation_AutoUserNotInUsersWanted(t *testing.T) {
+// The agent user is provisioned by Ops Manager from auth.autoUser/autoPwd and is not
+// expected to appear in auth.usersWanted, so its absence must not be flagged.
+func TestValidation_AutoUserNotInUsersWanted_NoError(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "nonexistent-agent"
+	ac.Auth.Users = nil
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "nonexistent-agent") && strings.Contains(r.Message, "usersWanted") {
-			hasError = true
+		if r.Severity == SeverityError && strings.Contains(r.Message, "usersWanted") {
+			t.Errorf("autoUser missing from usersWanted should not produce an error: %s", r.Message)
 		}
 	}
-	assert.True(t, hasError, "expected error when autoUser has no matching entry in usersWanted")
 }
 
 func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
@@ -637,7 +638,7 @@ func TestValidation_AutoUserMatchesUsersWanted_NoError(t *testing.T) {
 	}
 }
 
-func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
+func TestValidation_X509AutoUser_NotInUsersWanted_NoError(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 	ac.Auth.AutoUser = "CN=mms-automation-agent,OU=test,O=cluster.local"
 	ac.Auth.AutoAuthMechanism = "MONGODB-X509"
@@ -645,13 +646,11 @@ func TestValidation_X509AutoUser_NotInUsersWanted_Error(t *testing.T) {
 	ac.AgentSSL = &om.AgentSSL{AutoPEMKeyFilePath: "/mongodb-agent/agent.pem"}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
-	hasError := false
 	for _, r := range results {
-		if r.Severity == SeverityError && strings.Contains(r.Message, "CN=mms-automation-agent,OU=test,O=cluster.local") && strings.Contains(r.Message, "usersWanted") {
-			hasError = true
+		if r.Severity == SeverityError && strings.Contains(r.Message, "usersWanted") {
+			t.Errorf("X509 autoUser missing from usersWanted should not produce an error: %s", r.Message)
 		}
 	}
-	assert.True(t, hasError, "expected error when X509 autoUser has no matching entry in usersWanted")
 }
 
 func TestValidation_X509AutoUser_InUsersWanted_NoError(t *testing.T) {
