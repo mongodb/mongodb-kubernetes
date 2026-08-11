@@ -109,14 +109,6 @@ def _configure_ac(
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": AGENT_USER,
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": [SCRAM_MECHANISM],
-                "scramSha256Creds": build_sha256_creds(AGENT_PASSWORD),
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": APP_USER,
                 "db": "admin",
                 "roles": [
