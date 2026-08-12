@@ -39,10 +39,19 @@ ADD "${mongodb_tools_url}/${mongodb_tools_version_s390x}" /data/s390x/mongodb_to
 ARG mongodb_tools_version_ppc64le="mongodb-database-tools-rhel9-ppc64le-100.12.0.tgz"
 ADD "${mongodb_tools_url}/${mongodb_tools_version_ppc64le}" /data/ppc64le/mongodb_tools.tgz
 
+ARG mongosh_url="https://downloads.mongodb.com/compass"
+ARG mongosh_version="2.3.8"
+
+ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-x64.tgz" /data/amd64/mongosh.tgz
+ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-arm64.tgz" /data/arm64/mongosh.tgz
+ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-s390x.tgz" /data/s390x/mongosh.tgz
+ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-ppc64le.tgz" /data/ppc64le/mongosh.tgz
+
 FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
 
 ARG TARGETARCH
 COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tmp/mongodb-tools.tgz
+COPY --from=tools_downloader "/data/${TARGETARCH}/mongosh.tgz" /tmp/mongosh.tgz
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
@@ -52,10 +61,12 @@ RUN apt-get -qq update \
     git \
     openssl
 
-RUN mkdir -p /tmp/mongodb-tools && \
+RUN mkdir -p /tmp/mongodb-tools /tmp/mongosh && \
     tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
+    tar xfz /tmp/mongosh.tgz -C /tmp/mongosh && \
     cp /tmp/mongodb-tools/*/bin/* /usr/local/bin/ && \
-    rm -rf /tmp/mongodb-tools /tmp/mongodb-tools.tgz
+    cp /tmp/mongosh/*/bin/mongosh /usr/local/bin/ && \
+    rm -rf /tmp/mongodb-tools /tmp/mongodb-tools.tgz /tmp/mongosh /tmp/mongosh.tgz
 
 
 ENV HELM_NAME="helm-v3.17.1-linux-${TARGETARCH}.tar.gz"
