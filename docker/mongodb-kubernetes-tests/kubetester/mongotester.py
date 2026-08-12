@@ -4,9 +4,11 @@ import logging
 import os
 import random
 import string
+import subprocess
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pymongo
 from kubetester import kubetester
@@ -136,18 +138,45 @@ def _wait_for_mongodbuser_reconciliation() -> None:
         logging.warning(f"Error while waiting for MongoDBUser reconciliation: {e} - proceeding with authentication")
 
 
-def assert_connectivity_from_connection_string(connection_string: str) -> None:
+def connection_string_without_query_param(connection_string: str, param: str) -> str:
+    parts = urlsplit(connection_string)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != param]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _run_mongosh(connection_string: str, eval_script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["mongosh", connection_string, "--quiet", "--norc", "--eval", eval_script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def assert_connection_string_with_mongosh(
+    connection_string: str,
+    *,
+    expect_success: bool,
+    eval_script: str = "db.myCol.insertOne({})",
+) -> None:
     """
-    Connect using only the connection string, without overriding TLS or auth options.
-    Useful for validating that generated connection string secrets are self-contained.
+    Run mongosh with the connection string as-is and check whether the eval succeeds.
     """
-    client = pymongo.MongoClient(connection_string, serverSelectionTimeoutMS=120000)
     try:
-        client.admin.command("ping")
-    except Exception as e:
-        fail(f"Failed to connect using connection string only: {e}")
-    finally:
-        client.close()
+        result = _run_mongosh(connection_string, eval_script)
+    except subprocess.TimeoutExpired as e:
+        fail(f"Timed out connecting with mongosh using the connection string: {e}")
+
+    if expect_success:
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            fail(f"Expected mongosh to succeed with the connection string, but failed: {detail}")
+        return
+
+    if result.returncode != 0:
+        return
+    fail("Expected mongosh to fail with the connection string")
 
 
 class MongoTester:
