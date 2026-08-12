@@ -15,13 +15,13 @@ from kubetester import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import get_operator_pod_restart_count, run_periodically
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
-from tests.conftest import _install_multi_cluster_operator
+from tests.conftest import _install_multi_cluster_operator, local_operator
 
 from ..constants import MULTI_CLUSTER_OPERATOR_NAME
 from .conftest import cluster_spec_list, create_service_entries_objects
@@ -309,6 +309,12 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
+    restart_count_before = None
+    if not local_operator():
+        restart_count_before = get_operator_pod_restart_count(
+            namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client
+        )
+
     # The surviving set is member_cluster_names[:-1], so de-register the last cluster: delete
     # its MemberCluster CR and credential Secret from the central cluster.
     removed_cluster_name = member_cluster_names[-1]
@@ -329,6 +335,13 @@ def test_recover_operator_remove_cluster(
         api_client=central_cluster_client,
     )
     operator.wait_for_operator_ready()
+
+    # Membership change is hot-reloaded; a restart would be a regression.
+    if restart_count_before is not None:
+        assert (
+            get_operator_pod_restart_count(namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client)
+            == restart_count_before
+        )
 
 
 @mark.e2e_multi_cluster_recover_clusterwide

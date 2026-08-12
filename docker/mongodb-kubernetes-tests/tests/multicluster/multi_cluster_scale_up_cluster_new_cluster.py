@@ -6,13 +6,13 @@ from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import get_operator_pod_restart_count, skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import configure_multi_cluster_members
+from tests.conftest import configure_multi_cluster_members, local_operator
 from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
@@ -114,6 +114,12 @@ def test_register_new_cluster(
     central_cluster_name: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
+    restart_count_before = None
+    if not local_operator():
+        restart_count_before = get_operator_pod_restart_count(
+            namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client
+        )
+
     # Register the newly-added member cluster.
     configure_multi_cluster_members([member_cluster_names[-1]], namespace, namespace, central_cluster_name)
     operator = Operator(
@@ -122,6 +128,13 @@ def test_register_new_cluster(
         api_client=central_cluster_client,
     )
     operator.wait_for_operator_ready()
+
+    # Membership change is hot-reloaded; a restart would be a regression.
+    if restart_count_before is not None:
+        assert (
+            get_operator_pod_restart_count(namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client)
+            == restart_count_before
+        )
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster

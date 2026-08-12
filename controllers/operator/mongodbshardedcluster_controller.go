@@ -1895,12 +1895,23 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 
-	for clusterName, memberClusterEntry := range memberClustersProvider.Entries() {
-		err = c.Watch(source.Kind[client.Object](memberClusterEntry.Cluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
-		if err != nil {
-			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
-		}
+	// Per-cluster watches follow member-cluster engagement: on every cluster add attach the
+	// StatefulSet watch to the new cluster and enqueue all MongoDB CRs — watch replay alone
+	// cannot reach CRs that own no resources on the new cluster yet.
+	clusterAddedEvents := make(chan event.GenericEvent)
+	if err = c.Watch(source.Channel[client.Object](clusterAddedEvents, &handler.EnqueueRequestForObject{})); err != nil {
+		return err
 	}
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, entry multicluster.Entry) {
+			if err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet())); err != nil {
+				zap.S().Errorf("failed to set StatefulSet watch on member cluster %s: %s", clusterName, err)
+			}
+			if err := multicluster.EnqueueAll(ctx, reconciler.client, &mdbv1.MongoDBList{}, clusterAddedEvents); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDB resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+	})
 
 	err = c.Watch(
 		source.Kind[client.Object](mgr.GetCache(), &appsv1.StatefulSet{},

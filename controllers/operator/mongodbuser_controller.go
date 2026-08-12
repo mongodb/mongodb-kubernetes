@@ -11,6 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -330,6 +332,20 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 	if err != nil {
 		return err
 	}
+
+	// The user controller holds no per-cluster watches, but expanding to a new member cluster
+	// must reconcile existing users whose MongoDB resource spans that cluster.
+	clusterAddedEvents := make(chan event.GenericEvent)
+	if err = c.Watch(source.Channel[client.Object](clusterAddedEvents, &handler.EnqueueRequestForObject{})); err != nil {
+		return err
+	}
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, _ multicluster.Entry) {
+			if err := multicluster.EnqueueAll(ctx, reconciler.client, &userv1.MongoDBUserList{}, clusterAddedEvents); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDBUser resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+	})
 
 	zap.S().Infof("Registered controller %s", util.MongoDbUserController)
 	return nil
