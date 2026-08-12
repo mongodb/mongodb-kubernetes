@@ -2,7 +2,6 @@ package vaultwatcher
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -30,16 +29,14 @@ func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchC
 				continue
 			}
 			// the credentials secret is mandatory and stored in a different path
-			path := fmt.Sprintf("%s/%s/%s", vaultClient.OperatorScretMetadataPath(), mdb.Namespace, mdb.Spec.Credentials)
-			latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, mdb.Spec.Credentials, mdb.Annotations, log)
+			latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, vaultClient.OperatorScretMetadataPath(), mdb.Namespace, mdb.Spec.Credentials, mdb.Annotations, log)
 			if latestResourceVersion > currentResourceVersion {
 				watchChannel <- event.GenericEvent{Object: &mdbList.Items[n]}
 				break
 			}
 
 			for _, secretName := range mdb.GetSecretsMountedIntoDBPod() {
-				path := fmt.Sprintf("%s/%s/%s", vaultClient.DatabaseSecretMetadataPath(), mdb.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, mdb.Annotations, log)
+				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, vaultClient.DatabaseSecretMetadataPath(), mdb.Namespace, secretName, mdb.Annotations, log)
 
 				if latestResourceVersion > currentResourceVersion {
 					watchChannel <- event.GenericEvent{Object: &mdbList.Items[n]}
@@ -63,8 +60,7 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 		triggeredReconciliation := false
 		for n, om := range omList.Items {
 			for _, secretName := range om.GetSecretsMountedIntoPod() {
-				path := fmt.Sprintf("%s/%s/%s", vaultClient.OpsManagerSecretMetadataPath(), om.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
+				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, vaultClient.OpsManagerSecretMetadataPath(), om.Namespace, secretName, om.Annotations, log)
 
 				if latestResourceVersion > currentResourceVersion {
 					watchChannel <- event.GenericEvent{Object: &omList.Items[n]}
@@ -76,8 +72,7 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 				break
 			}
 			for _, secretName := range om.Spec.AppDB.GetSecretsMountedIntoPod() {
-				path := fmt.Sprintf("%s/%s/%s", vaultClient.AppDBSecretMetadataPath(), om.Namespace, secretName)
-				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, om.Annotations, log)
+				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, vaultClient.AppDBSecretMetadataPath(), om.Namespace, secretName, om.Annotations, log)
 
 				if latestResourceVersion > currentResourceVersion {
 					watchChannel <- event.GenericEvent{Object: &omList.Items[n]}
@@ -90,7 +85,18 @@ func WatchSecretChangeForOM(ctx context.Context, log *zap.SugaredLogger, watchCh
 	}
 }
 
-func getCurrentAndLatestVersion(vaultClient *vault.VaultClient, path string, annotationKey string, annotations map[string]string, log *zap.SugaredLogger) (int, int) {
+// getCurrentAndLatestVersion builds the Vault metadata path for the named
+// secret under basePath and compares its version against the one recorded in
+// the resource's annotations. The name originates from a CR field, so the path
+// is built through vault.SecretPath rather than concatenated.
+func getCurrentAndLatestVersion(vaultClient *vault.VaultClient, basePath, namespace, name string, annotations map[string]string, log *zap.SugaredLogger) (int, int) {
+	annotationKey := name
+	path, err := vault.SecretPath(basePath, namespace, name)
+	if err != nil {
+		log.Errorf("failed to build secret path for secret %s in namespace %s, err: %v", name, namespace, err)
+		return -1, -1
+	}
+
 	latestResourceVersion, err := vaultClient.ReadSecretVersion(path)
 	if err != nil {
 		log.Errorf("failed to fetch secret revision for the path %s, err: %v", path, err)

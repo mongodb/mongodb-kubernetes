@@ -1050,7 +1050,10 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 
 	if vault.IsVaultSecretBackend() {
 		needToCreatePEM = true
-		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretPath(), om.Namespace, secretName)
+		path, err := vault.SecretPath(r.VaultClient.AppDBSecretPath(), om.Namespace, secretName)
+		if err != nil {
+			return workflow.Failed(err)
+		}
 		secretData, err = r.VaultClient.ReadSecretBytes(path)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't read current certificate secret from vault: %w", err))
@@ -1489,7 +1492,10 @@ func buildPrometheusModification(ctx context.Context, sClient secrets.SecretClie
 	secretName := prometheus.PasswordSecretRef.Name
 	if vault.IsVaultSecretBackend() {
 		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
-		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, om.GetNamespace(), secretName)
+		passwordString, err := vault.SecretPath(operatorSecretPath, om.GetNamespace(), secretName)
+		if err != nil {
+			return automationconfig.NOOP(), err
+		}
 		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
 		if err != nil {
 			return automationconfig.NOOP(), err

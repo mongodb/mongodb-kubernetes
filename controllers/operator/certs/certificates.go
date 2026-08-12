@@ -180,7 +180,11 @@ func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadCl
 
 	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
-		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", databaseSecretPath, opts.Namespace, secretName))
+		secretPath, err := vault.SecretPath(databaseSecretPath, opts.Namespace, secretName)
+		if err != nil {
+			return err
+		}
+		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(secretPath)
 		if err != nil {
 			return err
 		}
@@ -307,7 +311,11 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 
 	if vault.IsVaultSecretBackend() {
 		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
-		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
+		secretPath, err := vault.SecretPath(databaseSecretPath, secret.Namespace, secret.Name)
+		if err != nil {
+			return err
+		}
+		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(secretPath)
 		if err != nil {
 			return err
 		}
@@ -368,7 +376,11 @@ func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.Secre
 			secretPath = secretClient.VaultClient.AppDBSecretPath()
 		}
 
-		secretData, err = secretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretPath, namespace, prom.TLSSecretRef.Name))
+		promSecretPath, err := vault.SecretPath(secretPath, namespace, prom.TLSSecretRef.Name)
+		if err != nil {
+			return "", err
+		}
+		secretData, err = secretClient.VaultClient.ReadSecretBytes(promSecretPath)
 		if err != nil {
 			return "", err
 		}

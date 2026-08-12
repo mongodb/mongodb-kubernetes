@@ -2,7 +2,6 @@ package pem
 
 import (
 	"context"
-	"fmt"
 
 	"go.uber.org/zap"
 
@@ -17,9 +16,14 @@ import (
 // the secret that stores this StatefulSet's Pem collection.
 func ReadHashFromSecret(ctx context.Context, secretClient secrets.SecretClient, namespace, name, basePath string, log *zap.SugaredLogger) string {
 	var secretData map[string]string
-	var err error
 	if vault.IsVaultSecretBackend() {
-		path := fmt.Sprintf("%s/%s/%s", basePath, namespace, name)
+		path, err := vault.SecretPath(basePath, namespace, name)
+		if err != nil {
+			// The name comes from a CR field; a rejected path means it is not a
+			// plain secret name, which is worth surfacing rather than hiding.
+			log.Warnf("cannot compute hash of pem for tls secret %s: %v", name, err)
+			return ""
+		}
 		secretData, err = secretClient.VaultClient.ReadSecretString(path)
 		if err != nil {
 			log.Debugf("tls secret %s doesn't exist yet, unable to compute hash of pem", name)
