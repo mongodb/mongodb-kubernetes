@@ -743,6 +743,33 @@ spec:
                       - members
                       type: object
                     type: array
+                  externalAccess:
+                    description: |-
+                      ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+                      In SingleCluster this is the only way to give config servers and shards external hostnames:
+                      the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+                      previous behaviour exactly.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               configSrvPodSpec:
@@ -1273,6 +1300,33 @@ spec:
                       - members
                       type: object
                     type: array
+                  externalAccess:
+                    description: |-
+                      ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+                      In SingleCluster this is the only way to give config servers and shards external hostnames:
+                      the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+                      previous behaviour exactly.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               mongosCount:
@@ -2113,6 +2167,33 @@ spec:
                       - members
                       type: object
                     type: array
+                  externalAccess:
+                    description: |-
+                      ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+                      In SingleCluster this is the only way to give config servers and shards external hostnames:
+                      the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+                      previous behaviour exactly.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               shardCount:
