@@ -82,6 +82,65 @@ func TestBuildJobFromStatefulSet_ExcludesPVCVolumes(t *testing.T) {
 	assert.Equal(t, util.ClusterFileName, job.Spec.Template.Spec.Containers[0].VolumeMounts[0].Name)
 }
 
+// The hostname-override ConfigMap must not be inherited by the Job. The validator never reads
+// /opt/scripts/config, and on the non-static architecture database-scripts is mounted read-only,
+// so a Job (which has no init container to create the nested mountpoint) would fail to start with
+// exit code 128.
+func TestBuildJobFromStatefulSet_ExcludesHostnameOverrideConfigMap(t *testing.T) {
+	hostnameOverride := "my-rs-hostname-override"
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: util.ClusterFileName,
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"},
+							},
+						},
+						{
+							Name: "database-scripts",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
+							},
+						},
+						{
+							Name: hostnameOverride,
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{Name: hostnameOverride},
+								},
+							},
+						},
+					},
+					Containers: []corev1.Container{{
+						VolumeMounts: []corev1.VolumeMount{
+							{Name: util.ClusterFileName, MountPath: "/var/run/credentials", ReadOnly: true},
+							{Name: "database-scripts", MountPath: "/opt/scripts", ReadOnly: true},
+							{Name: hostnameOverride, MountPath: "/opt/scripts/config"},
+						},
+					}},
+				},
+			},
+		},
+	}
+	rs := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "default"}}
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+
+	podSpec := job.Spec.Template.Spec
+	var volumeNames, mountNames []string
+	for _, v := range podSpec.Volumes {
+		volumeNames = append(volumeNames, v.Name)
+	}
+	for _, m := range podSpec.Containers[0].VolumeMounts {
+		mountNames = append(mountNames, m.Name)
+	}
+
+	assert.Equal(t, []string{util.ClusterFileName, "database-scripts"}, volumeNames)
+	assert.Equal(t, []string{util.ClusterFileName, "database-scripts"}, mountNames)
+}
+
 func TestVolumesAndMountsFromStatefulSet_DeduplicatesSameMountAcrossContainers(t *testing.T) {
 	sts := &appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
@@ -109,7 +168,7 @@ func TestVolumesAndMountsFromStatefulSet_DeduplicatesSameMountAcrossContainers(t
 			},
 		},
 	}
-	_, mounts := volumesAndMountsFromStatefulSet(sts)
+	_, mounts := volumesAndMountsFromStatefulSet(sts, nil)
 	assert.Len(t, mounts, 1)
 	assert.Equal(t, util.ClusterFileName, mounts[0].Name)
 }
@@ -145,7 +204,7 @@ func TestVolumesAndMountsFromStatefulSet_UnionsDistinctMountsFromContainers(t *t
 			},
 		},
 	}
-	_, mounts := volumesAndMountsFromStatefulSet(sts)
+	_, mounts := volumesAndMountsFromStatefulSet(sts, nil)
 	assert.Len(t, mounts, 2)
 }
 

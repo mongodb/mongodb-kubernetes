@@ -1460,10 +1460,15 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	if r.sc.Spec.IsMultiCluster() {
-		// for multi-cluster deployment we should create pod-services first, as doing it after is a bit too late
-		// statefulset creation loops and waits for sts to become ready, and it's easier for the replica set to be ready if
-		// it can connect to other members in the clusters
-		// TODO the same should be considered for external services, we should always create them before sts; now external services are created inside DatabaseInKubernetes function;
+		// Deliberate topology split: reconcileServices owns multi-cluster, where per-pod services must
+		// exist before the StatefulSets so members can reach each other while the STS wait loop runs,
+		// and where service names carry a cluster index (<sts>-<clusterIdx>-<pod>). Single-cluster
+		// external services are created inside create.DatabaseInKubernetes instead, which keeps the
+		// established <sts>-<pod>-svc-external names and avoids a meaningless cluster index. Both paths
+		// resolve external access through MongoDbSpec.EffectiveExternalAccessConfiguration - the
+		// multi-cluster one in reconcile{ConfigServer,Shard,Mongos}Services directly, the single-cluster
+		// one via DatabaseStatefulSetOptions.ExternalAccessConfiguration - so the services that get
+		// created always match the hostnames published to the automation config.
 		if err := r.reconcileServices(ctx, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 		}
@@ -1925,10 +1930,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 }
 
 func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
-	externalDomain := r.sc.Spec.ConfigSrvSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
-	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
-		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
-	}
+	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name)
 	if !memberCluster.Legacy {
 		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ConfigRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
@@ -1936,11 +1938,10 @@ func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster mult
 	}
 }
 
+// getShardHostnames uses r.sc.Spec.ShardSpec rather than a per-shard override, matching pre-existing
+// behaviour: shardOverrides cannot carry external access, so all shards share one domain.
 func (r *ShardedClusterReconcileHelper) getShardHostnames(shardIdx int, memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
-	externalDomain := r.sc.Spec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
-	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
-		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
-	}
+	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name)
 	if !memberCluster.Legacy {
 		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
@@ -1949,16 +1950,12 @@ func (r *ShardedClusterReconcileHelper) getShardHostnames(shardIdx int, memberCl
 }
 
 func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
-	externalDomain := r.sc.Spec.MongosSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
-	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
-		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
-	}
+	// Resolution order is the per-cluster clusterSpecList entry, then spec.mongos.externalAccess,
+	// then the top-level spec.externalAccess.
+	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name)
 	if !memberCluster.Legacy {
 		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.MongosRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
-		// In Single Cluster Mode, only Mongos are exposed to the outside consumption. As such, they need to use proper
-		// External Domain.
-		externalDomain = r.sc.Spec.GetExternalDomain()
 		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
@@ -2872,9 +2869,33 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 	return data
 }
 
+// anyTierHasExternalDomain reports whether any tier of a single-cluster deployment resolves to an
+// external domain. The StatefulSets mount the hostname-override ConfigMap per tier (see
+// construct.baseOptions), so gating its creation on the top-level spec.externalAccess alone would
+// leave pods stuck on a missing ConfigMap when only spec.<tier>.externalAccess is set.
+func (r *ShardedClusterReconcileHelper) anyTierHasExternalDomain() bool {
+	for _, memberCluster := range r.allMemberClusters {
+		tiers := []struct {
+			component *mdbv1.ShardedClusterComponentSpec
+			tier      mdbv1.ShardedClusterTier
+		}{
+			{r.sc.Spec.MongosSpec, mdbv1.TierMongos},
+			{r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv},
+			{r.sc.Spec.ShardSpec, mdbv1.TierShard},
+		}
+		for _, t := range tiers {
+			if r.sc.Spec.EffectiveExternalDomain(t.component, t.tier, memberCluster.Name) != nil {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger) error {
 	if !r.sc.Spec.IsMultiCluster() {
-		if r.sc.Spec.DbCommonSpec.GetExternalDomain() == nil {
+		if !r.anyTierHasExternalDomain() {
 			log.Debugf("Skipping creating hostname override config map in SingleCluster topology (with external domain unspecified)")
 			return nil
 		}
@@ -2939,10 +2960,9 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 	scaler := r.GetConfigSrvScaler(memberCluster)
 
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-		configServerExternalAccess := r.desiredConfigServerConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
-		if configServerExternalAccess == nil {
-			configServerExternalAccess = r.sc.Spec.ExternalAccessConfiguration
-		}
+		// Same resolution as getConfigSrvHostnames, so the services created here and the hostnames
+		// published to the automation config can never disagree.
+		configServerExternalAccess := r.sc.Spec.EffectiveExternalAccessConfiguration(r.desiredConfigServerConfiguration, mdbv1.TierConfigSrv, memberCluster.Name)
 		// Config servers need external services only if an externalDomain is configured
 		if configServerExternalAccess != nil && configServerExternalAccess.ExternalDomain != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
@@ -2975,10 +2995,9 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 }
 
 func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Context, log *zap.SugaredLogger, shardIdx int, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
-	shardsExternalAccess := r.desiredShardsConfiguration[shardIdx].ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
-	if shardsExternalAccess == nil {
-		shardsExternalAccess = r.sc.Spec.ExternalAccessConfiguration
-	}
+	// Same resolution as getShardHostnames, so the services created here and the hostnames published to
+	// the automation config can never disagree.
+	shardsExternalAccess := r.sc.Spec.EffectiveExternalAccessConfiguration(r.desiredShardsConfiguration[shardIdx], mdbv1.TierShard, memberCluster.Name)
 	portOrDefault := r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault()
 	scaler := r.GetShardScaler(shardIdx, memberCluster)
 
@@ -3021,10 +3040,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 	scaler := r.GetMongosScaler(memberCluster)
 	portOrDefault := r.desiredMongosConfiguration.AdditionalMongodConfig.GetPortOrDefault()
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-		mongosExternalAccess := r.desiredMongosConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
-		if mongosExternalAccess == nil {
-			mongosExternalAccess = r.sc.Spec.ExternalAccessConfiguration
-		}
+		mongosExternalAccess := r.sc.Spec.EffectiveExternalAccessConfiguration(r.desiredMongosConfiguration, mdbv1.TierMongos, memberCluster.Name)
 		// Mongos always need external services if externalAccess is configured
 		if mongosExternalAccess != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
