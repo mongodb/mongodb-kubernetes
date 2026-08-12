@@ -162,11 +162,11 @@ class SHA1ConnectivityTests:
         assert "ssl=false" in standard_secret["connectionString.standardSrv"]
         assert "ssl=false" not in standard_secret["connectionString.standard"]
 
-    def test_credentials_can_connect_to_db(self, mdb: MongoDB, standard_secret: Dict[str, str]):
-        mdb.assert_connectivity_from_connection_string(standard_secret["connectionString.standard"], tls=False)
+    def test_credentials_can_connect_to_db(self, standard_secret: Dict[str, str]):
+        MongoTester(standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
 
-    def test_credentials_can_connect_to_db_with_srv(self, mdb: MongoDB, standard_secret: Dict[str, str]):
-        mdb.assert_connectivity_from_connection_string(standard_secret["connectionString.standardSrv"], tls=False)
+    def test_credentials_can_connect_to_db_with_srv(self, standard_secret: Dict[str, str]):
+        MongoTester(standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
 
     def test_create_non_admin_db_user(self, namespace: str, mdb_resource_name: str):
         create_or_update_secret(
@@ -188,17 +188,11 @@ class SHA1ConnectivityTests:
         assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
         assert "ssl=false" not in non_admin_standard_secret["connectionString.standard"]
 
-    def test_non_admin_credentials_can_connect_to_db(self, mdb: MongoDB, non_admin_standard_secret: Dict[str, str]):
-        mdb.assert_connectivity_from_connection_string(
-            non_admin_standard_secret["connectionString.standard"], tls=False
-        )
+    def test_non_admin_credentials_can_connect_to_db(self, non_admin_standard_secret: Dict[str, str]):
+        MongoTester(non_admin_standard_secret["connectionString.standard"], use_ssl=False).assert_connectivity()
 
-    def test_non_admin_credentials_can_connect_to_db_with_srv(
-        self, mdb: MongoDB, non_admin_standard_secret: Dict[str, str]
-    ):
-        mdb.assert_connectivity_from_connection_string(
-            non_admin_standard_secret["connectionString.standardSrv"], tls=False
-        )
+    def test_non_admin_credentials_can_connect_to_db_with_srv(self, non_admin_standard_secret: Dict[str, str]):
+        MongoTester(non_admin_standard_secret["connectionString.standardSrv"], use_ssl=False).assert_connectivity()
 
     def test_authentication_is_disabled_once_resource_is_deleted(self, namespace: str, mdb: MongoDB):
         mdb.delete()
