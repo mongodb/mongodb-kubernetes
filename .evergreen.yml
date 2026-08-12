@@ -919,6 +919,7 @@ task_groups:
       - e2e_vm_migration_shardedcluster_oidc_group
       - e2e_vm_migration_shardedcluster_oidc_workforce
       - e2e_vm_migration_shardedcluster_prometheus
+      - e2e_vm_migration_shardedcluster_external_access
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
   # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to cloudqa-large variants.
