@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -740,6 +742,34 @@ func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomPort(t *testing.T) {
 	}, got)
 }
 
+func TestBuildConnectionString_SRV_WithExternalDomain(t *testing.T) {
+	externalDomain := "example.com"
+	rs := NewReplicaSetBuilder().SetMembers(2).ExposedExternally(nil, nil, &externalDomain).Build()
+
+	cnx := rs.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+
+	assert.Equal(t, "mongodb+srv://example.com/?connectTimeoutMS=20000&replicaSet=test-mdb&"+
+		"serverSelectionTimeoutMS=20000", cnx)
+}
+
+func TestBuildConnectionString_SRV_WithoutExternalDomain(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).Build()
+
+	cnx := rs.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+
+	assert.Equal(t, "mongodb+srv://test-mdb-svc.testNS.svc.cluster.local/?connectTimeoutMS=20000&"+
+		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000", cnx)
+}
+
+func TestBuildConnectionString_SRV_WithCustomClusterDomain(t *testing.T) {
+	rs := NewReplicaSetBuilder().SetMembers(2).SetClusterDomain("company.domain.net").Build()
+
+	cnx := rs.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+
+	assert.Equal(t, "mongodb+srv://test-mdb-svc.testNS.svc.company.domain.net/?connectTimeoutMS=20000&"+
+		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000", cnx)
+}
+
 func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
 	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
 
@@ -768,4 +798,188 @@ func TestGetDownloadBase(t *testing.T) {
 		spec := DbCommonSpec{DownloadBase: "/custom/download/base"}
 		assert.Equal(t, "/custom/download/base", spec.GetDownloadBase())
 	})
+}
+
+func TestEffectiveExternalAccessConfiguration(t *testing.T) {
+	perTier := &ExternalAccessConfiguration{ExternalDomain: ptr.To("per-tier.example.com")}
+	perCluster := &ExternalAccessConfiguration{ExternalDomain: ptr.To("per-cluster.example.com")}
+	topLevel := &ExternalAccessConfiguration{ExternalDomain: ptr.To("top-level.example.com")}
+
+	// A multi-cluster clusterSpecList entry naming a member cluster.
+	mcComponentWithPerCluster := &ShardedClusterComponentSpec{
+		ClusterSpecList: ClusterSpecList{
+			{ClusterName: "cluster-1", Members: 3, ExternalAccessConfiguration: perCluster},
+		},
+	}
+	// The single-cluster synthesized list shape: legacy cluster name, no external access.
+	scComponentBare := &ShardedClusterComponentSpec{
+		ClusterSpecList: ClusterSpecList{
+			{ClusterName: multicluster.LegacyCentralClusterName, Members: 3},
+		},
+	}
+
+	tests := []struct {
+		name              string
+		topology          string
+		topLevel          *ExternalAccessConfiguration
+		component         *ShardedClusterComponentSpec
+		tier              ShardedClusterTier
+		memberClusterName string
+		expected          *ExternalAccessConfiguration
+	}{
+		{
+			name:              "per-cluster field wins over per-tier and top-level",
+			topology:          ClusterTopologyMultiCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{ExternalAccessConfiguration: perTier, ClusterSpecList: mcComponentWithPerCluster.ClusterSpecList},
+			tier:              TierShard,
+			memberClusterName: "cluster-1",
+			expected:          perCluster,
+		},
+		{
+			name:     "per-tier field is the default for a cluster without its own entry",
+			topology: ClusterTopologyMultiCluster,
+			topLevel: topLevel,
+			component: &ShardedClusterComponentSpec{
+				ExternalAccessConfiguration: perTier,
+				ClusterSpecList: ClusterSpecList{
+					{ClusterName: "cluster-1", Members: 3, ExternalAccessConfiguration: perCluster},
+					{ClusterName: "cluster-2", Members: 2},
+				},
+			},
+			tier:              TierShard,
+			memberClusterName: "cluster-2",
+			expected:          perTier,
+		},
+		{
+			name:              "per-cluster field wins over top-level in multi-cluster",
+			topology:          ClusterTopologyMultiCluster,
+			topLevel:          topLevel,
+			component:         mcComponentWithPerCluster,
+			tier:              TierShard,
+			memberClusterName: "cluster-1",
+			expected:          perCluster,
+		},
+		{
+			name:              "multi-cluster falls back to top-level for shards",
+			topology:          ClusterTopologyMultiCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{},
+			tier:              TierShard,
+			memberClusterName: "cluster-1",
+			expected:          topLevel,
+		},
+		{
+			name:              "multi-cluster falls back to top-level for config servers",
+			topology:          ClusterTopologyMultiCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{},
+			tier:              TierConfigSrv,
+			memberClusterName: "cluster-1",
+			expected:          topLevel,
+		},
+		{
+			name:              "single-cluster mongos honours top-level",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         scComponentBare,
+			tier:              TierMongos,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          topLevel,
+		},
+		{
+			name:              "single-cluster config servers do NOT honour top-level",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         scComponentBare,
+			tier:              TierConfigSrv,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          nil,
+		},
+		{
+			name:              "single-cluster shards do NOT honour top-level",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         scComponentBare,
+			tier:              TierShard,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          nil,
+		},
+		{
+			name:              "single-cluster config servers honour their own per-tier field",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          nil,
+			component:         &ShardedClusterComponentSpec{ExternalAccessConfiguration: perTier},
+			tier:              TierConfigSrv,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          perTier,
+		},
+		{
+			name:              "single-cluster mongos per-tier field beats top-level",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         &ShardedClusterComponentSpec{ExternalAccessConfiguration: perTier},
+			tier:              TierMongos,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          perTier,
+		},
+		{
+			name:              "nothing configured yields nil",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          nil,
+			component:         scComponentBare,
+			tier:              TierMongos,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          nil,
+		},
+		{
+			name:              "nil component does not panic",
+			topology:          ClusterTopologySingleCluster,
+			topLevel:          topLevel,
+			component:         nil,
+			tier:              TierMongos,
+			memberClusterName: multicluster.LegacyCentralClusterName,
+			expected:          topLevel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := &MongoDbSpec{
+				DbCommonSpec: DbCommonSpec{
+					Topology:                    tt.topology,
+					ExternalAccessConfiguration: tt.topLevel,
+				},
+			}
+
+			actual := spec.EffectiveExternalAccessConfiguration(tt.component, tt.tier, tt.memberClusterName)
+			assert.Equal(t, tt.expected, actual)
+
+			var expectedDomain *string
+			if tt.expected != nil {
+				expectedDomain = tt.expected.ExternalDomain
+			}
+			assert.Equal(t, expectedDomain, spec.EffectiveExternalDomain(tt.component, tt.tier, tt.memberClusterName))
+		})
+	}
+}
+
+// TestBuildConnectionString_ShardedClusterPerTierExternalDomain covers a sharded cluster that sets the
+// external domain only on spec.mongos.externalAccess: both connection strings are built from the
+// mongos tier, so they must honour the per-tier field and not fall back to the internal service FQDN.
+func TestBuildConnectionString_ShardedClusterPerTierExternalDomain(t *testing.T) {
+	externalDomain := "mongodb.example.com"
+	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
+	sc.Spec.MongosSpec = &ShardedClusterComponentSpec{
+		ExternalAccessConfiguration: &ExternalAccessConfiguration{ExternalDomain: &externalDomain},
+	}
+
+	assert.Equal(t, "mongodb://contractsDb-mongos-0.mongodb.example.com:27017,"+
+		"contractsDb-mongos-1.mongodb.example.com:27017/"+
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000",
+		sc.BuildConnectionString("", "", connectionstring.SchemeMongoDB, nil))
+
+	assert.Equal(t, "mongodb+srv://mongodb.example.com/"+
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000",
+		sc.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil))
 }
