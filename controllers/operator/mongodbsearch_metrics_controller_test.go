@@ -37,6 +37,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
@@ -116,13 +117,14 @@ func newMetricsForwarderReconciler(defaultImage string, objects ...client.Object
 	kc := kubernetesClient.NewClient(fakeClient)
 
 	r := &MongoDBSearchMetricsForwarderReconciler{
-		kubeClient:         kc,
-		secretClient:       secrets.SecretClient{KubeClient: kc},
-		watch:              watch.NewResourceWatcher(),
-		defaultImage:       defaultImage,
-		omRequester:        newStubOMAgentRequester(testGroupID),
-		otelConfigTemplate: searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
-		prepareSearch:      newPrepareSearch(""),
+		kubeClient:             kc,
+		secretClient:           secrets.SecretClient{KubeClient: kc},
+		watch:                  watch.NewResourceWatcher(),
+		defaultImage:           defaultImage,
+		omRequester:            newStubOMAgentRequester(testGroupID),
+		otelConfigTemplate:     searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
+		memberClustersProvider: multicluster.NewProvider(),
+		prepareSearch:          newPrepareSearch(""),
 	}
 	return r, fakeClient
 }
@@ -243,7 +245,7 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret, stateCM, legacyDeployment)
 		// Hub mode with every named cluster registered; the member clients alias
 		// the central fake so all assertions read one client.
-		r.memberClients = map[string]kubernetesClient.Client{"cluster-a": r.kubeClient, "cluster-b": r.kubeClient}
+		r.memberClustersProvider = memberClustersProviderFromKubeClients(map[string]kubernetesClient.Client{"cluster-a": r.kubeClient, "cluster-b": r.kubeClient})
 		return r, fakeClient, search, legacyDeployment
 	}
 
@@ -344,8 +346,8 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 
 			// Two passes: the first deletes the stale Deployment, the second settles
 			// the persisted state (and any deferred OM host deregistration).
-			r.reconcileCore(t.Context(), currentSearch, zap.S())
-			st := r.reconcileCore(t.Context(), currentSearch, zap.S())
+			r.reconcileCore(t.Context(), currentSearch, memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
+			st := r.reconcileCore(t.Context(), currentSearch, memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 			require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
 			tc.verify(t, fakeClient, search, legacyDeployment, deletedHostIDs)
@@ -366,7 +368,7 @@ func TestReconcileCoreRegistersMetricsCredentialAndCAWatches(t *testing.T) {
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, caConfigMap, agentKeySecret)
 	currentSearch := getMongoDBSearch(t, fakeClient, search.Namespace, search.Name)
 
-	st := r.reconcileCore(t.Context(), currentSearch, zap.S())
+	st := r.reconcileCore(t.Context(), currentSearch, memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 	require.True(t, st.IsOK(), searchcontroller.MessageFromStatus(st))
 	watched := r.watch.GetWatchedResources()
@@ -435,7 +437,7 @@ func TestWorkForRemovedClusters_IndexKeyed(t *testing.T) {
 	}}
 	normalizeTopologyState(search, topologyState, zap.S())
 
-	work := r.workForRemovedClusters(search, topologyState, zap.S())
+	work := r.workForRemovedClusters(search, topologyState, memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 	require.Len(t, work, 2)
 	assert.Equal(t, "", work[0].ClusterName)
@@ -499,9 +501,9 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 				target = memberTarget
 				members = map[string]client.Client{tc.clusters[0].Name: memberTarget}
 			}
-			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, members, tc.operatorClusterName)
+			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, multiClusterProviderFromClientMap(members), tc.operatorClusterName)
 
-			wl := r.buildClusterWorkList(search)
+			wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()))
 			require.Len(t, wl, 1)
 			work := wl[0]
 			assert.Equal(t, tc.wantIdx, work.ClusterIndex)
@@ -859,7 +861,7 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				target = memberTarget
 				members = map[string]client.Client{tc.clusters[0].Name: memberTarget}
 			}
-			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, members, tc.operatorClusterName)
+			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, multiClusterProviderFromClientMap(members), tc.operatorClusterName)
 			r.omRequester = newStubOMAgentRequester(testGroupID)
 			reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
@@ -952,7 +954,7 @@ func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
 	// Hub mode: the in-spec cluster and the state-only removed cluster both
 	// route through the intercepted client so the sweep and its delete options
 	// stay observable.
-	r.memberClients = map[string]kubernetesClient.Client{"cluster-a": interceptedClient, "cluster-b": interceptedClient}
+	r.memberClustersProvider = memberClustersProviderFromKubeClients(map[string]kubernetesClient.Client{"cluster-a": interceptedClient, "cluster-b": interceptedClient})
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
 	dep := &appsv1.Deployment{}
@@ -1230,14 +1232,14 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 		agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
 		r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
-		r.memberClients = members
+		r.memberClustersProvider = memberClustersProviderFromKubeClients(members)
 		return r, fakeClient, search
 	}
 
 	t.Run("no registered cluster at all surfaces Pending", func(t *testing.T) {
 		r, fakeClient, _ := newFixture(t, map[string]kubernetesClient.Client{"unrelated-cluster": nil})
 
-		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), zap.S())
+		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 		require.Equal(t, status.PhasePending, st.Phase())
 		msg := searchcontroller.MessageFromStatus(st)
@@ -1249,7 +1251,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		memberA := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 		r, fakeClient, search := newFixture(t, map[string]kubernetesClient.Client{"cluster-a": memberA})
 
-		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), zap.S())
+		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 		require.True(t, st.IsOK(), "status: %s", searchcontroller.MessageFromStatus(st))
 		// The registered cluster got its Deployment on its member cluster...
@@ -1278,7 +1280,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		stateCM.Data[stateKey] = string(stateJSON)
 		require.NoError(t, fakeClient.Create(context.Background(), stateCM))
 
-		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), zap.S())
+		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 		require.Equal(t, status.PhasePending, st.Phase())
 		msg := searchcontroller.MessageFromStatus(st)
@@ -1304,7 +1306,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		require.NoError(t, fakeClient.Create(context.Background(), stateCM))
 		logs := observeControllerLogs(t)
 
-		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), zap.S())
+		st := r.reconcileCore(context.Background(), getMongoDBSearch(t, fakeClient, testNamespace, testSearchName), memberClusterClients(r.memberClustersProvider.Entries()), zap.S())
 
 		require.True(t, st.IsOK(), "status: %s", searchcontroller.MessageFromStatus(st))
 		assert.Positive(t, logs.FilterMessageSnippet("no Kubernetes client registered").Len())
@@ -2393,7 +2395,7 @@ func TestReconcileCore_StateWriteFailurePreventsDeploymentCreation(t *testing.T)
 	r.kubeClient = interceptedClient
 	currentSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 
-	st := r.reconcileCore(context.Background(), currentSearch, zap.NewNop().Sugar())
+	st := r.reconcileCore(context.Background(), currentSearch, memberClusterClients(r.memberClustersProvider.Entries()), zap.NewNop().Sugar())
 
 	require.False(t, st.IsOK())
 	assert.Contains(t, searchcontroller.MessageFromStatus(st), injectedErr.Error())

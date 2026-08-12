@@ -19,7 +19,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -93,7 +92,7 @@ type OpsManagerReconciler struct {
 	oldestSupportedVersion semver.Version
 	programmaticKeyVersion semver.Version
 
-	memberClustersMap map[string]client.Client
+	memberClustersProvider *multicluster.Provider
 
 	imageUrls                  images.ImageUrls
 	initDatabaseVersion        string
@@ -103,7 +102,7 @@ type OpsManagerReconciler struct {
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersProvider *multicluster.Provider, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:        omFunc,
@@ -111,7 +110,7 @@ func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 		omAdminProvider:            adminProvider,
 		oldestSupportedVersion:     semver.MustParse(oldestSupportedOpsManagerVersion),
 		programmaticKeyVersion:     semver.MustParse(programmaticKeyVersion),
-		memberClustersMap:          memberClustersMap,
+		memberClustersProvider:     memberClustersProvider,
 		imageUrls:                  imageUrls,
 		initDatabaseVersion:        initDatabaseVersion,
 		initOpsManagerImageVersion: initOpsManagerImageVersion,
@@ -137,7 +136,7 @@ type OpsManagerReconcilerHelper struct {
 	deploymentState *OMDeploymentState
 }
 
-func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
+func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger) (*OpsManagerReconcilerHelper, error) {
 	reconcilerHelper := OpsManagerReconcilerHelper{
 		opsManager: opsManager,
 	}
@@ -166,7 +165,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 	for _, clusterSpecItem := range opsManager.GetClusterSpecList() {
 		var memberClusterKubeClient kubernetesClient.Client
 		var memberClusterSecretClient secrets.SecretClient
-		memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
+		memberClusterEntry, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
 		if !ok {
 			var clusterList []string
 			for m := range globalMemberClustersMap {
@@ -175,7 +174,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 			log.Warnf("Member cluster %s specified in clusterSpecList is not found in the list of operator's member clusters: %+v. "+
 				"Assuming the cluster is down. It will be ignored from reconciliation.", clusterSpecItem.ClusterName, clusterList)
 		} else {
-			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient)
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterEntry.Client)
 			memberClusterSecretClient = secrets.SecretClient{
 				VaultClient: nil, // Vault is not supported yet on multicluster
 				KubeClient:  memberClusterKubeClient,
@@ -187,6 +186,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 			Index:        reconcilerHelper.deploymentState.ClusterMapping[clusterSpecItem.ClusterName],
 			Client:       memberClusterKubeClient,
 			SecretClient: memberClusterSecretClient,
+			ResourceName: memberClusterEntry.ResourceName,
 			// TODO should we do lastAppliedMember map like in AppDB?
 			Replicas: clusterSpecItem.Members,
 			Active:   true,
@@ -197,7 +197,7 @@ func NewOpsManagerReconcilerHelper(ctx context.Context, opsManagerReconciler *Op
 	return &reconcilerHelper, nil
 }
 
-func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
+func (r *OpsManagerReconcilerHelper) initializeStateStore(ctx context.Context, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger, clusterNamesFromClusterSpecList []string) error {
 	r.deploymentState = NewOMDeploymentState()
 
 	r.stateStore = NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), reconciler.client)
@@ -421,6 +421,10 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring shared global resources %w", err)), log, opsManagerExtraStatusParams)
 	}
 
+	// Snapshot the member-cluster registry once: this whole reconcile works on a single
+	// membership view.
+	memberClusterEntries := r.memberClustersProvider.Entries()
+
 	// 1. Reconcile AppDB
 	emptyResult, _ := workflow.OK().ReconcileResult()
 	retryResult := reconcile.Result{RequeueAfter: time.Second}
@@ -438,7 +442,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	// register backup
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 
-	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
+	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, memberClusterEntries, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
 	}
@@ -453,7 +457,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
 
-	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
+	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, memberClusterEntries, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
@@ -855,8 +859,8 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log)
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
-	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersProvider *multicluster.Provider, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), memberClustersProvider, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err
@@ -898,8 +902,8 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 			zap.S().Errorf("Failed to watch for vault secret changes: %v", err)
 		}
 	}
-	for clusterName, memberCluster := range memberClustersMap {
-		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+	for clusterName, memberClusterEntry := range memberClustersProvider.Entries() {
+		err = c.Watch(source.Kind[client.Object](memberClusterEntry.Cluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
 			return xerrors.Errorf("failed to set AppDB StatefulSet watch on member cluster %s: %w", clusterName, err)
 		}
@@ -2031,7 +2035,8 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 // it's used in MongoDBOpsManagerEventHandler
 func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
-	helper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
+	memberClusterEntries := r.memberClustersProvider.Entries()
+	helper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, memberClusterEntries, log)
 	if err != nil {
 		log.Errorf("Error initializing OM reconciler helper: %s", err)
 		return
@@ -2048,7 +2053,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	}
 
 	if opsManager.Spec.AppDB.IsMultiCluster() {
-		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
+		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, memberClusterEntries, log)
 		if err != nil {
 			log.Errorf("Error initializing AppDB reconciler helper: %s", err)
 			return
@@ -2065,8 +2070,8 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 	log.Info("Cleaned up Ops Manager related resources.")
 }
 
-func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, log)
+func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClusterEntries map[string]multicluster.Entry, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, memberClusterEntries, r.defaultArchitecture, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource
