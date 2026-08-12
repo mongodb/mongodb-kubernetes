@@ -225,7 +225,10 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standard"], tls=False)
+    conn = standard_secret["connectionString.standard"]
+    replica_set.assert_connectivity_from_connection_string(conn, tls=False)
+    # mongosh uses the secret URI as-is, like a customer would — no separate TLS/auth kwargs.
+    assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -236,6 +239,7 @@ def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_s
     # mongodb+srv defaults to TLS unless ssl=false is present in the generated secret.
     assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
 
+    # Prove ssl=false is required: without it, mongosh assumes TLS and cannot reach a non-TLS cluster.
     conn_without_ssl_false = connection_string_without_query_param(conn, "ssl")
     assert "ssl=false" not in conn_without_ssl_false
     assert_connection_string_with_mongosh(
