@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -17,7 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	restclient "k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -99,28 +98,23 @@ func (h *recordedHook) hooks() multicluster.Hooks {
 	}
 }
 
-func newTestReconciler(c client.Client, provider *multicluster.Provider, factory *fakeClusterFactory) *Reconciler {
-	return NewReconciler(c, testNamespace, 7*time.Second, provider, factory.newCluster, context.Background())
+func newTestProviderManager(c client.Client, provider *multicluster.Provider, factory *fakeClusterFactory) *providerManager {
+	return newProviderManager(c, testNamespace, 7*time.Second, provider, factory.newCluster, context.Background())
 }
 
-func reconcileCR(t *testing.T, r *Reconciler, name string) (ctrl.Result, error) {
-	t.Helper()
-	return r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: testNamespace}})
-}
-
-func TestReconcileRegistersMemberCluster(t *testing.T) {
+func TestSyncRegistersMemberCluster(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
-		memberClusterCR("cluster-west", "west_legacy", "mck-credential-cluster-west"),
 		credentialSecret("mck-credential-cluster-west", "https://west.example.com:6443"),
 	).Build()
 	provider := multicluster.NewProvider()
 	factory := &fakeClusterFactory{}
 	hook := &recordedHook{}
 	provider.RegisterHooks(context.Background(), hook.hooks())
-	r := newTestReconciler(c, provider, factory)
+	m := newTestProviderManager(c, provider, factory)
 
-	_, err := reconcileCR(t, r, "cluster-west")
-	require.NoError(t, err)
+	// clusterName intentionally differs from metadata.name (e.g. non-RFC-1123 legacy name).
+	mc := memberClusterCR("cluster-west", "west_legacy", "mck-credential-cluster-west")
+	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
 
 	entries := provider.Entries()
 	require.Len(t, entries, 1)
@@ -133,35 +127,28 @@ func TestReconcileRegistersMemberCluster(t *testing.T) {
 	assert.Empty(t, hook.removed)
 
 	// A resync (same generation) must not rebuild the entry.
-	_, err = reconcileCR(t, r, "cluster-west")
-	require.NoError(t, err)
+	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
 	assert.Len(t, factory.clusters, 1)
 	assert.Equal(t, []string{"west_legacy"}, hook.added)
 }
 
-func TestReconcileRebuildsOnSpecChange(t *testing.T) {
+func TestSyncRebuildsOnSpecChange(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
-		memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"),
 		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
 	).Build()
 	provider := multicluster.NewProvider()
 	factory := &fakeClusterFactory{}
 	hook := &recordedHook{}
 	provider.RegisterHooks(context.Background(), hook.hooks())
-	r := newTestReconciler(c, provider, factory)
+	m := newTestProviderManager(c, provider, factory)
 
-	_, err := reconcileCR(t, r, "cluster-east")
-	require.NoError(t, err)
+	mc := memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east")
+	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
 
 	// Rotate the credential Secret and bump the generation, as a spec change would.
 	require.NoError(t, c.Update(context.Background(), credentialSecret("mck-credential-cluster-east", "https://east2.example.com:6443")))
-	mc := &operatorv1.MemberCluster{}
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "cluster-east", Namespace: testNamespace}, mc))
-	mc.Generation = mc.Generation + 1
-	require.NoError(t, c.Update(context.Background(), mc))
-
-	_, err = reconcileCR(t, r, "cluster-east")
-	require.NoError(t, err)
+	mc.Generation = 2
+	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
 
 	require.Len(t, factory.clusters, 2)
 	assert.Equal(t, "https://east2.example.com:6443", factory.configs[1].Host)
@@ -170,48 +157,39 @@ func TestReconcileRebuildsOnSpecChange(t *testing.T) {
 	assert.Equal(t, []string{"cluster-east"}, hook.removed)
 }
 
-func TestReconcileRemovesEntryOnDelete(t *testing.T) {
+func TestRemoveDeregistersEntry(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
-		memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"),
 		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
 	).Build()
 	provider := multicluster.NewProvider()
 	factory := &fakeClusterFactory{}
 	hook := &recordedHook{}
 	provider.RegisterHooks(context.Background(), hook.hooks())
-	r := newTestReconciler(c, provider, factory)
+	m := newTestProviderManager(c, provider, factory)
 
-	_, err := reconcileCR(t, r, "cluster-east")
-	require.NoError(t, err)
+	require.NoError(t, m.sync(context.Background(), memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"), zap.S()))
 	require.Len(t, provider.Entries(), 1)
 
-	require.NoError(t, c.Delete(context.Background(), memberClusterCR("cluster-east", "", "")))
-
-	_, err = reconcileCR(t, r, "cluster-east")
-	require.NoError(t, err)
+	m.remove(context.Background(), "cluster-east", zap.S())
 	assert.Empty(t, provider.Entries())
 	assert.Equal(t, []string{"cluster-east"}, hook.removed)
 
-	// Deleting again (or a CR that was never reconciled) is a no-op.
-	_, err = reconcileCR(t, r, "cluster-east")
-	require.NoError(t, err)
+	// Removing again (or a CR that was never synced) is a no-op.
+	m.remove(context.Background(), "cluster-east", zap.S())
 	assert.Equal(t, []string{"cluster-east"}, hook.removed)
 }
 
-func TestReconcileErrorsWhenCredentialSecretMissing(t *testing.T) {
-	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
-		memberClusterCR("cluster-bad", "cluster-bad", "mck-credential-cluster-bad"),
-	).Build()
+func TestSyncErrorsWhenCredentialSecretMissing(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 	provider := multicluster.NewProvider()
-	r := newTestReconciler(c, provider, &fakeClusterFactory{})
+	m := newTestProviderManager(c, provider, &fakeClusterFactory{})
 
-	_, err := reconcileCR(t, r, "cluster-bad")
-	require.Error(t, err)
+	mc := memberClusterCR("cluster-bad", "cluster-bad", "mck-credential-cluster-bad")
+	require.Error(t, m.sync(context.Background(), mc, zap.S()))
 	assert.Empty(t, provider.Entries())
 
-	// Once the Secret appears, the requeued reconcile registers the cluster.
+	// Once the Secret appears, the requeued sync registers the cluster.
 	require.NoError(t, c.Create(context.Background(), credentialSecret("mck-credential-cluster-bad", "https://bad.example.com:6443")))
-	_, err = reconcileCR(t, r, "cluster-bad")
-	require.NoError(t, err)
+	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
 	assert.Contains(t, provider.Entries(), "cluster-bad")
 }
