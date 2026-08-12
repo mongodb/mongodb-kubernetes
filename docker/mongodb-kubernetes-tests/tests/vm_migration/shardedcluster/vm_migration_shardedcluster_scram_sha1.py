@@ -129,14 +129,6 @@ def _configure_ac_scram_sha1(namespace: str, om_tester: OMTester, mdb_version: s
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": AGENT_USER,
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": [SCRAM_MECHANISM],
-                "scramSha1Creds": build_sha1_creds(AGENT_USER, AGENT_PASSWORD),
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": APP_USER,
                 "db": "admin",
                 "roles": [

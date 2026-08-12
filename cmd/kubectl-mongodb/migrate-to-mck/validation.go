@@ -3,7 +3,6 @@ package migratetomck
 import (
 	"fmt"
 	"reflect"
-	"slices"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -48,7 +47,6 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	}
 
 	results = append(results, validateAuth(ac.Auth, ac.Deployment.DownloadBase())...)
-	results = append(results, validateScram(ac.Auth)...)
 	results = append(results, validateX509(ac.Auth, ac.AgentSSL)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectConfigs)...)
@@ -219,28 +217,6 @@ func validateAuth(auth *om.Auth, downloadBase string) []ValidationResult {
 	return results
 }
 
-// validateScram checks the autoUser has a matching usersWanted entry for SCRAM.
-func validateScram(auth *om.Auth) []ValidationResult {
-	if auth == nil || auth.Disabled || auth.AutoUser == "" {
-		return nil
-	}
-	switch auth.AutoAuthMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
-	default:
-		return nil
-	}
-	hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
-		return u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase
-	})
-	if !hasMatchingUser {
-		return []ValidationResult{{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, util.DefaultUserDatabase),
-		}}
-	}
-	return nil
-}
-
 // validateX509 warns when MONGODB-X509 agent auth is configured and errors when autoPEMKeyFilePath is missing.
 func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
 	if auth == nil || auth.Disabled {
@@ -260,17 +236,6 @@ func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
 		Severity: SeverityWarning,
 		Message:  "MONGODB-X509 agent authentication is configured. The generated CR sets spec.security.authentication.agents.clientCertificateSecretRef to \"<certsSecretPrefix>-<resourceName>-agent-certs\". Create a kubernetes.io/tls Secret with that name and keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use a different Secret name, update clientCertificateSecretRef.name in the generated CR.",
 	})
-	if auth.AutoUser != "" {
-		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
-			return u != nil && u.Username == auth.AutoUser && u.Database == "$external"
-		})
-		if !hasMatchingUser {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, "$external"),
-			})
-		}
-	}
 	return results
 }
 

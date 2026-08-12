@@ -122,14 +122,6 @@ def _configure_ac_scram_sha256(namespace: str, om_tester: OMTester, mdb_version:
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": "mms-automation-agent",
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": build_sha256_creds("mms-automation-agent-password"),
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": "app-user",
                 "db": "admin",
                 "roles": [

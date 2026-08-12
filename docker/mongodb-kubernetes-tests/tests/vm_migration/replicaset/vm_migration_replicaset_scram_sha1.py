@@ -85,14 +85,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service:
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": AGENT_USER,
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": [SCRAM_MECHANISM],
-                "scramSha1Creds": build_sha1_creds(AGENT_USER, AGENT_PASSWORD),
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": APP_USER,
                 "db": "admin",
                 "roles": [

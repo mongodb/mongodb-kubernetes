@@ -2,14 +2,6 @@
   "auth": {
     "usersWanted": [
       {
-        "user": "mms-automation-agent",
-        "db": "admin",
-        "roles": [{"role": "root", "db": "admin"}],
-        "mechanisms": ["SCRAM-SHA-256"],
-        "scramSha256Creds": {"iterationCount": 15000, "salt": "abc", "serverKey": "skey", "storedKey": "stkey"},
-        "authenticationRestrictions": []
-      },
-      {
         "user": "app-user",
         "db": "admin",
         "roles": [

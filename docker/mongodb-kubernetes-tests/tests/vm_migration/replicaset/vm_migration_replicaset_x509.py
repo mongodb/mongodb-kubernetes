@@ -420,8 +420,8 @@ def test_vm_ac_x509_auth(
 ):
     """Enable X509 client auth after TLS is already configured.
 
-    The automation user must be present in usersWanted so migrate-to-mck can preserve it.
-    Internal cluster auth continues to use keyFile (SCRAM-SHA-256 for __system@local).
+    The automation user is referenced only by auth.autoUser; Ops Manager provisions it, so it has no
+    usersWanted entry (matching what the operator writes). Internal cluster auth continues to use keyFile (SCRAM-SHA-256 for __system@local).
     """
     ac = om_tester.api_get_automation_config()
     if ac.get("auth", {}).get("disabled", True) is False:
@@ -441,15 +441,6 @@ def test_vm_ac_x509_auth(
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
         "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
         "usersWanted": [
-            {
-                "user": agent_subject_dn,
-                "db": "$external",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": [],
-                "scramSha256Creds": None,
-                "scramSha1Creds": None,
-                "authenticationRestrictions": [],
-            },
             {
                 "user": app_user_subject_dn,
                 "db": "$external",

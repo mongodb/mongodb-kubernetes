@@ -174,12 +174,6 @@ def _configure_ac(
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
         "usersWanted": [
             {
-                "user": agent_dn,
-                "db": "$external",
-                "roles": [{"role": "root", "db": "admin"}],
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": app_user_dn,
                 "db": "$external",
                 "roles": [

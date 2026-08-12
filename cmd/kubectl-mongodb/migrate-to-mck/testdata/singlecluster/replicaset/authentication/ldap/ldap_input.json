@@ -2,15 +2,6 @@
   "auth": {
     "usersWanted": [
       {
-        "user": "uid=mms-automation-agent,ou=groups,dc=example,dc=org",
-        "db": "$external",
-        "roles": [{"role": "root", "db": "admin"}],
-        "mechanisms": [],
-        "scramSha256Creds": null,
-        "scramSha1Creds": null,
-        "authenticationRestrictions": []
-      },
-      {
         "user": "uid=vm-app-user,dc=example,dc=org",
         "db": "$external",
         "roles": [
