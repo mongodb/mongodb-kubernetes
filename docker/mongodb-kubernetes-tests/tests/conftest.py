@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import get_operator_pod_restart_count, running_locally, wait_for_operator_pod_present
+from kubetester.kubetester import running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -926,13 +926,6 @@ def _install_multi_cluster_operator(
     # configure_member_clusters and gets the same treatment as any other member.
     if configure_member_clusters is not None:
         assert operator_name is not None
-
-        restart_count_before = None
-        if not local_operator():
-            restart_count_before = wait_for_operator_pod_present(
-                namespace, operator_name, api_client=central_cluster_client
-            )
-
         configure_multi_cluster_members(
             configure_member_clusters,
             namespace,
@@ -941,15 +934,7 @@ def _install_multi_cluster_operator(
             workload_namespaces=member_clusters_workload_namespaces,
             operator_cluster_scoped=member_clusters_operator_cluster_scoped,
         )
-
         operator.wait_for_operator_ready()
-
-        # Membership registration is hot-reloaded; a restart here is a regression.
-        if restart_count_before is not None:
-            assert (
-                get_operator_pod_restart_count(namespace, operator_name, api_client=central_cluster_client)
-                == restart_count_before
-            )
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.

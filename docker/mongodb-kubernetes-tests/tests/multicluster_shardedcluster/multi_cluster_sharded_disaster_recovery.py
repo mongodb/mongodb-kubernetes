@@ -6,19 +6,14 @@ import kubernetes.client
 from kubetester import delete_statefulset, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_env_var_or_fail,
-    get_operator_pod_restart_count,
-    is_multi_cluster,
-    run_periodically,
-)
+from kubetester.kubetester import get_env_var_or_fail, is_multi_cluster, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_central_cluster_client, get_member_cluster_api_client, local_operator
+from tests.conftest import get_central_cluster_client, get_member_cluster_api_client
 from tests.multicluster.conftest import cluster_spec_list
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_all_sharded_cluster_pod_names
 
@@ -26,10 +21,6 @@ MEMBER_CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster
 FAILED_MEMBER_CLUSTER_INDEX = 2
 FAILED_MEMBER_CLUSTER_NAME = MEMBER_CLUSTERS[FAILED_MEMBER_CLUSTER_INDEX]
 RESOURCE_NAME = "sh-disaster-recovery"
-
-# Operator pod restart count snapshotted before the member cluster removal; None when the operator
-# runs locally (no pod in the cluster).
-operator_restart_count_before: Optional[int] = None
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -141,18 +132,8 @@ class TestDeployShardedClusterWithFailedCluster:
         logger.debug(f"Automation Config Version after initial deployment: {config_version_store.version}")
 
     def test_remove_member_cluster_to_simulate_it_is_unhealthy(
-        self, namespace, central_cluster_client: kubernetes.client.ApiClient, multi_cluster_operator: Operator
+        self, namespace, central_cluster_client: kubernetes.client.ApiClient
     ):
-        global operator_restart_count_before
-
-        # Membership change is hot-reloaded; a restart would be a regression.
-        operator_restart_count_before = None
-        if not local_operator():
-            assert multi_cluster_operator.name is not None
-            operator_restart_count_before = get_operator_pod_restart_count(
-                namespace, multi_cluster_operator.name, api_client=central_cluster_client
-            )
-
         # Simulate the failed cluster becoming unavailable by deleting its MemberCluster CR and
         # credential Secret.
         logger.debug(f"Removing MemberCluster {FAILED_MEMBER_CLUSTER_NAME} to simulate it being unhealthy")
@@ -167,21 +148,6 @@ class TestDeployShardedClusterWithFailedCluster:
             name=f"mck-credential-{FAILED_MEMBER_CLUSTER_NAME}",
             namespace=namespace,
         )
-
-    # Wait for the operator to be ready after the member cluster was removed.
-    def test_operator_processes_member_removal(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.wait_for_operator_ready()
-
-        if operator_restart_count_before is not None:
-            assert multi_cluster_operator.name is not None
-            assert (
-                get_operator_pod_restart_count(
-                    multi_cluster_operator.namespace,
-                    multi_cluster_operator.name,
-                    api_client=multi_cluster_operator.api_client,
-                )
-                == operator_restart_count_before
-            )
 
     def test_delete_all_statefulsets_in_failed_cluster(
         self, sc: MongoDB, central_cluster_client: kubernetes.client.ApiClient

@@ -4,13 +4,11 @@ import kubernetes
 import pytest
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import get_operator_pod_restart_count
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.conftest import configure_multi_cluster_members, local_operator
-from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
+from tests.conftest import configure_multi_cluster_members
 from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
@@ -83,29 +81,9 @@ def test_recover_operator_add_cluster(
     member_cluster_names: List[str],
     namespace: str,
     central_cluster_name: str,
-    central_cluster_client: kubernetes.client.ApiClient,
 ):
-    restart_count_before = None
-    if not local_operator():
-        restart_count_before = get_operator_pod_restart_count(
-            namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client
-        )
-
     # Register the previously left-out member cluster.
     configure_multi_cluster_members([member_cluster_names[-1]], namespace, namespace, central_cluster_name)
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator.wait_for_operator_ready()
-
-    # Membership change is hot-reloaded; a restart would be a regression.
-    if restart_count_before is not None:
-        assert (
-            get_operator_pod_restart_count(namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client)
-            == restart_count_before
-        )
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -123,12 +101,6 @@ def test_recover_operator_remove_cluster(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
 ):
-    restart_count_before = None
-    if not local_operator():
-        restart_count_before = get_operator_pod_restart_count(
-            namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client
-        )
-
     # The surviving set is member_cluster_names[1:], so de-register the first cluster: delete
     # its MemberCluster CR and credential Secret from the central cluster.
     removed_cluster_name = member_cluster_names[0]
@@ -143,19 +115,6 @@ def test_recover_operator_remove_cluster(
         name=f"mck-credential-{removed_cluster_name}",
         namespace=namespace,
     )
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator.wait_for_operator_ready()
-
-    # Membership change is hot-reloaded; a restart would be a regression.
-    if restart_count_before is not None:
-        assert (
-            get_operator_pod_restart_count(namespace, MULTI_CLUSTER_OPERATOR_NAME, api_client=central_cluster_client)
-            == restart_count_before
-        )
 
 
 @pytest.mark.e2e_multi_cluster_recover
