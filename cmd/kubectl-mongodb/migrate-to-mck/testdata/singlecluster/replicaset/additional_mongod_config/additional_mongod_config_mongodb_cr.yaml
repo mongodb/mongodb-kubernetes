@@ -22,7 +22,6 @@ spec:
     replication:
       oplogSizeMB: 2048
     setParameter:
-      authenticationMechanisms: SCRAM-SHA-256
       connPoolMaxConnsPerHost: 800
     storage:
       directoryPerDB: true
@@ -38,8 +37,6 @@ spec:
           configString: builtin_extension_config=(zlib=(compression_level=2))
           journalCompressor: zlib
           zstdCompressionLevel: 6
-  agent:
-    maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27018

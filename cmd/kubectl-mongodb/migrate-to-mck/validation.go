@@ -6,7 +6,7 @@ import (
 	"slices"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
+	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
@@ -41,6 +41,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 
 	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
 	results = append(results, validateReplicaSetsExist(ac.Deployment)...)
+	results = append(results, validateEmbeddedConfigServer(ac.Deployment)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
 			return results, nil
@@ -49,10 +50,11 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 
 	results = append(results, validateAuth(ac.Auth)...)
 	results = append(results, validateScram(ac.Auth)...)
-	results = append(results, validateX509(ac.Auth)...)
+	results = append(results, validateX509(ac.Auth, ac.AgentSSL)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectConfigs)...)
-	results = append(results, validateLDAP(ac.Ldap)...)
+	results = append(results, validateLDAP(ac)...)
+	results = append(results, validatePrometheus(ac.Deployment)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateMemberPreservedFields(ac.Deployment)...)
 	for _, r := range results {
@@ -93,14 +95,35 @@ func pickSourceProcess(members []om.ReplicaSetMember, processMap map[string]om.P
 	return nil, fmt.Errorf("no voting+priority member found in replica set. Cannot determine source process")
 }
 
-// validateOneDeploymentPerProject ensures the project has exactly one replica set.
-// Sharded cluster support will be added in a follow-up PR.
+// validateOneDeploymentPerProject ensures the project has exactly one logical deployment:
+// either a single replica set or a single sharded cluster with no extra replica sets.
 func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
-	if len(d.GetShardedClusters()) > 0 {
+	shardedClusters := d.GetShardedClusters()
+	if len(shardedClusters) > 1 {
 		return []ValidationResult{{
 			Severity: SeverityError,
-			Message:  "Sharded cluster migration is not yet supported. Only replica set deployments can be migrated.",
+			Message:  fmt.Sprintf("The project contains %d sharded clusters. The operator requires exactly one deployment per project. Split the project before migrating.", len(shardedClusters)),
 		}}
+	}
+	if len(shardedClusters) == 1 {
+		sc := shardedClusters[0]
+		expected := map[string]bool{sc.ConfigServerRsName(): true}
+		for _, shard := range sc.Shards() {
+			expected[shard.Rs()] = true
+		}
+		var extras []string
+		for _, rs := range d.GetReplicaSets() {
+			if !expected[rs.Name()] {
+				extras = append(extras, rs.Name())
+			}
+		}
+		if len(extras) > 0 {
+			return []ValidationResult{{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("The project contains replica sets %v that are not part of the sharded cluster. The operator requires exactly one deployment per project. Split the project before migrating.", extras),
+			}}
+		}
+		return nil
 	}
 	count := len(d.GetReplicaSets())
 	if count <= 1 {
@@ -110,6 +133,43 @@ func validateOneDeploymentPerProject(d om.Deployment) []ValidationResult {
 		Severity: SeverityError,
 		Message:  fmt.Sprintf("The project contains %d deployments. The operator requires exactly one deployment per project. Split the project before migrating.", count),
 	}}
+}
+
+// validateEmbeddedConfigServer rejects a shard sharing a replica set with the config server.
+// The check considers two AC signals:
+//   - sharding.configServerReplica colliding with a shard's rs
+//   - a process declaring sharding.clusterRole = configsvr inside a shard's replica set
+func validateEmbeddedConfigServer(d om.Deployment) []ValidationResult {
+	replicaSetsWithConfigsvrRole := map[string]bool{}
+	for _, proc := range d.GetProcesses() {
+		if proc.ClusterRole() == om.ClusterRoleConfigSrv {
+			replicaSetsWithConfigsvrRole[proc.ReplicaSetName()] = true
+		}
+	}
+
+	var results []ValidationResult
+	for _, sc := range d.GetShardedClusters() {
+		for _, shard := range sc.Shards() {
+			var reason string
+			switch {
+			case shard.Rs() == sc.ConfigServerRsName():
+				reason = "configServerReplica points to a shard replica set"
+			case replicaSetsWithConfigsvrRole[shard.Rs()]:
+				reason = "a process in this replica set declares sharding.clusterRole = configsvr"
+			default:
+				continue
+			}
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message: fmt.Sprintf(
+					"Sharded cluster %q has shard %q backed by replica set %q which is also the config server (%s). "+
+						"The operator does not support an embedded config server. Move the config server to a dedicated replica set before migrating.",
+					sc.Name(), shard.Id(), shard.Rs(), reason,
+				),
+			})
+		}
+	}
+	return results
 }
 
 func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
@@ -174,8 +234,8 @@ func validateScram(auth *om.Auth) []ValidationResult {
 	return nil
 }
 
-// validateX509 warns when MONGODB-X509 agent auth is configured.
-func validateX509(auth *om.Auth) []ValidationResult {
+// validateX509 warns when MONGODB-X509 agent auth is configured and errors when autoPEMKeyFilePath is missing.
+func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
 	}
@@ -183,9 +243,15 @@ func validateX509(auth *om.Auth) []ValidationResult {
 		return nil
 	}
 	var results []ValidationResult
+	if agentSSL == nil || agentSSL.AutoPEMKeyFilePath == "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityError,
+			Message:  "MONGODB-X509 agent authentication requires tls.autoPEMKeyFilePath to be set in the automation config.",
+		})
+	}
 	results = append(results, ValidationResult{
 		Severity: SeverityWarning,
-		Message:  "MONGODB-X509 agent authentication is configured. Create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-agent-certs\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource.",
+		Message:  "MONGODB-X509 agent authentication is configured. The generated CR sets spec.security.authentication.agents.clientCertificateSecretRef to \"<certsSecretPrefix>-<resourceName>-agent-certs\". Create a kubernetes.io/tls Secret with that name and keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use a different Secret name, update clientCertificateSecretRef.name in the generated CR.",
 	})
 	if auth.AutoUser != "" {
 		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
@@ -218,7 +284,7 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
-			Message:  "TLS CA is configured. Create a ConfigMap with key \"ca-pem\" containing the CA certificate before applying the Custom Resource. The generated CR sets security.tls.ca to \"<resourceName>-ca\" by default. Change it if your ConfigMap has a different name. Also create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\".",
+			Message:  "TLS CA is configured. The generated CR sets spec.security.certsSecretPrefix to \"<certsSecretPrefix>\" and spec.security.tls.ca to \"<resourceName>-ca\". Create a ConfigMap named \"<resourceName>-ca\" with key \"ca-pem\" containing the CA certificate, and create a kubernetes.io/tls Secret named \"<certsSecretPrefix>-<resourceName>-cert\" with keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use different names, update spec.security.tls.ca and the server certificate Secret name accordingly.",
 		})
 	}
 
@@ -256,8 +322,9 @@ func validateAgentConfig(configs *ProjectConfigs) []ValidationResult {
 	return results
 }
 
-// validateLDAP checks bindMethod is "simple" and warns when a CA certificate is present.
-func validateLDAP(l *ldap.Ldap) []ValidationResult {
+// validateLDAP checks bindMethod is "simple" and warns when passwords or CA are present.
+func validateLDAP(ac *om.AutomationConfig) []ValidationResult {
+	l := ac.Ldap
 	if l == nil {
 		return nil
 	}
@@ -270,11 +337,25 @@ func validateLDAP(l *ldap.Ldap) []ValidationResult {
 			Message:  fmt.Sprintf("LDAP bindMethod %q is not supported by the operator. Only \"simple\" is supported", l.BindMethod),
 		})
 	}
+	if l.BindQueryPassword != "" {
+		results = append(results, ValidationResult{
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("LDAP bind query password is present in the automation config. The tool will create Secret %q with key %q containing the password automatically.", LdapBindQuerySecretName, passwordSecretDataKey),
+		})
+	}
 	if l.CaFileContents != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
 			Message:  "LDAP CA certificate is present. The tool will create ConfigMap \"ldap-ca\" with key \"ca.pem\" automatically.",
 		})
+	}
+	if ac.Auth != nil && ac.Auth.AutoPwd != "" {
+		if mode, ok := authn.MapMechanismToAuthMode(ac.Auth.AutoAuthMechanism); ok && mode == util.LDAP {
+			results = append(results, ValidationResult{
+				Severity: SeverityWarning,
+				Message:  fmt.Sprintf("LDAP agent password (auth.autoPwd) is present. The tool will create Secret %q with key %q containing the password automatically.", LdapAgentPasswordSecretName, passwordSecretDataKey),
+			})
+		}
 	}
 
 	return results
@@ -371,6 +452,18 @@ func validateProcesses(d om.Deployment) []ValidationResult {
 }
 
 // validateAuthSchemaVersion checks each mongod process has the expected authSchemaVersion.
+// validatePrometheus warns when Prometheus is enabled, since a pre-created Secret is required.
+func validatePrometheus(d om.Deployment) []ValidationResult {
+	prom := d.GetPrometheus()
+	if prom == nil || !prom.Enabled {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("Prometheus is enabled for user %q. Create a Kubernetes Secret with key %q containing the password, then pass --prometheus-secret-name to reference it.", prom.Username, passwordSecretDataKey),
+	}}
+}
+
 func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {

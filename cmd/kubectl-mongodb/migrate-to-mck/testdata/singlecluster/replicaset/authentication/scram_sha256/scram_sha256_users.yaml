@@ -12,7 +12,7 @@ spec:
     name: app-user-password
   roles:
   - db: myapp
-    name: readWrite
+    name: appReadOnly
   - db: reporting
     name: read
   username: app-user
