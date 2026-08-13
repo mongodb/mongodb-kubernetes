@@ -40,7 +40,7 @@ func BuildFromMongoDBWithReplicas(mongoDBImage string, forceEnterprise bool, mdb
 }
 
 // IsLegacyDeployment Returns true when the AC already has processes under the old naming scheme.
-// External member names are excluded — they won't have the prefix but are not K8s-managed.
+// External member names are excluded, they won't have the prefix but are not K8s-managed.
 func IsLegacyDeployment(existingProcessIds map[string]int, externalMembers []string) bool {
 	if len(externalMembers) > 0 {
 		// If there are external members, we can be sure it is a new deployment.
@@ -72,4 +72,18 @@ func IsLegacyDeployment(existingProcessIds map[string]int, externalMembers []str
 	// This means it was an existing deployment, never had externalMembers, and all members are using the old naming scheme.
 	// Therefore, we continue using the old naming scheme.
 	return !foundNewMember
+}
+
+// ConvertPodNamesToProcessNames converts bare pod names to k8s/<namespace>/<pod> process names when
+// the existing deployment uses the new naming scheme. For legacy deployments the pod names are
+// returned unchanged.
+func ConvertPodNamesToProcessNames(existingIds map[string]int, externalMembers, podNames []string, namespace string) []string {
+	if IsLegacyDeployment(existingIds, externalMembers) {
+		return podNames
+	}
+	processNames := make([]string, len(podNames))
+	for i, name := range podNames {
+		processNames[i] = process.PodNameToProcessName(name, namespace)
+	}
+	return processNames
 }
