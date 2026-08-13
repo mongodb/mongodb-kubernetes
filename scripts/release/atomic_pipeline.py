@@ -137,6 +137,7 @@ def build_operator_image(build_configuration: ImageBuildConfiguration, with_race
 
     args = {
         "version": build_configuration.version,
+        "rbac_version": load_release_file()["mongodbOperator"],
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
         "use_race": "true" if with_race_detection else "false",
