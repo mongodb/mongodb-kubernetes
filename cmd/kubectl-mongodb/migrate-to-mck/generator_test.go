@@ -59,7 +59,6 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 	assert.Contains(t, yamlOutput, "replicaSetNameOverride: my-rs")
 }
 
-
 func TestGenerateMongoDBCR_AutoNormalizesRSName(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []any{
