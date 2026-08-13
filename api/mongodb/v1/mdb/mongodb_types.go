@@ -20,14 +20,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -529,14 +529,14 @@ func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
 }
 
-func (d *MongoDbSpec) GetExternalMembers() []ExternalMember {
-	return d.ExternalMembers
+func (m *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return m.ExternalMembers
 }
 
-func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
+func (m *MongoDbSpec) GetExternalMemberProcessNames() []string {
 	var processNames []string
-	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
+	for _, em := range m.ExternalMembers {
+		processNames = append(processNames, em.ProcessName)
 	}
 	return processNames
 }

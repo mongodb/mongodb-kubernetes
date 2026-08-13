@@ -1159,7 +1159,7 @@ func TestNoExternalMembersAdditionOrChanges(t *testing.T) {
 			errorMsg:    "Cannot add external members to an existing MongoDB resource",
 		},
 		{
-			name: "one unchanged, one changed — rejected for changed member",
+			name:    "one unchanged, one changed — rejected for changed member",
 			oldSpec: MongoDbSpec{ExternalMembers: []ExternalMember{memberA, memberB}},
 			newSpec: MongoDbSpec{ExternalMembers: []ExternalMember{
 				memberA,
