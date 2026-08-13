@@ -1025,7 +1025,7 @@ spec:
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
             - message: spec.role is not supported on MongoDBMultiCluster
-              rule: self.role == ”
+              rule: self.role == ""
             - message: spec.security.authentication must have SCRAM enabled when spec.role
                 is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
