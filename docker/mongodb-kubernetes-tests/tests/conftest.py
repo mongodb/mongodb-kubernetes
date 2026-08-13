@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import running_locally, wait_for_all_member_clusters_rbac_valid
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -1589,11 +1589,20 @@ def configure_multi_cluster_members(
     central_cluster: str,
     workload_namespaces: Optional[str] = None,
     operator_cluster_scoped: bool = False,
+    wait_for_rbac_valid: bool = True,
 ):
     """Apply member-cluster RBAC to each member cluster, then register each cluster with the
-    operator's cluster."""
+    operator's cluster.
+
+    By default waits until every MemberCluster CR in the operator namespace reports
+    RBACValid=True, asserting the operator accepted each cluster's RBAC. Pass
+    wait_for_rbac_valid=False when registering clusters before the MCK operator is running
+    (upgrade tests register CRs before upgrading so the operator boots multi-cluster); the
+    operator validates RBAC once it starts."""
     generate_and_apply_member_resources(member_clusters, member_namespace, workload_namespaces, operator_cluster_scoped)
     generate_and_apply_member_registration(member_clusters, member_namespace, operator_namespace, central_cluster)
+    if wait_for_rbac_valid:
+        wait_for_all_member_clusters_rbac_valid(operator_namespace, api_client=get_cluster_clients()[central_cluster])
 
 
 def get_api_servers_from_kubeconfig_secret(

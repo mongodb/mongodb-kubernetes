@@ -293,6 +293,97 @@ def apply_operator_config_from_test_env(
     return True
 
 
+MEMBER_CLUSTER_CONDITION_RBAC_VALID = "RBACValid"
+
+
+def get_member_cluster_condition(
+    namespace: str,
+    name: str,
+    condition_type: str = MEMBER_CLUSTER_CONDITION_RBAC_VALID,
+    api_client=None,
+) -> Optional[Dict]:
+    """Returns the `condition_type` status condition of the MemberCluster CR `name`, or None if
+    the condition is not present yet."""
+    member_cluster = client.CustomObjectsApi(api_client=api_client).get_namespaced_custom_object(
+        group="operator.mongodb.com",
+        version="v1",
+        namespace=namespace,
+        plural="memberclusters",
+        name=name,
+    )
+    return get_member_cluster_condition_from_object(member_cluster, condition_type)
+
+
+def wait_for_member_cluster_condition(
+    namespace: str,
+    name: str,
+    status: str,
+    reason: Optional[str] = None,
+    condition_type: str = MEMBER_CLUSTER_CONDITION_RBAC_VALID,
+    api_client=None,
+    timeout: int = 180,
+) -> None:
+    """Waits until the MemberCluster CR `name` reports the given condition status (and reason,
+    if given). The operator re-validates RBAC on an interval, so callers waiting for a status
+    change after breaking or fixing RBAC should allow for at least one re-check interval."""
+
+    def check():
+        try:
+            condition = get_member_cluster_condition(namespace, name, condition_type, api_client=api_client)
+        except ApiException as e:
+            if e.status != 404:
+                raise
+            return False, "MemberCluster CR not found"
+        if condition is None or condition.get("status") != status:
+            return False, f"condition={condition}"
+        if reason is not None and condition.get("reason") != reason:
+            return False, f"condition={condition}"
+        return True, f"condition={condition}"
+
+    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"MemberCluster {name} {condition_type}={status}")
+
+
+def wait_for_all_member_clusters_rbac_valid(namespace: str, api_client=None, timeout: int = 120) -> None:
+    """Waits until every MemberCluster CR in `namespace` reports RBACValid=True.
+
+    The operator validates each member cluster's RBAC when it reconciles the MemberCluster CR,
+    so right after registration all CRs must converge to RBACValid=True. This works for the
+    in-cluster and the local operator alike (local runs report True with reason
+    ValidationDisabled).
+    """
+
+    def check():
+        member_clusters = client.CustomObjectsApi(api_client=api_client).list_namespaced_custom_object(
+            group="operator.mongodb.com",
+            version="v1",
+            namespace=namespace,
+            plural="memberclusters",
+        )["items"]
+        if not member_clusters:
+            return False, "no MemberCluster CRs yet"
+        not_valid = []
+        for member_cluster in member_clusters:
+            condition = get_member_cluster_condition_from_object(member_cluster)
+            if condition is None or condition.get("status") != "True":
+                not_valid.append(member_cluster["metadata"]["name"])
+        if not_valid:
+            return False, f"not RBACValid=True: {sorted(not_valid)}"
+        return True, "all MemberCluster CRs RBACValid=True"
+
+    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"all MemberCluster CRs in {namespace} RBACValid=True")
+
+
+def get_member_cluster_condition_from_object(
+    member_cluster: Dict,
+    condition_type: str = MEMBER_CLUSTER_CONDITION_RBAC_VALID,
+) -> Optional[Dict]:
+    """Extracts the `condition_type` status condition from an already-loaded MemberCluster CR."""
+    for condition in (member_cluster.get("status") or {}).get("conditions") or []:
+        if condition.get("type") == condition_type:
+            return condition
+    return None
+
+
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
     """
     Asserts that the statefulset is configured with the expected architecture.
