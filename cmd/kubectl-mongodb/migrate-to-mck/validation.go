@@ -3,7 +3,6 @@ package migratetomck
 import (
 	"fmt"
 	"reflect"
-	"slices"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	authn "github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -24,10 +23,9 @@ type ValidationResult struct {
 }
 
 var (
-	defaultKeyFile                = util.AutomationAgentKeyFilePathInContainer
 	defaultKeyFileWindows         = util.AutomationAgentWindowsKeyFilePath
 	defaultCAFilePath             = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	defaultDownloadBase           = util.PvcMmsMountPath
+	defaultDownloadBase           = util.DefaultPvcMmsMountPath
 	defaultMonitoringAgentLogPath = fmt.Sprintf("%s/monitoring-agent.log", util.PvcMountPathLogs)
 	defaultBackupAgentLogPath     = fmt.Sprintf("%s/backup-agent.log", util.PvcMountPathLogs)
 	defaultMongodLogPath          = fmt.Sprintf("%s/mongodb.log", util.PvcMountPathLogs)
@@ -49,8 +47,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 		}
 	}
 
-	results = append(results, validateAuth(ac.Auth)...)
-	results = append(results, validateScram(ac.Auth)...)
+	results = append(results, validateAuth(ac.Auth, ac.Deployment.DownloadBase())...)
 	results = append(results, validateX509(ac.Auth, ac.AgentSSL)...)
 	results = append(results, validateAgentTLS(ac.AgentSSL)...)
 	results = append(results, validateAgentConfig(projectConfigs)...)
@@ -202,7 +199,9 @@ func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
 }
 
 // validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.
-func validateAuth(auth *om.Auth) []ValidationResult {
+// keyFile is expected under the deployment's downloadBase, matching the operator
+// (common_controller.go: KeyfilePath = downloadBase + "/keyfile").
+func validateAuth(auth *om.Auth, downloadBase string) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
 	}
@@ -215,10 +214,16 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 			Message:  "auth.autoUser is empty. The operator requires an automation agent user when authentication is enabled.",
 		})
 	}
-	if auth.KeyFile != "" && auth.KeyFile != defaultKeyFile {
+
+	base := downloadBase
+	if base == "" {
+		base = defaultDownloadBase
+	}
+	expectedKeyFile := base + "/keyfile"
+	if auth.KeyFile != "" && auth.KeyFile != expectedKeyFile {
 		results = append(results, ValidationResult{
 			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.keyFile %q differs from the operator default %q. This value is not configurable via the Custom Resource.", auth.KeyFile, defaultKeyFile),
+			Message:  fmt.Sprintf("auth.keyFile %q differs from the expected path %q (derived from options.downloadBase). This value is not configurable via the Custom Resource.", auth.KeyFile, expectedKeyFile),
 		})
 	}
 	if auth.KeyFileWindows != "" && auth.KeyFileWindows != defaultKeyFileWindows {
@@ -231,34 +236,12 @@ func validateAuth(auth *om.Auth) []ValidationResult {
 	return results
 }
 
-// validateScram checks the autoUser has a matching usersWanted entry for SCRAM.
-func validateScram(auth *om.Auth) []ValidationResult {
-	if auth == nil || auth.Disabled || auth.AutoUser == "" {
-		return nil
-	}
-	switch auth.AutoAuthMechanism {
-	case "SCRAM-SHA-256", "SCRAM-SHA-1", "MONGODB-CR":
-	default:
-		return nil
-	}
-	hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
-		return u != nil && u.Username == auth.AutoUser && u.Database == util.DefaultUserDatabase
-	})
-	if !hasMatchingUser {
-		return []ValidationResult{{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, util.DefaultUserDatabase),
-		}}
-	}
-	return nil
-}
-
 // validateX509 warns when MONGODB-X509 agent auth is configured and errors when autoPEMKeyFilePath is missing.
 func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
 	}
-	if auth.AutoAuthMechanism != "MONGODB-X509" {
+	if auth.AutoAuthMechanism != util.AutomationConfigX509Option {
 		return nil
 	}
 	var results []ValidationResult
@@ -272,17 +255,6 @@ func validateX509(auth *om.Auth, agentSSL *om.AgentSSL) []ValidationResult {
 		Severity: SeverityWarning,
 		Message:  "MONGODB-X509 agent authentication is configured. The generated CR sets spec.security.authentication.agents.clientCertificateSecretRef to \"<certsSecretPrefix>-<resourceName>-agent-certs\". Create a kubernetes.io/tls Secret with that name and keys \"tls.crt\" and \"tls.key\" before applying the Custom Resource. If you use a different Secret name, update clientCertificateSecretRef.name in the generated CR.",
 	})
-	if auth.AutoUser != "" {
-		hasMatchingUser := slices.ContainsFunc(auth.Users, func(u *om.MongoDBUser) bool {
-			return u != nil && u.Username == auth.AutoUser && u.Database == "$external"
-		})
-		if !hasMatchingUser {
-			results = append(results, ValidationResult{
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("auth.autoUser %q has no matching entry in auth.usersWanted (database: %q). Agent authentication will fail after migration.", auth.AutoUser, "$external"),
-			})
-		}
-	}
 	return results
 }
 
@@ -294,12 +266,6 @@ func validateAgentTLS(agentSSL *om.AgentSSL) []ValidationResult {
 
 	var results []ValidationResult
 
-	if agentSSL.CAFilePath != "" && agentSSL.CAFilePath != defaultCAFilePath {
-		results = append(results, ValidationResult{
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("tls.CAFilePath %q differs from the operator default %q and will be overwritten.", agentSSL.CAFilePath, defaultCAFilePath),
-		})
-	}
 	if agentSSL.CAFilePath != "" {
 		results = append(results, ValidationResult{
 			Severity: SeverityWarning,
@@ -380,15 +346,16 @@ func validateLDAP(ac *om.AutomationConfig) []ValidationResult {
 	return results
 }
 
-// validateProjectOptions checks options.downloadBase against the operator default.
+// validateProjectOptions carries options.downloadBase over to spec.downloadBase and warns the
+// user when it differs from the operator default so they can review the generated value.
 func validateProjectOptions(d om.Deployment) []ValidationResult {
 	downloadBase := d.DownloadBase()
 	if downloadBase == "" || downloadBase == defaultDownloadBase {
 		return nil
 	}
 	return []ValidationResult{{
-		Severity: SeverityError,
-		Message:  fmt.Sprintf("options.downloadBase %q differs from the operator default %q. This value is not configurable via the Custom Resource.", downloadBase, defaultDownloadBase),
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("options.downloadBase %q will be carried over to spec.downloadBase in the generated Custom Resource.", downloadBase),
 	}}
 }
 
