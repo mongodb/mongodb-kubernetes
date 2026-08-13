@@ -22,17 +22,15 @@ import (
 // lifecycle to providerManager: every CR add or spec change syncs the cluster's runtime entry
 // and every CR delete removes it. The initial informer replay registers the CRs that
 // already exist, so no startup discovery is needed.
-//
-// The reconciler writes no status on the MemberCluster CR.
 type Reconciler struct {
 	client      client.Client
 	providerMgr *providerManager
 }
 
-func NewReconciler(c client.Client, namespace string, clientTimeout time.Duration, provider *multicluster.Provider, newCluster func(restConfig *restclient.Config) (cluster.Cluster, error), baseCtx context.Context) *Reconciler {
+func NewReconciler(baseCtx context.Context, c client.Client, namespace string, clientTimeout time.Duration, provider *multicluster.Provider, newCluster func(restConfig *restclient.Config) (cluster.Cluster, error)) *Reconciler {
 	return &Reconciler{
 		client:      c,
-		providerMgr: newProviderManager(c, namespace, clientTimeout, provider, newCluster, baseCtx),
+		providerMgr: newProviderManager(baseCtx, c, namespace, clientTimeout, provider, newCluster),
 	}
 }
 

@@ -273,7 +273,7 @@ func run() error {
 		// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
 		// each member cluster's runtime entry (and tears it down on CR deletion) without an
 		// operator restart. The initial informer replay registers the CRs that already exist.
-		memberClusterReconciler := membercluster.NewReconciler(mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
+		memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
 			func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
 				return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
 					// Use the operator scheme so cross-cluster owner references
@@ -289,7 +289,7 @@ func run() error {
 						}
 					}
 				})
-			}, ctx)
+			})
 		if err := memberClusterReconciler.SetupWithManager(mgr); err != nil {
 			return err
 		}

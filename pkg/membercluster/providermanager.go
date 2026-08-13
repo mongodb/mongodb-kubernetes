@@ -53,7 +53,7 @@ type entryState struct {
 	generation  int64
 }
 
-func newProviderManager(c client.Reader, namespace string, clientTimeout time.Duration, provider *multicluster.Provider, newCluster func(restConfig *restclient.Config) (cluster.Cluster, error), baseCtx context.Context) *providerManager {
+func newProviderManager(baseCtx context.Context, c client.Reader, namespace string, clientTimeout time.Duration, provider *multicluster.Provider, newCluster func(restConfig *restclient.Config) (cluster.Cluster, error)) *providerManager {
 	return &providerManager{
 		client:        c,
 		namespace:     namespace,

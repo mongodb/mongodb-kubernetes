@@ -22,7 +22,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
-const testNamespace = "test-ns"
+const (
+	testNamespace     = "test-ns"
+	testClientTimeout = 7 * time.Second
+)
 
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
@@ -63,6 +66,11 @@ func memberClusterCR(name, clusterName, secretName string) *operatorv1.MemberClu
 	}
 }
 
+func withGeneration(mc *operatorv1.MemberCluster, generation int64) *operatorv1.MemberCluster {
+	mc.Generation = generation
+	return mc
+}
+
 func credentialSecret(name, server string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
@@ -70,16 +78,20 @@ func credentialSecret(name, server string) *corev1.Secret {
 	}
 }
 
-type fakeClusterFactory struct {
-	clusters []*multicluster.MockedCluster
-	configs  []*restclient.Config
+// testCluster makes the rest.Config a cluster was built with observable through
+// cluster.Cluster.GetConfig, so tests assert on the provider's entries instead of
+// inspecting the cluster factory's internals.
+type testCluster struct {
+	*multicluster.MockedCluster
+	config *restclient.Config
 }
 
-func (f *fakeClusterFactory) newCluster(restConfig *restclient.Config) (cluster.Cluster, error) {
-	c := multicluster.New(nil)
-	f.clusters = append(f.clusters, c)
-	f.configs = append(f.configs, restConfig)
-	return c, nil
+func (c *testCluster) GetConfig() *restclient.Config {
+	return c.config
+}
+
+func newTestCluster(restConfig *restclient.Config) (cluster.Cluster, error) {
+	return &testCluster{MockedCluster: multicluster.New(nil), config: restConfig}, nil
 }
 
 type recordedHook struct {
@@ -98,98 +110,103 @@ func (h *recordedHook) hooks() multicluster.Hooks {
 	}
 }
 
-func newTestProviderManager(c client.Client, provider *multicluster.Provider, factory *fakeClusterFactory) *providerManager {
-	return newProviderManager(c, testNamespace, 7*time.Second, provider, factory.newCluster, context.Background())
+func newTestProviderManager(ctx context.Context, c client.Reader, provider *multicluster.Provider) *providerManager {
+	return newProviderManager(ctx, c, testNamespace, testClientTimeout, provider, newTestCluster)
 }
 
 func TestSyncRegistersMemberCluster(t *testing.T) {
+	ctx := t.Context()
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		credentialSecret("mck-credential-cluster-west", "https://west.example.com:6443"),
 	).Build()
 	provider := multicluster.NewProvider()
-	factory := &fakeClusterFactory{}
 	hook := &recordedHook{}
-	provider.RegisterHooks(context.Background(), hook.hooks())
-	m := newTestProviderManager(c, provider, factory)
+	provider.RegisterHooks(ctx, hook.hooks())
+	m := newTestProviderManager(ctx, c, provider)
 
 	// clusterName intentionally differs from metadata.name (e.g. non-RFC-1123 legacy name).
 	mc := memberClusterCR("cluster-west", "west_legacy", "mck-credential-cluster-west")
-	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
+	require.NoError(t, m.sync(ctx, mc, zap.S()))
 
 	entries := provider.Entries()
 	require.Len(t, entries, 1)
 	// keyed by spec.clusterName, not metadata.name
 	entry := entries["west_legacy"]
 	assert.Equal(t, "cluster-west", entry.ResourceName)
-	assert.Equal(t, "https://west.example.com:6443", factory.configs[0].Host)
-	assert.Equal(t, 7*time.Second, factory.configs[0].Timeout)
+	config := entry.Cluster.GetConfig()
+	require.NotNil(t, config)
+	assert.Equal(t, "https://west.example.com:6443", config.Host)
+	assert.Equal(t, testClientTimeout, config.Timeout)
 	assert.Equal(t, []string{"west_legacy"}, hook.added)
 	assert.Empty(t, hook.removed)
 
 	// A resync (same generation) must not rebuild the entry.
-	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
-	assert.Len(t, factory.clusters, 1)
+	require.NoError(t, m.sync(ctx, mc, zap.S()))
+	assert.Same(t, entry.Cluster, provider.Entries()["west_legacy"].Cluster)
 	assert.Equal(t, []string{"west_legacy"}, hook.added)
 }
 
 func TestSyncRebuildsOnSpecChange(t *testing.T) {
+	ctx := t.Context()
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
 	).Build()
 	provider := multicluster.NewProvider()
-	factory := &fakeClusterFactory{}
 	hook := &recordedHook{}
-	provider.RegisterHooks(context.Background(), hook.hooks())
-	m := newTestProviderManager(c, provider, factory)
+	provider.RegisterHooks(ctx, hook.hooks())
+	m := newTestProviderManager(ctx, c, provider)
 
 	mc := memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east")
-	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
+	require.NoError(t, m.sync(ctx, mc, zap.S()))
 
 	// Rotate the credential Secret and bump the generation, as a spec change would.
-	require.NoError(t, c.Update(context.Background(), credentialSecret("mck-credential-cluster-east", "https://east2.example.com:6443")))
-	mc.Generation = 2
-	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
+	require.NoError(t, c.Update(ctx, credentialSecret("mck-credential-cluster-east", "https://east2.example.com:6443")))
+	require.NoError(t, m.sync(ctx, withGeneration(mc, 2), zap.S()))
 
-	require.Len(t, factory.clusters, 2)
-	assert.Equal(t, "https://east2.example.com:6443", factory.configs[1].Host)
-	assert.Len(t, provider.Entries(), 1)
+	// Still exactly one entry, now pointing at the new host.
+	entries := provider.Entries()
+	require.Len(t, entries, 1)
+	config := entries["cluster-east"].Cluster.GetConfig()
+	require.NotNil(t, config)
+	assert.Equal(t, "https://east2.example.com:6443", config.Host)
 	assert.Equal(t, []string{"cluster-east", "cluster-east"}, hook.added)
 	assert.Equal(t, []string{"cluster-east"}, hook.removed)
 }
 
 func TestRemoveDeregistersEntry(t *testing.T) {
+	ctx := t.Context()
 	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
 	).Build()
 	provider := multicluster.NewProvider()
-	factory := &fakeClusterFactory{}
 	hook := &recordedHook{}
-	provider.RegisterHooks(context.Background(), hook.hooks())
-	m := newTestProviderManager(c, provider, factory)
+	provider.RegisterHooks(ctx, hook.hooks())
+	m := newTestProviderManager(ctx, c, provider)
 
-	require.NoError(t, m.sync(context.Background(), memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"), zap.S()))
+	require.NoError(t, m.sync(ctx, memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"), zap.S()))
 	require.Len(t, provider.Entries(), 1)
 
-	m.remove(context.Background(), "cluster-east", zap.S())
+	m.remove(ctx, "cluster-east", zap.S())
 	assert.Empty(t, provider.Entries())
 	assert.Equal(t, []string{"cluster-east"}, hook.removed)
 
 	// Removing again (or a CR that was never synced) is a no-op.
-	m.remove(context.Background(), "cluster-east", zap.S())
+	m.remove(ctx, "cluster-east", zap.S())
 	assert.Equal(t, []string{"cluster-east"}, hook.removed)
 }
 
 func TestSyncErrorsWhenCredentialSecretMissing(t *testing.T) {
+	ctx := t.Context()
 	c := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 	provider := multicluster.NewProvider()
-	m := newTestProviderManager(c, provider, &fakeClusterFactory{})
+	m := newTestProviderManager(ctx, c, provider)
 
 	mc := memberClusterCR("cluster-bad", "cluster-bad", "mck-credential-cluster-bad")
-	require.Error(t, m.sync(context.Background(), mc, zap.S()))
+	require.Error(t, m.sync(ctx, mc, zap.S()))
 	assert.Empty(t, provider.Entries())
 
 	// Once the Secret appears, the requeued sync registers the cluster.
-	require.NoError(t, c.Create(context.Background(), credentialSecret("mck-credential-cluster-bad", "https://bad.example.com:6443")))
-	require.NoError(t, m.sync(context.Background(), mc, zap.S()))
+	require.NoError(t, c.Create(ctx, credentialSecret("mck-credential-cluster-bad", "https://bad.example.com:6443")))
+	require.NoError(t, m.sync(ctx, mc, zap.S()))
 	assert.Contains(t, provider.Entries(), "cluster-bad")
 }

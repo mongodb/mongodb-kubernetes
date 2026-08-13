@@ -32,6 +32,9 @@ import (
 // registers a live cluster entry whose cache serves watches added after the manager has
 // started (Watch-after-start), and deleting the CR removes the entry and stops the
 // cluster's informers quietly.
+//
+// TODO(m1kola): master recently gained envtest integration helpers/utilities that are not
+// yet available on this branch; migrate this test to them after the next rebase onto the moved trunk.
 func TestReconcilerHotReload(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" { //nolint:forbidigo // envtest binaries location
 		t.Skip("KUBEBUILDER_ASSETS not set")
@@ -62,7 +65,7 @@ func TestReconcilerHotReload(t *testing.T) {
 	require.NoError(t, err)
 
 	var removed atomic.Int32
-	provider.RegisterHooks(context.Background(), multicluster.Hooks{
+	provider.RegisterHooks(t.Context(), multicluster.Hooks{
 		OnAdd: func(_ context.Context, _ string, entry multicluster.Entry) {
 			err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &corev1.ConfigMap{}, &handler.EnqueueRequestForObject{}))
 			assert.NoError(t, err)
@@ -70,12 +73,14 @@ func TestReconcilerHotReload(t *testing.T) {
 		OnRemove: func(_ context.Context, _ string, _ multicluster.Entry) { removed.Add(1) },
 	})
 
-	r := NewReconciler(mgr.GetClient(), testNamespace, 10*time.Second, provider, func(restConfig *restclient.Config) (runtime_cluster.Cluster, error) {
+	r := NewReconciler(t.Context(), mgr.GetClient(), testNamespace, 10*time.Second, provider, func(restConfig *restclient.Config) (runtime_cluster.Cluster, error) {
 		return runtime_cluster.New(restConfig, func(o *runtime_cluster.Options) { o.Scheme = scheme })
-	}, context.Background())
+	})
 	require.NoError(t, r.SetupWithManager(mgr))
 
-	mgrCtx, mgrCancel := context.WithCancel(context.Background())
+	// Derived from t.Context() but cancelled explicitly, before the deferred testEnv.Stop:
+	// the API server cannot shut down while the manager is still connected to it.
+	mgrCtx, mgrCancel := context.WithCancel(t.Context())
 	defer mgrCancel()
 	go func() { _ = mgr.Start(mgrCtx) }()
 	mgr.GetCache().WaitForCacheSync(mgrCtx)
