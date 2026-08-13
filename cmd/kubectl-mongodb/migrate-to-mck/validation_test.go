@@ -72,6 +72,67 @@ func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 	}
 }
 
+func TestValidation_Standalone_Error(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "standalone-0", "processType": string(om.ProcessTypeMongod),
+				"version": "7.0.12-ent", "authSchemaVersion": 5,
+				"args2_6": map[string]interface{}{
+					"net":     map[string]interface{}{"port": 27017},
+					"storage": map[string]interface{}{"dbPath": "/data/db"},
+				},
+			},
+		},
+		"replicaSets": []interface{}{},
+		"sharding":    []interface{}{},
+	})
+
+	results := validateNoStandalones(ac.Deployment)
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "standalone-0")
+}
+
+func TestValidation_StandaloneAlongsideReplicaSet_Error(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	processes := ac.Deployment["processes"].([]interface{})
+	ac.Deployment["processes"] = append(processes, map[string]interface{}{
+		"name": "standalone-0", "processType": string(om.ProcessTypeMongod),
+		"version": "7.0.12-ent", "authSchemaVersion": 5,
+		"args2_6": map[string]interface{}{
+			"net":     map[string]interface{}{"port": 27017, "tls": map[string]interface{}{"mode": "requireSSL"}},
+			"storage": map[string]interface{}{"dbPath": "/data/db"},
+		},
+	})
+
+	results, sourceProcess := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	assert.Nil(t, sourceProcess)
+	var found bool
+	for _, r := range results {
+		if r.Severity == SeverityError && strings.Contains(r.Message, "standalone-0") {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected a standalone error, got %v", results)
+}
+
+func TestValidation_MongosNotTreatedAsStandalone(t *testing.T) {
+	ac := om.NewAutomationConfig(om.Deployment{
+		"processes": []interface{}{
+			map[string]interface{}{
+				"name": "mongos-0", "processType": string(om.ProcessTypeMongos),
+				"version": "7.0.12-ent",
+				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
+			},
+		},
+		"replicaSets": []interface{}{},
+		"sharding":    []interface{}{},
+	})
+
+	assert.Empty(t, validateNoStandalones(ac.Deployment))
+}
+
 func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
 		"processes": []interface{}{},
