@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -43,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
@@ -309,7 +311,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
 
-	deploymentOpts := &deploymentOptionsRS{
+	deploymentOpts := deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,
 		agentCertPath:        agentCertPath,
 		agentCertHash:        agentCertHash,
@@ -328,7 +330,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+	// Recovery is skipped when a migration dry-run is active.
+	isDryRun := rs.Annotations[opMigration.AnnotationDryRun] == "true"
+	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
@@ -338,6 +342,31 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if !automationConfigStatus.IsOK() {
 			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
+	}
+
+	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
+	if isDryRun {
+		// let's not block OM UI in case the customer needs to fix something to get their
+		// dry-run to pass.
+		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		operatorImage := r.reconciler.imageUrls[util.OperatorImageEnv]
+		if operatorImage == "" {
+			return r.updateStatus(ctx,
+				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
+				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+				)),
+			)
+		}
+		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
+	}
+
+	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
+		return r.updateStatus(ctx, status)
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
@@ -427,6 +456,7 @@ type deploymentOptionsRS struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update,namespace=placeholder
 // +kubebuilder:rbac:groups=core,resources={secrets,configmaps},verbs=get;list;watch;create;delete;update,namespace=placeholder
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;get;list;watch;delete;update,namespace=placeholder
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;get;list;watch;delete,namespace=placeholder
 
 // MongoDB Resource
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodb,mongodb/status,mongodb/finalizers},verbs=*,namespace=placeholder
@@ -504,7 +534,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx cont
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
-func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS, lastConfiguredRoles []string) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -522,7 +552,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
 }
 
-func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -578,7 +608,7 @@ func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *a
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions *deploymentOptionsRS) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -719,7 +749,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions *deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
 	rs := r.resource
 	log := r.log
 	reconciler := r.reconciler
@@ -820,6 +850,35 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
+}
+
+// runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
+// that checks whether all external MongoDB members in the current Ops Manager deployment are
+// reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
+// The Job is built from the same StatefulSet spec (buildStatefulSetOptions + DatabaseStatefulSet)
+// so it uses the same credentials volumes and mounts as the STS.
+//
+// The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
+// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
+// failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
+// in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
+// returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
+func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	replicaSetName := rs.Spec.ReplicaSetNameOverride
+	if replicaSetName == "" {
+		replicaSetName = rs.Name
+	}
+	hostnamePorts := make([]string, 0, len(externalMemberProcessNames))
+	for _, name := range externalMemberProcessNames {
+		hostnamePorts = append(hostnamePorts, name.Hostname)
+	}
+	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName)
+
+	dryRunStatus := r.reconciler.runConnectivityJob(ctx, rs, &sts, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, operatorImage, log)
+	return r.updateStatus(ctx, dryRunStatus, dryRunStatus.StatusOptions()...)
 }
 
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
