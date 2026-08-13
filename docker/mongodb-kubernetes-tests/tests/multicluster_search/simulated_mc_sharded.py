@@ -51,6 +51,7 @@ from tests.common.search.mc_search_helper import (
     patch_mongot_host_via_ac,
     read_mongod_set_parameter,
     replicate_sharded_search_secrets_to_members,
+    strip_k8s_process_name_prefix,
     verify_per_cluster_envoy_sni,
 )
 from tests.common.search.movies_search_helper import (
@@ -546,9 +547,10 @@ def _flip_source_mongot_host(namespace: str, mdb: MongoDB, target_idx: int) -> N
     prefix = f"{MDB_RESOURCE_NAME}-"
 
     def resolve_host(process_name: str) -> str | None:
-        if not process_name.startswith(prefix):
+        pod_name = strip_k8s_process_name_prefix(process_name)
+        if not pod_name.startswith(prefix):
             return None
-        parts = process_name[len(prefix) :].split("-")
+        parts = pod_name[len(prefix) :].split("-")
         if parts[0] == "mongos":
             return mongos_endpoint
         if parts[0] == "config":

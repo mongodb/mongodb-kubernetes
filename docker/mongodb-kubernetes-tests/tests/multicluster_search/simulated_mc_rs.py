@@ -32,6 +32,7 @@ from tests.common.search.mc_search_helper import (
     assert_mongot_sync_source_hosts,
     patch_mongot_host_via_ac,
     replicate_search_secrets_to_members,
+    strip_k8s_process_name_prefix,
     verify_per_cluster_envoy_sni,
 )
 from tests.common.search.movies_search_helper import (
@@ -419,10 +420,11 @@ def test_patch_per_cluster_mongot_host(
     process_prefix = f"{mdb.name}-"
 
     def resolve_host(process_name: str) -> str | None:
-        if not process_name.startswith(process_prefix):
+        pod_name = strip_k8s_process_name_prefix(process_name)
+        if not pod_name.startswith(process_prefix):
             return None
         try:
-            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+            cluster_idx = int(pod_name[len(process_prefix) :].split("-")[0])
         except ValueError:
             return None
         return expected_by_idx.get(cluster_idx)

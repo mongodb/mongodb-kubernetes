@@ -36,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -68,7 +69,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
-	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 3)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 4)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
@@ -239,7 +240,7 @@ func TestHorizonVerificationCount(t *testing.T) {
 //	ctx := context.Background()
 //	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
 //
-//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 //
 //	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 //	set := &appsv1.StatefulSet{}
@@ -1683,6 +1684,53 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(newPinnedSearch()).Build()
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
+}
+
+func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().
+		SetName("rs").
+		SetNamespace(mock.TestNamespace).
+		SetMembers(1).
+		SetReplicaSetNameOverride("conn-str-rs").
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod", ReplicaSetName: "conn-str-rs"},
+	}
+
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		mocked := conn.(*om.MockedOmConnection)
+		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
+		vmProcess := om.NewMongodProcess(
+			"vm-0", "vm-0.example.com", "fake-image", false,
+			&mdbv1.AdditionalMongodConfig{}, spec, "", nil, "", architectures.NonStatic,
+		)
+		d := om.NewDeployment()
+		d.MergeReplicaSet(buildRsByProcessesHelper("conn-str-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
+		_, _ = mocked.UpdateDeployment(d)
+	})
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx,
+		kube.ObjectKey(rs.Namespace, "rs"+connectionstringsecret.SecretNameSuffix),
+		secret))
+
+	std := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, std, "rs-0.rs-svc.")
+	assert.Contains(t, std, "vm-0.example.com:27017")
+	assert.Contains(t, std, "replicaSet=conn-str-rs")
+	// Credential-less secret.
+	assert.NotContains(t, std, "@")
+	_, hasUsername := secret.Data["username"]
+	assert.False(t, hasUsername)
+
+	srv := string(secret.Data["connectionString.standardSrv"])
+	assert.NotEmpty(t, srv)
+
+	require.Len(t, secret.OwnerReferences, 1)
 }
 
 func TestEnsureAppDBRoleKeyfile(t *testing.T) {

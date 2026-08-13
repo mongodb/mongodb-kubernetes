@@ -427,6 +427,22 @@ def verify_per_cluster_envoy_sni(
 # Per-cluster AC mongotHost patch + observation.
 # ---------------------------------------------------------------------------
 
+K8S_PROCESS_NAME_PREFIX = "k8s/"
+
+
+def strip_k8s_process_name_prefix(process_name: str) -> str:
+    """Return the bare pod name for an AC process name, dropping any ``k8s/<namespace>/``.
+
+    New deployments name AC processes ``k8s/<namespace>/<pod>`` (see
+    controllers/om/process/om_process.go PodNameToProcessName), while deployments created
+    before that naming was introduced keep bare pod names — see IsLegacyDeployment in
+    controllers/om/replicaset/om_replicaset.go, which is why the prefix is optional here.
+    """
+    if not process_name.startswith(K8S_PROCESS_NAME_PREFIX):
+        return process_name
+    parts = process_name.split("/", 2)
+    return parts[2] if len(parts) == 3 else process_name
+
 
 def read_mongod_set_parameter(
     pod_name: str,
@@ -538,10 +554,11 @@ def patch_per_cluster_mongot_host_via_om(
     process_prefix = f"{mdb.name}-"
 
     def resolve_host(process_name: str) -> Optional[str]:
-        if not process_name.startswith(process_prefix):
+        pod_name = strip_k8s_process_name_prefix(process_name)
+        if not pod_name.startswith(process_prefix):
             return None
         try:
-            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+            cluster_idx = int(pod_name[len(process_prefix) :].split("-")[0])
         except ValueError:
             return None
         return proxy_by_cluster_idx.get(cluster_idx)
@@ -650,11 +667,13 @@ def _classify_sharded_process(
     foreign processes return None. Naming mirrors api/mongodb/v1/mdb/mongodb_types.go
     + pkg/dns: SC shard ``{mdb}-{shardIdx}-{member}`` / mongos ``{mdb}-mongos-{pod}``;
     MC shard ``{mdb}-{shardIdx}-{clusterIdx}-{member}`` / mongos ``{mdb}-mongos-{clusterIdx}-{pod}``.
+    An optional ``k8s/<namespace>/`` prefix on the AC process name is ignored.
     """
+    pod_name = strip_k8s_process_name_prefix(process_name)
     prefix = f"{mdb_name}-"
-    if not process_name.startswith(prefix):
+    if not pod_name.startswith(prefix):
         return None
-    tokens = process_name[len(prefix) :].split("-")
+    tokens = pod_name[len(prefix) :].split("-")
     if tokens[0] == "config":
         return None  # config servers carry no mongotHost
     if tokens[0] == "mongos":
