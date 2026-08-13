@@ -5,6 +5,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// MemberClusterConditionRBACValid is the status condition reporting whether the member cluster's RBAC version matches the operator.
+const MemberClusterConditionRBACValid = "RBACValid"
+
 // MemberClusterSpec defines the desired state of MemberCluster.
 type MemberClusterSpec struct {
 	// ClusterName is the logical cluster identity used to resolve clusterSpecList[].clusterName

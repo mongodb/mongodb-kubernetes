@@ -312,6 +312,10 @@ const (
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
+	// MemberClusterRBACVersionAnnotation annotates member-cluster RBAC resources with the
+	// RBAC version they were generated for.
+	MemberClusterRBACVersionAnnotation = "mongodb.com/rbac-version"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 
@@ -364,6 +368,12 @@ const (
 // installed for development (using 'make') meaning the Ops Manager/AppDB images deployed won't have
 // "operator specific" part of the version tag
 var OperatorVersion string
+
+// ExpectedMemberRBACVersion is the RBAC version the operator expects to find in the
+// mongodb.com/rbac-version annotation on member-cluster resources. Injected at build time
+// (ldflags) from release.json's mongodbOperator field; empty in plain go run/go build,
+// which disables member-cluster RBAC validation.
+var ExpectedMemberRBACVersion string
 
 var LogAutomationConfigDiff string
 

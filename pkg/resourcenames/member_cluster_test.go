@@ -8,6 +8,21 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+func TestMemberClusterServiceAccountName(t *testing.T) {
+	tests := []struct {
+		memberClusterName string
+		expected          string
+	}{
+		{memberClusterName: "gke-proj-zone-cl", expected: "mck-member-gke-proj-zone-cl-sa"},
+		{memberClusterName: "cluster-a", expected: "mck-member-cluster-a-sa"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.memberClusterName, func(t *testing.T) {
+			assert.Equal(t, tc.expected, MemberClusterServiceAccountName(tc.memberClusterName))
+		})
+	}
+}
+
 func TestWorkloadServiceAccountName(t *testing.T) {
 	workloads := map[string]struct {
 		sa        workloadServiceAccount
