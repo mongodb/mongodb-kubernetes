@@ -142,6 +142,13 @@ func resolveMongoDBResourceName(ac *om.AutomationConfig, override string) (strin
 	if override != "" {
 		return override, nil
 	}
+	if shardedClusters := ac.Deployment.GetShardedClusters(); len(shardedClusters) > 0 {
+		name := util.NormalizeName(shardedClusters[0].Name())
+		if name == "" {
+			return "", fmt.Errorf("sharded cluster name %q cannot be normalized to a valid Kubernetes name. Use --resource-name-override to provide one", shardedClusters[0].Name())
+		}
+		return name, nil
+	}
 	replicaSets := ac.Deployment.GetReplicaSets()
 	if len(replicaSets) == 0 {
 		return "", fmt.Errorf("no replica sets found in the automation config")

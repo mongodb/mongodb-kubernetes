@@ -7,8 +7,6 @@ metadata:
   name: scram-rs
   namespace: mongodb
 spec:
-  agent:
-    maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
@@ -35,5 +33,25 @@ spec:
       ignoreUnknownUsers: true
       modes:
       - SCRAM
+    roles:
+    - db: myapp
+      privileges:
+      - actions:
+        - find
+        - listCollections
+        resource:
+          db: myapp
+      role: appReadOnly
+      roles:
+      - db: myapp
+        role: read
+    - db: admin
+      privileges:
+      - actions:
+        - serverStatus
+        - replSetGetStatus
+        resource:
+          cluster: true
+      role: metricsReader
   type: ReplicaSet
   version: 8.0.4-ent

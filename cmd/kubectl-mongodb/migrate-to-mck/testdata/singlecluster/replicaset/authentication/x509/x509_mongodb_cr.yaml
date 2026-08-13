@@ -7,8 +7,6 @@ metadata:
   name: x509-rs
   namespace: mongodb
 spec:
-  agent:
-    maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
