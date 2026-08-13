@@ -1129,10 +1129,6 @@ func TestAgentVersionFromURL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Package-level helpers shared by Tasks 8–11
-// ---------------------------------------------------------------------------
-
 func buildRsByProcessesHelper(rsName string, processes []om.Process) om.ReplicaSetWithProcesses {
 	options := make([]automationconfig.MemberOptions, len(processes))
 	return om.NewReplicaSetWithProcesses(
@@ -1165,10 +1161,6 @@ type failingOMConn struct {
 func (f failingOMConn) ReadDeployment() (om.Deployment, error) {
 	return om.NewDeployment(), fmt.Errorf("forced error")
 }
-
-// ---------------------------------------------------------------------------
-// Task 8: checkExternalMembersDrift
-// ---------------------------------------------------------------------------
 
 func TestCheckExternalMembersDrift_EmptyList(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
@@ -1210,10 +1202,6 @@ func TestCheckExternalMembersDrift_HostnameMismatch(t *testing.T) {
 	status := checkExternalMembersDrift(conn, externalMembers)
 	assert.False(t, status.IsOK())
 }
-
-// ---------------------------------------------------------------------------
-// Task 9: validateACForMigration
-// ---------------------------------------------------------------------------
 
 func TestValidateACForMigration_EmptyList(t *testing.T) {
 	conn := om.NewMockedOmConnection(om.NewDeployment())
@@ -1538,10 +1526,6 @@ func fourVotingExternals() []om.ReplicaSetMember {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Task 10: checkIfHasExcessProcesses
-// ---------------------------------------------------------------------------
-
 func TestCheckIfHasExcessProcesses_ReadDeploymentError(t *testing.T) {
 	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
 	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
@@ -1569,10 +1553,6 @@ func TestCheckIfHasExcessProcesses_MultipleResources(t *testing.T) {
 	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
 	assert.False(t, status.IsOK())
 }
-
-// ---------------------------------------------------------------------------
-// Task 11: getReplicaSetProcessIdsFromReplicaSets
-// ---------------------------------------------------------------------------
 
 func TestGetReplicaSetProcessIdsFromReplicaSets_NotFound(t *testing.T) {
 	d := om.NewDeployment()
