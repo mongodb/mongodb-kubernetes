@@ -270,12 +270,6 @@ func run() error {
 	memberClustersProvider := multicluster.NewProvider()
 
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		// MemberCluster CRs drive the provider reactively: the reconciler validates each
-		// member cluster's RBAC, builds and starts its runtime entry (and tears it down on
-		// CR deletion or failed validation) without an operator restart. The initial
-		// informer replay registers the CRs that already exist.
-		// memberClusterRBACRecheckInterval drives the periodic RBAC re-check, so RBAC fixes
-		// and credential rotation are picked up without waiting for a CR event.
 		const memberClusterRBACRecheckInterval = time.Minute
 		memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClusterRBACRecheckInterval, memberClustersProvider,
 			func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {

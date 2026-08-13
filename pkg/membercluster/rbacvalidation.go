@@ -2,8 +2,10 @@ package membercluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -13,6 +15,8 @@ import (
 	clientsetscheme "k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 
+	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -90,4 +94,59 @@ func (v rbacValidator) Probe(ctx context.Context, restConfig *restclient.Config,
 	}
 	return probeOutcome{metav1.ConditionTrue, reasonValid, fmt.Sprintf(
 		"RBAC version %q matches the operator's expected version.", version)}
+}
+
+// rbacValidation runs the validate-and-drive flow for one MemberCluster CR: it loads the
+// cluster's credentials, probes its RBAC (skipped when the operator was built without an
+// expected version), and drives the provider entry accordingly (deregistered on a
+// definitively invalid cluster, ensured otherwise). It does not write status: it returns
+// the RBACValid condition outcome for the caller to apply. Only unexpected failures
+// (cluster build) are returned as errors; credential problems and invalid RBAC are
+// expected-negative outcomes carried by the returned condition.
+type rbacValidation struct {
+	providerMgr     *providerManager
+	validator       rbacValidator
+	expectedVersion string
+}
+
+func newRBACValidation(providerMgr *providerManager) *rbacValidation {
+	return &rbacValidation{
+		providerMgr:     providerMgr,
+		validator:       newRBACValidator(),
+		expectedVersion: util.ExpectedMemberRBACVersion,
+	}
+}
+
+func (v *rbacValidation) validate(ctx context.Context, mc *operatorv1.MemberCluster, log *zap.SugaredLogger) (probeOutcome, error) {
+	creds, err := v.providerMgr.loadCredentials(ctx, mc)
+	if err != nil {
+		reason := reasonCredentialSecretMissing
+		switch {
+		case errors.Is(err, errCredentialMalformed):
+			reason = reasonCredentialInvalid
+		case errors.Is(err, errCredentialNamespaceMissing):
+			reason = reasonCredentialNamespaceMissing
+		}
+		v.providerMgr.remove(ctx, mc.Name, log)
+		return probeOutcome{metav1.ConditionFalse, reason, err.Error()}, nil
+	}
+
+	var outcome probeOutcome
+	if v.expectedVersion == "" {
+		outcome = probeOutcome{
+			metav1.ConditionTrue, reasonValidationDisabled,
+			"The operator was built without an expected RBAC version; RBAC validation is disabled.",
+		}
+	} else {
+		outcome = v.validator.Probe(ctx, creds.restConfig, resourcenames.MemberClusterServiceAccountName(mc.Name), creds.saNamespace, v.expectedVersion)
+	}
+
+	if outcome.status == metav1.ConditionFalse {
+		v.providerMgr.remove(ctx, mc.Name, log)
+	} else if err := v.providerMgr.ensure(ctx, mc, creds, log); err != nil {
+		// Backoff is appropriate for cluster-build failures.
+		return probeOutcome{}, err
+	}
+
+	return outcome, nil
 }

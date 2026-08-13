@@ -29,9 +29,9 @@ const testRecheckInterval = 42 * time.Second
 // and whose expected version is pinned, independent of the build-time injected default.
 func newTestReconciler(ctx context.Context, centralClient client.Client, memberClient client.Client, provider *multicluster.Provider) *Reconciler {
 	r := NewReconciler(ctx, centralClient, testNamespace, testClientTimeout, testRecheckInterval, provider, newTestCluster)
-	r.expectedVersion = testExpected
+	r.validation.expectedVersion = testExpected
 	if memberClient != nil {
-		r.validator = staticValidator(memberClient)
+		r.validation.validator = staticValidator(memberClient)
 	}
 	return r
 }
@@ -175,7 +175,7 @@ func TestReconcileValidationDisabled(t *testing.T) {
 	// No member client: a validator probe would fail, so a registered entry proves the
 	// probe was skipped.
 	r := newTestReconciler(ctx, central, nil, provider)
-	r.expectedVersion = ""
+	r.validation.expectedVersion = ""
 
 	reconcileOnce(t, r, "cluster-a")
 

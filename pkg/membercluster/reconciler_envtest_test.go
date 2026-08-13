@@ -76,7 +76,7 @@ func TestReconcilerRBACValidation(t *testing.T) {
 	r := NewReconciler(t.Context(), mgr.GetClient(), testNamespace, 10*time.Second, time.Second, provider, func(restConfig *restclient.Config) (runtime_cluster.Cluster, error) {
 		return runtime_cluster.New(restConfig, func(o *runtime_cluster.Options) { o.Scheme = scheme })
 	})
-	r.expectedVersion = "test-rbac-v1"
+	r.validation.expectedVersion = "test-rbac-v1"
 	require.NoError(t, r.SetupWithManager(mgr))
 
 	// Derived from t.Context() but cancelled explicitly: the manager must stop before
