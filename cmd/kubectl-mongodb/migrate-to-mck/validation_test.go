@@ -90,7 +90,6 @@ func TestValidation_NonDefaultKeyFile(t *testing.T) {
 	assert.True(t, hasError, "expected error when keyFile differs from default")
 }
 
-
 func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
 	ac.AgentSSL.CAFilePath = "/etc/ssl/ca.pem"
@@ -274,7 +273,6 @@ func TestValidation_NilLdap_NoWarning(t *testing.T) {
 		}
 	}
 }
-
 
 func TestValidation_RequireTLS_NoWarning(t *testing.T) {
 	ac := loadTestAutomationConfig(t, "singlecluster/replicaset/complex_replicaset/complex_replicaset_input.json")
