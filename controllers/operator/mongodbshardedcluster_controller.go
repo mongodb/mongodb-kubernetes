@@ -2729,7 +2729,7 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 	healthyClusters := getHealthyMemberClusters(r.mongosMemberClusters)
 	if len(healthyClusters) == 0 {
 		return workflow.Failed(fmt.Errorf("connectivity dry-run: no healthy mongos member cluster available")).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+			WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
 				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoHealthyMemberCluster",
 				"No healthy mongos member cluster is available to build the validation Job.",
 			)))
@@ -2743,7 +2743,7 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 	}
 	if len(mongosHostnames) == 0 {
 		return workflow.Failed(fmt.Errorf("connectivity dry-run: no external mongos members configured")).
-			WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+			WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
 				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoExternalMongos",
 				"No external mongos members are configured. Add mongos external members to spec.externalMembers before running the connectivity dry-run.",
 			)))

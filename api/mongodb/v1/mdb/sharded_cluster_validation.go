@@ -53,6 +53,13 @@ func shardCountSpecified(m MongoDB) v1.ValidationResult {
 }
 
 func mandatorySingleClusterFieldsAreSpecified(m MongoDB) v1.ValidationResult {
+	// During a VM->Kubernetes migration the Kubernetes side starts empty and grows one member at a
+	// time while the VM members (externalMembers) carry the cluster. Allow the component counts to be
+	// 0 in that state, mirroring how a ReplicaSet permits spec.members == 0 during migration. Once
+	// migration completes and externalMembers is empty, the counts are required again.
+	if len(m.Spec.ExternalMembers) > 0 {
+		return v1.ValidationSuccess()
+	}
 	if m.Spec.MongodsPerShardCount == 0 ||
 		m.Spec.MongosCount == 0 ||
 		m.Spec.ConfigServerCount == 0 {

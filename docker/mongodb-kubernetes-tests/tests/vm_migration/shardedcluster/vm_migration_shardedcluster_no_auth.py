@@ -3,9 +3,12 @@ VM migration for a sharded cluster with authentication disabled.
 
 Exercises the import tool (kubectl-mongodb migrate-to-mck) end to end:
 deploys pseudo-VM StatefulSets, configures the automation config, runs the
-generate step, applies the generated CR, validates dry-run, promotes and
-prunes each component (config server, shard, mongos), and asserts data
-continuity and process names throughout.
+generate step, applies the generated CR, and validates dry-run. The cluster
+is imported VM-only (all Kubernetes node counts at 0) and then grown
+incrementally, component by component (config server, shard, mongos), one
+member at a time — asserting the Migrating condition reasons Extending,
+Pruning, InProgress, and MigrationComplete throughout, alongside data
+continuity and process names.
 
 All three VM name overrides are exercised:
   configServerNameOverride: VM config RS name "vm-config" differs from the K8s default.
@@ -13,7 +16,7 @@ All three VM name overrides are exercised:
   shardedClusterNameOverride: VM mongos name "vm-mongos" differs from the K8s default.
 """
 
-from kubetester import get_statefulset, try_load
+from kubetester import get_statefulset
 from kubetester.kubetester import KubernetesTester, ensure_ent_version, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoDBBackgroundTester
@@ -22,7 +25,6 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
-    assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
     generated_user_docs,
@@ -45,7 +47,9 @@ from tests.vm_migration.vm_migration_sharded_helper import (
     deploy_vm_sharded_mongos_statefulset,
     deploy_vm_sharded_shard_service,
     deploy_vm_sharded_shard_statefulset,
-    promote_and_prune_shard,
+    extend_and_prune_sharded_mongos,
+    extend_and_prune_sharded_replica_components,
+    sharded_connection_string_tester,
     vm_mongos_tester,
 )
 
@@ -112,16 +116,28 @@ def generated_cr(generated_cr_yaml: str) -> dict:
 
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
+    # Start VM-only (all K8s node counts == 0) so this scenario exercises the incremental extend flow:
+    # K8s members are grown one at a time across config server, shard, and mongos, asserting the
+    # Migrating reasons Extending/Pruning/InProgress/MigrationComplete.
     return apply_generated_sharded_cluster_resource(
         namespace,
         generated_cr_yaml,
         config_rs_name=VM_CONFIG_RS_NAME,
+        incremental=True,
     )
 
 
 @fixture(scope="module")
 def mdb_health_checker(mdb_migration: MongoDB) -> MongoDBBackgroundTester:
-    return MongoDBBackgroundTester(mdb_migration.tester())
+    # Seed from the connection-string secret so the checker tracks the current active mongos (VM
+    # mongos while config/shard migrate, since mongos migrate last). allowed_sequential_failures is
+    # raised above the default of 1 so a brief reconfig blip during a promote/prune step does not fail
+    # the health assertion. The checker is stopped before the mongos cutover (which prunes the VM
+    # mongos it is seeded with); the mongos phase asserts connectivity via fresh secret reads instead.
+    return MongoDBBackgroundTester(
+        sharded_connection_string_tester(mdb_migration),
+        allowed_sequential_failures=3,
+    )
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
@@ -284,24 +300,29 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
+    # VM-only: all K8s counts are 0 and the cluster serves entirely from the VM externalMembers.
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
+    assert mdb_migration["spec"]["configServerCount"] == 0
+    assert mdb_migration["spec"]["mongodsPerShardCount"] == 0
+    assert mdb_migration["spec"]["mongosCount"] == 0
 
 
-@mark.e2e_vm_migration_shardedcluster_no_auth
-def test_max_voting_members_validation(mdb_migration: MongoDB):
-    assert_max_voting_members_validation(mdb_migration)
+# Note: the max-voting-members validation is covered by the other sharded scenarios (which pre-provision
+# K8s members and flip their votes). It is intentionally omitted here: this scenario starts VM-only and
+# grows members incrementally, and the operator forbids removing Kubernetes members during migration, so
+# the "scale up to trip the limit, then scale back down" approach cannot recover to a valid state.
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
 @skip_if_local()
 def test_connectivity_after_migration(mdb_migration: MongoDB):
-    """Sharded cluster remains reachable without authentication after migration."""
-    mdb_migration.tester().assert_connectivity()
+    """Sharded cluster remains reachable (via the VM mongos) after the VM-only import."""
+    sharded_connection_string_tester(mdb_migration).assert_connectivity()
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_migration_data_exists_after_migration(mdb_migration: MongoDB):
-    assert_migration_data_exists(mdb_migration.tester())
+    assert_migration_data_exists(sharded_connection_string_tester(mdb_migration))
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
@@ -311,38 +332,38 @@ def test_start_background_health_checker(mdb_health_checker: MongoDBBackgroundTe
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
-def test_promote_and_prune_config_server(mdb_migration: MongoDB, om_tester: OMTester):
-    try_load(mdb_migration)
-    for i in range(MIN_VM_CONFIGSRV):
-        mdb_migration["spec"]["memberConfig"][i]["priority"] = "1"
-        mdb_migration["spec"]["memberConfig"][i]["votes"] = 1
-        mdb_migration.update()
-        mdb_migration.assert_reaches_phase(Phase.Running)
-
-        config_external = [
-            m for m in mdb_migration["spec"]["externalMembers"] if m.get("replicaSetName") == VM_CONFIG_RS_NAME
-        ]
-        if config_external:
-            mdb_migration["spec"]["externalMembers"].remove(config_external[-1])
-            mdb_migration.update()
-            mdb_migration.assert_reaches_phase(Phase.Running)
-
-        om_tester.assert_cluster_available(VM_MONGOS_NAME)
+def test_incremental_extend_config_and_shard(mdb_migration: MongoDB, om_tester: OMTester):
+    total_vms = MIN_VM_CONFIGSRV + MIN_VM_SHARD + MIN_VM_MONGOS
+    extend_and_prune_sharded_replica_components(
+        mdb_migration,
+        om_tester,
+        config_rs_name=VM_CONFIG_RS_NAME,
+        shard_rs_name=VM_SHARD_RS_NAME,
+        mongos_cluster_name=VM_MONGOS_NAME,
+        total_vms=total_vms,
+    )
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
-def test_prune_shard(mdb_migration: MongoDB, om_tester: OMTester):
-    promote_and_prune_shard(mdb_migration, om_tester, VM_SHARD_RS_NAME, VM_MONGOS_NAME)
+@skip_if_local()
+def test_mongodb_reachable_during_config_and_shard(mdb_health_checker: MongoDBBackgroundTester):
+    # VM mongos are still up through the config-server and shard cutovers, so the secret-seeded checker
+    # is valid here. Stop it before the mongos phase prunes the VM mongos it was seeded with.
+    mdb_health_checker.assert_healthiness()
+    mdb_health_checker.stop()
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
-def test_prune_mongos(mdb_migration: MongoDB):
-    try_load(mdb_migration)
-    mongos_external = [m for m in mdb_migration["spec"]["externalMembers"] if m["type"] == "mongos"]
-    for m in mongos_external:
-        mdb_migration["spec"]["externalMembers"].remove(m)
-    mdb_migration.update()
-    mdb_migration.assert_reaches_phase(Phase.Running)
+def test_incremental_prune_mongos(mdb_migration: MongoDB, om_tester: OMTester):
+    total_vms = MIN_VM_CONFIGSRV + MIN_VM_SHARD + MIN_VM_MONGOS
+    pruned_so_far = MIN_VM_CONFIGSRV + MIN_VM_SHARD
+    extend_and_prune_sharded_mongos(
+        mdb_migration,
+        om_tester,
+        mongos_cluster_name=VM_MONGOS_NAME,
+        total_vms=total_vms,
+        pruned_so_far=pruned_so_far,
+    )
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
@@ -353,13 +374,6 @@ def test_connection_string_after_full_migration(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_shardedcluster_no_auth
 def test_process_names(om_tester: OMTester, mdb_migration: MongoDB):
     assert_k8s_sharded_process_names(om_tester, mdb_migration)
-
-
-@mark.e2e_vm_migration_shardedcluster_no_auth
-@skip_if_local()
-def test_mongodb_reachable_during_promote_and_prune(mdb_health_checker: MongoDBBackgroundTester):
-    mdb_health_checker.assert_healthiness()
-    mdb_health_checker.stop()
 
 
 @mark.e2e_vm_migration_shardedcluster_no_auth
