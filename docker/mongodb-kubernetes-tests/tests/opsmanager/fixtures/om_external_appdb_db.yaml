@@ -15,8 +15,3 @@ spec:
       name: om-external-appdb-db-config
   credentials: my-credentials
   persistent: true
-  security:
-    authentication:
-      enabled: true
-      modes: ["SCRAM"]
-      ignoreUnknownUsers: true
