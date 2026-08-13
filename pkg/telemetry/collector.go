@@ -252,7 +252,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 			}
 
 			if numberOfClustersUsed > 0 {
-				properties.DatabaseClusters = new(numberOfClustersUsed)
+				properties.DatabaseClusters = &numberOfClustersUsed
 			}
 
 			if event := createEvent(properties, now, Deployments); event != nil {
@@ -279,7 +279,7 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 		clusters := len(item.Spec.ClusterSpecList)
 
 		properties := DeploymentUsageSnapshotProperties{
-			DatabaseClusters:         new(clusters), // cannot be null in mdbmulti
+			DatabaseClusters:         &clusters, // cannot be null in mdbmulti
 			DeploymentUID:            string(item.UID),
 			OperatorID:               operatorUUID,
 			Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
@@ -324,11 +324,11 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 			}
 
 			if omClusters > 0 {
-				properties.OmClusters = new(omClusters)
+				properties.OmClusters = &omClusters
 			}
 
 			if appDBProperties.Clusters > 0 {
-				properties.AppDBClusters = new(appDBProperties.Clusters)
+				properties.AppDBClusters = &appDBProperties.Clusters
 			}
 
 			if event := createEvent(properties, now, Deployments); event != nil {
