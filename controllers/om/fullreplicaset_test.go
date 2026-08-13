@@ -275,7 +275,7 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			if existingProcessIds == nil {
 				existingProcessIds = map[string]int{}
 			}
-			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "5.0.5"), tt.processes, tt.memberOptions, existingProcessIds, nil)
+			actual := NewMultiClusterReplicaSetWithProcesses(NewReplicaSet("mdb-multi", "", "5.0.5"), tt.processes, tt.memberOptions, existingProcessIds, nil)
 			assert.Equal(t, tt.expected, actual)
 		})
 	}
