@@ -682,7 +682,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 			certFileName := filepath.Base(databaseOpts.AgentCertPath)
 			certDir := filepath.Dir(databaseOpts.AgentCertPath)
 			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName, func(v *corev1.Volume) {
-				v.VolumeSource.Secret.Items = []corev1.KeyToPath{
+				v.Secret.Items = []corev1.KeyToPath{
 					{Key: databaseOpts.AgentCertHash, Path: certFileName},
 				}
 			})
