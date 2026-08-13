@@ -1,0 +1,6 @@
+---
+kind: breaking
+date: 2026-08-13
+---
+
+* **Member-cluster RBAC validation**: The operator now validates each member cluster's RBAC by reading the `mongodb.com/rbac-version` annotation on the member ServiceAccount (`mck-member-<cluster>-sa`, created by `kubectl mongodb multicluster generate-member-resources`) and reports the outcome as the `RBACValid` status condition on the `MemberCluster` CR. If the annotation is missing or does not match the operator's expected version — in particular when the operator was upgraded without reapplying member-cluster RBAC — the operator stops reconciling workloads on that cluster. Running workloads are not disrupted; the operator simply does not touch the cluster. Validation repeats every 60 seconds, so reconciliation resumes automatically once the RBAC is regenerated and reapplied, with no operator restart. The same periodic re-check also picks up rotated credential Secrets. When a member cluster is unreachable, `RBACValid` reports `Unknown` and reconciliation behaviour is unchanged. The credential kubeconfig's context must set `namespace` to the member cluster's operator namespace; the output of `kubectl mongodb multicluster generate-member-registration` already complies.
