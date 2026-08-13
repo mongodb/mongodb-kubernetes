@@ -365,7 +365,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	}
 
 	// TODO standalone PR
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertPath, "", "", isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, []string{set.Name}, s, agentCertPath, "", "", util.DefaultPvcMmsMountPath, isRecovering, log)
 	if !status.IsOK() {
 		return status
 	}
@@ -384,9 +384,9 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 			}
 
 			d.MergeStandalone(standaloneOmObject, s.Spec.AdditionalMongodConfig.ToMap(), lastStandaloneConfig.ToMap(), nil)
-			// TODO change last argument in separate PR
-			d.ConfigureMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
-			d.ConfigureTLS(s.Spec.GetSecurity(), util.CAFilePathInContainer)
+			caFilePath := s.Spec.GetSecurity().GetTLSCAFilePath(util.CAFilePathInContainer)
+			d.ConfigureMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
+			d.ConfigureTLS(s.Spec.GetSecurity(), caFilePath)
 			return nil
 		},
 		log,

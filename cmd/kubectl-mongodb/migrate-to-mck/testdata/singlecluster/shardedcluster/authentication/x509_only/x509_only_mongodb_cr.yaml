@@ -58,6 +58,7 @@ spec:
     certsSecretPrefix: mdb
     tls:
       ca: sc-x509only-cluster-ca
+      caFilePath: /mongodb-ca/ca.pem
   shard:
     additionalMongodConfig:
       net:

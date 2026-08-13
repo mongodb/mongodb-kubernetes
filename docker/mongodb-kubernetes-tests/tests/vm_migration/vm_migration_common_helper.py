@@ -34,6 +34,13 @@ MIGRATION_DATA_COLLECTION = "sentinel"
 MIGRATION_DATA_ID = "vm-migration"
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
 MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION = "mongodb.com/migrate-tool-version"
+# Must match connectionstringsecret.SecretNameSuffix in the operator.
+CLUSTER_CONNECTION_STRING_SECRET_SUFFIX = "-cluster-connection-string"
+
+
+def cluster_connection_string_secret_name(mdb: MongoDB) -> str:
+    """Name of the operator-managed credential-less connection string secret for a MongoDB resource."""
+    return f"{mdb.name}{CLUSTER_CONNECTION_STRING_SECRET_SUFFIX}"
 
 
 def _deploy_vm_statefulset_from_fixture(
@@ -358,3 +365,21 @@ def rotate_password_and_verify(
 
     assert ac_user.get("scramSha256Creds") is not None, "scramSha256Creds missing"
     assert ac_user.get("scramSha1Creds") is not None, "scramSha1Creds missing"
+
+
+def assert_ca_file_present_in_pod(namespace: str, pod_name: str, ca_file_path: str) -> None:
+    """Assert the CA file the operator mounted is present at ca_file_path inside a migrated pod.
+
+    Reads the file from the mongodb-enterprise-database container and checks it
+    contains PEM certificate content. Proves the operator mounted the CA
+    ConfigMap at the custom caFilePath rather than the default location.
+    """
+    output = KubernetesTester.run_command_in_pod_container(
+        pod_name,
+        namespace,
+        ["cat", ca_file_path],
+        container="mongodb-enterprise-database",
+    )
+    assert (
+        "-----BEGIN CERTIFICATE-----" in output
+    ), f"CA file at {ca_file_path} in pod {pod_name} is missing or not PEM content, got: {output!r}"

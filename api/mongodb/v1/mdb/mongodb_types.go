@@ -87,6 +87,10 @@ type MongoDB struct {
 	Spec   MongoDbSpec   `json:"spec"`
 }
 
+func (m *MongoDB) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDB) IsAgentImageOverridden() bool {
 	if m.Spec.PodSpec.IsAgentImageOverridden() {
 		return true
@@ -511,6 +515,15 @@ type DbCommonSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == '' || self == 'AppDB'",message="spec.role must be 'AppDB' when set"
 	Role string `json:"role,omitempty"`
+
+	// DownloadBase is the directory on the MongoDB host where the automation agent
+	// downloads and extracts MongoDB binaries. It is always used by the operator, and
+	// the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+	// defaults to "/var/lib/mongodb-mms-automation".
+	// This field should only be set (and only if needed) when migrating an existing
+	// VM-based deployment to the operator.
+	// +optional
+	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
@@ -954,6 +967,13 @@ func (d *DbCommonSpec) GetRole() string {
 	return d.Role
 }
 
+func (d *DbCommonSpec) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
 // GetExternalMembersHostnames returns the hostname list (host:port) the
 // caller should embed in this MongoDB resource's connection string:
 func (m *MongoDB) GetExternalMembersHostnames() []string {
@@ -993,6 +1013,13 @@ func (m *MongoDB) GetRSHostnamesAndPorts() []string {
 		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
 	}
 	return hostnamePorts
+}
+
+func (s *Security) GetTLSCAFilePath(defaultPath string) string {
+	if s == nil || s.TLSConfig == nil {
+		return defaultPath
+	}
+	return s.TLSConfig.GetCAFilePath(defaultPath)
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1360,9 +1387,28 @@ type TLSConfig struct {
 
 	AdditionalCertificateDomains []string `json:"additionalCertificateDomains,omitempty"`
 
-	// CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-	// used to validate the certificates created already.
+	// CA corresponds to a ConfigMap containing the CA certificate used to validate
+	// the certificates created already. The ConfigMap must contain a key named ca-pem
+	// whose value is the PEM-encoded CA bundle.
 	CA string `json:"ca,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Pattern=`^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$`
+	// CAFilePath is the absolute path for the CA certificate file. It must have
+	// at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+	// referenced by tls.CA must contain a key named ca-pem, which the operator
+	// projects to this path. If the parent directory overlaps a volume mount
+	// declared in your podTemplate, the operator's mount will shadow that mount.
+	// Not supported for the AppDB.
+	// Default: /mongodb-automation/tls/ca/ca-pem
+	CAFilePath string `json:"caFilePath,omitempty"`
+}
+
+func (t *TLSConfig) GetCAFilePath(defaultPath string) string {
+	if t == nil || t.CAFilePath == "" {
+		return defaultPath
+	}
+	return t.CAFilePath
 }
 
 func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
