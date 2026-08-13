@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import pytest
 from kubetester import (
@@ -732,7 +732,9 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
             tester.assert_has_user(USER_NAME)
             tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
             tester.assert_authentication_enabled()
-            tester.assert_expected_users(5)
+            # 5 K8s MongoDBUsers (mms-user-1..5) plus the 2 OM-seeded users
+            # (om-user-sha256, om-user-no-mech) added by the tests above.
+            tester.assert_expected_users(7)
             tester.assert_authoritative_set(False)
             return True
         except AssertionError:
@@ -754,7 +756,9 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         # we have explicitly set authentication to be disabled
         try:
             tester.assert_has_user(USER_NAME)
-            tester.assert_authentication_disabled(remaining_users=5)
+            # 5 K8s MongoDBUsers (mms-user-1..5) plus the 2 OM-seeded users
+            # (om-user-sha256, om-user-no-mech) added by the tests above.
+            tester.assert_authentication_disabled(remaining_users=7)
             return True
         except AssertionError:
             return False

@@ -85,6 +85,95 @@ func Test_isCredChanged_PasswordChangeDetection(t *testing.T) {
 	assert.True(t, changed)
 }
 
+// Test_PasswordMatchesStoredCreds verifies password validation against the creds
+// stored on an AC user, including users with only one algorithm present.
+func Test_PasswordMatchesStoredCreds(t *testing.T) {
+	seed := om.MongoDBUser{Username: "mia", Database: "admin"}
+	_, err := ConfigureScramCredentials(&seed, "pass", emptyAC())
+	require.NoError(t, err)
+
+	stale := om.MongoDBUser{Username: "mia", Database: "admin"}
+	_, err = ConfigureScramCredentials(&stale, "oldpass", emptyAC())
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		password    string
+		acUser      *om.MongoDBUser
+		wantMatches bool
+		wantErr     string
+	}{
+		{
+			name:     "correct password matches both cred sets",
+			password: "pass",
+			acUser: &om.MongoDBUser{
+				Username:         "mia",
+				Database:         "admin",
+				ScramSha256Creds: seed.ScramSha256Creds,
+				ScramSha1Creds:   seed.ScramSha1Creds,
+			},
+			wantMatches: true,
+		},
+		{
+			name:     "wrong password does not match",
+			password: "wrongpass",
+			acUser: &om.MongoDBUser{
+				Username:         "mia",
+				Database:         "admin",
+				ScramSha256Creds: seed.ScramSha256Creds,
+				ScramSha1Creds:   seed.ScramSha1Creds,
+			},
+			wantMatches: false,
+		},
+		{
+			name:     "only one algorithm present still validates",
+			password: "pass",
+			acUser: &om.MongoDBUser{
+				Username:       "mia",
+				Database:       "admin",
+				ScramSha1Creds: seed.ScramSha1Creds,
+			},
+			wantMatches: true,
+		},
+		{
+			name:     "stale cred set fails validation even when the other one matches",
+			password: "pass",
+			acUser: &om.MongoDBUser{
+				Username:         "mia",
+				Database:         "admin",
+				ScramSha256Creds: seed.ScramSha256Creds,
+				ScramSha1Creds:   stale.ScramSha1Creds,
+			},
+			wantMatches: false,
+		},
+		{
+			name:     "user missing from the automation config",
+			password: "pass",
+			acUser:   nil,
+			wantErr:  "not found in the automation config",
+		},
+		{
+			name:     "user without creds cannot be validated",
+			password: "pass",
+			acUser:   &om.MongoDBUser{Username: "mia", Database: "admin"},
+			wantErr:  "no SCRAM credentials to validate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matches, err := PasswordMatchesStoredCreds("mia", tt.password, tt.acUser)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantMatches, matches)
+		})
+	}
+}
+
 // Test_ConfigureScramCredentials_MechanismsSetWithoutCreds_Errors verifies that an AC user
 // with mechanisms set but no SCRAM creds to validate against is rejected instead of
 // silently resetting the password via InitPassword.
