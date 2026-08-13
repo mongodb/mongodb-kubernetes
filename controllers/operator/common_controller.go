@@ -1563,13 +1563,13 @@ func (r *ReconcileCommonController) runConnectivityJob(
 
 	switch result.Phase {
 	case status.MigrationPhaseConnectivityCheckRunning:
-		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).
+		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", util.MigrationDryRunAnnotation).
 			WithRetry(30).
 			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
 				status.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
 			)))
 	case status.MigrationPhaseConnectivityCheckPassed:
-		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun).
+		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", util.MigrationDryRunAnnotation).
 			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
 				status.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
 			)))

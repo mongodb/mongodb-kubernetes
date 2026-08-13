@@ -164,14 +164,6 @@ def _configure_ac(
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": AGENT_USER,
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": [SCRAM_MECHANISM],
-                "scramSha256Creds": build_sha256_creds(AGENT_PASSWORD),
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": APP_USER,
                 "db": "admin",
                 "roles": [
@@ -343,19 +335,20 @@ def test_insert_migration_data(namespace: str, scram_opts: list[dict]):
 
 @mark.e2e_vm_migration_shardedcluster_oidc_workforce
 def test_install_operator(operator: Operator):
-    operator.assert_is_running()
+    operator.wait_for_operator_ready()
 
 
 # Generated CR checks
 
 
 @mark.e2e_vm_migration_shardedcluster_oidc_workforce
-def test_common_generated_cr_shape(generated_cr: dict):
+def test_common_generated_cr_shape(generated_cr: dict, version_id: str):
     assert_common_generated_sharded_cr_shape(
         generated_cr,
         expected_config_count=MIN_VM_CONFIGSRV,
         expected_shard_count=MIN_VM_SHARD,
         expected_mongos_count=MIN_VM_MONGOS,
+        version_id=version_id,
     )
 
 
