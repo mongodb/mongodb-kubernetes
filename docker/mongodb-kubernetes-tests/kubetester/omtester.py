@@ -28,6 +28,14 @@ skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in 
 logger = test_logger.get_test_logger(__name__)
 
 
+def strip_mongodb_uri_credentials(uri: str) -> str:
+    """Removes the userinfo part of a mongodb connection string so that URIs can be compared
+    regardless of whether Ops Manager masked the credentials in its response."""
+    scheme, separator, rest = uri.partition("://")
+    hosts_and_options = rest.partition("@")[2] or rest
+    return scheme + separator + hosts_and_options
+
+
 class BackupStatus(str, Enum):
     """Enum for backup statuses in Ops Manager. Note that 'str' is inherited to fix json serialization issues"""
 
@@ -309,7 +317,13 @@ class OMTester(object):
             assert store_id in existing_stores, f"existing {store_type} store with id {store_id} not found"
             existing = existing_stores[store_id]
             for key in expected:
-                assert expected[key] == existing[key]
+                # Ops Manager 9.0 masks the credentials in the uri returned by the admin backup
+                # endpoints (mongodb://REDACTED:REDACTED@...), so only compare hosts and options.
+                # Older versions return the credentials verbatim.
+                if key == "uri":
+                    assert strip_mongodb_uri_credentials(expected[key]) == strip_mongodb_uri_credentials(existing[key])
+                else:
+                    assert expected[key] == existing[key]
 
     def assert_oplog_stores(self, expected_oplog_stores: List):
         """verifies that the list of oplog store configs in OM is equal to the expected one"""

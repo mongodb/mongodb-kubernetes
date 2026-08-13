@@ -49,6 +49,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         with_defaults.update(kwargs)
         super(MongoDBOpsManager, self).__init__(*args, **with_defaults)
 
+    @classmethod
+    def from_yaml(cls, yaml_file, name=None, namespace=None, cluster_scoped=False) -> "MongoDBOpsManager":
+        om = super().from_yaml(yaml_file, name=name, namespace=namespace, cluster_scoped=cluster_scoped)
+        # RC/development MongoDB builds are filtered out of the versions OM offers unless these are
+        # enabled, so every OM resource gets them. They are a no-op for GA versions.
+        om.allow_mdb_rc_versions()
+        return om
+
     def trigger_architecture_migration(self):
         self.load()
 
@@ -784,6 +792,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Sets a specific `version` if set. If `version` is None, then skip."""
         if version is not None:
             self["spec"]["version"] = version
+            # Re-apply as some of the settings depend on the OM version.
+            self.allow_mdb_rc_versions()
         return self
 
     def update_key_to_programmatic(self):
@@ -839,6 +849,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         self["spec"]["configuration"]["mms.featureFlag.automation.mongoDevelopmentVersions"] = "enabled"
         self["spec"]["configuration"]["mongodb.release.autoDownload.rc"] = "true"
         self["spec"]["configuration"]["mongodb.release.autoDownload.development"] = "true"
+
+        # RC builds of OM read the version manifest bundled with their image instead of refreshing it
+        # from the public URL, which does not list RC versions of MongoDB such as 9.0.0-rc0. Released
+        # OM versions keep the default URL. Note that from_yaml calls this while spec.version is
+        # still the fixture's placeholder, which is why set_version calls it again once the real
+        # version is known.
+        if "-rc" in self["spec"].get("version", ""):
+            self["spec"]["configuration"][
+                "automation.versions.autoRefreshUri"
+            ] = "classpath://mongodb_version_manifest.json"
 
     def set_appdb_version(self, version: str):
         self["spec"]["applicationDatabase"]["version"] = version
@@ -1016,6 +1036,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def update_version_manifest(self):
         major_version = self.get_version()[:3]
+        # This only exists to spare OM6 (EOL) from waiting on its cron to pick up recent MongoDB
+        # versions. From OM7 on, the manifest shipped with the OM image is at least as new as the
+        # public one, so pushing the public manifest can only remove versions from OM - notably
+        # 9.0.0-rc0, which the public manifest does not carry yet.
+        if int(major_version.split(".")[0]) > 6:
+            print(f"Skipping version manifest update: OM {major_version} ships a newer manifest")
+            return
+
         tester = self.get_om_tester()
         tester.api_update_version_manifest(major_version=major_version)
 
