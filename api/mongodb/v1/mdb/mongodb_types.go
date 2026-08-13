@@ -553,24 +553,24 @@ func (m *MongoDbSpec) GetExternalMembers() []ExternalMember {
 	return m.ExternalMembers
 }
 
-func (d *MongoDbSpec) GetExternalMemberProcessNames() []string {
-	return externalMemberProcessNames(d.ExternalMembers)
+func (m *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	return externalMemberProcessNames(m.ExternalMembers)
 }
 
 // GetExternalMembersForRS filters to mongod members matching the given replicaSetName.
-func (d *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
+func (m *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	var members []ExternalMember
-	for _, m := range d.ExternalMembers {
-		if m.Type == "mongod" && m.ReplicaSetName == rsName {
-			members = append(members, m)
+	for _, em := range m.ExternalMembers {
+		if em.Type == "mongod" && em.ReplicaSetName == rsName {
+			members = append(members, em)
 		}
 	}
 	return members
 }
 
 // GetExternalMemberProcessNamesForRS returns process names for mongod external members in the given replica set.
-func (d *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
-	return externalMemberProcessNames(d.GetExternalMembersForRS(rsName))
+func (m *MongoDbSpec) GetExternalMemberProcessNamesForRS(rsName string) []string {
+	return externalMemberProcessNames(m.GetExternalMembersForRS(rsName))
 }
 
 // GetExternalMemberProcessNamesForConfigRS returns process names for external mongod members of the config server.
@@ -581,11 +581,11 @@ func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
 
 // GetExternalMemberProcessNamesForMongos returns process names for external mongos members.
 // Mongos processes carry no replica set name, so filtering is by type rather than by RS name.
-func (d *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
+func (m *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
 	var mongos []ExternalMember
-	for _, m := range d.ExternalMembers {
-		if m.Type == "mongos" {
-			mongos = append(mongos, m)
+	for _, em := range m.ExternalMembers {
+		if em.Type == "mongos" {
+			mongos = append(mongos, em)
 		}
 	}
 	return externalMemberProcessNames(mongos)
