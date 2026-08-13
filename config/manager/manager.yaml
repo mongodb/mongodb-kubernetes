@@ -115,7 +115,7 @@ spec:
               value: mongodb-kubernetes-operator
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:108.0.25.9029-1"
+              value: "quay.io/mongodb/mongodb-agent:109.0.0.9221-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
               value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
@@ -191,6 +191,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.6.8796-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_7_8810_1
               value: "quay.io/mongodb/mongodb-agent:108.0.7.8810-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_109_0_0_9221_1
+              value: "quay.io/mongodb/mongodb-agent:109.0.0.9221-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_12_0_35_7911_1
               value: "quay.io/mongodb/mongodb-agent:12.0.35.7911-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_13_55_0_11056_1

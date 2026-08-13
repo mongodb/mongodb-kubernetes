@@ -45,8 +45,7 @@ def test_only_prereleases_raises_runtime_error(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     write_evergreen_yaml(
         tmp_path,
-        "  - &ops_manager_90_latest 9.0.0-rc0\n"
-        "  - &ops_manager_91_latest 9.1.0-rc1\n",
+        "  - &ops_manager_90_latest 9.0.0-rc0\n" "  - &ops_manager_91_latest 9.1.0-rc1\n",
     )
 
     with pytest.raises(RuntimeError, match="No valid OM versions found"):
@@ -57,10 +56,7 @@ def test_non_string_and_non_semver_values_are_skipped(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     write_evergreen_yaml(
         tmp_path,
-        "  - &ops_manager_60_latest 6.0.27\n"
-        "  - some_non_semver_string\n"
-        "  - 42\n"
-        "  - true\n",
+        "  - &ops_manager_60_latest 6.0.27\n" "  - some_non_semver_string\n" "  - 42\n" "  - true\n",
     )
 
     versions = get_latest_om_versions_from_evergreen_yaml()
