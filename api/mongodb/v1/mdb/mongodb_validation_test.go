@@ -2006,3 +2006,188 @@ func TestImportToolVersionMatchesOperator(t *testing.T) {
 		})
 	}
 }
+
+func shardedSpecWithExternalDomains(topLevel *string, mongos, configSrv, shard *string) MongoDbSpec {
+	componentWithDomain := func(domain *string) *ShardedClusterComponentSpec {
+		if domain == nil {
+			return nil
+		}
+		return &ShardedClusterComponentSpec{
+			ExternalAccessConfiguration: &ExternalAccessConfiguration{ExternalDomain: domain},
+		}
+	}
+
+	spec := MongoDbSpec{
+		DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster},
+		ShardedClusterSpec: ShardedClusterSpec{
+			MongosSpec:    componentWithDomain(mongos),
+			ConfigSrvSpec: componentWithDomain(configSrv),
+			ShardSpec:     componentWithDomain(shard),
+		},
+	}
+	if topLevel != nil {
+		spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: topLevel}
+	}
+	return spec
+}
+
+func replicaSetSpecWithExternalDomain(domain *string) MongoDbSpec {
+	spec := MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ReplicaSet}}
+	if domain != nil {
+		spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: domain}
+	}
+	return spec
+}
+
+// multiClusterShardedSpec builds a multi cluster sharded spec where every tier declares the given
+// member clusters and each cluster carries the external domain returned by domainForCluster.
+func multiClusterShardedSpec(clusterNames []string, domainForCluster map[string]*string) MongoDbSpec {
+	component := func() *ShardedClusterComponentSpec {
+		clusterSpecList := ClusterSpecList{}
+		for _, name := range clusterNames {
+			item := ClusterSpecItem{ClusterName: name, Members: 1}
+			if domain, ok := domainForCluster[name]; ok && domain != nil {
+				item.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: domain}
+			}
+			clusterSpecList = append(clusterSpecList, item)
+		}
+		return &ShardedClusterComponentSpec{ClusterSpecList: clusterSpecList}
+	}
+
+	return MongoDbSpec{
+		DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster, Topology: ClusterTopologyMultiCluster},
+		ShardedClusterSpec: ShardedClusterSpec{
+			MongosSpec:    component(),
+			ConfigSrvSpec: component(),
+			ShardSpec:     component(),
+		},
+	}
+}
+
+func TestNoExternalDomainChanges(t *testing.T) {
+	oldDomain := ptr.To("old.example.com")
+	newDomain := ptr.To("new.example.com")
+
+	tests := []struct {
+		name        string
+		oldSpec     MongoDbSpec
+		newSpec     MongoDbSpec
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:    "replica set without external domain",
+			oldSpec: replicaSetSpecWithExternalDomain(nil),
+			newSpec: replicaSetSpecWithExternalDomain(nil),
+		},
+		{
+			name:    "replica set with unchanged external domain",
+			oldSpec: replicaSetSpecWithExternalDomain(oldDomain),
+			newSpec: replicaSetSpecWithExternalDomain(ptr.To("old.example.com")),
+		},
+		{
+			name:        "replica set external domain changed",
+			oldSpec:     replicaSetSpecWithExternalDomain(oldDomain),
+			newSpec:     replicaSetSpecWithExternalDomain(newDomain),
+			expectError: true,
+			errorMsg:    `Cannot change externalDomain once set ("old.example.com" -> "new.example.com")`,
+		},
+		{
+			name:        "replica set external domain added",
+			oldSpec:     replicaSetSpecWithExternalDomain(nil),
+			newSpec:     replicaSetSpecWithExternalDomain(newDomain),
+			expectError: true,
+			errorMsg:    "Cannot add externalDomain to an existing MongoDB resource",
+		},
+		{
+			name:        "replica set external domain removed",
+			oldSpec:     replicaSetSpecWithExternalDomain(oldDomain),
+			newSpec:     replicaSetSpecWithExternalDomain(nil),
+			expectError: true,
+			errorMsg:    "Cannot remove externalDomain from an existing MongoDB resource",
+		},
+		{
+			name:    "sharded cluster top level external domain unchanged",
+			oldSpec: shardedSpecWithExternalDomains(oldDomain, nil, nil, nil),
+			newSpec: shardedSpecWithExternalDomains(ptr.To("old.example.com"), nil, nil, nil),
+		},
+		{
+			name:        "sharded cluster top level external domain changed",
+			oldSpec:     shardedSpecWithExternalDomains(oldDomain, nil, nil, nil),
+			newSpec:     shardedSpecWithExternalDomains(newDomain, nil, nil, nil),
+			expectError: true,
+			errorMsg:    "Cannot change externalDomain for mongos once set",
+		},
+		{
+			name:        "sharded cluster per tier external domain changed",
+			oldSpec:     shardedSpecWithExternalDomains(nil, nil, nil, oldDomain),
+			newSpec:     shardedSpecWithExternalDomains(nil, nil, nil, newDomain),
+			expectError: true,
+			errorMsg:    "Cannot change externalDomain for shard once set",
+		},
+		{
+			name:        "sharded cluster per tier external domain added",
+			oldSpec:     shardedSpecWithExternalDomains(nil, nil, nil, nil),
+			newSpec:     shardedSpecWithExternalDomains(nil, nil, nil, newDomain),
+			expectError: true,
+			errorMsg:    "Cannot add externalDomain for shard to an existing MongoDB resource",
+		},
+		{
+			name: "sharded cluster moving the same domain from top level to per tier is a no-op",
+			// In single cluster only mongos resolves the top level field, so an identical per tier
+			// mongos value leaves every effective domain untouched.
+			oldSpec: shardedSpecWithExternalDomains(oldDomain, nil, nil, nil),
+			newSpec: shardedSpecWithExternalDomains(nil, ptr.To("old.example.com"), nil, nil),
+		},
+		{
+			name:    "multi cluster with unchanged per cluster domains",
+			oldSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+			newSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+		},
+		{
+			name:    "multi cluster adding a member cluster with its own domain",
+			oldSpec: multiClusterShardedSpec([]string{"c1"}, map[string]*string{"c1": ptr.To("c1.example.com")}),
+			newSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+		},
+		{
+			name:    "multi cluster removing a member cluster",
+			oldSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+			newSpec: multiClusterShardedSpec([]string{"c1"}, map[string]*string{"c1": ptr.To("c1.example.com")}),
+		},
+		{
+			name:        "multi cluster changing the domain of an existing member cluster",
+			oldSpec:     multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+			newSpec:     multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("changed.example.com")}),
+			expectError: true,
+			errorMsg:    `for configSrv in member cluster "c2"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := noExternalDomainChanges(tt.newSpec, tt.oldSpec)
+			if tt.expectError {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorMsg)
+			} else {
+				assert.Equal(t, v1.ValidationSuccess(), result)
+			}
+		})
+	}
+}
+
+func TestNoExternalDomainChanges_WiredIntoWebhook(t *testing.T) {
+	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
+	oldRs.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: ptr.To("old.example.com")}
+
+	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
+	newRs.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: ptr.To("new.example.com")}
+
+	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Cannot change externalDomain once set")
+
+	// Creating a resource with an external domain is unaffected.
+	_, err = validator.ValidateCreate(ctx, newRs)
+	require.NoError(t, err)
+}

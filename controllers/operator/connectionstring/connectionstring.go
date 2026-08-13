@@ -156,7 +156,15 @@ func (b *builder) Build() string {
 	var uri string
 	if b.scheme == SchemeMongoDBSRV {
 		uri = fmt.Sprintf("mongodb+srv://%s", userAuth)
-		uri += fmt.Sprintf("%s.%s.svc.%s", b.service, b.namespace, b.clusterDomain)
+		// When an external domain is configured, the internal service FQDN is not reachable from
+		// outside the cluster, so we publish the external domain instead. Provisioning the
+		// _mongodb._tcp SRV records in that zone is the customer's responsibility, just as it is
+		// for the A records that externalAccess already depends on.
+		if b.externalDomain != nil && *b.externalDomain != "" {
+			uri += *b.externalDomain
+		} else {
+			uri += fmt.Sprintf("%s.%s.svc.%s", b.service, b.namespace, b.clusterDomain)
+		}
 	} else {
 		uri = fmt.Sprintf("mongodb://%s", userAuth)
 		var hostnames []string

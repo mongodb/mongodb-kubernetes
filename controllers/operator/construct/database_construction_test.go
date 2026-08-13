@@ -530,3 +530,108 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 		})
 	}
 }
+
+func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
+	perTierConfigSrv := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("config.example.com")}
+	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("top.example.com")}
+
+	newShardedCluster := func(mutate func(spec *mdbv1.MongoDbSpec)) mdbv1.MongoDB {
+		sc := mdbv1.NewDefaultShardedClusterBuilder().
+			SetName("slaney").
+			SetNamespace("test-ns").
+			SetShardCountSpec(1).
+			SetMongosCountSpec(2).
+			Build()
+		mutate(&sc.Spec)
+
+		// single-cluster StatefulSet construction looks up the member cluster in each tier's
+		// ClusterSpecList, which the reconciler normally populates during defaulting.
+		for _, componentSpec := range []*mdbv1.ShardedClusterComponentSpec{sc.Spec.ConfigSrvSpec, sc.Spec.MongosSpec, sc.Spec.ShardSpec} {
+			componentSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+				{ClusterName: multicluster.LegacyCentralClusterName, Members: 3},
+			}
+		}
+
+		return *sc
+	}
+
+	t.Run("config servers pick up their per-tier configuration in single-cluster", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {
+			spec.ConfigSrvSpec.ExternalAccessConfiguration = perTierConfigSrv
+		})
+
+		opts := ConfigServerOptions(sc.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		require.NotNil(t, opts.ExternalAccessConfiguration)
+		assert.Equal(t, "config.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+		assert.Equal(t, sc.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName,
+			"a tier with an external domain must mount the hostname-override ConfigMap")
+	})
+
+	t.Run("config servers get nothing from the top-level field in single-cluster", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {
+			spec.ExternalAccessConfiguration = topLevel
+		})
+
+		opts := ConfigServerOptions(sc.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		assert.Nil(t, opts.ExternalAccessConfiguration)
+		assert.Empty(t, opts.HostNameOverrideConfigmapName)
+	})
+
+	t.Run("mongos still honours the top-level field in single-cluster", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {
+			spec.ExternalAccessConfiguration = topLevel
+		})
+
+		opts := MongosOptions(sc.Spec.MongosSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		require.NotNil(t, opts.ExternalAccessConfiguration)
+		assert.Equal(t, "top.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+		assert.Equal(t, sc.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+	})
+
+	t.Run("shards get nothing when nothing is configured", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {})
+
+		opts := ShardOptions(0, sc.Spec.ShardSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		assert.Nil(t, opts.ExternalAccessConfiguration)
+		assert.Empty(t, opts.HostNameOverrideConfigmapName)
+	})
+}
+
+func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
+	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("rs.example.com")}
+	rs := mdbv1.NewReplicaSetBuilder().SetName("rs").SetNamespace("test-ns").SetMembers(3).Build()
+	rs.Spec.ExternalAccessConfiguration = topLevel
+
+	opts := ReplicaSetOptions()(*rs)
+
+	require.NotNil(t, opts.ExternalAccessConfiguration)
+	assert.Equal(t, "rs.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+	// An external domain means processes advertise their external hostname, which only works with the
+	// hostname override ConfigMap mounted into the pods.
+	assert.Equal(t, rs.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+}
+
+// TestStandaloneOptionsCarryTopLevelExternalAccess guards against the external service of a standalone
+// being deleted on the next reconciliation: create.DatabaseInKubernetes creates or deletes it based on
+// DatabaseStatefulSetOptions.ExternalAccessConfiguration, so StandaloneOptions has to populate it.
+func TestStandaloneOptionsCarryTopLevelExternalAccess(t *testing.T) {
+	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
+	st.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("st.example.com")}
+
+	opts := StandaloneOptions()(*st)
+
+	require.NotNil(t, opts.ExternalAccessConfiguration)
+	assert.Equal(t, "st.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+}
+
+func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
+	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
+
+	opts := StandaloneOptions()(*st)
+
+	assert.Nil(t, opts.ExternalAccessConfiguration)
+}

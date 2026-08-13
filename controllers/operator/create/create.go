@@ -54,7 +54,8 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		return nil, err
 	}
 
-	// For mc-sharded, we create external services in the ShardedClusterReconcileHelper.reconcileServices method.
+	// Everything below - the internal service and the per-pod external services - is the single-cluster path.
+	// A multi-cluster sharded cluster has its services created by ShardedClusterReconcileHelper.reconcileServices
 	if mdb.Spec.IsMultiCluster() && mdb.IsShardedCluster() {
 		return set, nil
 	}
@@ -74,9 +75,12 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 		return set, err
 	}
 
-	for podNum := 0; podNum < mdb.GetSpec().Replicas(); podNum++ {
+	// opts.Replicas, not mdb.GetSpec().Replicas(): for a sharded cluster the latter returns
+	// MongosCount regardless of tier, which would give config servers and shards the wrong number of
+	// services. opts.Replicas is this tier's count for this reconciliation.
+	for podNum := 0; podNum < opts.Replicas; podNum++ {
 		namespacedName = kube.ObjectKey(mdb.Namespace, dns.GetExternalServiceName(set.Name, podNum))
-		if mdb.Spec.ExternalAccessConfiguration == nil {
+		if !needsExternalServices(mdb, opts) {
 			if err := service.DeleteServiceIfItExists(ctx, client, namespacedName); err != nil {
 				return set, err
 			}
@@ -88,6 +92,25 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, m
 	}
 
 	return set, nil
+}
+
+// needsExternalServices reports whether this tier wants per-pod external services in a single-cluster
+// deployment.
+//
+// Config servers and shards only need external services when an external domain is configured, because
+// that is the only thing that puts their external names into the automation config - this mirrors the
+// rule reconcileConfigServerServices and reconcileShardServices apply in multi-cluster. Mongos and the
+// non-sharded resource types always get an external service regardless of externalDomain.
+func needsExternalServices(mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions) bool {
+	if opts.ExternalAccessConfiguration == nil {
+		return false
+	}
+
+	if mdb.IsShardedCluster() && !opts.IsMongos() {
+		return opts.ExternalAccessConfiguration.ExternalDomain != nil
+	}
+
+	return true
 }
 
 // HandlePVCResize handles the state machine of a PVC resize.
@@ -300,17 +323,17 @@ func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.
 	return nil, -1
 }
 
-// createExternalServices creates the external services.
-// For sharded clusters: services are only created for mongos.
+// createExternalServices creates the per-pod external LoadBalancer services for one StatefulSet.
+// The tier's effective external access configuration arrives on opts.ExternalAccessConfiguration; the
+// caller guarantees it is non-nil.
 func createExternalServices(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions, namespacedName client.ObjectKey, set *appsv1.StatefulSet, podNum int, log *zap.SugaredLogger) error {
-	if mdb.IsShardedCluster() && !opts.IsMongos() {
-		return nil
-	}
+	externalAccess := opts.ExternalAccessConfiguration
+
 	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
 	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
 	externalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
-	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
+	if externalAccess.ExternalDomain != nil {
 		// When an external domain is defined, we put it into process.hostname in automation config. Because of that we need to define additional well-defined port for backups.
 		// This backup port is not needed when we use headless service, because then agent is resolving DNS directly to pod's IP and that allows to connect
 		// to any port in a pod, even ephemeral one.
@@ -321,12 +344,12 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 		externalService.Spec.Ports = append(externalService.Spec.Ports, corev1.ServicePort{Port: backupPort, TargetPort: intstr.FromInt32(backupPort), Name: "backup"})
 	}
 
-	if mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper != nil {
-		externalService.Spec = merge.ServiceSpec(externalService.Spec, mdb.Spec.ExternalAccessConfiguration.ExternalService.SpecWrapper.Spec)
+	if externalAccess.ExternalService.SpecWrapper != nil {
+		externalService.Spec = merge.ServiceSpec(externalService.Spec, externalAccess.ExternalService.SpecWrapper.Spec)
 	}
-	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, mdb.Spec.ExternalAccessConfiguration.ExternalService.Annotations)
+	externalService.Annotations = merge.StringToStringMap(externalService.Annotations, externalAccess.ExternalService.Annotations)
 
-	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), mdb.Spec.GetExternalDomain(), mdb.Spec.GetClusterDomain(), podNum, mdb.GetResourceType())
+	placeholderReplacer := GetSingleClusterMongoDBPlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, mdb.ServiceName(), externalAccess.ExternalDomain, mdb.Spec.GetClusterDomain(), podNum, mdb.GetResourceType())
 	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(externalService.Annotations); err != nil {
 		return xerrors.Errorf("failed to process annotations in service %s: %w", externalService.Name, err)
 	} else if replacedFlag {

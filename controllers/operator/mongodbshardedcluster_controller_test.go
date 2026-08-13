@@ -2345,3 +2345,222 @@ func TestReconcileShardedCluster_SetsDownloadBase(t *testing.T) {
 	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 	assert.Equal(t, "/custom/download/base", mockedConn.GetDeployment().DownloadBase())
 }
+
+func TestSingleClusterShardedHostnamesUsePerTierExternalDomains(t *testing.T) {
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	sc := test.DefaultClusterBuilder().
+		SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	legacyCluster := multicluster.MemberCluster{Name: multicluster.LegacyCentralClusterName, Legacy: true}
+
+	configHostnames, _ := reconcileHelper.getConfigSrvHostnames(legacyCluster, sc.Spec.ConfigServerCount)
+	for _, hostname := range configHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.ConfigServerExternalDomain)
+		assert.NotContains(t, hostname, "svc.cluster.local")
+	}
+
+	shardHostnames, _ := reconcileHelper.getShardHostnames(0, legacyCluster, sc.Spec.MongodsPerShardCount)
+	for _, hostname := range shardHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.ShardsExternalDomain)
+		assert.NotContains(t, hostname, "svc.cluster.local")
+	}
+
+	mongosHostnames, _ := reconcileHelper.getMongosHostnames(legacyCluster, sc.Spec.MongosCount)
+	for _, hostname := range mongosHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.MongosExternalDomain)
+		assert.NotContains(t, hostname, "svc.cluster.local")
+	}
+}
+
+func TestSingleClusterShardedMongosPerTierDomainBeatsTopLevel(t *testing.T) {
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	// Top-level says single.mongodb.com; spec.mongos.externalAccess says mongos.mongodb.com.
+	sc := test.DefaultClusterBuilder().
+		SetExternalAccessDomain(test.ExampleExternalClusterDomains).
+		SetPerTierExternalAccessDomains(test.ClusterDomains{MongosExternalDomain: test.ExampleExternalClusterDomains.MongosExternalDomain}).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	legacyCluster := multicluster.MemberCluster{Name: multicluster.LegacyCentralClusterName, Legacy: true}
+	mongosHostnames, _ := reconcileHelper.getMongosHostnames(legacyCluster, sc.Spec.MongosCount)
+
+	for _, hostname := range mongosHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.MongosExternalDomain)
+		assert.NotContains(t, hostname, test.ExampleExternalClusterDomains.SingleClusterDomain)
+	}
+}
+
+func TestReconcileCreateSingleClusterShardedClusterWithPerTierExternalDomains(t *testing.T) {
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	// Distinct counts per tier so the external-service loop bound is exercised: before the fix the
+	// loop used Spec.Replicas(), which is MongosCount for a sharded cluster, and config servers would
+	// have got MongosCount services instead of ConfigServerCount.
+	sc := test.DefaultClusterBuilder().
+		SetConfigServerCountSpec(3).
+		SetMongodsPerShardCountSpec(2).
+		SetMongosCountSpec(4).
+		SetShardCountSpec(1).
+		SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		var allHostnames []string
+		mongosHostNames, _ := dns.GetDNSNames(sc.MongosRsName(), sc.ServiceName(), sc.Namespace, "", sc.Spec.MongosCount, &test.ExampleExternalClusterDomains.MongosExternalDomain)
+		allHostnames = append(allHostnames, mongosHostNames...)
+		configHostNames, _ := dns.GetDNSNames(sc.ConfigRsName(), sc.ConfigSrvServiceName(), sc.Namespace, "", sc.Spec.ConfigServerCount, &test.ExampleExternalClusterDomains.ConfigServerExternalDomain)
+		allHostnames = append(allHostnames, configHostNames...)
+		for shardIdx := range sc.Spec.ShardCount {
+			shardHostNames, _ := dns.GetDNSNames(sc.ShardName(shardIdx), sc.ShardServiceName(), sc.Namespace, "", sc.Spec.MongodsPerShardCount, &test.ExampleExternalClusterDomains.ShardsExternalDomain)
+			allHostnames = append(allHostnames, shardHostNames...)
+		}
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	memberClusterChecks := newClusterChecks(t, multicluster.LegacyCentralClusterName, 0, sc.Namespace, kubeClient)
+
+	// Every tier gets one external service per member, and no internal per-pod services.
+	mongosStatefulSetName := fmt.Sprintf("%s-mongos", sc.Name)
+	memberClusterChecks.checkExternalServices(ctx, mongosStatefulSetName, sc.Spec.MongosCount)
+	memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStatefulSetName, sc.Spec.MongosCount)
+
+	configServerStatefulSetName := fmt.Sprintf("%s-config", sc.Name)
+	memberClusterChecks.checkExternalServices(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+	memberClusterChecks.checkPerPodServicesDontExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		shardStatefulSetName := fmt.Sprintf("%s-%d", sc.Name, shardIdx)
+		memberClusterChecks.checkExternalServices(ctx, shardStatefulSetName, sc.Spec.MongodsPerShardCount)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStatefulSetName, sc.Spec.MongodsPerShardCount)
+	}
+
+	// The loop-bound fix: config servers get ConfigServerCount external services, not MongosCount.
+	// With ConfigServerCount=3 and MongosCount=4, index 3 must not exist. Asserted with a direct Get
+	// rather than checkExternalServicesDontExist, because that helper builds names as
+	// <statefulSetName>-<podIdx>-svc-external and would look for the wrong name here.
+	extraConfigService := corev1.Service{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, fmt.Sprintf("%s-config-%d-svc-external", sc.Name, sc.Spec.ConfigServerCount)), &extraConfigService)
+	assert.True(t, errors.IsNotFound(err),
+		"config servers must get exactly ConfigServerCount (%d) external services, not MongosCount (%d)",
+		sc.Spec.ConfigServerCount, sc.Spec.MongosCount)
+
+	// Headless services are still there for all tiers.
+	memberClusterChecks.checkServiceExists(ctx, fmt.Sprintf("%s-cs", sc.Name))
+	memberClusterChecks.checkServiceExists(ctx, fmt.Sprintf("%s-sh", sc.Name))
+	memberClusterChecks.checkServiceExists(ctx, fmt.Sprintf("%s-svc", sc.Name))
+
+	// An external domain implies a non-ephemeral backup port on every tier's external service, not
+	// just mongos. Without it the backup agent cannot connect through the external hostname.
+	for _, tier := range []struct {
+		stsName string
+		members int
+	}{
+		{fmt.Sprintf("%s-config", sc.Name), sc.Spec.ConfigServerCount},
+		{fmt.Sprintf("%s-0", sc.Name), sc.Spec.MongodsPerShardCount},
+		{fmt.Sprintf("%s-mongos", sc.Name), sc.Spec.MongosCount},
+	} {
+		for podIdx := 0; podIdx < tier.members; podIdx++ {
+			svc := corev1.Service{}
+			serviceName := fmt.Sprintf("%s-%d-svc-external", tier.stsName, podIdx)
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, serviceName), &svc))
+
+			portNames := make([]string, 0, len(svc.Spec.Ports))
+			for _, port := range svc.Spec.Ports {
+				portNames = append(portNames, port.Name)
+			}
+			assert.Contains(t, portNames, "backup", "external service %s must expose the backup port", serviceName)
+		}
+	}
+}
+
+// TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDomain guards against pods
+// mounting a ConfigMap that was never created: the StatefulSets mount it whenever a tier resolves to
+// an external domain, so creation must not be gated on the top-level spec.externalAccess alone.
+func TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDomain(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := map[string]struct {
+		sc             *mdbv1.MongoDB
+		expectedExists bool
+	}{
+		"no external domain": {
+			sc:             test.DefaultClusterBuilder().Build(),
+			expectedExists: false,
+		},
+		"per-tier external domains only": {
+			sc: test.DefaultClusterBuilder().
+				SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
+				Build(),
+			expectedExists: true,
+		},
+		"top-level external domain only": {
+			sc: test.DefaultClusterBuilder().
+				SetExternalAccessDomain(test.SingleExternalClusterDomains).
+				Build(),
+			expectedExists: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, tc.sc)))
+			kubeClient, _ := mock.NewDefaultFakeClient(tc.sc)
+			_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", tc.sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+			require.NoError(t, err)
+
+			require.NoError(t, reconcileHelper.reconcileHostnameOverrideConfigMap(ctx, zap.S()))
+
+			cm := corev1.ConfigMap{}
+			err = kubeClient.Get(ctx, types.NamespacedName{Name: tc.sc.GetHostNameOverrideConfigmapName(), Namespace: tc.sc.Namespace}, &cm)
+			if !tc.expectedExists {
+				assert.True(t, errors.IsNotFound(err), "expected no hostname override ConfigMap, got err: %v", err)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotEmpty(t, cm.Data)
+		})
+	}
+}
