@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -548,4 +549,69 @@ func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	expected := mdb.Spec.GetAdditionalMongodConfig().ToMap()
 	actual := unmarshalledSpec.AdditionalMongodConfig.ToMap()
 	assert.Equal(t, expected, actual)
+}
+
+func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
+	t.Run("nil authentication is defaulted for AppDB role", func(t *testing.T) {
+		mdb := MongoDB{
+			Spec: MongoDbSpec{
+				DbCommonSpec: DbCommonSpec{
+					Version:      "8.0.0",
+					ResourceType: ReplicaSet,
+					Role:         RoleAppDB,
+				},
+				Members: 3,
+			},
+		}
+		mdb.InitDefaults()
+
+		require.NotNil(t, mdb.Spec.Security)
+		require.NotNil(t, mdb.Spec.Security.Authentication)
+		assert.True(t, mdb.Spec.Security.Authentication.Enabled)
+		assert.Equal(t, []AuthMode{util.SCRAM}, mdb.Spec.Security.Authentication.Modes)
+		assert.True(t, mdb.Spec.Security.Authentication.IgnoreUnknownUsers)
+	})
+
+	t.Run("wrong modes are overwritten for AppDB role", func(t *testing.T) {
+		mdb := MongoDB{
+			Spec: MongoDbSpec{
+				DbCommonSpec: DbCommonSpec{
+					Version: "8.0.0",
+					Role:    RoleAppDB,
+					Security: &Security{
+						TLSConfig: &TLSConfig{CA: "my-ca"},
+						Authentication: &Authentication{
+							Enabled:            true,
+							Modes:              []AuthMode{AuthMode("X509")},
+							IgnoreUnknownUsers: false,
+						},
+					},
+				},
+				Members: 3,
+			},
+		}
+		mdb.InitDefaults()
+
+		require.NotNil(t, mdb.Spec.Security.Authentication)
+		assert.True(t, mdb.Spec.Security.Authentication.Enabled)
+		assert.Equal(t, []AuthMode{util.SCRAM}, mdb.Spec.Security.Authentication.Modes)
+		assert.True(t, mdb.Spec.Security.Authentication.IgnoreUnknownUsers)
+		assert.Equal(t, "my-ca", mdb.Spec.Security.TLSConfig.CA, "TLS config must be preserved")
+	})
+
+	t.Run("authentication is not set for non-AppDB role", func(t *testing.T) {
+		mdb := MongoDB{
+			Spec: MongoDbSpec{
+				DbCommonSpec: DbCommonSpec{
+					Version:      "8.0.0",
+					ResourceType: ReplicaSet,
+				},
+				Members: 3,
+			},
+		}
+		mdb.InitDefaults()
+
+		require.NotNil(t, mdb.Spec.Security)
+		assert.Nil(t, mdb.Spec.Security.Authentication)
+	})
 }

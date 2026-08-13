@@ -74,6 +74,12 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 			},
 		},
 		{
+			name: "role AppDB without explicit authentication is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Role = mdbv1.RoleAppDB
+			},
+		},
+		{
 			name: "role AppDB missing SCRAM is rejected",
 			mutate: func(rs *mdbv1.MongoDB) {
 				rs.Spec.Role = mdbv1.RoleAppDB
@@ -85,7 +91,35 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 					},
 				}
 			},
-			errorContains: "spec.security.authentication must have SCRAM enabled when spec.role is AppDB",
+			errorContains: "spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB with SCRAM and X509 modes is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Role = mdbv1.RoleAppDB
+				rs.Spec.Security = &mdbv1.Security{
+					Authentication: &mdbv1.Authentication{
+						Enabled:            true,
+						Modes:              []mdbv1.AuthMode{mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("X509")},
+						IgnoreUnknownUsers: true,
+					},
+				}
+			},
+			errorContains: "spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB",
+		},
+		{
+			name: "role AppDB with authentication disabled is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Role = mdbv1.RoleAppDB
+				rs.Spec.Security = &mdbv1.Security{
+					Authentication: &mdbv1.Authentication{
+						Enabled:            false,
+						Modes:              []mdbv1.AuthMode{mdbv1.AuthMode("SCRAM")},
+						IgnoreUnknownUsers: true,
+					},
+				}
+			},
+			errorContains: "spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB",
 		},
 		{
 			name: "role AppDB missing ignoreUnknownUsers is rejected",
@@ -99,7 +133,7 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 					},
 				}
 			},
-			errorContains: "spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB",
+			errorContains: "spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB and authentication is set",
 		},
 		{
 			name: "role AppDB with fewer than 3 members is rejected",
@@ -127,13 +161,6 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 				withAppDBSecurity(rs)
 			},
 			errorContains: "spec.topology MultiCluster is not supported when spec.role is AppDB",
-		},
-		{
-			name: "role AppDB with nil authentication is rejected",
-			mutate: func(rs *mdbv1.MongoDB) {
-				rs.Spec.Role = mdbv1.RoleAppDB
-			},
-			errorContains: "spec.security.authentication must have SCRAM enabled when spec.role is AppDB",
 		},
 	}
 

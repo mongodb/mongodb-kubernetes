@@ -3387,17 +3387,17 @@ spec:
             - message: spec.members must be >= 3 when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.members)
                 && self.members >= 3)'
-            - message: spec.security.authentication must have SCRAM enabled when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
-                && has(self.security.authentication) && self.security.authentication.enabled
-                == true && has(self.security.authentication.modes) && ''SCRAM'' in
-                self.security.authentication.modes)'
+            - message: spec.security.authentication must be enabled with modes [SCRAM]
+                only when spec.role is AppDB, or omitted entirely
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
+                || !has(self.security.authentication) || (self.security.authentication.enabled
+                == true && has(self.security.authentication.modes) && size(self.security.authentication.modes)
+                == 1 && self.security.authentication.modes[0] == ''SCRAM'')'
             - message: spec.security.authentication.ignoreUnknownUsers must be true
-                when spec.role is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
-                && has(self.security.authentication) && self.security.authentication.ignoreUnknownUsers
-                == true)'
+                when spec.role is AppDB and authentication is set
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
+                || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers
+                == true'
           status:
             properties:
               backup:
@@ -4539,17 +4539,17 @@ spec:
             x-kubernetes-validations:
             - message: spec.role is not supported on MongoDBMultiCluster
               rule: self.role == ""
-            - message: spec.security.authentication must have SCRAM enabled when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
-                && has(self.security.authentication) && self.security.authentication.enabled
-                == true && has(self.security.authentication.modes) && ''SCRAM'' in
-                self.security.authentication.modes)'
+            - message: spec.security.authentication must be enabled with modes [SCRAM]
+                only when spec.role is AppDB, or omitted entirely
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
+                || !has(self.security.authentication) || (self.security.authentication.enabled
+                == true && has(self.security.authentication.modes) && size(self.security.authentication.modes)
+                == 1 && self.security.authentication.modes[0] == ''SCRAM'')'
             - message: spec.security.authentication.ignoreUnknownUsers must be true
-                when spec.role is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.security)
-                && has(self.security.authentication) && self.security.authentication.ignoreUnknownUsers
-                == true)'
+                when spec.role is AppDB and authentication is set
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
+                || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers
+                == true'
           status:
             properties:
               backup:

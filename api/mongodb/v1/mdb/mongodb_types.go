@@ -384,8 +384,8 @@ type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.security) && has(self.security.authentication) && self.security.authentication.enabled == true && has(self.security.authentication.modes) && 'SCRAM' in self.security.authentication.modes)",message="spec.security.authentication must have SCRAM enabled when spec.role is AppDB"
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.security) && has(self.security.authentication) && self.security.authentication.ignoreUnknownUsers == true)",message="spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || (self.security.authentication.enabled == true && has(self.security.authentication.modes) && size(self.security.authentication.modes) == 1 && self.security.authentication.modes[0] == 'SCRAM')",message="spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB, or omitted entirely"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers == true",message="spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB and authentication is set"
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	// +kubebuilder:validation:Required
@@ -1441,6 +1441,14 @@ func (m *MongoDB) InitDefaults() {
 	}
 
 	m.Spec.Security = EnsureSecurity(m.Spec.Security)
+
+	if m.Spec.Role == RoleAppDB {
+		m.Spec.Security.Authentication = &Authentication{
+			Enabled:            true,
+			Modes:              []AuthMode{util.SCRAM},
+			IgnoreUnknownUsers: true,
+		}
+	}
 
 	if m.Spec.OpsManagerConfig == nil {
 		m.Spec.OpsManagerConfig = NewOpsManagerConfig()
