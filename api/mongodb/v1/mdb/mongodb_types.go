@@ -8,6 +8,7 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -376,12 +377,37 @@ type MongoDbStatus struct {
 	ProjectId                              string                                     `json:"projectId,omitempty"`
 	FeatureCompatibilityVersion            string                                     `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                               []status.Warning                           `json:"warnings,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type BackupMode string
 
 type BackupStatus struct {
 	StatusName string `json:"statusName"`
+}
+
+type ExternalMember struct {
+	// ProcessName contains the name of the external process as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	ProcessName string `json:"processName"`
+
+	// Hostname contains the hostname and port of the external process, as it appears in the `processes` field in the AC.
+	// +kubebuilder:validation:Required
+	Hostname string `json:"hostname"`
+
+	// Type specifies the type of the external member, whether it's a mongod or mongos process.
+	// This field is not required when the deployment we migrate is a Replica Set since it only contains mongods.
+	// However, for a Sharded Cluster deployment, this field is required to distinguish between mongod and mongos processes in the cluster.
+	// +kubebuilder:validation:Enum=mongod;mongos
+	Type string `json:"type"`
+
+	// ReplicaSetName is required only for mongod processes in a Sharded Cluster deployment
+	// It specifies the name of the Replica Set that the mongod process belongs to.
+	// This field will help to determine whether the mongod process belongs to the config server or a shard (and in which shard).
+	// +optional
+	ReplicaSetName string `json:"replicaSetName"`
 }
 
 type DbCommonSpec struct {
@@ -441,6 +467,11 @@ type DbCommonSpec struct {
 	// +kubebuilder:validation:Enum=SingleCluster;MultiCluster
 	// +optional
 	Topology string `json:"topology,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 type MongoDbSpec struct {
@@ -819,6 +850,18 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
+}
+
+func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
+	return d.ExternalMembers
+}
+
+func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, m := range d.ExternalMembers {
+		processNames = append(processNames, m.ProcessName)
+	}
+	return processNames
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1312,6 +1355,12 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 	if option, exists := status.GetOption(statusOptions, status.ProjectIdOption{}); exists {
 		m.Status.ProjectId = option.(status.ProjectIdOption).ProjectId
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.MigrationConditionOption{}); exists {
+		c := option.(status.MigrationConditionOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
 	}
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
