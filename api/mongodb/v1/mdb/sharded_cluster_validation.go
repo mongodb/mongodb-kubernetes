@@ -17,6 +17,7 @@ func ShardedClusterCommonValidators() []func(m MongoDB) v1.ValidationResult {
 		shardOverridesShardNamesCorrectValues,
 		shardOverridesClusterSpecListsCorrect,
 		shardCountSpecified,
+		shardNameOverridesValidForm,
 	}
 }
 
@@ -193,6 +194,71 @@ func shardOverridesClusterSpecListsCorrect(m MongoDB) v1.ValidationResult {
 	return v1.ValidationSuccess()
 	// Note that shardOverride.Members and shardOverride.MemberConfig should not be checked as they are ignored,
 	// shardOverride.ClusterSpecList.Members and shardOverride.ClusterSpecList.MemberConfig are used instead
+}
+
+// shardNameOverridesValidForm validates each entry has one of the accepted forms:
+// 1. ShardName only (brevity): all three values (_id, replicaSetName, K8s name) are equal.
+// 2. ShardName + ShardId + ReplicaSetName: full form when any AC value differs from the K8s name.
+//
+// ShardId and ReplicaSetName must both be set or both be omitted.
+// ShardName, ShardId, and ReplicaSetName values must each be unique across all entries.
+func shardNameOverridesValidForm(m MongoDB) v1.ValidationResult {
+	seenShardName := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	seenShardId := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	seenReplicaSetName := make(map[string]bool, len(m.Spec.ShardNameOverrides))
+	for i, o := range m.Spec.ShardNameOverrides {
+		if o.ShardName == "" {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName is required", i)
+		}
+		if !validateShardName(o.ShardName, m.Spec.ShardCount, m.Name) {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName %q must be %s-{index} with index < %d", i, o.ShardName, m.Name, m.Spec.ShardCount)
+		}
+		if seenShardName[o.ShardName] {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardName %q is a duplicate", i, o.ShardName)
+		}
+		seenShardName[o.ShardName] = true
+		hasId := o.ShardId != ""
+		hasRs := o.ReplicaSetName != ""
+		if hasId != hasRs {
+			return v1.ValidationError("spec.shardNameOverrides[%d]: shardId and replicaSetName must both be set or both be omitted", i)
+		}
+		if hasId {
+			if seenShardId[o.ShardId] {
+				return v1.ValidationError("spec.shardNameOverrides[%d]: shardId %q is a duplicate", i, o.ShardId)
+			}
+			seenShardId[o.ShardId] = true
+		}
+		if hasRs {
+			if seenReplicaSetName[o.ReplicaSetName] {
+				return v1.ValidationError("spec.shardNameOverrides[%d]: replicaSetName %q is a duplicate", i, o.ReplicaSetName)
+			}
+			seenReplicaSetName[o.ReplicaSetName] = true
+		}
+	}
+
+	// Resolved AC names must be unique across shards and must not collide with the config server.
+	// replicaSetName and shard _id are independent AC fields, so each is checked on its own. The
+	// resolved checks also catch an override value colliding with another shard's fallback name,
+	// which the per entry uniqueness checks above cannot see.
+	// Runs even without overrides since configServerNameOverride alone can collide.
+	rsNameToShardIdx := make(map[string]int, m.Spec.ShardCount)
+	shardIdToShardIdx := make(map[string]int, m.Spec.ShardCount)
+	for i := 0; i < m.Spec.ShardCount; i++ {
+		rsName := m.ShardACRsName(i)
+		if prev, ok := rsNameToShardIdx[rsName]; ok {
+			return v1.ValidationError("shards %d and %d both resolve to AC replicaSetName %q", prev, i, rsName)
+		}
+		rsNameToShardIdx[rsName] = i
+		shardId := m.ShardACShardId(i)
+		if prev, ok := shardIdToShardIdx[shardId]; ok {
+			return v1.ValidationError("shards %d and %d both resolve to AC shard _id %q", prev, i, shardId)
+		}
+		shardIdToShardIdx[shardId] = i
+	}
+	if i, ok := rsNameToShardIdx[m.ConfigACRsName()]; ok {
+		return v1.ValidationError("shard %d resolves to the same AC replicaSetName %q as the config server", i, m.ConfigACRsName())
+	}
+	return v1.ValidationSuccess()
 }
 
 // If the MDB resource name is foo, and we have n shards, we verify that shard names ∈ {foo-0 , foo-1 ..., foo-(n-1)}

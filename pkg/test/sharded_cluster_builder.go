@@ -262,6 +262,11 @@ func (b *ClusterBuilder) SetShardOverrides(override []mdb.ShardOverride) *Cluste
 	return b
 }
 
+func (b *ClusterBuilder) SetShardNameOverrides(overrides []mdb.ShardNameOverride) *ClusterBuilder {
+	b.Spec.ShardNameOverrides = overrides
+	return b
+}
+
 func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *ClusterBuilder {
 	b.Spec.OpsManagerConfig.ConfigMapRef.Name = configMapName
 	return b
