@@ -277,8 +277,11 @@ def create_or_update_namespace(
 
 
 def delete_namespace(name: str):
-    c = client.CoreV1Api()
-    c.delete_namespace(name, body=c.V1DeleteOptions())
+    client.CoreV1Api().delete_namespace(name, body=client.V1DeleteOptions())
+
+
+def read_namespace(name: str):
+    return client.CoreV1Api().read_namespace(name)
 
 
 def label_namespace(name: str, labels: dict):

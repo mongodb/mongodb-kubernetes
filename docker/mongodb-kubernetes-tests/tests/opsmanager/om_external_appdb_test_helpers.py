@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import pymongo
@@ -6,6 +7,7 @@ from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
+from pymongo.errors import AutoReconnect, ServerSelectionTimeoutError
 
 SENTINEL_DOC = {"_id": "external-appdb-sentinel", "marker": "survived-migration"}
 TEST_DB = "sentinelDb"
@@ -99,14 +101,29 @@ def write_sentinel_doc(cnx_string: str, tls_ca_file: Optional[str] = None):
         client.close()
 
 
-def assert_sentinel_doc_present(cnx_string: str, tls_ca_file: Optional[str] = None):
-    client = _sentinel_client(cnx_string, tls_ca_file)
-    try:
-        found = client[TEST_DB][TEST_COLLECTION].find_one({"_id": SENTINEL_DOC["_id"]})
-        assert found is not None, "sentinel document did not survive the migration"
-        assert found["marker"] == SENTINEL_DOC["marker"]
-    finally:
-        client.close()
+def assert_sentinel_doc_present(cnx_string: str, tls_ca_file: Optional[str] = None, timeout: int = 0):
+    """Asserts the sentinel document is present.
+
+    With timeout > 0, retries on assertion and connection errors until the timeout — needed after
+    a PIT restore, whose job reports FINISHED once OM prepared the files while the agents keep
+    applying data afterwards.
+    """
+    start_time = time.time()
+    while True:
+        client = _sentinel_client(cnx_string, tls_ca_file)
+        try:
+            found = client[TEST_DB][TEST_COLLECTION].find_one({"_id": SENTINEL_DOC["_id"]})
+            assert found is not None, "sentinel document did not survive the migration"
+            assert found["marker"] == SENTINEL_DOC["marker"]
+            return
+        except (AssertionError, ServerSelectionTimeoutError, AutoReconnect) as e:
+            if time.time() - start_time >= timeout:
+                if timeout > 0:
+                    raise AssertionError(f"sentinel document not found within {timeout}s; last error: {e}") from e
+                raise
+        finally:
+            client.close()
+        time.sleep(5)
 
 
 def assert_project_exists(meta_om: MongoDBOpsManager, appdb_name: str):
