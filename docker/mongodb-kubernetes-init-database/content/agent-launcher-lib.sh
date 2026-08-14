@@ -119,15 +119,6 @@ download_agent() {
             ;;
     esac
 
-    if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
-        script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
-        download_url="${MDB_CUSTOM_AGENT_URL}"
-    else
-        script_log "Downloading Agent version: ${AGENT_VERSION}"
-        script_log "Downloading a Mongodb Agent from ${base_url:?}"
-        download_url="${base_url}/download/agent/automation/${AGENT_FILE}"
-    fi
-
     curl_opts=(
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
@@ -143,14 +134,18 @@ download_agent() {
         curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
-    local agent_suffix downloaded="false"
+    local agent_suffix downloaded="false" attempted
     : >"${MMS_LOG_DIR}/curl.log"
     if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
         # A custom URL points at one specific package, so there is nothing to probe.
-        if curl "${curl_opts[@]}" "${download_url}" &>>"${MMS_LOG_DIR}/curl.log"; then
+        script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
+        attempted="${MDB_CUSTOM_AGENT_URL}"
+        if curl "${curl_opts[@]}" "${MDB_CUSTOM_AGENT_URL}" &>>"${MMS_LOG_DIR}/curl.log"; then
             downloaded="true"
         fi
     else
+        script_log "Downloading Agent version: ${AGENT_VERSION} from ${base_url:?}"
+        attempted="packages for ${detected_arch} (${agent_suffixes[*]})"
         for agent_suffix in "${agent_suffixes[@]}"; do
             AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.${agent_suffix}.tar.gz"
             script_log "Trying to download the Mongodb Agent package ${AGENT_FILE}"
@@ -166,7 +161,7 @@ download_agent() {
     rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
 
     if [ "${downloaded}" != "true" ]; then
-        script_log "Error while downloading the Mongodb agent: none of the packages for ${detected_arch} (${agent_suffixes[*]}) could be downloaded"
+        script_log "Error while downloading the Mongodb agent: could not download ${attempted}"
         exit 1
     fi
 
