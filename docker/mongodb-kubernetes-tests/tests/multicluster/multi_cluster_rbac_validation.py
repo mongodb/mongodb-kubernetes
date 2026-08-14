@@ -137,7 +137,7 @@ class TestMultiClusterRBACValidation:
             namespace,
             broken_cluster_name,
             "False",
-            reason="VersionMismatch",
+            reason="Invalid",
             api_client=central_cluster_client,
             timeout=RBAC_RECHECK_TIMEOUT,
         )

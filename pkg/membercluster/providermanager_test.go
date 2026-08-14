@@ -20,6 +20,7 @@ import (
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const (
@@ -74,7 +75,7 @@ func withGeneration(mc *operatorv1.MemberCluster, generation int64) *operatorv1.
 func credentialSecret(name, server string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNamespace},
-		Data:       map[string][]byte{credentialSecretKubeconfigKey: []byte(kubeconfig(server))},
+		Data:       map[string][]byte{util.MemberClusterCredentialSecretKubeconfigKey: []byte(kubeconfig(server))},
 	}
 }
 
@@ -234,14 +235,14 @@ func TestRemoveDeregistersEntry(t *testing.T) {
 
 func TestLoadCredentialsErrors(t *testing.T) {
 	tests := []struct {
-		name     string
-		secret   *corev1.Secret
-		sentinel error
+		name          string
+		secret        *corev1.Secret
+		wantErrSubstr string
 	}{
 		{
-			name:     "secret missing",
-			secret:   nil,
-			sentinel: errCredentialSecretUnreadable,
+			name:          "secret missing",
+			secret:        nil,
+			wantErrSubstr: `reading credential secret "mck-credential-cluster-bad"`,
 		},
 		{
 			name: "kubeconfig key missing",
@@ -249,21 +250,21 @@ func TestLoadCredentialsErrors(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "mck-credential-cluster-bad", Namespace: testNamespace},
 				Data:       map[string][]byte{"other": []byte("x")},
 			},
-			sentinel: errCredentialSecretUnreadable,
+			wantErrSubstr: `credential secret "mck-credential-cluster-bad" has no "kubeconfig" key`,
 		},
 		{
 			name: "kubeconfig malformed",
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "mck-credential-cluster-bad", Namespace: testNamespace},
-				Data:       map[string][]byte{credentialSecretKubeconfigKey: []byte("not: [valid")},
+				Data:       map[string][]byte{util.MemberClusterCredentialSecretKubeconfigKey: []byte("not: [valid")},
 			},
-			sentinel: errCredentialMalformed,
+			wantErrSubstr: `parsing kubeconfig in credential secret`,
 		},
 		{
 			name: "context namespace missing",
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: "mck-credential-cluster-bad", Namespace: testNamespace},
-				Data: map[string][]byte{credentialSecretKubeconfigKey: []byte(`apiVersion: v1
+				Data: map[string][]byte{util.MemberClusterCredentialSecretKubeconfigKey: []byte(`apiVersion: v1
 kind: Config
 clusters:
 - cluster:
@@ -282,7 +283,7 @@ users:
     token: a-token
 `)},
 			},
-			sentinel: errCredentialNamespaceMissing,
+			wantErrSubstr: `has no namespace on context "member": set contexts[].context.namespace to the member cluster's operator namespace`,
 		},
 	}
 	for _, tt := range tests {
@@ -296,7 +297,7 @@ users:
 
 			mc := memberClusterCR("cluster-bad", "cluster-bad", "mck-credential-cluster-bad")
 			_, err := m.loadCredentials(ctx, mc)
-			require.ErrorIs(t, err, tt.sentinel)
+			require.ErrorContains(t, err, tt.wantErrSubstr)
 			assert.Empty(t, m.provider.Entries())
 		})
 	}
@@ -310,7 +311,7 @@ func TestLoadCredentialsRecoversWhenSecretAppears(t *testing.T) {
 
 	mc := memberClusterCR("cluster-bad", "cluster-bad", "mck-credential-cluster-bad")
 	_, err := m.loadCredentials(ctx, mc)
-	require.ErrorIs(t, err, errCredentialSecretUnreadable)
+	require.ErrorContains(t, err, `reading credential secret "mck-credential-cluster-bad"`)
 
 	// Once the Secret appears, the requeued reconcile registers the cluster.
 	require.NoError(t, c.Create(ctx, credentialSecret("mck-credential-cluster-bad", "https://bad.example.com:6443")))

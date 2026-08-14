@@ -29,10 +29,10 @@ const testRecheckInterval = 42 * time.Second
 // and whose expected version is pinned, independent of the build-time injected default.
 func newTestReconciler(ctx context.Context, centralClient client.Client, memberClient client.Client, provider *multicluster.Provider) *Reconciler {
 	r := NewReconciler(ctx, centralClient, testNamespace, testClientTimeout, testRecheckInterval, provider, newTestCluster)
-	r.validation.expectedVersion = testExpected
 	if memberClient != nil {
-		r.validation.validator = staticValidator(memberClient)
+		r.validator = staticValidator(memberClient)
 	}
+	r.validator.expectedVersion = testExpected
 	return r
 }
 
@@ -64,7 +64,7 @@ func TestReconcileCredentialSecretMissing(t *testing.T) {
 	condition := rbacValidCondition(t, central, "cluster-a")
 	require.NotNil(t, condition)
 	assert.Equal(t, metav1.ConditionFalse, condition.Status)
-	assert.Equal(t, reasonCredentialSecretMissing, condition.Reason)
+	assert.Equal(t, reasonInvalid, condition.Reason)
 	assert.Contains(t, condition.Message, "mck-credential-cluster-a")
 }
 
@@ -128,7 +128,7 @@ func TestReconcileInvalidRBACRemovesEntry(t *testing.T) {
 	condition := rbacValidCondition(t, central, "cluster-a")
 	require.NotNil(t, condition)
 	assert.Equal(t, metav1.ConditionFalse, condition.Status)
-	assert.Equal(t, reasonVersionMismatch, condition.Reason)
+	assert.Equal(t, reasonInvalid, condition.Reason)
 	assert.Empty(t, provider.Entries())
 
 	// A previously-registered entry is removed once RBAC turns definitively invalid.
@@ -175,7 +175,7 @@ func TestReconcileValidationDisabled(t *testing.T) {
 	// No member client: a validator probe would fail, so a registered entry proves the
 	// probe was skipped.
 	r := newTestReconciler(ctx, central, nil, provider)
-	r.validation.expectedVersion = ""
+	r.validator.expectedVersion = ""
 
 	reconcileOnce(t, r, "cluster-a")
 
@@ -183,7 +183,7 @@ func TestReconcileValidationDisabled(t *testing.T) {
 	condition := rbacValidCondition(t, central, "cluster-a")
 	require.NotNil(t, condition)
 	assert.Equal(t, metav1.ConditionTrue, condition.Status)
-	assert.Equal(t, reasonValidationDisabled, condition.Reason)
+	assert.Equal(t, reasonValid, condition.Reason)
 }
 
 func TestReconcileDeletedCRRemovesEntry(t *testing.T) {

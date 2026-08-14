@@ -76,7 +76,7 @@ func TestReconcilerRBACValidation(t *testing.T) {
 	r := NewReconciler(t.Context(), mgr.GetClient(), testNamespace, 10*time.Second, time.Second, provider, func(restConfig *restclient.Config) (runtime_cluster.Cluster, error) {
 		return runtime_cluster.New(restConfig, func(o *runtime_cluster.Options) { o.Scheme = scheme })
 	})
-	r.validation.expectedVersion = "test-rbac-v1"
+	r.validator.expectedVersion = "test-rbac-v1"
 	require.NoError(t, r.SetupWithManager(mgr))
 
 	// Derived from t.Context() but cancelled explicitly: the manager must stop before
@@ -95,7 +95,7 @@ func TestReconcilerRBACValidation(t *testing.T) {
 	}))
 	require.NoError(t, centralClient.Create(context.Background(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mck-credential-cluster-a", Namespace: testNamespace},
-		Data:       map[string][]byte{credentialSecretKubeconfigKey: []byte(envtestKubeconfig(cfg))},
+		Data:       map[string][]byte{util.MemberClusterCredentialSecretKubeconfigKey: []byte(envtestKubeconfig(cfg))},
 	}))
 	require.NoError(t, centralClient.Create(context.Background(), memberClusterCR("cluster-a", "cluster-a", "mck-credential-cluster-a")))
 
@@ -110,7 +110,7 @@ func TestReconcilerRBACValidation(t *testing.T) {
 	// No member ServiceAccount yet: the cluster is skipped and reports it.
 	require.Eventually(t, func() bool {
 		condition := rbacValid()
-		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reasonMemberServiceAccountNotFound
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reasonInvalid
 	}, 10*time.Second, 50*time.Millisecond)
 	assert.Empty(t, provider.Entries())
 
@@ -124,7 +124,7 @@ func TestReconcilerRBACValidation(t *testing.T) {
 	}))
 	require.Eventually(t, func() bool {
 		condition := rbacValid()
-		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reasonVersionMismatch
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reasonInvalid
 	}, 10*time.Second, 50*time.Millisecond)
 	assert.Empty(t, provider.Entries())
 
@@ -159,7 +159,7 @@ func TestReconcilerRBACValidation(t *testing.T) {
 	assert.Equal(t, int32(1), removed.Load())
 	require.Eventually(t, func() bool {
 		condition := rbacValid()
-		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reasonMemberServiceAccountNotFound
+		return condition != nil && condition.Status == metav1.ConditionFalse && condition.Reason == reasonInvalid
 	}, 10*time.Second, 50*time.Millisecond)
 
 	before := reconciled.Load()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,18 +19,7 @@ import (
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
-)
-
-// credentialSecretKubeconfigKey is the Secret key holding the single-context kubeconfig.
-// It matches the key written by the `generate-member-registration` plugin command.
-const credentialSecretKubeconfigKey = "kubeconfig"
-
-// Credential-loading sentinel errors; the Reconciler maps them to RBACValid condition
-// reasons and treats them as expected-negative states (no error return, periodic re-check).
-var (
-	errCredentialSecretUnreadable = errors.New("credential secret unreadable")
-	errCredentialMalformed        = errors.New("credential kubeconfig malformed")
-	errCredentialNamespaceMissing = errors.New("credential kubeconfig context has no namespace")
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // credentials holds everything derived from the MemberCluster CR's credential Secret.
@@ -96,32 +84,31 @@ func newProviderManager(baseCtx context.Context, c client.Reader, namespace stri
 // loadCredentials reads the credential Secret referenced by the MemberCluster CR and
 // derives the member cluster's rest.Config, the ServiceAccount namespace from the
 // kubeconfig's context, and a hash of the raw kubeconfig for rotation detection.
-// Failures wrap one of the credential sentinel errors.
 func (m *providerManager) loadCredentials(ctx context.Context, mc *operatorv1.MemberCluster) (*credentials, error) {
 	secretName := mc.Spec.CredentialSecretRef.Name
 	secret := &corev1.Secret{}
 	if err := m.client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: m.namespace}, secret); err != nil {
-		return nil, fmt.Errorf("%w: reading credential secret %q: %v", errCredentialSecretUnreadable, secretName, err)
+		return nil, fmt.Errorf("reading credential secret %q: %v", secretName, err)
 	}
 
-	kubeconfig, ok := secret.Data[credentialSecretKubeconfigKey]
+	kubeconfig, ok := secret.Data[util.MemberClusterCredentialSecretKubeconfigKey]
 	if !ok || len(kubeconfig) == 0 {
-		return nil, fmt.Errorf("%w: credential secret %q has no %q key", errCredentialSecretUnreadable, secretName, credentialSecretKubeconfigKey)
+		return nil, fmt.Errorf("credential secret %q has no %q key", secretName, util.MemberClusterCredentialSecretKubeconfigKey)
 	}
 
 	cfg, err := clientcmd.Load(kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("%w: parsing kubeconfig in credential secret %q: %v", errCredentialMalformed, secretName, err)
+		return nil, fmt.Errorf("parsing kubeconfig in credential secret %q: %v", secretName, err)
 	}
 	restConfig, err := clientcmd.NewDefaultClientConfig(*cfg, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
-		return nil, fmt.Errorf("%w: building REST config from credential secret %q: %v", errCredentialMalformed, secretName, err)
+		return nil, fmt.Errorf("building REST config from credential secret %q: %v", secretName, err)
 	}
 	restConfig.Timeout = m.clientTimeout
 
 	contextInfo := cfg.Contexts[cfg.CurrentContext]
 	if contextInfo == nil || contextInfo.Namespace == "" {
-		return nil, fmt.Errorf("%w: kubeconfig in credential secret %q has no namespace on context %q: set contexts[].context.namespace to the member cluster's operator namespace ('kubectl mongodb multicluster generate-member-registration' sets it automatically)", errCredentialNamespaceMissing, secretName, cfg.CurrentContext)
+		return nil, fmt.Errorf("kubeconfig in credential secret %q has no namespace on context %q: set contexts[].context.namespace to the member cluster's operator namespace ('kubectl mongodb multicluster generate-member-registration' sets it automatically)", secretName, cfg.CurrentContext)
 	}
 
 	sum := sha256.Sum256(kubeconfig)

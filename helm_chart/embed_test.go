@@ -30,6 +30,8 @@ func TestChartVersionMatchesReleaseJSON(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(releaseJSON, &release))
 
+	require.NotEmpty(t, chart.Version)
+	require.NotEmpty(t, release.MongoDBOperator)
 	assert.Equal(t, release.MongoDBOperator, chart.Version,
 		"helm_chart/Chart.yaml version must equal release.json's mongodbOperator")
 }

@@ -4,9 +4,11 @@ package membercluster
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -21,27 +23,24 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 )
 
-// Reconciler is the controller for MemberCluster CRs. It delegates each CR to
-// rbacValidation, which validates the member cluster's RBAC and drives the provider-entry
-// lifecycle — a valid (or transiently unprobeable) cluster gets a runtime entry, a
-// definitively invalid one is deregistered so workload reconcilers skip it — and then
-// applies the resulting RBACValid status condition in a single status write at the end of
-// the reconciliation. Every reconciliation requeues after recheckInterval, so RBAC fixes
-// and credential rotation are picked up without waiting for a CR event. The initial
-// informer replay registers the CRs that already exist, so no startup discovery is needed.
+// Reconciler is the controller for MemberCluster CRs. For every CR it loads the member
+// cluster's credentials via providerManager, validates the cluster's RBAC, and drives the
+// provider entry accordingly: a valid (or transiently unprobeable) cluster gets a runtime
+// entry, a definitively invalid one is deregistered so workload reconcilers skip it. The
+// outcome is recorded as the RBACValid status condition, and every reconciliation requeues
+// after recheckInterval so RBAC fixes and credential rotation are picked up.
 type Reconciler struct {
 	client          client.Client
 	providerMgr     *providerManager
-	validation      *rbacValidation
+	validator       rbacValidator
 	recheckInterval time.Duration
 }
 
 func NewReconciler(baseCtx context.Context, c client.Client, namespace string, clientTimeout time.Duration, recheckInterval time.Duration, provider *multicluster.Provider, newCluster func(restConfig *restclient.Config) (cluster.Cluster, error)) *Reconciler {
-	providerMgr := newProviderManager(baseCtx, c, namespace, clientTimeout, provider, newCluster)
 	return &Reconciler{
 		client:          c,
-		providerMgr:     providerMgr,
-		validation:      newRBACValidation(providerMgr),
+		providerMgr:     newProviderManager(baseCtx, c, namespace, clientTimeout, provider, newCluster),
+		validator:       newRBACValidator(),
 		recheckInterval: recheckInterval,
 	}
 }
@@ -67,6 +66,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	mc := &operatorv1.MemberCluster{}
 	if err := r.client.Get(ctx, req.NamespacedName, mc); err != nil {
 		if apierrors.IsNotFound(err) {
+			// The CR was deleted, so we need to remove the provider entry.
 			r.providerMgr.remove(ctx, req.Name, log)
 			return ctrl.Result{}, nil
 		}
@@ -74,39 +74,49 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	original := mc.DeepCopy()
 
-	// Expected-negative validation outcomes come back as conditions; only unexpected
-	// failures are errors and requeue with backoff.
-	rbacValid, err := r.validation.validate(ctx, mc, log)
+	outcome, err := r.validateAndDriveProvider(ctx, mc, log)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Status is written exactly once per reconciliation, after every step has run.
-	if err := r.setConditions(ctx, mc, original, log, rbacValid); err != nil {
-		return ctrl.Result{}, err
+	apimeta.SetStatusCondition(&mc.Status.Conditions, metav1.Condition{
+		Type:               operatorv1.MemberClusterConditionRBACValid,
+		Status:             outcome.status,
+		ObservedGeneration: mc.Generation,
+		Reason:             outcome.reason,
+		Message:            outcome.message,
+	})
+	if equality.Semantic.DeepEqual(original.Status, mc.Status) {
+		return ctrl.Result{RequeueAfter: r.recheckInterval}, nil
+	}
+	log.Infof("Member cluster %q RBACValid condition set to %s (%s): %s", mc.Spec.ClusterName, outcome.status, outcome.reason, outcome.message)
+	if err := r.client.Status().Update(ctx, mc); err != nil {
+		return ctrl.Result{}, fmt.Errorf("updating status: %v", err)
 	}
 	return ctrl.Result{RequeueAfter: r.recheckInterval}, nil
 }
 
-// setConditions applies the given RBACValid outcomes to the CR's status and writes them
-// with a single status patch when anything changed, logging each transition; unchanged
-// conditions are left untouched, so steady-state reconciles issue no API writes.
-func (r *Reconciler) setConditions(ctx context.Context, mc *operatorv1.MemberCluster, original *operatorv1.MemberCluster, log *zap.SugaredLogger, outcomes ...probeOutcome) error {
-	changed := false
-	for _, outcome := range outcomes {
-		if apimeta.SetStatusCondition(&mc.Status.Conditions, metav1.Condition{
-			Type:               operatorv1.MemberClusterConditionRBACValid,
-			Status:             outcome.status,
-			ObservedGeneration: mc.Generation,
-			Reason:             outcome.reason,
-			Message:            outcome.message,
-		}) {
-			changed = true
-			log.Infof("Member cluster %q RBACValid condition set to %s (%s): %s", mc.Spec.ClusterName, outcome.status, outcome.reason, outcome.message)
+func (r *Reconciler) validateAndDriveProvider(ctx context.Context, mc *operatorv1.MemberCluster, log *zap.SugaredLogger) (probeOutcome, error) {
+	creds, err := r.providerMgr.loadCredentials(ctx, mc)
+
+	var outcome probeOutcome
+	if err != nil {
+		outcome = probeOutcome{metav1.ConditionFalse, reasonInvalid, err.Error()}
+	} else {
+		outcome = r.validator.validate(ctx, mc, creds.restConfig, creds.saNamespace)
+	}
+	if outcome.status == metav1.ConditionFalse {
+		// When RBAC is not valid, remove the provider entry so workload reconcilers skip this cluster.
+		r.providerMgr.remove(ctx, mc.Name, log)
+	} else {
+		// Unknown means the probe got no definitive answer (e.g. cluster unreachable or
+		// timed out), so the entry must stay: its informers and the memberwatch health
+		// checker keep running, and a genuine network partition still produces
+		// failed-cluster annotations (and auto-failover when enabled). Only a definitive
+		// False gates a cluster out of the provider.
+		if err := r.providerMgr.ensure(ctx, mc, creds, log); err != nil {
+			return probeOutcome{}, err
 		}
 	}
-	if !changed {
-		return nil
-	}
-	return r.client.Status().Patch(ctx, mc, client.MergeFrom(original))
+	return outcome, nil
 }

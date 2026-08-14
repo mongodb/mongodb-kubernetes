@@ -68,7 +68,7 @@ func TestProbeClassification(t *testing.T) {
 			serviceAccount: memberServiceAccount(map[string]string{util.MemberClusterRBACVersionAnnotation: "1.5.0"}),
 			expected:       testExpected,
 			wantStatus:     metav1.ConditionFalse,
-			wantReason:     reasonVersionMismatch,
+			wantReason:     reasonInvalid,
 			wantMessage:    `RBAC version "1.5.0" on the member cluster does not match the operator's expected version "1.6.0". Regenerate and reapply member-cluster RBAC with 'kubectl mongodb multicluster generate-member-resources'.`,
 		},
 		{
@@ -76,20 +76,20 @@ func TestProbeClassification(t *testing.T) {
 			serviceAccount: memberServiceAccount(map[string]string{util.MemberClusterRBACVersionAnnotation: ""}),
 			expected:       testExpected,
 			wantStatus:     metav1.ConditionFalse,
-			wantReason:     reasonVersionMismatch,
+			wantReason:     reasonInvalid,
 		},
 		{
 			name:           "annotation missing",
 			serviceAccount: memberServiceAccount(nil),
 			expected:       testExpected,
 			wantStatus:     metav1.ConditionFalse,
-			wantReason:     reasonRBACVersionMissing,
+			wantReason:     reasonInvalid,
 		},
 		{
 			name:        "serviceaccount absent",
 			expected:    testExpected,
 			wantStatus:  metav1.ConditionFalse,
-			wantReason:  reasonMemberServiceAccountNotFound,
+			wantReason:  reasonInvalid,
 			wantMessage: `ServiceAccount "mck-member-cluster-a-sa" not found in namespace "mongodb" of the member cluster. Regenerate and reapply member-cluster RBAC with 'kubectl mongodb multicluster generate-member-resources'.`,
 		},
 		{
@@ -97,14 +97,14 @@ func TestProbeClassification(t *testing.T) {
 			interceptors: getErrorInterceptors(apierrors.NewForbidden(schema.GroupResource{Resource: "serviceaccounts"}, testSAName, errors.New("denied"))),
 			expected:     testExpected,
 			wantStatus:   metav1.ConditionFalse,
-			wantReason:   reasonProbeForbidden,
+			wantReason:   reasonInvalid,
 		},
 		{
 			name:         "unauthorized",
 			interceptors: getErrorInterceptors(apierrors.NewUnauthorized("token revoked")),
 			expected:     testExpected,
 			wantStatus:   metav1.ConditionFalse,
-			wantReason:   reasonCredentialInvalid,
+			wantReason:   reasonInvalid,
 		},
 		{
 			name:         "transient error",
@@ -122,8 +122,9 @@ func TestProbeClassification(t *testing.T) {
 				builder = builder.WithObjects(tt.serviceAccount)
 			}
 			v := staticValidator(builder.Build())
+			v.expectedVersion = tt.expected
 
-			outcome := v.Probe(t.Context(), &restclient.Config{}, testSAName, testSANamespace, tt.expected)
+			outcome := v.probe(t.Context(), &restclient.Config{}, testSAName, testSANamespace)
 
 			assert.Equal(t, tt.wantStatus, outcome.status)
 			assert.Equal(t, tt.wantReason, outcome.reason)
@@ -139,7 +140,7 @@ func TestProbeClientBuildFailureIsTransient(t *testing.T) {
 		return nil, errors.New("invalid config")
 	}}
 
-	outcome := v.Probe(t.Context(), &restclient.Config{}, testSAName, testSANamespace, testExpected)
+	outcome := v.probe(t.Context(), &restclient.Config{}, testSAName, testSANamespace)
 	assert.Equal(t, metav1.ConditionUnknown, outcome.status)
 	assert.Equal(t, reasonProbeFailed, outcome.reason)
 	assert.Contains(t, outcome.message, "invalid config")
