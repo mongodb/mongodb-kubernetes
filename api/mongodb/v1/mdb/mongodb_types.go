@@ -1875,3 +1875,7 @@ func (m ClusterSpecList) IsExternalDomainSpecifiedInClusterSpecList() bool {
 
 	return false
 }
+
+func (m *MongoDB) IsReconciliationDisabled() bool {
+	return m.Annotations[util.DisableReconciliationAnnotation] == "true"
+}

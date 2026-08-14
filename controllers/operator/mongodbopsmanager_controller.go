@@ -399,6 +399,12 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcileResult, err
 	}
 
+	if opsManager.IsReconciliationDisabled() {
+		log.Infof("OpsManager %s/%s reconciliation disabled by %s annotation; skipping",
+			opsManager.Namespace, opsManager.Name, util.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
+	}
+
 	log.Info("-> OpsManager.Reconcile")
 	log.Infow("OpsManager.Spec", "spec", opsManager.Spec)
 	log.Infow("OpsManager.Status", "status", opsManager.Status)
@@ -2054,6 +2060,11 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 // it's used in MongoDBOpsManagerEventHandler
 func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
+	if opsManager.IsReconciliationDisabled() {
+		log.Infof("OpsManager %s/%s OnDelete skipped due to %s annotation",
+			opsManager.Namespace, opsManager.Name, util.DisableReconciliationAnnotation)
+		return
+	}
 	helper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
 	if err != nil {
 		log.Errorf("Error initializing OM reconciler helper: %s", err)
