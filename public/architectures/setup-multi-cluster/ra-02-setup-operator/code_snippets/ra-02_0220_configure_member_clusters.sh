@@ -8,7 +8,7 @@ for ctx in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8
   kubectl mongodb multicluster generate-member-resources \
     --member-cluster="${member_cluster_name}" \
     --member-cluster-namespace="${OM_NAMESPACE}" \
-    --watched-namespaces="${OM_NAMESPACE},${MDB_NAMESPACE}" \
+    --workload-namespaces="${OM_NAMESPACE},${MDB_NAMESPACE}" \
     --image-pull-secrets=image-registries-secret \
     | kubectl apply --context "${ctx}" -f -
 done

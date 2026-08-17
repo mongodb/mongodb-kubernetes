@@ -16,21 +16,28 @@ validating RBAC.
 
 memberCluster.* is intentionally absent from values.yaml — it is a plugin-internal render
 flag, not a user-facing install option, so guard the access with `default dict`.
+
+Scope model (set exclusively by the plugin):
+  - memberCluster.clusterScoped (bool): the operator watches all namespaces; the member
+    ServiceAccount gets a ClusterRole and a single ClusterRoleBinding instead of
+    per-namespace RoleBindings.
+  - memberCluster.workloadNamespaces (list): namespaces where workloads run on the member
+    cluster; in narrowed mode the member ServiceAccount is bound in each of them plus the
+    operator namespace (which holds the SA and the token Secret). "*" is never a valid
+    entry — cluster-wide permission is expressed only via clusterScoped.
 */ -}}
 {{- if (.Values.memberCluster | default dict).enabled }}
 {{- $name := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" .Values.memberCluster.name) }}
 {{- $namespace := include "mongodb-kubernetes-operator.namespace" . }}
-{{- $watchNamespace := $namespace | list }}
-{{- if .Values.operator.watchNamespace }}
-{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- if not (has "*" $watchNamespace) }}
-{{- /* Watching all namespaces is covered by a single ClusterRoleBinding, so don't
-       also emit a redundant RoleBinding in the operator namespace. */}}
-{{- $watchNamespace = concat $watchNamespace ($namespace | list) | uniq }}
+{{- $memberCluster := .Values.memberCluster | default dict }}
+{{- $clusterScoped := $memberCluster.clusterScoped | default false }}
+{{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($namespace | list) }}
+{{- if has "*" $workloadNamespaces }}
+{{- fail "'*' is not a valid workload namespace; use --cluster-scoped for cluster-wide permissions" }}
 {{- end }}
-{{- end }}
+{{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
 {{- $roleScope := "Role" -}}
-{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
+{{- if or $clusterScoped (gt (len $bindingNamespaces) 1) }}
 {{- $roleScope = "ClusterRole" }}
 {{- end }}
 {{- $rbacVersion := .Chart.Version | quote }}
@@ -121,48 +128,30 @@ rules:
       - serviceaccounts
     verbs:
       - get
-{{- if eq $roleScope "ClusterRole" }}
-  - apiGroups:
-      - ''
-    resources:
-      - namespaces
-    verbs:
-      - list
-      - watch
-  - apiGroups:
-      - ''
-    resources:
-      - nodes
-    verbs:
-      - get
-  - apiGroups:
-      - ''
-    resources:
-      - namespaces
-    resourceNames:
-      - kube-system
-    verbs:
-      - get
-  - nonResourceURLs:
-      - /version
-    verbs:
-      - get
-{{- end }}
-{{- range $idx, $ns := $watchNamespace }}
-{{- $nsBlock := "" }}
-{{- if not (eq $ns "*") }}
-{{- $nsBlock = printf "namespace: %s" $ns }}
-{{- end }}
+{{- if $clusterScoped }}
 ---
-{{- if eq $ns "*" }}
 kind: ClusterRoleBinding
-{{- else }}
-kind: RoleBinding
-{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}-role-binding
-  {{ $nsBlock }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-sa
+    namespace: {{ $namespace }}
+{{- else }}
+{{- range $idx, $ns := $bindingNamespaces }}
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-binding
+  namespace: {{ $ns }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
 roleRef:
@@ -173,5 +162,6 @@ subjects:
   - kind: ServiceAccount
     name: {{ $name }}-sa
     namespace: {{ $namespace }}
+{{- end }}
 {{- end }}
 {{- end }}
