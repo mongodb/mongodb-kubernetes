@@ -29,7 +29,7 @@ import (
 //     installation RBAC just like member-cluster-rbac.yaml.
 //   - operator-roles-telemetry.yaml: telemetry ClusterRole/ClusterRoleBinding. Dual-mode; in
 //     member mode it renders mck-member-<cluster-name>-cluster-telemetry bound to the member
-//     SA. Renders to nothing when createTelemetryRoles is false (installClusterRole gate).
+//     SA. Renders to nothing when operatorTelemetry is false (installClusterRole gate).
 var memberTemplates = []string{
 	"member-cluster-rbac.yaml",
 	"database-roles.yaml",
@@ -40,15 +40,15 @@ var memberTemplates = []string{
 // member-cluster values and returns the concatenated YAML.
 //
 //   - workloadNamespaces: namespaces where workloads run on the member cluster; workload
-//     ServiceAccounts/Roles are seeded in each, and (unless clusterScoped) the member SA is
+//     ServiceAccounts/Roles are seeded in each, and (unless operatorClusterScoped) the member SA is
 //     bound in each. The caller (the CLI) is expected to have normalised and validated the
 //     list — the templates reject "*" as a backstop.
-//   - clusterScoped: grant the member SA cluster-wide permissions (ClusterRole + a single
+//   - operatorClusterScoped: grant the member SA cluster-wide permissions (ClusterRole + a single
 //     ClusterRoleBinding); use when the operator watches all namespaces.
-//   - createTelemetryRoles: also render the telemetry ClusterRole/ClusterRoleBinding
+//   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding
 //     (the only cluster-scoped resources in a narrowed render).
 //   - imagePullSecrets: when non-empty, set as the workload ServiceAccounts' imagePullSecrets.
-func Render(clusterName, namespace string, workloadNamespaces []string, clusterScoped, createTelemetryRoles bool, imagePullSecrets string) (string, error) {
+func Render(clusterName, namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
 	chrt, err := loadEmbeddedChart()
 	if err != nil {
 		return "", xerrors.Errorf("loading embedded chart: %w", err)
@@ -58,13 +58,13 @@ func Render(clusterName, namespace string, workloadNamespaces []string, clusterS
 		"memberCluster": map[string]any{
 			"enabled":            true,
 			"name":               clusterName,
-			"clusterScoped":      clusterScoped,
+			"clusterScoped":      operatorClusterScoped,
 			"workloadNamespaces": workloadNamespaces,
 		},
 		"operator": map[string]any{
 			"namespace": namespace,
 			"telemetry": map[string]any{
-				"installClusterRole": createTelemetryRoles,
+				"installClusterRole": operatorTelemetry,
 			},
 		},
 	}

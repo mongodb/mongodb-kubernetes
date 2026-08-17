@@ -33,7 +33,7 @@ Scope model (set exclusively by the plugin):
 {{- $clusterScoped := $memberCluster.clusterScoped | default false }}
 {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($namespace | list) }}
 {{- if has "*" $workloadNamespaces }}
-{{- fail "'*' is not a valid workload namespace; use --cluster-scoped for cluster-wide permissions" }}
+{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" }}
 {{- end }}
 {{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
 {{- $roleScope := "Role" -}}
