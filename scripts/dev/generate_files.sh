@@ -85,7 +85,7 @@ regenerate_public_rbac_multi_cluster() {
   if [[ "${MDB_REGENERATE_RBAC:-""}" == "true" ]]; then
     echo 'regenerating multicluster RBAC public example'
     go run ./cmd/kubectl-mongodb multicluster generate-member-resources --member-cluster member-cluster --member-cluster-namespace mongodb > public/samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml
-    go run ./cmd/kubectl-mongodb multicluster generate-member-resources --member-cluster member-cluster --member-cluster-namespace mongodb --watched-namespaces "*" > public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml
+    go run ./cmd/kubectl-mongodb multicluster generate-member-resources --member-cluster member-cluster --member-cluster-namespace mongodb --cluster-scoped > public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml
   fi
 }
 

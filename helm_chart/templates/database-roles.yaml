@@ -6,7 +6,16 @@
 {{- $rbacVersion := .Chart.Version | quote -}}
 
 {{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
-{{- if .Values.operator.watchNamespace }}
+{{- if $memberMode }}
+{{- /* Member mode (generate-member-resources): workload RBAC is seeded exactly in
+       memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators
+       use memberCluster.clusterScoped, which covers operator permissions;
+       workload ServiceAccounts are always namespaced. */}}
+{{- $watchNamespace = (.Values.memberCluster | default dict).workloadNamespaces | default $watchNamespace }}
+{{- if has "*" $watchNamespace }}
+{{- fail "'*' is not a valid workload namespace; use --cluster-scoped for cluster-wide permissions" }}
+{{- end }}
+{{- else if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
 
