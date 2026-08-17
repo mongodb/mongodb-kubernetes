@@ -1,8 +1,50 @@
-{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
-{{- if .Values.operator.watchNamespace }}
-{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq }}
-{{- end }}
+{{- /*
+PVC-resize RBAC. Dual-mode template:
+
+  - Base mode (helm install / OLM): <operator.name>-pvc-resize bound to the operator
+    ServiceAccount across operator.watchNamespace.
+  - Member mode (memberCluster.enabled=true, set exclusively by
+    `kubectl mongodb multicluster generate-member-resources`):
+    mck-member-<cluster-name>-pvc-resize bound to the member ServiceAccount
+    mck-member-<cluster-name>-sa, additive to the base installation RBAC.
+
+Least-privilege verb set (list, watch, update): the operator only ever lists PVCs and
+updates their requested storage during a resize. watch is required because the cached
+client lazily starts a PVC informer on first list. PVC creation and deletion are
+performed by the Kubernetes StatefulSet controller from volumeClaimTemplates (and its
+retention policy), never by the operator.
+*/ -}}
+{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
+{{- $rbacVersion := .Chart.Version | quote -}}
+{{- $name := printf "%s-pvc-resize" .Values.operator.name -}}
+{{- $bindingName := printf "%s-pvc-resize-binding" .Values.operator.name -}}
+{{- $saName := .Values.operator.name -}}
+{{- if $memberMode -}}
+{{- $memberName := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" $memberCluster.name) -}}
+{{- $name = printf "%s-pvc-resize" $memberName -}}
+{{- $bindingName = printf "%s-pvc-resize-binding" $memberName -}}
+{{- $saName = printf "%s-sa" $memberName -}}
+{{- end -}}
+
+{{- $watchNamespace := list $operatorNamespace -}}
+{{- if $memberMode -}}
+{{- /* Member mode: bound in memberCluster.workloadNamespaces plus the operator namespace;
+       "*" is rejected — cluster-wide permission is expressed only via
+       memberCluster.clusterScoped, which renders a single ClusterRoleBinding. */ -}}
+{{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
+{{- if has "*" $workloadNamespaces -}}
+{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" -}}
+{{- end -}}
+{{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
+{{- if $memberCluster.clusterScoped | default false -}}
+{{- $watchNamespace = list "*" -}}
+{{- end -}}
+{{- else if .Values.operator.watchNamespace -}}
+{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
+{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
+{{- end -}}
 
 
 {{- $roleScope := "Role" -}}
@@ -13,9 +55,13 @@
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-pvc-resize
+  name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+  namespace: {{ $operatorNamespace }}
+{{- end }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
 {{- end }}
 rules:
   - apiGroups:
@@ -23,11 +69,8 @@ rules:
     resources:
       - persistentvolumeclaims
     verbs:
-      - get
-      - delete
       - list
       - watch
-      - patch
       - update
 {{- range $idx, $namespace := $watchNamespace }}
 
@@ -44,14 +87,18 @@ kind: RoleBinding
 {{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ $.Values.operator.name }}-pvc-resize-binding
+  name: {{ $bindingName }}
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
-  name: {{ $.Values.operator.name }}-pvc-resize
+  name: {{ $name }}
 subjects:
   - kind: ServiceAccount
-    name: {{ $.Values.operator.name }}
+    name: {{ $saName }}
     namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
 {{- end }}

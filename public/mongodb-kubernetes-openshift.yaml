@@ -152,11 +152,8 @@ rules:
     resources:
       - persistentvolumeclaims
     verbs:
-      - get
-      - delete
       - list
       - watch
-      - patch
       - update
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
