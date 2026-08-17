@@ -1789,6 +1789,56 @@ func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 	require.Len(t, secret.OwnerReferences, 1)
 }
 
+// vmProcessWithSearchSetParameters returns a deployment containing a single external VM
+// process carrying the mongod setParameters the operator writes when search is attached.
+func vmProcessWithSearchSetParameters(t *testing.T, withSearch bool) om.Deployment {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
+	additional := &mdbv1.AdditionalMongodConfig{}
+	if withSearch {
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
+			"mongotHost":                       "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
+			"searchIndexManagementHostAndPort": "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
+		})
+	}
+	vmProcess := om.NewMongodProcess(
+		"vm-0", "vm-0.example.com", "fake-image", false,
+		additional, spec, "", nil, "", architectures.NonStatic,
+	)
+	d := om.NewDeployment()
+	d.MergeReplicaSet(buildRsByProcessesHelper("search-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
+	return d
+}
+
+func newReplicaSetWithExternalMember(name string) *mdbv1.MongoDB {
+	rs := mdbv1.NewDefaultReplicaSetBuilder().
+		SetName(name).
+		SetNamespace(mock.TestNamespace).
+		SetMembers(1).
+		SetVersion("8.2.0").
+		SetReplicaSetNameOverride("search-rs").
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod", ReplicaSetName: "search-rs"},
+	}
+	return rs
+}
+
+func TestReplicaSetMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
+	ctx := context.Background()
+	rs := newReplicaSetWithExternalMember("search-on-vm-rs")
+
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(vmProcessWithSearchSetParameters(t, true))
+	})
+
+	// Search setParameters on the external (VM) process do not hold the migration back: the
+	// MongoDBSearch keeps its external source and its host seeds are maintained by the user.
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+}
+
 func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 	const sharedKey = "shared-keyfile-contents"
 	const projectGeneratedKey = "project-generated-key"

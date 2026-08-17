@@ -339,6 +339,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_replicaset_search
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_vm_migration_replicaset_manual_rollback
     tags: [ "patch-run" ]
     commands:
@@ -1536,6 +1541,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_vm_migration_shardedcluster_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_search
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
