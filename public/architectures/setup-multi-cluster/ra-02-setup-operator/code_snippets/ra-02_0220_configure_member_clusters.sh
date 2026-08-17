@@ -37,7 +37,7 @@ for ctx in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8
     --member-cluster-context="${ctx}" \
     --member-cluster-namespace="${OM_NAMESPACE}" \
     --operator-namespace="${OPERATOR_NAMESPACE}" \
-    --cluster-name="${ctx}" \
+    --member-cluster-logical-name="${ctx}" \
     | kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -f -
 done
 
