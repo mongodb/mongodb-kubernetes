@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -58,11 +59,19 @@ func kindNames(rs []*unstructured.Unstructured) []string {
 // they keep isolating the operator RBAC from the workload RBAC once the workload names also
 // become member-scoped.
 type resourceNames struct {
-	// Operator member RBAC, cluster-scoped-named as mck-member-<cluster>-*.
-	operatorSA      string
-	operatorToken   string
-	operatorRole    string
-	operatorBinding string
+	// Operator member RBAC, cluster-scoped-named as mck-member-<cluster>-*: three roles,
+	// each with its own binding(s). role-base (the operator's shared
+	// workload-management rules, operator-roles-base.yaml), role-multicluster (rules
+	// needed only for multi-cluster operation, member-cluster-rbac.yaml) and
+	// pvc-resize (operator-roles-pvc-resize.yaml).
+	operatorSA              string
+	operatorToken           string
+	roleBase                string
+	roleBaseBinding         string
+	roleMulticluster        string
+	roleMulticlusterBinding string
+	pvcResizeRole           string
+	pvcResizeBinding        string
 
 	// Telemetry RBAC, rendered by the dual-mode operator-roles-telemetry.yaml unless
 	// operatorTelemetry is false.
@@ -81,10 +90,14 @@ type resourceNames struct {
 func expectedNames(clusterName string) resourceNames {
 	prefix := "mck-member-" + clusterName + "-"
 	return resourceNames{
-		operatorSA:      prefix + "sa",
-		operatorToken:   prefix + "token",
-		operatorRole:    prefix + "role",
-		operatorBinding: prefix + "role-binding",
+		operatorSA:              prefix + "sa",
+		operatorToken:           prefix + "token",
+		roleBase:                prefix + "role-base",
+		roleBaseBinding:         prefix + "role-base-binding",
+		roleMulticluster:        prefix + "role-multicluster",
+		roleMulticlusterBinding: prefix + "role-multicluster-binding",
+		pvcResizeRole:           prefix + "pvc-resize",
+		pvcResizeBinding:        prefix + "pvc-resize-binding",
 
 		telemetryClusterRole: prefix + "cluster-telemetry",
 		telemetryBinding:     prefix + "cluster-telemetry-binding",
@@ -139,6 +152,37 @@ func telemetryResources(n resourceNames) []resourceID {
 	}
 }
 
+// operatorResources returns the resourceIDs of the three operator member roles
+// (role-base, role-multicluster, pvc-resize) and their bindings for the given scope. The
+// three roles always share the same scope: roleKind is "Role" (narrowed to the single
+// member namespace) or "ClusterRole" (multi-namespace narrowed or cluster-scoped). In
+// Role mode the roles and one binding each live in namespaces[0]; in ClusterRole mode the
+// roles are cluster-scoped and one RoleBinding each lands in every given namespace — a
+// single empty namespace denotes the cluster-scoped ClusterRoleBinding instead.
+func operatorResources(n resourceNames, roleKind string, namespaces ...string) []resourceID {
+	roleNamespace := ""
+	if roleKind == "Role" {
+		roleNamespace = namespaces[0]
+	}
+	roles := []struct{ role, binding string }{
+		{n.roleMulticluster, n.roleMulticlusterBinding},
+		{n.roleBase, n.roleBaseBinding},
+		{n.pvcResizeRole, n.pvcResizeBinding},
+	}
+	var out []resourceID
+	for _, r := range roles {
+		out = append(out, resourceID{Kind: roleKind, Name: r.role, Namespace: roleNamespace})
+		for _, ns := range namespaces {
+			bindingKind := "RoleBinding"
+			if ns == "" {
+				bindingKind = "ClusterRoleBinding"
+			}
+			out = append(out, resourceID{Kind: bindingKind, Name: r.binding, Namespace: ns})
+		}
+	}
+	return out
+}
+
 // TestRender asserts the full set of resources Render emits for each flag combination.
 // workloadNamespaces drives workload RBAC placement and (in narrowed mode) the member SA's
 // per-namespace bindings; operatorClusterScoped switches the member SA to a single ClusterRoleBinding.
@@ -164,42 +208,33 @@ func TestRender(t *testing.T) {
 			workload:          []string{memberNs},
 			operatorTelemetry: true,
 			wantRoleKind:      "Role",
-			want: append(append([]resourceID{
+			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-				{Kind: "Role", Name: n.operatorRole, Namespace: memberNs},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: memberNs},
-			}, telemetryResources(n)...), workloadResources(n, memberNs)...),
+			}, operatorResources(n, "Role", memberNs)...), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
 			// A single workload namespace that differs from the member namespace unions to
-			// {ns1, mongodb} (size 2), so the operator role becomes a ClusterRole with
+			// {ns1, mongodb} (size 2), so the operator roles become ClusterRoles with
 			// RoleBindings in both namespaces, while the workload RBAC lands in ns1 only.
 			name:              "single workload namespace differs from member namespace",
 			workload:          []string{"ns1"},
 			operatorTelemetry: true,
 			wantRoleKind:      "ClusterRole",
-			want: append(append([]resourceID{
+			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-				{Kind: "ClusterRole", Name: n.operatorRole, Namespace: ""},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: memberNs},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: "ns1"},
-			}, telemetryResources(n)...), workloadResources(n, "ns1")...),
+			}, operatorResources(n, "ClusterRole", memberNs, "ns1")...), telemetryResources(n)...), workloadResources(n, "ns1")...),
 		},
 		{
 			name:              "multiple workload namespaces",
 			workload:          []string{"ns1", "ns2"},
 			operatorTelemetry: true,
 			wantRoleKind:      "ClusterRole",
-			want: append(append([]resourceID{
+			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-				{Kind: "ClusterRole", Name: n.operatorRole, Namespace: ""},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: memberNs},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: "ns1"},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: "ns2"},
-			}, telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
+			}, operatorResources(n, "ClusterRole", memberNs, "ns1", "ns2")...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
 			name:                  "cluster-scoped with default workload namespaces",
@@ -207,12 +242,10 @@ func TestRender(t *testing.T) {
 			operatorClusterScoped: true,
 			operatorTelemetry:     true,
 			wantRoleKind:          "ClusterRole",
-			want: append(append([]resourceID{
+			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-				{Kind: "ClusterRole", Name: n.operatorRole, Namespace: ""},
-				{Kind: "ClusterRoleBinding", Name: n.operatorBinding, Namespace: ""},
-			}, telemetryResources(n)...), workloadResources(n, memberNs)...),
+			}, operatorResources(n, "ClusterRole", "")...), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
 			name:                  "cluster-scoped with explicit workload namespaces",
@@ -220,25 +253,29 @@ func TestRender(t *testing.T) {
 			operatorClusterScoped: true,
 			operatorTelemetry:     true,
 			wantRoleKind:          "ClusterRole",
-			want: append(append([]resourceID{
+			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-				{Kind: "ClusterRole", Name: n.operatorRole, Namespace: ""},
-				{Kind: "ClusterRoleBinding", Name: n.operatorBinding, Namespace: ""},
-			}, telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
+			}, operatorResources(n, "ClusterRole", "")...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
 			name:              "telemetry roles opted out",
 			workload:          []string{memberNs},
 			operatorTelemetry: false,
 			wantRoleKind:      "Role",
-			want: append([]resourceID{
+			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-				{Kind: "Role", Name: n.operatorRole, Namespace: memberNs},
-				{Kind: "RoleBinding", Name: n.operatorBinding, Namespace: memberNs},
-			}, workloadResources(n, memberNs)...),
+			}, operatorResources(n, "Role", memberNs)...), workloadResources(n, memberNs)...),
 		},
+	}
+
+	// The three operator bindings (role-base, role-multicluster, pvc-resize) all share the
+	// same scope in every test case and must point at a role of wantRoleKind.
+	operatorBindings := map[string]bool{
+		n.roleBaseBinding:         true,
+		n.roleMulticlusterBinding: true,
+		n.pvcResizeBinding:        true,
 	}
 
 	for _, tc := range tests {
@@ -255,7 +292,7 @@ func TestRender(t *testing.T) {
 				assert.NotEmpty(t, r.GetAnnotations()["mongodb.com/rbac-version"], "%s/%s missing mongodb.com/rbac-version annotation", r.GetKind(), r.GetName())
 				// The operator bindings point at the expected operator role scope (the workload
 				// binding always references its own namespaced Role, so it is excluded here).
-				if r.GetName() == n.operatorBinding && (r.GetKind() == "RoleBinding" || r.GetKind() == "ClusterRoleBinding") {
+				if operatorBindings[r.GetName()] && (r.GetKind() == "RoleBinding" || r.GetKind() == "ClusterRoleBinding") {
 					roleRefKind, _, _ := unstructured.NestedString(r.Object, "roleRef", "kind")
 					assert.Equal(t, tc.wantRoleKind, roleRefKind, "%s/%s roleRef.kind", r.GetKind(), r.GetName())
 				}
@@ -267,6 +304,96 @@ func TestRender(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rbacRule is a normalised view of a single RBAC policy rule; all slices are sorted so
+// rules compare equal regardless of the order the template lists them in.
+type rbacRule struct {
+	apiGroups []string
+	resources []string
+	verbs     []string
+}
+
+func sortedStringField(t *testing.T, rule map[string]any, field string) []string {
+	t.Helper()
+	values, found, err := unstructured.NestedStringSlice(rule, field)
+	require.NoError(t, err, "reading rule field %q", field)
+	require.True(t, found, "rule missing field %q", field)
+	sort.Strings(values)
+	return values
+}
+
+// rulesOf extracts the policy rules of a Role/ClusterRole as sorted rbacRule values.
+func rulesOf(t *testing.T, r *unstructured.Unstructured) []rbacRule {
+	t.Helper()
+	raw, found, err := unstructured.NestedSlice(r.Object, "rules")
+	require.NoError(t, err, "%s/%s reading rules", r.GetKind(), r.GetName())
+	require.True(t, found, "%s/%s has no rules", r.GetKind(), r.GetName())
+	out := make([]rbacRule, 0, len(raw))
+	for _, item := range raw {
+		rule, ok := item.(map[string]any)
+		require.True(t, ok, "%s/%s rule is not a map", r.GetKind(), r.GetName())
+		out = append(out, rbacRule{
+			apiGroups: sortedStringField(t, rule, "apiGroups"),
+			resources: sortedStringField(t, rule, "resources"),
+			verbs:     sortedStringField(t, rule, "verbs"),
+		})
+	}
+	return out
+}
+
+// TestRender_OperatorRoleRules pins the exact rule content of the three operator member
+// roles: role-multicluster holds only the multi-cluster-only rules, role-base holds
+// exactly the shared workload-management rules (no central-only rules), and pvc-resize
+// holds its single least-privilege rule.
+func TestRender_OperatorRoleRules(t *testing.T) {
+	const clusterName = "cluster-east"
+	const memberNs = "mongodb"
+	n := expectedNames(clusterName)
+
+	out, err := Render(clusterName, memberNs, []string{memberNs}, false, true, "")
+	require.NoError(t, err, "render failed")
+
+	byName := map[string]*unstructured.Unstructured{}
+	for _, r := range parseResources(t, out) {
+		byName[r.GetName()] = r
+	}
+	for _, name := range []string{n.roleMulticluster, n.roleBase, n.pvcResizeRole} {
+		require.Contains(t, byName, name, "rendered resources missing %s", name)
+	}
+
+	assert.ElementsMatch(t, []rbacRule{
+		{apiGroups: []string{""}, resources: []string{"configmaps", "secrets", "services"}, verbs: []string{"deletecollection"}},
+		{apiGroups: []string{"apps"}, resources: []string{"deployments", "statefulsets"}, verbs: []string{"deletecollection"}},
+		{apiGroups: []string{""}, resources: []string{"serviceaccounts"}, verbs: []string{"get"}},
+	}, rulesOf(t, byName[n.roleMulticluster]), "role-multicluster rules")
+
+	baseRules := rulesOf(t, byName[n.roleBase])
+	assert.ElementsMatch(t, []rbacRule{
+		{apiGroups: []string{""}, resources: []string{"services"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
+		{apiGroups: []string{""}, resources: []string{"configmaps", "secrets"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
+		{apiGroups: []string{"apps"}, resources: []string{"deployments", "statefulsets"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
+		{apiGroups: []string{""}, resources: []string{"pods"}, verbs: []string{"delete", "deletecollection", "get", "list", "watch"}},
+	}, baseRules, "role-base rules")
+
+	// Belt-and-braces alongside the exact-match above: role-base must not leak any of the
+	// central-only rules the base installation's operator role carries.
+	centralOnlyGroups := map[string]bool{
+		"mongodb.com":                  true,
+		"mongodbcommunity.mongodb.com": true,
+		"ai.mongodb.com":               true,
+		"operator.mongodb.com":         true,
+	}
+	for _, rule := range baseRules {
+		for _, group := range rule.apiGroups {
+			assert.False(t, centralOnlyGroups[group], "role-base must not contain central-only apiGroup %q", group)
+		}
+		assert.NotContains(t, rule.resources, "namespaces", "role-base must not contain the central-only namespaces rule")
+	}
+
+	assert.ElementsMatch(t, []rbacRule{
+		{apiGroups: []string{""}, resources: []string{"persistentvolumeclaims"}, verbs: []string{"list", "update", "watch"}},
+	}, rulesOf(t, byName[n.pvcResizeRole]), "pvc-resize rules")
 }
 
 func TestRender_RequiresClusterName(t *testing.T) {
@@ -407,10 +534,24 @@ func TestHelmTemplateParity(t *testing.T) {
 		{
 			template: "templates/member-cluster-rbac.yaml",
 			names: map[string]bool{
-				names.operatorSA:      true,
-				names.operatorToken:   true,
-				names.operatorRole:    true,
-				names.operatorBinding: true,
+				names.operatorSA:              true,
+				names.operatorToken:           true,
+				names.roleMulticluster:        true,
+				names.roleMulticlusterBinding: true,
+			},
+		},
+		{
+			template: "templates/operator-roles-base.yaml",
+			names: map[string]bool{
+				names.roleBase:        true,
+				names.roleBaseBinding: true,
+			},
+		},
+		{
+			template: "templates/operator-roles-pvc-resize.yaml",
+			names: map[string]bool{
+				names.pvcResizeRole:    true,
+				names.pvcResizeBinding: true,
 			},
 		},
 		{
