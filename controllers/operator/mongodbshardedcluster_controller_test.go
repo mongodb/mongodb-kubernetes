@@ -1837,6 +1837,93 @@ func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls imag
 	return r, reconcileHelper, nil
 }
 
+// vmShardProcessWithSearchSetParameters returns a full sharded-cluster deployment (mongos, config
+// server and a single shard) whose only shard member is an external VM process, optionally
+// carrying the mongod setParameters the operator writes when search is attached.
+func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, withSearch bool) om.Deployment {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
+	additional := &mdbv1.AdditionalMongodConfig{}
+	if withSearch {
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
+			"mongotHost":                       "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
+			"searchIndexManagementHostAndPort": "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
+		})
+	}
+	vmProcess := om.NewMongodProcess(
+		"vm-shard-0", "vm-shard-0.example.com", "fake-image", false,
+		additional, spec, "", nil, "", architectures.NonStatic,
+	)
+	shardRs, _ := buildReplicaSetFromProcesses(sc.ShardACRsName(0), []om.Process{vmProcess}, sc, nil, om.NewDeployment())
+
+	desiredMongosConfig := createMongosSpec(sc)
+	mongosOptions := construct.MongosOptions(desiredMongosConfig, multicluster.LegacyCentralClusterName, Replicas(sc.Spec.MongosCount), construct.GetPodEnvOptions())
+	mongosSts := construct.DatabaseStatefulSet(*sc, mongosOptions, zap.S())
+	hostnames, names := dns.GetDnsForStatefulSet(mongosSts, sc.Spec.GetClusterDomain(), nil)
+	mongosProcesses := make([]om.Process, len(hostnames))
+	for idx, hostname := range hostnames {
+		mongosProcesses[idx] = om.NewMongosProcess(names[idx], hostname, "fake-mongoDBImage", false, sc.Spec.MongosSpec.GetAdditionalMongodConfig(), sc.GetSpec(), util.PEMKeyFilePathInContainer, sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+	}
+
+	desiredConfigSrvConfig := createConfigSrvSpec(sc)
+	configServerOptions := construct.ConfigServerOptions(desiredConfigSrvConfig, multicluster.LegacyCentralClusterName, Replicas(sc.Spec.ConfigServerCount), construct.GetPodEnvOptions())
+	configSvrSts := construct.DatabaseStatefulSet(*sc, configServerOptions, zap.S())
+	hostnames, names = dns.GetDnsForStatefulSet(configSvrSts, sc.Spec.GetClusterDomain(), nil)
+	configProcesses := make([]om.Process, len(hostnames))
+	for idx, hostname := range hostnames {
+		configProcesses[idx] = om.NewMongodProcess(names[idx], hostname, "fake-mongoDBImage", false, sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), &sc.Spec, "", sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+	}
+	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, configProcesses, sc, sc.Spec.GetMemberOptions(), om.NewDeployment())
+
+	d := om.NewDeployment()
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sc.Name,
+		MongosProcesses: mongosProcesses,
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{shardRs},
+		Finalizing:      false,
+	})
+	require.NoError(t, err)
+	d.ConfigureMonitoringAndBackup(zap.S(), sc.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	return d
+}
+
+// newShardedClusterWithExternalMember builds a sharded MongoDB with a single shard whose AC
+// replica set name ("vm-shard-0") differs from its K8s shard name ("<name>-0"), mirroring what
+// migrate-to-mck emits via shardNameOverrides, plus the corresponding external mongod member.
+func newShardedClusterWithExternalMember(name string) *mdbv1.MongoDB {
+	sc := test.DefaultClusterBuilder().
+		SetName(name).
+		SetVersion("8.2.0").
+		SetShardCountSpec(1).
+		SetShardCountStatus(1).
+		SetMongodsPerShardCountSpec(0).
+		SetMongodsPerShardCountStatus(0).
+		Build()
+	sc.Spec.ShardNameOverrides = []mdbv1.ShardNameOverride{
+		{ShardName: sc.ShardName(0), ShardId: "vm-shard-0", ReplicaSetName: "vm-shard-0"},
+	}
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-shard-0", Hostname: "vm-shard-0.example.com:27017", Type: "mongod", ReplicaSetName: "vm-shard-0"},
+	}
+	return sc
+}
+
+func TestShardedMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
+	ctx := context.Background()
+	sc := newShardedClusterWithExternalMember("search-on-vm-sc")
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(vmShardProcessWithSearchSetParameters(t, sc, true))
+	})
+
+	// Search setParameters on the external (VM) shard process do not hold the migration back: the
+	// MongoDBSearch keeps its external source and its host seeds are maintained by the user.
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+}
+
 func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistribution map[string]int) []mdbv1.ShardOverride {
 	var shardOverrides []mdbv1.ShardOverride
 

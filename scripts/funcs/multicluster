@@ -198,11 +198,9 @@ EOF
   kubectl --context "${test_pod_cluster}" create secret generic test-pod-multi-cluster-config -n "${NAMESPACE}" "${configuration_params[@]}"
 }
 
-prepare_multi_cluster_e2e_run() {
-  # shellcheck disable=SC2034
-  operator_context="${CENTRAL_CLUSTER}"
-  configure_multi_cluster_environment
-
+# Builds the kubectl-mongodb plugin natively and places it at ${KUBECTL_MONGODB_PATH}.
+# Needed for all local runs (not just multi-cluster), e.g. VM migration tests use the plugin too.
+build_kubectl_mongodb_plugin() {
   if [[ "$(uname)" == "Darwin" ]]; then
     goarch="amd64"
     if [[ "$(uname -m)" == "arm64" ]]; then
@@ -224,6 +222,14 @@ prepare_multi_cluster_e2e_run() {
     # shellcheck disable=SC2031
     PATH=${PATH}:docker/mongodb-kubernetes-tests
   fi
+}
+
+prepare_multi_cluster_e2e_run() {
+  # shellcheck disable=SC2034
+  operator_context="${CENTRAL_CLUSTER}"
+  configure_multi_cluster_environment
+
+  build_kubectl_mongodb_plugin
 
   test_pod_secret_name="test-pod-multi-cluster-config"
   echo "Creating local configuration for multi cluster test in ${MULTI_CLUSTER_CONFIG_DIR}"

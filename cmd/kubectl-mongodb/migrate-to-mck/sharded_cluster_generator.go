@@ -2,6 +2,7 @@ package migratetomck
 
 import (
 	"fmt"
+	"reflect"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -59,7 +60,18 @@ func generateShardedCluster(ac *om.AutomationConfig, opts GenerateOptions) (clie
 
 	overrides := buildShardedClusterOverrides(k8sResourceName, acClusterName, configRS, acShards)
 	overrides.ConfigSrvSpec = buildShardedComponentSpec(ac.AgentSSL, processMap, configRS.Members())
-	overrides.ShardSpec = buildShardedComponentSpec(ac.AgentSSL, processMap, shardRSes[0].Members())
+	// Shards may differ in their mongod settings. When they all agree, that shared config
+	// belongs in spec.shard. When they differ, spec.shard is left absent — populating it
+	// from one shard would assert that shard's settings about all the others — and each
+	// shard states its own config in an override instead.
+	shardConfigs := shardAdditionalMongodConfigs(ac.AgentSSL, processMap, shardRSes)
+	if common, uniform := commonShardConfig(shardConfigs); uniform {
+		if common != nil {
+			overrides.ShardSpec = &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: common}
+		}
+	} else {
+		overrides.ShardOverrides = buildShardOverrides(k8sResourceName, shardConfigs)
+	}
 	overrides.MongosSpec = buildMongosComponentSpec(ac.AgentSSL, mongosProcs)
 	spec.ShardedClusterSpec = overrides
 
@@ -136,8 +148,11 @@ func buildShardedClusterOverrides(k8sResourceName, acClusterName string, configR
 	}
 }
 
-// buildShardedComponentSpec extracts additionalMongodConfig for a replica set component using its first member.
-func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) *mdbv1.ShardedClusterComponentSpec {
+// shardComponentConfig extracts the additionalMongodConfig for one replica-set component,
+// using its first member as representative. Returns nil when the component has no members,
+// its first member is absent from the process map, or nothing survives stripping the
+// operator-managed infrastructure fields.
+func shardComponentConfig(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) *mdbv1.AdditionalMongodConfig {
 	if len(members) == 0 {
 		return nil
 	}
@@ -145,11 +160,74 @@ func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.P
 	if !ok {
 		return nil
 	}
-	cfg := applyClientCertificateMode(agentSSL, proc.AdditionalMongodConfig())
+	return applyClientCertificateMode(agentSSL, proc.AdditionalMongodConfig())
+}
+
+// buildShardedComponentSpec wraps shardComponentConfig in a component spec, or returns nil
+// when there is no config to carry.
+func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) *mdbv1.ShardedClusterComponentSpec {
+	cfg := shardComponentConfig(agentSSL, processMap, members)
 	if cfg == nil {
 		return nil
 	}
 	return &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: cfg}
+}
+
+// shardAdditionalMongodConfigs returns each shard's additionalMongodConfig, index-aligned
+// with shardRSes. Entries are nil for shards whose config could not be determined.
+func shardAdditionalMongodConfigs(agentSSL *om.AgentSSL, processMap map[string]om.Process, shardRSes []om.ReplicaSet) []*mdbv1.AdditionalMongodConfig {
+	configs := make([]*mdbv1.AdditionalMongodConfig, 0, len(shardRSes))
+	for _, rs := range shardRSes {
+		configs = append(configs, shardComponentConfig(agentSSL, processMap, rs.Members()))
+	}
+	return configs
+}
+
+// commonShardConfig reports whether every shard shares one additionalMongodConfig, and if
+// so returns it. Comparison is on the marshalled map rather than pointer identity, so two
+// independently built but equivalent configs count as identical and map key ordering cannot
+// manufacture a false difference. When shards agree the caller emits spec.shard; when they
+// differ, spec.shard is left absent because it would otherwise assert one shard's settings
+// about all the others.
+func commonShardConfig(configs []*mdbv1.AdditionalMongodConfig) (*mdbv1.AdditionalMongodConfig, bool) {
+	if len(configs) == 0 {
+		return nil, true
+	}
+	// ToMap is nil-safe and yields an empty map for a nil config, so nil and non-nil
+	// configs compare correctly without special-casing.
+	first := configs[0].ToMap()
+	for _, cfg := range configs[1:] {
+		if !reflect.DeepEqual(first, cfg.ToMap()) {
+			return nil, false
+		}
+	}
+	return configs[0], true
+}
+
+// buildShardOverrides emits one ShardOverride per shard that has a config, in ascending
+// shard index. Shards are never grouped by identical config: an explicit entry per shard
+// keeps the reader from having to infer which grouping is the default. Each entry carries
+// the shard's complete config rather than a delta, because the operator replaces
+// additionalMongodConfig wholesale rather than merging it
+// (controllers/operator/mongodbshardedcluster_controller.go, processShardOverride).
+// Shards with a nil config are skipped: an override with no additionalMongodConfig is a
+// no-op in the operator.
+func buildShardOverrides(k8sResourceName string, configs []*mdbv1.AdditionalMongodConfig) []mdbv1.ShardOverride {
+	var overrides []mdbv1.ShardOverride
+	for i, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+		overrides = append(overrides, mdbv1.ShardOverride{
+			// Must be the K8s StatefulSet name; sharded-cluster validation rejects any
+			// other form. Same formula as ShardNameOverrides above.
+			ShardNames: []string{fmt.Sprintf("%s-%d", k8sResourceName, i)},
+			ShardedClusterComponentOverrideSpec: mdbv1.ShardedClusterComponentOverrideSpec{
+				AdditionalMongodConfig: cfg,
+			},
+		})
+	}
+	return overrides
 }
 
 // buildMongosComponentSpec extracts additionalMongodConfig for the mongos component using the first active process.
