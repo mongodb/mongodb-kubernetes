@@ -15,17 +15,17 @@ var flags struct {
 	memberCluster          string
 	memberClusterNamespace string
 	workloadNamespaces     string
-	clusterScoped          bool
-	createTelemetryRoles   bool
+	operatorClusterScoped  bool
+	operatorTelemetry      bool
 	imagePullSecrets       string
 }
 
 func init() {
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "Name of the member cluster; used in RBAC resource names (mck-member-<cluster-name>-*) and as the cluster identity. [required]")
-	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster where the member ServiceAccount and its token Secret are created (the credential namespace). [required]")
+	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster for the operator's credentials. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --member-cluster-namespace]")
-	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.clusterScoped, "cluster-scoped", false, "Grant the member ServiceAccount cluster-wide permissions (ClusterRole with a single ClusterRoleBinding instead of per-namespace RoleBindings). Use when the operator watches all namespaces. [optional]")
-	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.createTelemetryRoles, "create-telemetry-roles", true, "Create the telemetry ClusterRole and ClusterRoleBinding for the member ServiceAccount. Set to false to opt out of telemetry. [optional]")
+	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). [optional]")
+	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorTelemetry, "operator-telemetry", true, "Allow the operator to collect cluster-level telemetry on this member cluster. Set to false to opt out. [optional]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "Name of an existing image pull Secret to set on the member-cluster workload ServiceAccounts, for pulling images from a private registry. The Secret must already exist in the workload namespace on the member cluster. [optional]")
 }
 
@@ -45,7 +45,7 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-
 
 Example (cluster-wide operator with workloads in two namespaces):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-east --member-cluster-namespace=mongodb --cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-east --member-cluster-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
 `,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		workloadNamespaces, err := parseFlags()
@@ -53,7 +53,7 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-
 			return err
 		}
 
-		out, err := memberresources.Render(flags.memberCluster, flags.memberClusterNamespace, workloadNamespaces, flags.clusterScoped, flags.createTelemetryRoles, flags.imagePullSecrets)
+		out, err := memberresources.Render(flags.memberCluster, flags.memberClusterNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.imagePullSecrets)
 		if err != nil {
 			return err
 		}
@@ -72,7 +72,7 @@ func parseFlags() ([]string, error) {
 // normalizeWorkloadNamespaces turns the raw --workload-namespaces flag value into the list
 // of namespaces to render for: it trims entries, rejects empty entries and "*", and dedups.
 // A blank value defaults to the member-cluster namespace. "*" is never valid: workload RBAC
-// is namespaced, so a cluster-wide operator must use --cluster-scoped instead (which covers
+// is namespaced, so a cluster-wide operator must use --operator-cluster-scoped instead (which covers
 // the member SA's permissions cluster-wide while workload SAs stay namespaced).
 func normalizeWorkloadNamespaces(rawValue, memberClusterNamespace string) ([]string, error) {
 	if strings.TrimSpace(rawValue) == "" {
@@ -86,7 +86,7 @@ func normalizeWorkloadNamespaces(rawValue, memberClusterNamespace string) ([]str
 			return nil, xerrors.Errorf("invalid --workload-namespaces %q: entries must be non-empty namespace names", rawValue)
 		}
 		if ns == "*" {
-			return nil, xerrors.Errorf("'*' is not a valid workload namespace; use --cluster-scoped for a cluster-wide operator")
+			return nil, xerrors.Errorf("'*' is not a valid workload namespace; use --operator-cluster-scoped for a cluster-wide operator")
 		}
 		if !seen[ns] {
 			seen[ns] = true
