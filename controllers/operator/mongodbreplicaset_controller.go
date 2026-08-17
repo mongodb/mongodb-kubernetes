@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -36,6 +38,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -45,12 +48,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -187,10 +192,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	reconciler := r.reconciler
 
 	// === 1. Initial Checks and setup
-	if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: reconciler.client, SecretClient: reconciler.SecretClient}, reconciler.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	log.Info("-> ReplicaSet.Reconcile")
 	log.Infow("ReplicaSet.Spec", "spec", rs.Spec, "desiredReplicas", scale.ReplicasThisReconciliation(rs), "isScaling", scale.IsStillScaling(rs))
 	log.Infow("ReplicaSet.Status", "status", rs.Status)
@@ -213,14 +214,28 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+		agents.UpgradeIfNeeded(rs, conn)
+	}
+
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, rs.Name, log)
+	reconcileResult := checkIfHasExcessProcesses(conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, reconcileResult)
 	}
 
 	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
+		return r.updateStatus(ctx, status)
+	}
+
+	// Checking for drift in external members
+	if status := checkExternalMembersDrift(conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
+		return r.updateStatus(ctx, status)
+	}
+
+	// Validations for the pre-existing AC in case of migration (TLS mode, voting-members limit).
+	if status := validateACForMigration(conn, rs); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
@@ -266,7 +281,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	agentCertHash, agentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertHash, defaultAgentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
 
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, reconciler.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
@@ -277,6 +292,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
 	}
+
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
 
 	deploymentOpts := deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,
@@ -297,7 +314,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+	// Recovery is skipped when a migration dry-run is active.
+	isDryRun := rs.IsMigrationDryRun()
+	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
@@ -307,6 +326,32 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if !automationConfigStatus.IsOK() {
 			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
+	}
+
+	// 5a. Connectivity dry-run: launch a validation Job without touching OM or StatefulSets.
+	if isDryRun {
+		// let's not block OM UI in case the customer needs to fix something to get their
+		// dry-run to pass.
+		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		operatorImage := r.reconciler.imageUrls[util.OperatorImageEnv]
+		if operatorImage == "" {
+			return r.updateStatus(ctx,
+				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
+				mdbstatus.NewMigrationStatusOptionWithCondition(
+					mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+						"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+					),
+				),
+			)
+		}
+		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
+	}
+
+	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
+		return r.updateStatus(ctx, status)
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
@@ -353,6 +398,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
 	}
 
+	connStringHostnames := rs.GetRSHostnamesAndPorts()
+	extHostnames := rs.GetExternalMembersHostnames()
+	connStringHostnames = append(connStringHostnames, extHostnames...)
+	if err := connectionstringsecret.PublishForMongoDB(ctx, r.reconciler.client, rs, connStringHostnames); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
+	}
+
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
@@ -379,6 +431,8 @@ type deploymentOptionsRS struct {
 	agentCertHash        string
 	prometheusCertHash   string
 	currentAgentAuthMode string
+	// externalAgentVersion is set during OM reconcile when len(spec.GetExternalMembers()) > 0.
+	externalAgentVersion string
 }
 
 // Generic Kubernetes Resources
@@ -387,6 +441,7 @@ type deploymentOptionsRS struct {
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update,namespace=placeholder
 // +kubebuilder:rbac:groups=core,resources={secrets,configmaps},verbs=get;list;watch;create;delete;update,namespace=placeholder
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;get;list;watch;delete;update,namespace=placeholder
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=create;get;list;watch;delete,namespace=placeholder
 
 // MongoDB Resource
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodb,mongodb/status,mongodb/finalizers},verbs=*,namespace=placeholder
@@ -549,6 +604,11 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
 
+	var externalAgentVersion string
+	if len(rs.Spec.GetExternalMembers()) > 0 {
+		externalAgentVersion = deploymentOptions.externalAgentVersion
+	}
+
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
@@ -567,6 +627,8 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithDefaultArchitecture(reconciler.defaultArchitecture),
+		WithExternalAgentVersion(externalAgentVersion),
+		WithAgentCertPath(deploymentOptions.agentCertPath),
 	)
 
 	return rsConfig
@@ -680,12 +742,19 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+	caFilePath := rs.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 
-	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, reconciler.defaultArchitecture)
+	existingDeployment, err := conn.ReadDeployment()
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
+	processIds := getReplicaSetProcessIdsFromReplicaSets(rs.GetReplicaSetName(), existingDeployment)
+
+	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, reconciler.defaultArchitecture, processIds)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, isRecovering, log)
+	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, rs.Spec.GetDownloadBase(), isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return status
 	}
@@ -705,12 +774,18 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	err = conn.ReadUpdateDeployment(
 		func(d om.Deployment) error {
+			if len(rs.Spec.GetExternalMembers()) > 0 {
+				deploymentOptions.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+				if err != nil {
+					return err
+				}
+			}
 			if shouldMirrorKeyfileForMongot {
 				if err := r.mirrorKeyfileIntoSecretForMongot(ctx, d); err != nil {
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log,
 	)
@@ -745,6 +820,37 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	log.Info("Updated Ops Manager for replica set")
 	return workflow.OK()
+}
+
+// runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
+// that checks whether all external MongoDB members in the current Ops Manager deployment are
+// reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
+// The Job is built from the same StatefulSet spec (buildStatefulSetOptions + DatabaseStatefulSet)
+// so it uses the same credentials volumes and mounts as the STS.
+//
+// The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
+// outcomes. The Migrating condition Reason is Validating while the dry-run annotation is set;
+// NetworkConnectivityVerified on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed;
+// while the Job runs, reason is NetworkConnectivityVerifiedReasonRunning ("Running").
+// While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
+// failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
+// in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
+// returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
+func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
+	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	replicaSetName := rs.Spec.ReplicaSetNameOverride
+	if replicaSetName == "" {
+		replicaSetName = rs.Name
+	}
+	hostnamePorts := make([]string, 0, len(externalMemberProcessNames))
+	for _, name := range externalMemberProcessNames {
+		hostnamePorts = append(hostnamePorts, name.Hostname)
+	}
+	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName)
+
+	dryRunStatus := r.reconciler.runConnectivityJob(ctx, rs, &sts, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, operatorImage, log)
+	return r.updateStatus(ctx, dryRunStatus, dryRunStatus.StatusOptions()...)
 }
 
 func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {

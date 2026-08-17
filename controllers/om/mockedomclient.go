@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -42,7 +43,7 @@ import (
 // * To emulate the work of real OM it's possible to emulate the agents delay in "reaching" goal state. This can be
 //   configured using 'AgentsDelayCount' property
 // * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc.) this class can
-//   be used as an access point to those fields for testing (see 'getProcesses' as an example)
+//   be used as an access point to those fields for testing (see 'GetProcesses' as an example)
 // ********************************************************************************************************************
 
 const (
@@ -62,6 +63,8 @@ type MockedOmConnection struct {
 	automationConfig      *AutomationConfig
 	backupAgentConfig     *BackupAgentConfig
 	monitoringAgentConfig *MonitoringAgentConfig
+	processLogRotation    *automationconfig.AcLogRotate
+	auditLogRotation      *automationconfig.AcLogRotate
 	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
@@ -436,6 +439,16 @@ func (oc *MockedOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1
 	return nil
 }
 
+func (oc *MockedOmConnection) ReadProcessLogRotation() (*automationconfig.AcLogRotate, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadProcessLogRotation))
+	return oc.processLogRotation, nil
+}
+
+func (oc *MockedOmConnection) ReadAuditLogRotation() (*automationconfig.AcLogRotate, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadAuditLogRotation))
+	return oc.auditLogRotation, nil
+}
+
 func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadMonitoringAgentConfig))
 	if oc.monitoringAgentConfig == nil {
@@ -707,7 +720,7 @@ func (oc *MockedOmConnection) doUpdateBackupStatus(clusterID string, newStatus b
 }
 
 func (oc *MockedOmConnection) GetProcesses() []Process {
-	return oc.deployment.getProcesses()
+	return oc.deployment.GetProcesses()
 }
 
 func (oc *MockedOmConnection) GetTLS() map[string]interface{} {
@@ -741,7 +754,7 @@ func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T) {
 func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resourceName string) {
 	// This can be improved for some more complicated scenarios when we have different resources in parallel - so far
 	// just checking if deployment
-	assert.Empty(t, oc.deployment.getProcesses())
+	assert.Empty(t, oc.deployment.GetProcesses())
 	assert.Empty(t, oc.deployment.GetReplicaSets())
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
@@ -856,7 +869,7 @@ func (oc *MockedOmConnection) addToHistory(value reflect.Value) {
 func buildHostsFromDeployment(d Deployment) *host.Result {
 	hosts := make([]host.Host, 0)
 	if d != nil {
-		for i, p := range d.getProcesses() {
+		for i, p := range d.GetProcesses() {
 			hosts = append(hosts, host.Host{Id: strconv.Itoa(i), Hostname: p.HostName()})
 		}
 	}
@@ -867,7 +880,7 @@ func (oc *MockedOmConnection) buildAutomationStatusFromDeployment(d Deployment, 
 	// edge case: if there are no processes - we think that
 	processStatuses := make([]ProcessStatus, 0)
 	if d != nil {
-		for _, p := range d.getProcesses() {
+		for _, p := range d.GetProcesses() {
 			if reached {
 				processStatuses = append(processStatuses, ProcessStatus{Name: p.Name(), LastGoalVersionAchieved: 1})
 			} else {

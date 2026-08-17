@@ -16,6 +16,14 @@ CERT_PREFIX = "prefix"
 
 logger = test_logger.get_test_logger(__name__)
 
+# AC process names recorded while the old operator owns the deployment. The new operator must
+# keep the legacy bare pod names on existing deployments instead of renaming to k8s/{namespace}/{pod}.
+process_names_before_upgrade: set = set()
+
+
+def get_ac_process_names() -> set:
+    return {p["name"] for p in KubernetesTester.get_automation_config()["processes"]}
+
 
 @fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
@@ -99,6 +107,12 @@ def test_replicaset_user_created(replica_set_user: MongoDBUser):
 
 
 @mark.e2e_operator_upgrade_replica_set
+def test_record_process_names_before_upgrade():
+    process_names_before_upgrade.update(get_ac_process_names())
+    assert process_names_before_upgrade
+
+
+@mark.e2e_operator_upgrade_replica_set
 def test_upgrade_operator(namespace: str, operator_installation_config: dict[str, str]):
     operator = get_default_operator(
         namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
@@ -110,6 +124,13 @@ def test_upgrade_operator(namespace: str, operator_installation_config: dict[str
 def test_replicaset_reconciled(replica_set: MongoDB):
     replica_set.assert_abandons_phase(phase=Phase.Running, timeout=300)
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
+
+
+@mark.e2e_operator_upgrade_replica_set
+def test_process_names_unchanged_after_upgrade():
+    current = get_ac_process_names()
+    assert current == process_names_before_upgrade
+    assert not any(name.startswith("k8s/") for name in current)
 
 
 @mark.e2e_operator_upgrade_replica_set

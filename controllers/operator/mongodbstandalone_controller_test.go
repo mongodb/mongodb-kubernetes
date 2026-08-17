@@ -87,7 +87,7 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", st, architectures.NonStatic)
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 

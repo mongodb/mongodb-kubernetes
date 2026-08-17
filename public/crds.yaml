@@ -1122,6 +1122,11 @@ spec:
                 type: string
               configServerCount:
                 type: integer
+              configServerNameOverride:
+                description: |-
+                  ConfigServerNameOverride overrides the automation config replicaSetName for the config server.
+                  When omitted, the default ("{resourceName}-config") is used. Immutable once set.
+                type: string
               configSrv:
                 properties:
                   additionalMongodConfig:
@@ -1462,6 +1467,33 @@ spec:
                       - members
                       type: object
                     type: array
+                  externalAccess:
+                    description: |-
+                      ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+                      In SingleCluster this is the only way to give config servers and shards external hostnames:
+                      the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+                      previous behaviour exactly.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               configSrvPodSpec:
@@ -1547,6 +1579,15 @@ spec:
               credentials:
                 description: Name of the Secret holding credentials information
                 type: string
+              downloadBase:
+                description: |-
+                  DownloadBase is the directory on the MongoDB host where the automation agent
+                  downloads and extracts MongoDB binaries. It is always used by the operator, and
+                  the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+                  defaults to "/var/lib/mongodb-mms-automation".
+                  This field should only be set (and only if needed) when migrating an existing
+                  VM-based deployment to the operator.
+                type: string
               duplicateServiceObjects:
                 description: |-
                   In few service mesh options for ex: Istio, by default we would need to duplicate the
@@ -1579,6 +1620,39 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+              externalMembers:
+                items:
+                  properties:
+                    hostname:
+                      description: Hostname contains the hostname and port of the
+                        external process, as it appears in the `processes` field in
+                        the AC.
+                      type: string
+                    processName:
+                      description: ProcessName contains the name of the external process
+                        as it appears in the `processes` field in the AC.
+                      type: string
+                    replicaSetName:
+                      description: |-
+                        ReplicaSetName is required only for mongod processes in a Sharded Cluster deployment
+                        It specifies the name of the Replica Set that the mongod process belongs to.
+                        This field will help to determine whether the mongod process belongs to the config server or a shard (and in which shard).
+                      type: string
+                    type:
+                      description: |-
+                        Type specifies the type of the external member, whether it's a mongod or mongos process.
+                        This field is not required when the deployment we migrate is a Replica Set since it only contains mongods.
+                        However, for a Sharded Cluster deployment, this field is required to distinguish between mongod and mongos processes in the cluster.
+                      enum:
+                      - mongod
+                      - mongos
+                      type: string
+                  required:
+                  - hostname
+                  - processName
+                  - type
+                  type: object
+                type: array
               featureCompatibilityVersion:
                 type: string
               logLevel:
@@ -1950,6 +2024,33 @@ spec:
                       - members
                       type: object
                     type: array
+                  externalAccess:
+                    description: |-
+                      ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+                      In SingleCluster this is the only way to give config servers and shards external hostnames:
+                      the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+                      previous behaviour exactly.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               mongosCount:
@@ -2120,6 +2221,8 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              replicaSetNameOverride:
+                type: string
               security:
                 properties:
                   authentication:
@@ -2131,6 +2234,14 @@ spec:
                         description: Agents contains authentication configuration
                           properties for the agents
                         properties:
+                          autoPEMKeyFilePath:
+                            description: |-
+                              AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+                              database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+                              and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+                              that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+                              hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+                            type: string
                           automationLdapGroupDN:
                             type: string
                           automationPasswordSecretRef:
@@ -2406,8 +2517,20 @@ spec:
                         type: array
                       ca:
                         description: |-
-                          CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                          used to validate the certificates created already.
+                          CA corresponds to a ConfigMap containing the CA certificate used to validate
+                          the certificates created already. The ConfigMap must contain a key named ca-pem
+                          whose value is the PEM-encoded CA bundle.
+                        type: string
+                      caFilePath:
+                        description: |-
+                          CAFilePath is the absolute path for the CA certificate file. It must have
+                          at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                          referenced by tls.CA must contain a key named ca-pem, which the operator
+                          projects to this path. If the parent directory overlaps a volume mount
+                          declared in your podTemplate, the operator's mount will shadow that mount.
+                          Not supported for the AppDB.
+                          Default: /mongodb-automation/tls/ca/ca-pem
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       enabled:
                         description: |-
@@ -2768,10 +2891,73 @@ spec:
                       - members
                       type: object
                     type: array
+                  externalAccess:
+                    description: |-
+                      ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+                      In SingleCluster this is the only way to give config servers and shards external hostnames:
+                      the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+                      previous behaviour exactly.
+                    properties:
+                      externalDomain:
+                        description: An external domain that is used for exposing
+                          MongoDB to the outside world.
+                        type: string
+                      externalService:
+                        description: Provides a way to override the default (NodePort)
+                          Service
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: A map of annotations that shall be added
+                              to the externally available Service.
+                            type: object
+                          spec:
+                            description: A wrapper for the Service spec object.
+                            type: object
+                            x-kubernetes-preserve-unknown-fields: true
+                        type: object
+                    type: object
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               shardCount:
                 type: integer
+              shardNameOverrides:
+                description: |-
+                  ShardNameOverrides maps shard K8s StatefulSet names to their automation config identities.
+                  Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+                items:
+                  description: |-
+                    ShardNameOverride maps a Kubernetes shard StatefulSet name to its automation config identity.
+                    Use this when the AC _id or replicaSetName for a shard differs from the K8s StatefulSet name.
+                    Entries are matched by ShardName so order is not significant. Entries are immutable once set.
+
+                    Two forms are supported:
+                    1. ShardName only (brevity): all three values (_id, replicaSetName, K8s name) are equal.
+                    2. ShardName + ShardId + ReplicaSetName: full form when any AC value differs from the K8s name.
+
+                    ShardId and ReplicaSetName must always be set together or omitted together.
+                  properties:
+                    replicaSetName:
+                      description: |-
+                        ReplicaSetName is the replicaSetName in the automation config for this shard's processes.
+                        Must be set together with ShardId. Omit when AC values match the K8s StatefulSet name.
+                      type: string
+                    shardId:
+                      description: |-
+                        ShardId is the shard _id in the automation config sharding section.
+                        Must be set together with ReplicaSetName. Omit when AC values match the K8s StatefulSet name.
+                      type: string
+                    shardName:
+                      description: |-
+                        ShardName is the operator-generated Kubernetes StatefulSet name for this shard (e.g. "my-mdb-0").
+                        It is always computed as {resourceName}-{index} and cannot be changed.
+                        Use this field to identify which shard the AC override applies to.
+                      type: string
+                  required:
+                  - shardName
+                  type: object
+                type: array
               shardOverrides:
                 description: |-
                   ShardOverrides allow for overriding the configuration of a specific shard.
@@ -3313,6 +3499,11 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                   type: object
                 type: array
+              shardedClusterNameOverride:
+                description: |-
+                  ShardedClusterNameOverride overrides the automation config sharded cluster name.
+                  When omitted, the default ("{resourceName}") is used. Immutable once set.
+                type: string
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset
@@ -3371,6 +3562,65 @@ spec:
                 required:
                 - statusName
                 type: object
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               configServerCount:
                 type: integer
               featureCompatibilityVersion:
@@ -3383,6 +3633,15 @@ spec:
                 type: integer
               message:
                 type: string
+              migrationObservedExternalMembersCount:
+                description: |-
+                  MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
+                  reconcile while migration is active. The next reconcile compares this to the current external count
+                  to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
+                  NOTE: This field is only used for MongoDB CR resources. It is always nil when MongoDbStatus is
+                  embedded in OpsManager's AppDbStatus, but appears in the CRD schema due to Go struct embedding.
+                  This is accepted technical debt until AppDbStatus is decoupled from MongoDbStatus.
+                type: integer
               mongodsPerShardCount:
                 type: integer
               mongosCount:
@@ -4033,6 +4292,15 @@ spec:
               credentials:
                 description: Name of the Secret holding credentials information
                 type: string
+              downloadBase:
+                description: |-
+                  DownloadBase is the directory on the MongoDB host where the automation agent
+                  downloads and extracts MongoDB binaries. It is always used by the operator, and
+                  the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+                  defaults to "/var/lib/mongodb-mms-automation".
+                  This field should only be set (and only if needed) when migrating an existing
+                  VM-based deployment to the operator.
+                type: string
               duplicateServiceObjects:
                 description: |-
                   In few service mesh options for ex: Istio, by default we would need to duplicate the
@@ -4144,6 +4412,14 @@ spec:
                         description: Agents contains authentication configuration
                           properties for the agents
                         properties:
+                          autoPEMKeyFilePath:
+                            description: |-
+                              AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+                              database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+                              and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+                              that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+                              hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+                            type: string
                           automationLdapGroupDN:
                             type: string
                           automationPasswordSecretRef:
@@ -4419,8 +4695,20 @@ spec:
                         type: array
                       ca:
                         description: |-
-                          CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                          used to validate the certificates created already.
+                          CA corresponds to a ConfigMap containing the CA certificate used to validate
+                          the certificates created already. The ConfigMap must contain a key named ca-pem
+                          whose value is the PEM-encoded CA bundle.
+                        type: string
+                      caFilePath:
+                        description: |-
+                          CAFilePath is the absolute path for the CA certificate file. It must have
+                          at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                          referenced by tls.CA must contain a key named ca-pem, which the operator
+                          projects to this path. If the parent directory overlaps a volume mount
+                          declared in your podTemplate, the operator's mount will shadow that mount.
+                          Not supported for the AppDB.
+                          Default: /mongodb-automation/tls/ca/ca-pem
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       enabled:
                         description: |-
@@ -7207,6 +7495,14 @@ spec:
                             description: Agents contains authentication configuration
                               properties for the agents
                             properties:
+                              autoPEMKeyFilePath:
+                                description: |-
+                                  AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+                                  database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+                                  and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+                                  that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+                                  hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+                                type: string
                               automationLdapGroupDN:
                                 type: string
                               automationPasswordSecretRef:
@@ -7484,8 +7780,20 @@ spec:
                             type: array
                           ca:
                             description: |-
-                              CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                              used to validate the certificates created already.
+                              CA corresponds to a ConfigMap containing the CA certificate used to validate
+                              the certificates created already. The ConfigMap must contain a key named ca-pem
+                              whose value is the PEM-encoded CA bundle.
+                            type: string
+                          caFilePath:
+                            description: |-
+                              CAFilePath is the absolute path for the CA certificate file. It must have
+                              at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                              referenced by tls.CA must contain a key named ca-pem, which the operator
+                              projects to this path. If the parent directory overlaps a volume mount
+                              declared in your podTemplate, the operator's mount will shadow that mount.
+                              Not supported for the AppDB.
+                              Default: /mongodb-automation/tls/ca/ca-pem
+                            pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                             type: string
                           enabled:
                             description: |-
@@ -8287,6 +8595,66 @@ spec:
                           type: integer
                       type: object
                     type: array
+                  conditions:
+                    items:
+                      description: Condition contains details for one aspect of the
+                        current state of this API Resource.
+                      properties:
+                        lastTransitionTime:
+                          description: |-
+                            lastTransitionTime is the last time the condition transitioned from one status to another.
+                            This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                          format: date-time
+                          type: string
+                        message:
+                          description: |-
+                            message is a human readable message indicating details about the transition.
+                            This may be an empty string.
+                          maxLength: 32768
+                          type: string
+                        observedGeneration:
+                          description: |-
+                            observedGeneration represents the .metadata.generation that the condition was set based upon.
+                            For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                            with respect to the current state of the instance.
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        reason:
+                          description: |-
+                            reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                            Producers of specific condition types may define expected values and meanings for this field,
+                            and whether the values are considered a guaranteed API.
+                            The value should be a CamelCase string.
+                            This field may not be empty.
+                          maxLength: 1024
+                          minLength: 1
+                          pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                          type: string
+                        status:
+                          description: status of the condition, one of True, False,
+                            Unknown.
+                          enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                          type: string
+                        type:
+                          description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                          maxLength: 316
+                          pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                          type: string
+                      required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - type
+                    x-kubernetes-list-type: map
                   configServerCount:
                     type: integer
                   featureCompatibilityVersion:
@@ -8299,6 +8667,15 @@ spec:
                     type: integer
                   message:
                     type: string
+                  migrationObservedExternalMembersCount:
+                    description: |-
+                      MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
+                      reconcile while migration is active. The next reconcile compares this to the current external count
+                      to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
+                      NOTE: This field is only used for MongoDB CR resources. It is always nil when MongoDbStatus is
+                      embedded in OpsManager's AppDbStatus, but appears in the CRD schema due to Go struct embedding.
+                      This is accepted technical debt until AppDbStatus is decoupled from MongoDbStatus.
+                    type: integer
                   mongodsPerShardCount:
                     type: integer
                   mongosCount:

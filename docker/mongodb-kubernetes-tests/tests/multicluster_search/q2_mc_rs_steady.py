@@ -40,6 +40,7 @@ from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import CLUSTER_LOCATION_TAG_KEY
+from tests.common.search.mc_search_helper import strip_k8s_process_name_prefix
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
     EmbeddedMoviesSearchHelper,
@@ -795,10 +796,11 @@ def test_patch_per_cluster_mongot_host(
     patched_processes: List[str] = []
     for process in ac.get("processes", []):
         process_name = process.get("name", "")
-        if not process_name.startswith(process_prefix):
+        pod_name = strip_k8s_process_name_prefix(process_name)
+        if not pod_name.startswith(process_prefix):
             continue
         try:
-            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+            cluster_idx = int(pod_name[len(process_prefix) :].split("-")[0])
         except ValueError:
             continue
         if cluster_idx not in proxy_by_cluster_idx:

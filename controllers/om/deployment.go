@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
 
 	"github.com/blang/semver"
@@ -20,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -130,7 +130,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 	log := l.With("standalone", standaloneMongo)
 
 	// merging process in case exists, otherwise adding it
-	for _, pr := range d.getProcesses() {
+	for _, pr := range d.GetProcesses() {
 		if pr.Name() == standaloneMongo.Name() {
 			pr.mergeFrom(standaloneMongo, specArgs26, prevArgs26)
 			log.Debug("Merged process into existing one")
@@ -143,7 +143,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, externalMembers []string, l *zap.SugaredLogger) {
 	log := l.With("replicaSet", operatorRs.Rs.Name())
 
 	r := d.getReplicaSetByName(operatorRs.Rs.Name())
@@ -151,7 +151,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 	// they were merged with operator replica sets on next step
 	// (in case OM made any changes to existing processes - these changes must be propagated to new members).
 	if r != nil && len(operatorRs.Rs.Members()) > len(r.Members()) {
-		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members()), l); err != nil {
+		if err := d.copyFirstProcessToNewPositions(operatorRs.Processes, len(r.Members())-len(externalMembers), l); err != nil {
 			// I guess this error is not so serious to fail the whole process - RS will be scaled up anyway
 			log.Error("Failed to copy first process (so new replica set processes may miss Ops Manager changes done to "+
 				"existing replica set processes): %s", err)
@@ -169,7 +169,7 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		log.Debugw("Added replica set as current OM deployment didn't have it")
 	} else {
 
-		processesToRemove := r.mergeFrom(operatorRs.Rs)
+		processesToRemove := r.mergeFrom(operatorRs.Rs, externalMembers)
 		log.Debugw("Merged replica set into existing one")
 
 		if len(processesToRemove) > 0 {
@@ -178,9 +178,33 @@ func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs
 		}
 	}
 
-	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one) we need to make sure
-	// there are no more than 7 voting members
-	d.limitVotingMembers(operatorRs.Rs.Name())
+	// In both cases (the new replicaset was added to OM deployment, or it was merged with OM one)
+	// we need to make sure there are no more than 7 voting members.
+	// limitVotingMembers no-ops when external members are present. See validateACForMigration
+	// in the reconciler for the user-facing failure path.
+	d.limitVotingMembers(operatorRs.Rs.Name(), externalMembers)
+}
+
+// DownloadBase returns the options.downloadBase value from the deployment, or empty if absent.
+func (d Deployment) DownloadBase() string {
+	return maputil.ReadMapValueAsString(d, "options", "downloadBase")
+}
+
+// GetPrometheus returns the Prometheus configuration from the deployment, or nil if absent.
+func (d Deployment) GetPrometheus() *automationconfig.Prometheus {
+	promMap := maputil.ReadMapValueAsMap(d, "prometheus")
+	if len(promMap) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(promMap)
+	if err != nil {
+		return nil
+	}
+	var p automationconfig.Prometheus
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil
+	}
+	return &p
 }
 
 // ConfigurePrometheus adds Prometheus configuration to `Deployment` resource.
@@ -218,6 +242,21 @@ func (d Deployment) ConfigurePrometheus(prom *v1.Prometheus, hash string, salt s
 	return promConfig
 }
 
+// ExternalShardedCluster carries the VM-side state that must be preserved in the automation
+// config during a VM-to-Kubernetes migration. All fields are indexed by shard position and are
+// empty for clusters that were never on VMs.
+type ExternalShardedCluster struct {
+	// ConfigServerMembers holds the process names of external members belonging to the config server replica set.
+	ConfigServerMembers []string
+	// ShardIds holds the automation config shard _id for each shard.
+	// When ShardIds[i] differs from the rs name, it means _id != rs in the AC (full form override).
+	ShardIds []string
+	// ShardMembers holds the process names of external members per shard.
+	ShardMembers [][]string
+	// MongosMembers holds the process names of external mongos members.
+	MongosMembers []string
+}
+
 // DeploymentShardedClusterMergeOptions contains all the required values to update the ShardedCluster
 // in the automation config. These values should be provided my the MongoDB resource.
 type DeploymentShardedClusterMergeOptions struct {
@@ -232,6 +271,7 @@ type DeploymentShardedClusterMergeOptions struct {
 	ConfigServerAdditionalOptionsPrev    map[string]interface{}
 	MongosAdditionalOptionsPrev          map[string]interface{}
 	ShardAdditionalOptionsPrev           map[string]interface{}
+	ExternalCluster                      ExternalShardedCluster
 }
 
 // MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
@@ -258,7 +298,7 @@ func (d Deployment) MergeShardedCluster(opts DeploymentShardedClusterMergeOption
 // Note, that these two are deliberately combined as all clients (standalone, rs etc.) need both backup and monitoring
 // together.
 func (d Deployment) ConfigureMonitoringAndBackup(log *zap.SugaredLogger, tls bool, caFilepath string) {
-	if len(d.getProcesses()) == 0 {
+	if len(d.GetProcesses()) == 0 {
 		return
 	}
 	d.ConfigureMonitoring(log, tls, caFilepath)
@@ -277,12 +317,12 @@ func (d Deployment) GetReplicaSetByName(name string) ReplicaSet {
 // ConfigureMonitoring configures monitoring agents for all processes in the deployment.
 // This is called on every reconcile to ensure the monitoring config matches the desired state.
 func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFilePath string) {
-	if len(d.getProcesses()) == 0 {
+	if len(d.GetProcesses()) == 0 {
 		return
 	}
 
 	monitoringVersions := d.getMonitoringVersions()
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		hostname := p.HostName()
 		pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
 
@@ -407,11 +447,11 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 
 	d.setShardedClusters(toKeep)
 
-	// 2. Remove all replicasets and their processes for shards
-	shards := sc.shards()
-	shardNames := make([]string, len(shards))
+	// 2. Remove all replicasets and their processes for shards, by replica set name, not by _id.
+	shards := sc.Shards()
+	shardNames := make([]string, 0, len(shards))
 	for _, el := range shards {
-		shardNames = append(shardNames, el.id())
+		shardNames = append(shardNames, el.Rs())
 	}
 	d.removeReplicaSets(shardNames, log)
 
@@ -477,11 +517,11 @@ func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []
 // this includes feature compatibility version. This can be used to determine
 // which version of SCRAM-SHA the deployment can enable.
 func (d Deployment) MinimumMajorVersion() uint64 {
-	if len(d.getProcesses()) == 0 {
+	if len(d.GetProcesses()) == 0 {
 		return 0
 	}
 	minimumMajorVersion := semver.Version{Major: math.MaxUint64}
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.FeatureCompatibilityVersion() != "" {
 			fcvString := util.StripEnt(p.FeatureCompatibilityVersion())
 			semverFcv, _ := fcv.FeatureCompatibilityVersionToSemverFormat(fcvString)
@@ -503,7 +543,7 @@ func (d Deployment) MinimumMajorVersion() uint64 {
 // it is not possible to enable x509 authentication at the project level if a single process
 // does not have TLS enabled.
 func (d Deployment) AllProcessesAreTLSEnabled() bool {
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if !p.IsTLSEnabled() {
 			return false
 		}
@@ -513,7 +553,7 @@ func (d Deployment) AllProcessesAreTLSEnabled() bool {
 
 func (d Deployment) GetAllHostnames() []string {
 	hostnames := make([]string, d.NumberOfProcesses())
-	for idx, p := range d.getProcesses() {
+	for idx, p := range d.GetProcesses() {
 		hostnames[idx] = p.HostName()
 	}
 
@@ -521,14 +561,14 @@ func (d Deployment) GetAllHostnames() []string {
 }
 
 func (d Deployment) NumberOfProcesses() int {
-	return len(d.getProcesses())
+	return len(d.GetProcesses())
 }
 
 // anyProcessHasInternalClusterAuthentication determines if at least one process
 // has internal cluster authentication enabled. If this is true, it is impossible to disable
 // x509 authentication
 func (d Deployment) AnyProcessHasInternalClusterAuthentication() bool {
-	return d.processesHaveInternalClusterAuthentication(d.getProcesses())
+	return d.processesHaveInternalClusterAuthentication(d.GetProcesses())
 }
 
 func (d Deployment) ExistingProcessesHaveInternalClusterAuthentication(processes []Process) bool {
@@ -585,13 +625,15 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 	return false
 }
 
-// GetNumberOfExcessProcesses calculates how many processes do not belong to
-// this resource.
-func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
+// GetNumberOfExcessProcesses calculates how many processes do not belong to this resource.
+func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
+	externalMembersSet := merge.StringsToSet(externalMembers)
+
 	for _, p := range processNames {
-		if d.ProcessBelongsToResource(p, resourceName) {
+		_, isExternal := externalMembersSet[p]
+		if d.ProcessBelongsToResource(p, resourceName) || isExternal {
 			excessProcesses -= 1
 		}
 	}
@@ -604,6 +646,31 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string) int {
 	}
 
 	return excessProcesses
+}
+
+func (d Deployment) CheckProcessFields(processName, expectedHostName, expectedType, replicaSetName string) bool {
+	process := d.getProcessByName(processName)
+	if process == nil {
+		return false
+	}
+
+	if fmt.Sprintf("%s:%s", process.HostName(), process.Port()) != expectedHostName ||
+		process.ProcessType() != MongoType(expectedType) {
+		return false
+	}
+
+	if MongoType(expectedType) == ProcessTypeMongos {
+		return true
+	}
+
+	processNames := d.getReplicaSetProcessNames(replicaSetName)
+	for _, p := range processNames {
+		if p == processName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
@@ -650,9 +717,18 @@ func (d Deployment) Debug(l *zap.SugaredLogger) {
 	l.Debugf(">> Deployment: \n %s \n", string(b))
 }
 
+func (d Deployment) SetDownloadBase(downloadBase string) {
+	// Only persist options.downloadBase when it differs from the agent's default (see
+	// agent-launcher.sh), which matches util.DefaultPvcMmsMountPath.
+	if downloadBase == "" || downloadBase == util.DefaultPvcMmsMountPath {
+		return
+	}
+	d["options"] = map[string]interface{}{"downloadBase": downloadBase}
+}
+
 // ProcessesCopy returns the COPY of processes in the deployment.
 func (d Deployment) ProcessesCopy() []Process {
-	return d.deepCopy().getProcesses()
+	return d.deepCopy().GetProcesses()
 }
 
 // ReplicaSetsCopy returns the COPY of replicasets in the deployment.
@@ -690,10 +766,31 @@ func (d Deployment) getReplicaSetProcessNames(name string) []string {
 // GetShardedClusterShardProcessNames returns the process names for sharded cluster named "name" of index "shardNum".
 func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int) []string {
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		if shardNum < 0 || shardNum >= len(sc.shards()) {
+		if shardNum < 0 || shardNum >= len(sc.Shards()) {
 			return nil
 		}
-		return d.getReplicaSetProcessNames(sc.shards()[shardNum].rs())
+		return d.getReplicaSetProcessNames(sc.Shards()[shardNum].Rs())
+	}
+	return nil
+}
+
+// GetShardedClusterByName returns the sharded cluster with the given name and whether it exists.
+func (d Deployment) GetShardedClusterByName(name string) (ShardedCluster, bool) {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		return *sc, true
+	}
+	return nil, false
+}
+
+// GetShardedClusterShardProcessNamesByRs returns the process names of the shard of cluster "name" whose
+// replica set name is rsName. The shards array is sorted by _id, so positional access is unreliable.
+func (d Deployment) GetShardedClusterShardProcessNamesByRs(name string, rsName string) []string {
+	if sc := d.getShardedClusterByName(name); sc != nil {
+		for _, shard := range sc.Shards() {
+			if shard.Rs() == rsName {
+				return d.getReplicaSetProcessNames(rsName)
+			}
+		}
 	}
 	return nil
 }
@@ -702,7 +799,7 @@ func (d Deployment) GetShardedClusterShardProcessNames(name string, shardNum int
 func (d Deployment) getShardedClusterShardsProcessNames(name string) []string {
 	processNames := make([]string, 0)
 	if sc := d.getShardedClusterByName(name); sc != nil {
-		for i := range sc.shards() {
+		for i := range sc.Shards() {
 			processNames = append(processNames, d.GetShardedClusterShardProcessNames(name, i)...)
 		}
 	}
@@ -733,8 +830,12 @@ func (d Deployment) getShardedClusterProcessNames(name string) []string {
 }
 
 func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) error {
+	mongosExternalSet := merge.StringsToSet(opts.ExternalCluster.MongosMembers)
 	// First removing old mongos processes
 	for _, p := range d.getMongosProcessesNames(opts.Name) {
+		if _, isExternal := mongosExternalSet[p]; isExternal {
+			continue
+		}
 		found := false
 		for _, v := range opts.MongosProcesses {
 			if p == v.Name() {
@@ -769,7 +870,7 @@ func (d Deployment) mergeMongosProcesses(opts DeploymentShardedClusterMergeOptio
 
 func (d Deployment) getMongosProcessesNames(clusterName string) []string {
 	processNames := make([]string, 0)
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.ProcessType() == ProcessTypeMongos && p.cluster() == clusterName {
 			processNames = append(processNames, p.Name())
 		}
@@ -782,25 +883,29 @@ func (d Deployment) mergeConfigReplicaSet(opts DeploymentShardedClusterMergeOpti
 		p.setClusterRoleConfigSrv()
 	}
 
-	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, l)
+	d.MergeReplicaSet(opts.ConfigServerRs, opts.ConfigServerAdditionalOptionsDesired, opts.ConfigServerAdditionalOptionsPrev, opts.ExternalCluster.ConfigServerMembers, l)
 }
 
 // mergeShards does merge of replicasets for shards (which in turn merge each process) and merge or add the sharded cluster
 // element as well
 func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *zap.SugaredLogger) bool {
 	// First merging the individual replica sets for each shard
-	for _, v := range opts.Shards {
-		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, log)
+	for idx, v := range opts.Shards {
+		var shardExternalMembers []string
+		if idx < len(opts.ExternalCluster.ShardMembers) {
+			shardExternalMembers = opts.ExternalCluster.ShardMembers[idx]
+		}
+		d.MergeReplicaSet(v, opts.ShardAdditionalOptionsDesired, opts.ShardAdditionalOptionsPrev, shardExternalMembers, log)
 	}
-	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards)
+	cluster := NewShardedCluster(opts.Name, opts.ConfigServerRs.Rs.Name(), opts.Shards, opts.ExternalCluster.ShardIds)
 
 	// Merging "sharding" json value
 	for _, s := range d.getShardedClusters() {
 		if s.Name() == opts.Name {
-			s.mergeFrom(cluster)
+			removedShardRsNames := s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
-			return d.handleShardsRemoval(opts.Finalizing, s, log)
+			return d.handleShardsRemoval(opts.Finalizing, s, removedShardRsNames, log)
 		}
 	}
 	// Adding the new sharded cluster
@@ -810,6 +915,8 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 }
 
 // handleShardsRemoval is a complicated method handling different scenarios.
+// Any shard dropped from the sharding section is drained and then removed, including shards added
+// out of band in Ops Manager.
 // - 'draining' array is empty and no extra shards were found in OM which should be removed - return
 // - if 'finalizing' == false - this means that this is the 1st phase of the process - when the shards are due to be removed
 // or have already been removed and their replica sets are added/already sit in the 'draining' array. Note, that this
@@ -818,8 +925,20 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 // - if 'finalizing' == true - this means that this is the 2nd phase of the process - when the shards were removed
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
-func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *zap.SugaredLogger) bool {
+func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, removedShardRsNames []string, log *zap.SugaredLogger) bool {
+	// Removed shard lifecycle (mergeFrom reports it once, draining carries it between reconciles):
+	//   phase 1 (!finalizing): mergeFrom -> seeding loop -> junkReplicaSets -> addToDraining
+	//   phase 2 (finalizing):  draining  -> findReplicaSetsRemovedFromShardedCluster -> removeReplicaSets
 	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
+
+	// findReplicaSetsRemovedFromShardedCluster only returns shards already recorded in the draining list.
+	// Shards removed by this merge are not there yet, so seed them when their replica set still exists,
+	// letting the block below add them to draining on this pass.
+	for _, rsName := range removedShardRsNames {
+		if !stringutil.Contains(junkReplicaSets, rsName) && d.GetReplicaSetByName(rsName) != nil {
+			junkReplicaSets = append(junkReplicaSets, rsName)
+		}
+	}
 
 	if len(junkReplicaSets) == 0 {
 		return false
@@ -843,10 +962,25 @@ func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, log *
 // GetAllProcessNames returns a list of names of processes in this deployment. This is, the names of all processes
 // in the `processes` attribute of the deployment object.
 func (d Deployment) GetAllProcessNames() (names []string) {
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		names = append(names, p.Name())
 	}
 	return names
+}
+
+// GetProcesses returns the processes in the deployment.
+func (d Deployment) GetProcesses() []Process {
+	return d.getProcesses()
+}
+
+// ProcessMap returns a map of process name to Process. Names are unique within a deployment.
+func (d Deployment) ProcessMap() map[string]Process {
+	processes := d.getProcesses()
+	m := make(map[string]Process, len(processes))
+	for _, p := range processes {
+		m[p.Name()] = p
+	}
+	return m
 }
 
 func (d Deployment) getProcesses() []Process {
@@ -884,7 +1018,7 @@ func (d Deployment) setProcesses(processes []Process) {
 }
 
 func (d Deployment) addProcess(p Process) {
-	d.setProcesses(append(d.getProcesses(), p))
+	d.setProcesses(append(d.GetProcesses(), p))
 }
 
 func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogger) {
@@ -897,7 +1031,7 @@ func (d Deployment) removeProcesses(processNames []string, log *zap.SugaredLogge
 
 	processes := make([]Process, 0)
 
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		found := false
 		for _, p2 := range processNames {
 			if p.Name() == p2 {
@@ -920,7 +1054,7 @@ func (d Deployment) removeReplicaSets(replicaSets []string, log *zap.SugaredLogg
 }
 
 func (d Deployment) getProcessByName(name string) *Process {
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.Name() == name {
 			return &p
 		}
@@ -972,6 +1106,11 @@ func (d Deployment) addReplicaSet(rs ReplicaSet) {
 	d.setReplicaSets(append(d.GetReplicaSets(), rs))
 }
 
+// GetShardedClusters returns the sharded clusters in the deployment.
+func (d Deployment) GetShardedClusters() []ShardedCluster {
+	return d.getShardedClusters()
+}
+
 func (d Deployment) getShardedClusters() []ShardedCluster {
 	switch v := d["sharding"].(type) {
 	case []ShardedCluster:
@@ -1015,25 +1154,23 @@ func (d Deployment) getTLS() map[string]interface{} {
 	return util.ReadOrCreateMap(d, "tls")
 }
 
-// findReplicaSetsRemovedFromShardedCluster finds all replica sets which look like shards that have been removed from
-// the sharded cluster.
-// To make this method work correctly the shards MUST have the same prefix as a shard (which is true for the
-// Operator-created resource)
+// findReplicaSetsRemovedFromShardedCluster returns the replica sets recorded in the draining array of the
+// sharded cluster which still exist in the deployment. The draining array is the authoritative record of
+// shards scheduled for removal. It is written by handleShardsRemoval when shards leave the sharding section
+// and cleared once the replica sets and their processes are physically removed. Replica sets are matched by
+// exact name only, ownership is never guessed from name patterns.
 func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
+	draining := shardedCluster.draining()
 	var ans []string
 
 	for _, v := range d.GetReplicaSets() {
-		if !stringutil.Contains(clusterReplicaSets, v.Name()) && isShardOfShardedCluster(clusterName, v.Name()) {
+		if !stringutil.Contains(clusterReplicaSets, v.Name()) && stringutil.Contains(draining, v.Name()) {
 			ans = append(ans, v.Name())
 		}
 	}
 	return ans
-}
-
-func isShardOfShardedCluster(clusterName, rsName string) bool {
-	return regexp.MustCompile(`^` + clusterName + `-[0-9]+$`).MatchString(rsName)
 }
 
 // removeMonitoring removes the monitoring agent configuration that match any of processes hosts 'processNames' parameter
@@ -1061,7 +1198,7 @@ func (d Deployment) removeMonitoring(processNames []string) {
 // ConfigureBackup adds backup agent configuration for each of the processes of deployment
 func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		found := false
 		var backupVersion map[string]interface{}
 		for _, b := range backupVersions {
@@ -1174,8 +1311,15 @@ func (d Deployment) processesHaveInternalClusterAuthentication(processes []Proce
 	return false
 }
 
-// limitVotingMembers ensures the number of voting members in the replica set is not more than 7 members
-func (d Deployment) limitVotingMembers(rsName string) {
+// limitVotingMembers ensures the number of voting members in the replica set is not more than 7.
+// When externalMembers is non-empty this function is a no-op: the operator does not own external
+// members' votes, so silently zeroing them would corrupt user-managed AC state. The reconciler's
+// validateACForMigration check fails the reconcile before reaching this code path in the migration
+// case, so a no-op here is purely defensive.
+func (d Deployment) limitVotingMembers(rsName string, externalMembers []string) {
+	if len(externalMembers) > 0 {
+		return
+	}
 	r := d.getReplicaSetByName(rsName)
 
 	numberOfVotingMembers := 0

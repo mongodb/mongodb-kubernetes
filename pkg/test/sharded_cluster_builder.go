@@ -262,6 +262,11 @@ func (b *ClusterBuilder) SetShardOverrides(override []mdb.ShardOverride) *Cluste
 	return b
 }
 
+func (b *ClusterBuilder) SetShardNameOverrides(overrides []mdb.ShardNameOverride) *ClusterBuilder {
+	b.Spec.ShardNameOverrides = overrides
+	return b
+}
+
 func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *ClusterBuilder {
 	b.Spec.OpsManagerConfig.ConfigMapRef.Name = configMapName
 	return b
@@ -299,6 +304,27 @@ func (b *ClusterBuilder) SetExternalAccessDomain(externalDomains ClusterDomains)
 		}
 		b.Spec.ExternalAccessConfiguration.ExternalDomain = &externalDomains.SingleClusterDomain
 	}
+	return b
+}
+
+// SetPerTierExternalAccessDomains sets spec.<tier>.externalAccess.externalDomain on all three tiers.
+// Unlike SetExternalAccessDomain this is topology independent: the per-tier field is honoured in both
+// single-cluster and multi-cluster.
+func (b *ClusterBuilder) SetPerTierExternalAccessDomains(externalDomains ClusterDomains) *ClusterBuilder {
+	setDomain := func(component *mdb.ShardedClusterComponentSpec, domain string) {
+		if len(domain) == 0 {
+			return
+		}
+		if component.ExternalAccessConfiguration == nil {
+			component.ExternalAccessConfiguration = &mdb.ExternalAccessConfiguration{}
+		}
+		component.ExternalAccessConfiguration.ExternalDomain = &domain
+	}
+
+	setDomain(b.Spec.ConfigSrvSpec, externalDomains.ConfigServerExternalDomain)
+	setDomain(b.Spec.ShardSpec, externalDomains.ShardsExternalDomain)
+	setDomain(b.Spec.MongosSpec, externalDomains.MongosExternalDomain)
+
 	return b
 }
 
