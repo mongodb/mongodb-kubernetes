@@ -65,7 +65,7 @@ type resourceNames struct {
 	operatorBinding string
 
 	// Telemetry RBAC, rendered by the dual-mode operator-roles-telemetry.yaml unless
-	// createTelemetryRoles is false.
+	// operatorTelemetry is false.
 	telemetryClusterRole string
 	telemetryBinding     string
 
@@ -141,29 +141,29 @@ func telemetryResources(n resourceNames) []resourceID {
 
 // TestRender asserts the full set of resources Render emits for each flag combination.
 // workloadNamespaces drives workload RBAC placement and (in narrowed mode) the member SA's
-// per-namespace bindings; clusterScoped switches the member SA to a single ClusterRoleBinding.
+// per-namespace bindings; operatorClusterScoped switches the member SA to a single ClusterRoleBinding.
 // Note the asymmetry the expected sets encode: in narrowed mode the operator bindings cover
 // the union of the workload namespaces and the member namespace, while the workload resources
 // follow only the workload namespaces. Telemetry resources are present unless
-// createTelemetryRoles is false.
+// operatorTelemetry is false.
 func TestRender(t *testing.T) {
 	const clusterName = "cluster-east"
 	const memberNs = "mongodb"
 	n := expectedNames(clusterName)
 
 	tests := []struct {
-		name                 string
-		workload             []string
-		clusterScoped        bool
-		createTelemetryRoles bool
-		wantRoleKind         string
-		want                 []resourceID
+		name                  string
+		workload              []string
+		operatorClusterScoped bool
+		operatorTelemetry     bool
+		wantRoleKind          string
+		want                  []resourceID
 	}{
 		{
-			name:                 "defaults: workload namespace equals member namespace",
-			workload:             []string{memberNs},
-			createTelemetryRoles: true,
-			wantRoleKind:         "Role",
+			name:              "defaults: workload namespace equals member namespace",
+			workload:          []string{memberNs},
+			operatorTelemetry: true,
+			wantRoleKind:      "Role",
 			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
@@ -175,10 +175,10 @@ func TestRender(t *testing.T) {
 			// A single workload namespace that differs from the member namespace unions to
 			// {ns1, mongodb} (size 2), so the operator role becomes a ClusterRole with
 			// RoleBindings in both namespaces, while the workload RBAC lands in ns1 only.
-			name:                 "single workload namespace differs from member namespace",
-			workload:             []string{"ns1"},
-			createTelemetryRoles: true,
-			wantRoleKind:         "ClusterRole",
+			name:              "single workload namespace differs from member namespace",
+			workload:          []string{"ns1"},
+			operatorTelemetry: true,
+			wantRoleKind:      "ClusterRole",
 			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
@@ -188,10 +188,10 @@ func TestRender(t *testing.T) {
 			}, telemetryResources(n)...), workloadResources(n, "ns1")...),
 		},
 		{
-			name:                 "multiple workload namespaces",
-			workload:             []string{"ns1", "ns2"},
-			createTelemetryRoles: true,
-			wantRoleKind:         "ClusterRole",
+			name:              "multiple workload namespaces",
+			workload:          []string{"ns1", "ns2"},
+			operatorTelemetry: true,
+			wantRoleKind:      "ClusterRole",
 			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
@@ -202,11 +202,11 @@ func TestRender(t *testing.T) {
 			}, telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
-			name:                 "cluster-scoped with default workload namespaces",
-			workload:             []string{memberNs},
-			clusterScoped:        true,
-			createTelemetryRoles: true,
-			wantRoleKind:         "ClusterRole",
+			name:                  "cluster-scoped with default workload namespaces",
+			workload:              []string{memberNs},
+			operatorClusterScoped: true,
+			operatorTelemetry:     true,
+			wantRoleKind:          "ClusterRole",
 			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
@@ -215,11 +215,11 @@ func TestRender(t *testing.T) {
 			}, telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
-			name:                 "cluster-scoped with explicit workload namespaces",
-			workload:             []string{"ns1", "ns2"},
-			clusterScoped:        true,
-			createTelemetryRoles: true,
-			wantRoleKind:         "ClusterRole",
+			name:                  "cluster-scoped with explicit workload namespaces",
+			workload:              []string{"ns1", "ns2"},
+			operatorClusterScoped: true,
+			operatorTelemetry:     true,
+			wantRoleKind:          "ClusterRole",
 			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
@@ -228,10 +228,10 @@ func TestRender(t *testing.T) {
 			}, telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
-			name:                 "telemetry roles opted out",
-			workload:             []string{memberNs},
-			createTelemetryRoles: false,
-			wantRoleKind:         "Role",
+			name:              "telemetry roles opted out",
+			workload:          []string{memberNs},
+			operatorTelemetry: false,
+			wantRoleKind:      "Role",
 			want: append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
@@ -243,7 +243,7 @@ func TestRender(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Render(clusterName, memberNs, tc.workload, tc.clusterScoped, tc.createTelemetryRoles, "")
+			out, err := Render(clusterName, memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
 			require.NoError(t, err, "render failed")
 			resources := parseResources(t, out)
 
@@ -278,12 +278,12 @@ func TestRender_RequiresClusterName(t *testing.T) {
 
 // TestRender_RejectsWildcard asserts the chart-level backstop for "*": the CLI rejects it
 // when parsing --workload-namespaces, but the member-mode templates must also refuse it,
-// since "*" is only ever valid via clusterScoped.
+// since "*" is only ever valid via operatorClusterScoped.
 func TestRender_RejectsWildcard(t *testing.T) {
 	for _, workload := range [][]string{{"*"}, {"ns1", "*"}} {
 		_, err := Render("cluster-east", "mongodb", workload, false, true, "")
 		require.Error(t, err, "expected an error for workload namespaces %v", workload)
-		assert.Contains(t, err.Error(), "--cluster-scoped", "error should point at --cluster-scoped, got: %v", err)
+		assert.Contains(t, err.Error(), "--operator-cluster-scoped", "error should point at --operator-cluster-scoped, got: %v", err)
 	}
 }
 

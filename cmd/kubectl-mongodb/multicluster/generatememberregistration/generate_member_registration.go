@@ -14,19 +14,19 @@ import (
 )
 
 var flags struct {
-	memberCluster          string
-	memberClusterContext   string
-	memberClusterNamespace string
-	operatorNamespace      string
-	clusterName            string
+	memberCluster            string
+	memberClusterContext     string
+	memberClusterNamespace   string
+	operatorNamespace        string
+	memberClusterLogicalName string
 }
 
 func init() {
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; used as the MemberCluster CR's metadata.name and the credential Secret name suffix. Must match the name passed to generate-member-resources. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster where the ServiceAccount token Secret lives. [required]")
+	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.clusterName, "cluster-name", "", "Logical cluster name set as spec.clusterName on the MemberCluster CR, used to resolve clusterSpecList[].clusterName references in workload CRs. [optional, default: --member-cluster]")
+	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
 }
 
 // GenerateMemberRegistrationCmd reads a member cluster's ServiceAccount token and emits the
@@ -79,15 +79,15 @@ func parseFlags() (memberregistration.Options, error) {
 		return memberregistration.Options{}, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-context, member-cluster-namespace, operator-namespace]")
 	}
 
-	clusterName := flags.clusterName
-	if strings.TrimSpace(clusterName) == "" {
-		clusterName = flags.memberCluster
+	memberClusterLogicalName := flags.memberClusterLogicalName
+	if strings.TrimSpace(memberClusterLogicalName) == "" {
+		memberClusterLogicalName = flags.memberCluster
 	}
 
 	return memberregistration.Options{
 		MemberClusterName:        flags.memberCluster,
 		MemberClusterNamespace:   flags.memberClusterNamespace,
 		OperatorNamespace:        flags.operatorNamespace,
-		MemberClusterLogicalName: clusterName,
+		MemberClusterLogicalName: memberClusterLogicalName,
 	}, nil
 }
