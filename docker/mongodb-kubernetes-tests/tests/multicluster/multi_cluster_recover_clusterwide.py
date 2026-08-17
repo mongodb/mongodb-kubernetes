@@ -100,7 +100,7 @@ def install_operator(
         central_cluster_name,
         operator_name=MULTI_CLUSTER_OPERATOR_NAME,
         configure_member_clusters=member_cluster_names,
-        member_clusters_watched_namespaces=member_cluster_namespaces,
+        member_clusters_workload_namespaces=member_cluster_namespaces,
     )
 
 

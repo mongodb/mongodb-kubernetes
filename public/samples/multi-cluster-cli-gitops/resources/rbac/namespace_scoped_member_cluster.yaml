@@ -166,3 +166,48 @@ subjects:
   - kind: ServiceAccount
     name: mck-member-member-cluster-appdb
     namespace: mongodb
+---
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-cluster-telemetry
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+---
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-cluster-telemetry-binding
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mck-member-member-cluster-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb

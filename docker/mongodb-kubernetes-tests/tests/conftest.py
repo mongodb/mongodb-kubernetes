@@ -805,7 +805,7 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
 
 
 def get_multi_cluster_operator_clustermode(
-    namespace: str, member_clusters_watched_namespaces: Optional[str] = None
+    namespace: str, member_clusters_workload_namespaces: Optional[str] = None
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = get_central_cluster_name()
     return _install_multi_cluster_operator(
@@ -819,10 +819,11 @@ def get_multi_cluster_operator_clustermode(
         },
         get_central_cluster_name(),
         configure_member_clusters=get_member_cluster_names(),
-        # Watching all namespaces on each member cluster renders member RBAC as ClusterRoles
-        # instead of Roles. Only narrow this together with operator.watchNamespace: member-cluster
-        # caches are scoped from the operator's watchNamespace and need the cluster-scope render.
-        member_clusters_watched_namespaces=member_clusters_watched_namespaces or "*",
+        # The operator watches all namespaces, so member RBAC must be rendered cluster-scoped
+        # (ClusterRoles instead of per-namespace Roles) via --cluster-scoped. Member-cluster caches
+        # are scoped from the operator's watchNamespace, so the member RBAC scope must cover it.
+        member_clusters_workload_namespaces=member_clusters_workload_namespaces,
+        member_clusters_cluster_scoped=True,
     )
 
 
@@ -878,7 +879,8 @@ def _install_multi_cluster_operator(
     create_operator_config: bool = True,
     operator_config_extra_spec: Optional[dict] = None,
     configure_member_clusters: Optional[List[str]] = None,
-    member_clusters_watched_namespaces: Optional[str] = None,
+    member_clusters_workload_namespaces: Optional[str] = None,
+    member_clusters_cluster_scoped: bool = False,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -956,7 +958,8 @@ def _install_multi_cluster_operator(
             namespace,
             namespace,
             central_cluster_name,
-            watched_namespaces=member_clusters_watched_namespaces,
+            workload_namespaces=member_clusters_workload_namespaces,
+            cluster_scoped=member_clusters_cluster_scoped,
         )
 
         if wait_for_registration_restart:
@@ -1553,7 +1556,8 @@ def _wait_for_member_sa_token(cluster: str, member_namespace: str, timeout: int 
 def generate_and_apply_member_resources(
     member_clusters: List[str],
     member_namespace: str,
-    watched_namespaces: Optional[str] = None,
+    workload_namespaces: Optional[str] = None,
+    cluster_scoped: bool = False,
 ):
     """Render and apply member-cluster RBAC to each member cluster."""
     plugin = _multi_cluster_plugin_path()
@@ -1567,8 +1571,10 @@ def generate_and_apply_member_resources(
             "--member-cluster-namespace",
             member_namespace,
         ]
-        if watched_namespaces:
-            args += ["--watched-namespaces", watched_namespaces]
+        if workload_namespaces:
+            args += ["--workload-namespaces", workload_namespaces]
+        if cluster_scoped:
+            args += ["--cluster-scoped"]
         print(f"Rendering member resources for {cluster}: {' '.join(args)}")
         manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
         _kubectl_apply_to_context(cluster, manifests)
@@ -1613,11 +1619,12 @@ def configure_multi_cluster_members(
     member_namespace: str,
     operator_namespace: str,
     central_cluster: str,
-    watched_namespaces: Optional[str] = None,
+    workload_namespaces: Optional[str] = None,
+    cluster_scoped: bool = False,
 ):
     """Apply member-cluster RBAC to each member cluster, then register each cluster with the
     operator's cluster."""
-    generate_and_apply_member_resources(member_clusters, member_namespace, watched_namespaces)
+    generate_and_apply_member_resources(member_clusters, member_namespace, workload_namespaces, cluster_scoped)
     generate_and_apply_member_registration(member_clusters, member_namespace, operator_namespace, central_cluster)
 
 
@@ -1884,7 +1891,7 @@ def install_multi_cluster_operator_cluster_scoped(
         },
         central_cluster_name,
         configure_member_clusters=member_cluster_names,
-        member_clusters_watched_namespaces=member_cluster_namespaces,
+        member_clusters_workload_namespaces=member_cluster_namespaces,
     )
 
 
