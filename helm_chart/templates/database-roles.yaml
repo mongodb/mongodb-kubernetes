@@ -13,7 +13,7 @@
        workload ServiceAccounts are always namespaced. */}}
 {{- $watchNamespace = (.Values.memberCluster | default dict).workloadNamespaces | default $watchNamespace }}
 {{- if has "*" $watchNamespace }}
-{{- fail "'*' is not a valid workload namespace; use --cluster-scoped for cluster-wide permissions" }}
+{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" }}
 {{- end }}
 {{- else if .Values.operator.watchNamespace }}
 {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
