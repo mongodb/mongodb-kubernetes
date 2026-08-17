@@ -11,6 +11,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
 func TestCRegistry_CopyWithTags(t *testing.T) {
@@ -96,6 +98,69 @@ func TestCRegistry_CopyWithTags_CopiesSignatureIfPresent(t *testing.T) {
 	dstSigDesc, err := remote.Get(dstSigRef)
 	require.NoError(t, err, "signature was not copied to target repo")
 	assert.Equal(t, wantSigDigest, dstSigDesc.Digest, "signature digest mismatch")
+}
+
+func TestCRegistry_CopyWithTags_CopiesSignaturesForIndexAndChildManifests(t *testing.T) {
+	s := httptest.NewServer(registry.New())
+	defer s.Close()
+
+	u, err := url.Parse(s.URL)
+	require.NoError(t, err, "failed to parse test server url")
+	host := u.Host
+
+	// Build a fake multiarch index with 2 child manifests.
+	idx, err := random.Index(1024, 2, 2)
+	require.NoError(t, err, "failed to create random index")
+
+	idxDigest, err := idx.Digest()
+	require.NoError(t, err, "failed to get index digest")
+
+	// Write index to source repo under v1 tag.
+	srcRefStr := host + "/source-repo:v1"
+	srcRef, err := name.ParseReference(srcRefStr, name.Insecure)
+	require.NoError(t, err, "failed to parse src ref")
+	require.NoError(t, remote.WriteIndex(srcRef, idx), "failed to write source index")
+
+	// Get child manifest digests.
+	idxManifest, err := idx.IndexManifest()
+	require.NoError(t, err, "failed to get index manifest")
+	require.Len(t, idxManifest.Manifests, 2, "expected 2 child manifests")
+
+	// Write signature images for index digest and each child digest.
+	wantSigDigests := make(map[string]string) // sigTag -> wantSigDigest
+
+	allDigests := []v1.Hash{idxDigest}
+	for _, m := range idxManifest.Manifests {
+		allDigests = append(allDigests, m.Digest)
+	}
+	for _, d := range allDigests {
+		sigTag := signatureTagFor(d)
+		fakeSig, err := random.Image(512, 1)
+		require.NoError(t, err, "failed to create fake signature image")
+		sigDigest, err := fakeSig.Digest()
+		require.NoError(t, err, "failed to get signature digest")
+		wantSigDigests[sigTag] = sigDigest.String()
+
+		sigRef, err := name.ParseReference(host+"/source-repo:"+sigTag, name.Insecure)
+		require.NoError(t, err, "failed to parse signature ref")
+		require.NoError(t, remote.Write(sigRef, fakeSig), "failed to write signature image")
+	}
+
+	reg := &cRegistry{host: host, insecure: true}
+
+	require.NoError(t, reg.CopyWithTags(host+"/source-repo:v1", "target-repo", []string{"latest"}),
+		"CopyWithTags failed")
+
+	// Assert that the signature for the index digest AND each child digest
+	// were copied to the destination.
+	for sigTag, wantDigest := range wantSigDigests {
+		dstSigRef, err := name.ParseReference(host+"/target-repo:"+sigTag, name.Insecure)
+		require.NoError(t, err, "failed to parse dst signature ref for %s", sigTag)
+
+		dstSigDesc, err := remote.Get(dstSigRef)
+		require.NoError(t, err, "signature %s was not copied to target repo", sigTag)
+		assert.Equal(t, wantDigest, dstSigDesc.Digest.String(), "signature digest mismatch for %s", sigTag)
+	}
 }
 
 func TestCRegistry_CopyWithTags_NoSignatureIsNotAnError(t *testing.T) {

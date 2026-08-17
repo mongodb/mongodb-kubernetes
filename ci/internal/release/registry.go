@@ -96,6 +96,19 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 	if err := t.copySignature(src, desc.Digest, dstRepo); err != nil {
 		return fmt.Errorf("copy signature failed for %s: %w", srcRef, err)
 	}
+
+	if idx != nil {
+		idxManifest, err := idx.IndexManifest()
+		if err != nil {
+			return fmt.Errorf("read index manifest for %s: %w", srcRef, err)
+		}
+		for _, m := range idxManifest.Manifests {
+			if err := t.copySignature(src, m.Digest, dstRepo); err != nil {
+				return fmt.Errorf("copy signature failed for %s (child %s): %w", srcRef, m.Digest, err)
+			}
+		}
+	}
+
 	return nil
 }
 
