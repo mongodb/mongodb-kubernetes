@@ -32,15 +32,7 @@ for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
 done
 export KUBECONFIG="${plugin_kubeconfig}"
 
-# Strip the legacy multiCluster.clusters value injected by
-# get_operator_helm_values (KUBE_ENVIRONMENT_NAME=multi): this day-2 flow
-# registers member clusters via MemberCluster CRs after the operator starts.
-# Passing multiCluster.clusters would make the chart mount the multi-cluster
-# kubeconfig Secret (kube-config-volume), which is never created here, leaving
-# the operator Pod stuck in FailedMount and the rollout status to time out.
-# TODO(m1kola): slice-6 - remove this filter when PR 3 drops the multiCluster.clusters
-# injection from get_operator_helm_values (scripts/funcs/operator_deployment).
-OPERATOR_ADDITIONAL_HELM_VALUES="$(get_operator_helm_values | tr ' ' '\n' | grep -v '^multiCluster\.clusters=' | tr '\n' ',' | sed 's/,$//')"
+OPERATOR_ADDITIONAL_HELM_VALUES="$(get_operator_helm_values | tr ' ' ',')"
 export OPERATOR_ADDITIONAL_HELM_VALUES
 export OPERATOR_HELM_CHART="${PROJECT_DIR}/helm_chart"
 
