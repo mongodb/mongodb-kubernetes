@@ -10,6 +10,10 @@ source scripts/dev/set_env_context.sh
 
 registry_override=""
 if [[ "${IS_DRYRUN:-false}" == "true" ]]; then
+  if [[ -z "${dryrun_registry_override:-}" ]]; then
+    echo "ERROR: IS_DRYRUN=true but dryrun_registry_override is unset" >&2
+    exit 1
+  fi
   registry_override="${dryrun_registry_override}"
 fi
 
