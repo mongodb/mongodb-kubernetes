@@ -50,12 +50,6 @@ type cRegistry struct {
 	insecure bool
 }
 
-// signatureTagFor returns the cosign "simple signing" sibling tag name for an
-// image digest: the digest with ":" replaced by "-", plus a ".sig" suffix.
-// This is cosign's default tag-based signature storage scheme, used when
-// COSIGN_REPOSITORY points at the image's own repository (see
-// scripts/release/build/image_signing.py) rather than the OCI 1.1 referrers
-// API.
 func signatureTagFor(digest v1.Hash) string {
 	return strings.ReplaceAll(digest.String(), ":", "-") + ".sig"
 }
@@ -95,23 +89,17 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 			}
 		} else {
 			if err := remote.Write(dst, img, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
-				return fmt.Errorf("write image %s: %w", tag, err)
+				return fmt.Errorf("failed to write image %s: %w", tag, err)
 			}
 		}
 	}
 	if err := t.copySignature(src, desc.Digest, dstRepo); err != nil {
-		return fmt.Errorf("copy signature for %s: %w", srcRef, err)
+		return fmt.Errorf("copy signature failed for %s: %w", srcRef, err)
 	}
 	return nil
 }
 
-// copySignature copies the cosign signature sibling tag (if the source image
-// was signed) from src's repository to dstRepo, under the same
-// digest-derived tag name (see signatureTagFor). The signature tag encodes
-// the image's digest, so one copy covers every tag CopyWithTags applied to
-// that same digest (e.g. both :{version} and :latest). If the source has no
-// signature tag (the image wasn't signed — signing is optional per image,
-// see build_info.json's per-image "sign" field), this is a silent no-op.
+// copySignature copies the cosign signature sibling tag
 func (t *cRegistry) copySignature(src name.Reference, digest v1.Hash, dstRepo string) error {
 	sigTag := signatureTagFor(digest)
 
