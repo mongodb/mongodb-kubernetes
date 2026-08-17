@@ -1,5 +1,17 @@
-{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
+{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false }}
 {{- $telemetry := default dict .Values.operator.telemetry }}
+{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
+{{- $bindingName := printf "%s-%s-cluster-telemetry-binding" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
+{{- $saName := .Values.operator.name }}
+{{- if $memberMode }}
+{{- /* Member mode (rendered only by `kubectl mongodb multicluster generate-member-resources`):
+       same rules bound to the member ServiceAccount, using the mck-member-<cluster-name>-*
+       naming so they are additive to the base installation RBAC. */}}
+{{- $memberName := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled is true" .Values.memberCluster.name) }}
+{{- $clusterRoleName = printf "%s-cluster-telemetry" $memberName }}
+{{- $bindingName = printf "%s-cluster-telemetry-binding" $memberName }}
+{{- $saName = printf "%s-sa" $memberName }}
+{{- end }}
 
 {{/* Whether telemetry is enabled/disabled is a runtime setting on the OperatorConfig CR, so the RBAC
      is always deployed (the base deployment can toggle telemetry without redeploying). Deployment of
@@ -13,6 +25,10 @@ kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $clusterRoleName }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ .Chart.Version | quote }}
+{{- end }}
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -39,13 +55,17 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-telemetry-binding
+  name: {{ $bindingName }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ .Chart.Version | quote }}
+{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: {{ $clusterRoleName }}
 subjects:
   - kind: ServiceAccount
-    name: {{ .Values.operator.name }}
+    name: {{ $saName }}
     namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
 {{- end}}{{/* if ne $telemetry.installClusterRole false */}}
