@@ -173,21 +173,21 @@ def test_delete_cluster_role_and_binding(
         f"{MULTI_CLUSTER_OPERATOR_NAME}-pvc-resize",
         f"{MULTI_CLUSTER_OPERATOR_NAME}-cluster-telemetry",
         f"{MULTI_CLUSTER_OPERATOR_NAME}-{namespace}-cluster-telemetry-binding",
-        # Legacy MCK 1.x `multicluster setup` names — nothing in 2.x creates them, but they
-        # linger on long-lived dev clusters. Deletion tolerates 404.
-        f"{MULTI_CLUSTER_OPERATOR_NAME}-role",
-        f"{MULTI_CLUSTER_OPERATOR_NAME}-role-binding",
     ]
     for name in central_role_names:
         delete_cluster_role(name, central_cluster_client)
         delete_cluster_role_binding(name, central_cluster_client)
 
-    # Member-cluster RBAC (mck-member-<cluster>-*): the member and telemetry roles are
-    # ClusterRoles in every render mode (bound per-namespace in the namespaced render).
+    # Member-cluster RBAC (mck-member-<cluster>-*): the member roles are ClusterRoles in
+    # every render mode (bound per-namespace in the namespaced render).
     for mcc in member_cluster_clients:
         for name in (
-            f"mck-member-{mcc.cluster_name}-role",
-            f"mck-member-{mcc.cluster_name}-role-binding",
+            f"mck-member-{mcc.cluster_name}-role-base",
+            f"mck-member-{mcc.cluster_name}-role-base-binding",
+            f"mck-member-{mcc.cluster_name}-role-multicluster",
+            f"mck-member-{mcc.cluster_name}-role-multicluster-binding",
+            f"mck-member-{mcc.cluster_name}-pvc-resize",
+            f"mck-member-{mcc.cluster_name}-pvc-resize-binding",
             f"mck-member-{mcc.cluster_name}-cluster-telemetry",
             f"mck-member-{mcc.cluster_name}-cluster-telemetry-binding",
         ):

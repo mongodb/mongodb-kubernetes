@@ -21,17 +21,29 @@ import (
 // memberTemplates are the chart templates rendered into the output, in order. Everything a
 // member cluster needs must be present:
 //
-//   - member-cluster-rbac.yaml: the operator's own member RBAC (mck-member-<cluster-name>-* SA,
-//     token, Role/ClusterRole, bindings) — additive and distinctly named so it never collides
-//     with base-installation RBAC.
-//   - database-roles.yaml: RBAC for the MongoDB pods. In member mode it renders
-//     member-scoped names (mck-member-<cluster-name>-*), so it is additive to the base
-//     installation RBAC just like member-cluster-rbac.yaml.
+//   - member-cluster-rbac.yaml: the member-specific resources — the member ServiceAccount
+//     and token Secret (credentials), and mck-member-<cluster-name>-role-multicluster
+//     holding the rules the operator needs only because of multi-cluster operation
+//     (deletecollection cleanup, the rbac-version self-read).
+//   - operator-roles-base.yaml: dual-mode; in member mode it renders
+//     mck-member-<cluster-name>-role-base — the operator's shared workload-management
+//     rules, identical to the base installation's role, from a single unconditional
+//     source in the template.
+//   - operator-roles-pvc-resize.yaml: dual-mode; in member mode it renders
+//     mck-member-<cluster-name>-pvc-resize bound to the member SA.
+//   - database-roles.yaml: RBAC for the MongoDB pods. Dual-mode; in member mode it renders
+//     member-scoped names (mck-member-<cluster-name>-*).
 //   - operator-roles-telemetry.yaml: telemetry ClusterRole/ClusterRoleBinding. Dual-mode; in
 //     member mode it renders mck-member-<cluster-name>-cluster-telemetry bound to the member
 //     SA. Renders to nothing when operatorTelemetry is false (installClusterRole gate).
+//
+// All member resources use the distinct mck-member-<cluster-name>-* naming so they are
+// additive to the base-installation RBAC and never collide with it — including when the
+// operator's own cluster is also configured as a member cluster.
 var memberTemplates = []string{
 	"member-cluster-rbac.yaml",
+	"operator-roles-base.yaml",
+	"operator-roles-pvc-resize.yaml",
 	"database-roles.yaml",
 	"operator-roles-telemetry.yaml",
 }
