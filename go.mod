@@ -162,7 +162,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
 
-go 1.26.5
+go 1.26.6
 
 tool (
 	github.com/josvazg/gobump
