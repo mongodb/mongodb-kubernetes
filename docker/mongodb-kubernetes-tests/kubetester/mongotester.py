@@ -144,6 +144,13 @@ def connection_string_without_query_param(connection_string: str, param: str) ->
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
+def connection_string_with_patched_path(connection_string: str, database: str) -> str:
+    """Return a copy of the connection string with the URI path set to /{database} (or / if empty)."""
+    parts = urlsplit(connection_string)
+    path = f"/{database}" if database else "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
 def _run_mongosh(connection_string: str, eval_script: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["mongosh", connection_string, "--quiet", "--norc", "--eval", eval_script],
