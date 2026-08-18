@@ -3,6 +3,7 @@ package release
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -121,6 +122,7 @@ func (t *cRegistry) copySignature(src name.Reference, digest v1.Hash, dstRepo st
 	if err != nil {
 		var terr *transport.Error
 		if errors.As(err, &terr) && terr.StatusCode == http.StatusNotFound {
+			log.Printf("no signature found for %s, skipping copy (image may be unsigned or an unsigned child manifest)", srcSigRef)
 			return nil
 		}
 		return fmt.Errorf("get signature %s: %w", srcSigRef, err)
