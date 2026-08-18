@@ -1359,6 +1359,7 @@ def run_kube_config_creation_tool(
     cluster_scoped: Optional[bool] = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
+    member_cluster_cas: Optional[Dict[str, str]] = None,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1382,6 +1383,11 @@ def run_kube_config_creation_tool(
         "--operator-name",
         operator_name,
     ]
+
+    # member_cluster_cas maps a member cluster name to a local PEM file, replacing the CA the tool
+    # would otherwise take from that cluster's ServiceAccount token secret.
+    for cluster_name, ca_path in (member_cluster_cas or {}).items():
+        args.append(f"--member-cluster-ca={cluster_name}={ca_path}")
 
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
         args.append("--create-service-account-secrets")

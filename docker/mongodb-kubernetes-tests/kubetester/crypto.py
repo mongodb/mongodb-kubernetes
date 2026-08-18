@@ -1,4 +1,5 @@
 import base64
+import datetime
 import time
 from typing import List, Optional
 
@@ -47,6 +48,31 @@ def generate_csr(namespace: str, host: str, servicename: str):
             encryption_algorithm=serialization.NoEncryption(),
         ),
     )
+
+
+def generate_self_signed_ca_pem(common_name: str) -> bytes:
+    """Returns a PEM encoded, self signed CA certificate.
+
+    The certificate signs nothing, it only has to be a structurally valid CA: something an x509 cert
+    pool accepts, so it can stand in for a trust anchor the test does not control.
+    """
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=5))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256(), default_backend())
+    )
+
+    return certificate.public_bytes(serialization.Encoding.PEM)
 
 
 def get_pem_certificate(name: str) -> Optional[bytes]:
