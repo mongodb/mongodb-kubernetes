@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -79,7 +78,7 @@ import (
 type ReconcileMongoDbShardedCluster struct {
 	*ReconcileCommonController
 	omConnectionFactory       om.ConnectionFactory
-	memberClustersMap         map[string]client.Client
+	memberClustersProvider    *multicluster.Provider
 	imageUrls                 images.ImageUrls
 	forceEnterprise           bool
 	enableClusterMongoDBRoles bool
@@ -97,11 +96,11 @@ type ReconcileMongoDbShardedCluster struct {
 	automaticRecoveryBackoffSeconds int
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClustersProvider *multicluster.Provider, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
-		memberClustersMap:         memberClusterMap,
+		memberClustersProvider:    memberClustersProvider,
 		forceEnterprise:           forceEnterprise,
 		imageUrls:                 imageUrls,
 		enableClusterMongoDBRoles: enableClusterMongoDBRoles,
@@ -151,7 +150,7 @@ func NewShardedClusterDeploymentState() *ShardedClusterDeploymentState {
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) error {
+func (r *ShardedClusterReconcileHelper) initializeMemberClusters(globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger) error {
 	mongoDB := r.sc
 	shardsMap := r.desiredShardsConfiguration
 	configSrvSpecList := r.desiredConfigServerConfiguration.ClusterSpecList
@@ -258,7 +257,7 @@ func (r *ShardedClusterReconcileHelper) createAllMemberClustersList() []multiclu
 
 // createShardsMemberClusterLists creates a list of member clusters from the current desired shards configuration.
 // legacyMemberCluster parameter is used to indicate the member cluster should be marked as Legacy for reusing this function also in single-cluster mode.
-func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap map[int]*mdbv1.ShardedClusterComponentSpec, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, deploymentState *ShardedClusterDeploymentState, legacyMemberCluster bool) (map[int][]multicluster.MemberCluster, []multicluster.MemberCluster) {
+func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap map[int]*mdbv1.ShardedClusterComponentSpec, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger, deploymentState *ShardedClusterDeploymentState, legacyMemberCluster bool) (map[int][]multicluster.MemberCluster, []multicluster.MemberCluster) {
 	shardMemberClustersMap := map[int][]multicluster.MemberCluster{}
 	var allShardsMemberClusters []multicluster.MemberCluster
 	alreadyAdded := map[string]struct{}{}
@@ -649,7 +648,7 @@ func NewReadOnlyClusterReconcilerHelper(
 	ctx context.Context,
 	reconciler *ReconcileCommonController,
 	sc *mdbv1.MongoDB,
-	globalMemberClustersMap map[string]client.Client,
+	globalMemberClustersMap map[string]multicluster.Entry,
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
@@ -672,7 +671,7 @@ func NewShardedClusterReconcilerHelper(
 	automaticRecoveryEnabled bool,
 	automaticRecoveryBackoffSeconds int,
 	sc *mdbv1.MongoDB,
-	globalMemberClustersMap map[string]client.Client,
+	globalMemberClustersMap map[string]multicluster.Entry,
 	omConnectionFactory om.ConnectionFactory,
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
@@ -696,7 +695,7 @@ func newShardedClusterReconcilerHelper(
 	automaticRecoveryEnabled bool,
 	automaticRecoveryBackoffSeconds int,
 	sc *mdbv1.MongoDB,
-	globalMemberClustersMap map[string]client.Client,
+	globalMemberClustersMap map[string]multicluster.Entry,
 	omConnectionFactory om.ConnectionFactory,
 	log *zap.SugaredLogger,
 	readOnly bool,
@@ -857,7 +856,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.propagateProxyEnv, r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.propagateProxyEnv, r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, sc, r.memberClustersProvider.Entries(), r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -866,7 +865,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.propagateProxyEnv, r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.propagateProxyEnv, r.automaticRecoveryEnabled, r.automaticRecoveryBackoffSeconds, obj.(*mdbv1.MongoDB), r.memberClustersProvider.Entries(), r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return err
 	}
@@ -1820,9 +1819,9 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClustersProvider *multicluster.Provider, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClustersProvider, om.NewOpsManagerConnection, backupEnableDelay)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles}
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -1896,8 +1895,8 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		return err
 	}
 
-	for clusterName, memberCluster := range memberClustersMap {
-		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
+	for clusterName, memberClusterEntry := range memberClustersProvider.Entries() {
+		err = c.Watch(source.Kind[client.Object](memberClusterEntry.Cluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
 			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
 		}
@@ -2456,7 +2455,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		Replicas(scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
-		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
@@ -2497,7 +2496,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
-		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
@@ -2539,7 +2538,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
-		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
