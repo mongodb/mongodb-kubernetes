@@ -9,6 +9,7 @@ spec:
     key: password
   username: "mms-user-2"
   db: "testdb"
+  connectionStringDatabase: "testdb"
   mongodbResourceRef:
     name: "my-replica-set"
   roles:

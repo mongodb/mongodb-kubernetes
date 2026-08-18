@@ -48,9 +48,18 @@ spec:
             type: object
           spec:
             properties:
+              connectionStringDatabase:
+                description: |-
+                  ConnectionStringDatabase is the database placed in the connection string URI path.
+                  Leaves the URI path empty when unset. Ignored when Database is "$external",
+                  since it is an auth only pseudo database and must not appear in the URI path.
+                type: string
               connectionStringSecretName:
                 type: string
               db:
+                default: admin
+                description: Database is the authentication database for the user.
+                  Defaults to "admin".
                 type: string
               mongodbResourceRef:
                 properties:
@@ -89,7 +98,6 @@ spec:
               username:
                 type: string
             required:
-            - db
             - username
             type: object
           status:

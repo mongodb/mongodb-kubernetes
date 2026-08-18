@@ -5,6 +5,7 @@ metadata:
 spec:
   username: search-sync-source
   db: admin
+  connectionStringDatabase: admin
   mongodbResourceRef:
     name: mdb-rs
   passwordSecretKeyRef:

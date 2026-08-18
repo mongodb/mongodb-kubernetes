@@ -207,8 +207,9 @@ func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	}
 	return []authtypes.User{
 		{
-			Username: util.OpsManagerMongoDBUserName,
-			Database: util.DefaultUserDatabase,
+			Username:                 util.OpsManagerMongoDBUserName,
+			AuthSource:               util.DefaultUserDatabase,
+			ConnectionStringDatabase: util.DefaultUserDatabase,
 			// required roles for the AppDB user are outlined in the documentation
 			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
 			Roles: []authtypes.Role{
@@ -504,7 +505,9 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		SetIsReplicaSet(true).
 		SetIsTLSEnabled(m.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).
-		SetScheme(scheme)
+		SetScheme(scheme).
+		// AppDB user is always created in the admin database (see GetAuthUsers).
+		SetAuthSource(util.DefaultUserDatabase)
 
 	if m.IsMultiCluster() {
 		builder.SetReplicas(len(multiClusterHostnames))

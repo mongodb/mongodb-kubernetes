@@ -122,6 +122,7 @@ def x509_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["username"] = user_dn
     resource["spec"]["db"] = "$external"
+    resource["spec"].pop("connectionStringDatabase", None)
     # x509 users don't use password auth -- remove passwordSecretKeyRef if present
     resource["spec"].pop("passwordSecretKeyRef", None)
     return resource

@@ -76,12 +76,6 @@ func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.R
 		return nil, err
 	}
 
-	// if database isn't specified default to the admin database, the recommended
-	// place for creating non-$external users
-	if user.Spec.Database == "" {
-		user.Spec.Database = "admin"
-	}
-
 	return user, nil
 }
 
@@ -285,8 +279,10 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	authSource := user.Spec.Database
+	connectionStringDatabase := user.Spec.ConnectionStringDatabase
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, authSource, connectionStringDatabase, connectionstring.SchemeMongoDB, nil)
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, authSource, connectionStringDatabase, connectionstring.SchemeMongoDBSRV, nil)
 
 	memberClusterSecret := secret.Builder().
 		SetName(secretName).

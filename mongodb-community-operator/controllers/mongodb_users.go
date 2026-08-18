@@ -10,14 +10,13 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 // ensureUserResources will check that the configured user password secrets can be found
 // and will start monitor them so that the reconcile process is triggered every time these secrets are updated
 func (r ReplicaSetReconciler) ensureUserResources(ctx context.Context, mdb mdbv1.MongoDBCommunity) error {
 	for _, user := range mdb.GetAuthUsers() {
-		if user.Database != constants.ExternalDB {
+		if !user.IsExternalAuth() {
 			secretNamespacedName := types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdb.Namespace}
 			if _, err := secret.ReadKey(ctx, r.client, user.PasswordSecretKey, secretNamespacedName); err != nil {
 				if apiErrors.IsNotFound(err) {
@@ -63,7 +62,7 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 
 		pwd := ""
 
-		if user.Database != constants.ExternalDB {
+		if !user.IsExternalAuth() {
 			secretNamespacedName := types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdb.Namespace}
 			pwd, err = secret.ReadKey(ctx, r.client, user.PasswordSecretKey, secretNamespacedName)
 			if err != nil {

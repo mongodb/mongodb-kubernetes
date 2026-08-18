@@ -25,8 +25,7 @@ import (
 type Type string
 
 const (
-	ReplicaSet       Type   = "ReplicaSet"
-	defaultDBForUser string = "admin"
+	ReplicaSet Type = "ReplicaSet"
 )
 
 type Phase string
@@ -53,6 +52,7 @@ var (
 		"replicaSet": {},
 		"ssl":        {},
 		"tls":        {},
+		"authSource": {},
 	}
 )
 
@@ -253,11 +253,17 @@ type MongoDBUser struct {
 	// Name is the username of the user
 	Name string `json:"name"`
 
-	// DB is the database the user is stored in. Defaults to "admin"
+	// DB is the authentication database for the user. Defaults to "admin".
 	// +optional
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=admin
 	DB string `json:"db,omitempty"`
+
+	// ConnectionStringDatabase is the database placed in the connection string URI path.
+	// Leaves the URI path empty when unset. Ignored when DB is "$external",
+	// since it is an auth only pseudo database and must not appear in the URI path.
+	// +optional
+	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
 
 	// PasswordSecretRef is a reference to the secret containing this user's password
 	// +optional
@@ -563,19 +569,10 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			}
 		}
 
-		// When the MongoDB resource has been fetched from Kubernetes,
-		// the User's database will be set to "admin" because this is set
-		// by default on the CRD, but when running e2e tests, the resource
-		// we are working with is local -- it has not been posted to the
-		// Kubernetes API and the `u.DB` was not set to the default ("admin").
-		// This is why the "admin" value is being set here.
-		if u.DB == "" {
-			u.DB = defaultDBForUser
-		}
-
 		users[i] = authtypes.User{
 			Username:                          u.Name,
-			Database:                          u.DB,
+			AuthSource:                        u.DB,
+			ConnectionStringDatabase:          u.ConnectionStringDatabase,
 			Roles:                             roles,
 			ConnectionStringSecretName:        u.GetConnectionStringSecretName(m.Name),
 			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
@@ -714,11 +711,15 @@ func (m *MongoDBCommunity) GetOptionsString() string {
 //
 // Takes into account both user options and resource options.
 // User options will override any existing options in the resource.
+// authSource is written separately by the caller (see MongoAuthUserURI /
+// MongoAuthUserSRVURI), so it is excluded here even though it may be
+// present in either options map, to avoid writing it twice.
 func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
 	generalOptionsMap := m.Spec.AdditionalConnectionStringConfig.Object
 	userOptionsMap := user.ConnectionStringOptions
 	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap))
 	i := 0
+
 	for key, value := range userOptionsMap {
 		if _, protected := protectedConnectionStringOptions[key]; !protected {
 			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
@@ -757,16 +758,26 @@ func (m *MongoDBCommunity) MongoSRVURI() string {
 	return fmt.Sprintf("mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s", m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Name, optionsString)
 }
 
+// authSourceParam returns the "&authSource=<value>" connection string component for the
+// user, or an empty string if the user has no resolvable authentication database.
+func authSourceParam(user authtypes.User) string {
+	if authSource := user.GetAuthSource(); authSource != "" {
+		return fmt.Sprintf("&authSource=%s", authSource)
+	}
+	return ""
+}
+
 // MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
 // and includes the authentication data for the user
 func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string) string {
 	optionsString := m.GetUserOptionsString(user)
-	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s",
+	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s%s",
 		user.GetLoginString(password),
 		strings.Join(m.Hosts(), ","),
-		user.Database,
+		user.GetConnectionStringDatabase(),
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
+		authSourceParam(user),
 		optionsString)
 }
 
@@ -774,14 +785,15 @@ func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string
 // and includes the authentication data for the user
 func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password string) string {
 	optionsString := m.GetUserOptionsString(user)
-	return fmt.Sprintf("mongodb+srv://%s%s.%s.svc.%s/%s?replicaSet=%s&ssl=%t%s",
+	return fmt.Sprintf("mongodb+srv://%s%s.%s.svc.%s/%s?replicaSet=%s&ssl=%t%s%s",
 		user.GetLoginString(password),
 		m.ServiceName(),
 		m.Namespace,
 		m.Spec.GetClusterDomain(),
-		user.Database,
+		user.GetConnectionStringDatabase(),
 		m.Name,
 		m.Spec.Security.TLS.Enabled,
+		authSourceParam(user),
 		optionsString)
 }
 

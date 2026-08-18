@@ -221,7 +221,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().SetTLSCA("custom-ca").EnableAuth().EnableX509().Build()
-	x509User := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetMongoDBResourceName("my-rs").Build()
+	x509User := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetConnectionStringDatabase(authentication.ExternalDB).SetMongoDBResourceName("my-rs").Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	memberClusterMap := getFakeMultiClusterMap(nil)

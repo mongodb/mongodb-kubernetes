@@ -136,6 +136,48 @@ def _wait_for_mongodbuser_reconciliation() -> None:
         logging.warning(f"Error while waiting for MongoDBUser reconciliation: {e} - proceeding with authentication")
 
 
+def assert_connectivity_from_connection_string(connection_string: str) -> None:
+    """
+    Connect using only the connection string, without overriding TLS or auth options.
+    Useful for validating that generated connection string secrets are self-contained.
+    """
+    client = pymongo.MongoClient(connection_string, serverSelectionTimeoutMS=120000)
+    try:
+        client.admin.command("ping")
+    except Exception as e:
+        fail(f"Failed to connect using connection string only: {e}")
+    finally:
+        client.close()
+
+
+def assert_user_can_write_using_connection_string(connection_string: str, db: str) -> None:
+    """
+    Connect using only the connection string and verify the user can write to db.
+    """
+    client = pymongo.MongoClient(connection_string, serverSelectionTimeoutMS=120000)
+    try:
+        client[db]["myCol"].insert_one({})
+    except Exception as e:
+        fail(f"Expected user to write to {db!r} using connection string, but failed: {e}")
+    finally:
+        client.close()
+
+
+def assert_user_cannot_write_using_connection_string(connection_string: str, db: str) -> None:
+    """
+    Connect using only the connection string and verify the user cannot write to db.
+    """
+    client = pymongo.MongoClient(connection_string, serverSelectionTimeoutMS=120000)
+    try:
+        try:
+            client[db]["myCol"].insert_one({})
+        except OperationFailure:
+            return
+        fail(f"Expected write to {db!r} to fail")
+    finally:
+        client.close()
+
+
 class MongoTester:
     """MongoTester is a general abstraction to work with mongo database. It encapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here."""

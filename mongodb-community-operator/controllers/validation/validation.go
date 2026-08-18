@@ -76,9 +76,9 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 				fmt.Sprintf(`[connection string secret name: "%s" for user: "%s", db: "%s" and user: "%s", db: "%s"]`,
 					connectionStringSecretName,
 					previousUser.Username,
-					previousUser.Database,
+					previousUser.AuthSource,
 					user.Username,
-					user.Database))
+					user.AuthSource))
 		} else {
 			connectionStringSecretNameMap[connectionStringSecretName] = user
 		}
@@ -97,7 +97,7 @@ func validateUsers(mdb mdbv1.MongoDBCommunity) error {
 			}
 		}
 
-		if user.Database == constants.ExternalDB {
+		if user.IsExternalAuth() {
 			if _, ok := expectedAuthMethods[constants.X509]; !ok {
 				return fmt.Errorf("X.509 user %s present but X.509 is not enabled", user.Username)
 			}
