@@ -494,6 +494,31 @@ func TestConnectionStringSecret_UsesSpecDb_AsAuthSource(t *testing.T) {
 	assert.NotContains(t, connectionString, "authSource=admin")
 }
 
+func TestConnectionStringSecret_PutsConnectionStringDatabase_InURIPath(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().
+		SetMongoDBResourceName("my-rs").
+		SetDatabase("admin").
+		SetConnectionStringDatabase("myapp").
+		Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connectionString := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, connectionString, "authSource=admin")
+	assert.Contains(t, connectionString, "/myapp?")
+}
+
 func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
@@ -789,14 +814,15 @@ func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, a
 }
 
 type MongoDBUserBuilder struct {
-	project             string
-	passwordRef         userv1.SecretKeyRef
-	roles               []userv1.Role
-	username            string
-	database            string
-	resourceName        string
-	mongodbResourceName string
-	namespace           string
+	project                  string
+	passwordRef              userv1.SecretKeyRef
+	roles                    []userv1.Role
+	username                 string
+	database                 string
+	connectionStringDatabase string
+	resourceName             string
+	mongodbResourceName      string
+	namespace                string
 }
 
 func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
@@ -821,6 +847,11 @@ func (b *MongoDBUserBuilder) SetNamespace(namespace string) *MongoDBUserBuilder 
 
 func (b *MongoDBUserBuilder) SetDatabase(db string) *MongoDBUserBuilder {
 	b.database = db
+	return b
+}
+
+func (b *MongoDBUserBuilder) SetConnectionStringDatabase(db string) *MongoDBUserBuilder {
+	b.connectionStringDatabase = db
 	return b
 }
 
@@ -877,10 +908,11 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 			Namespace: b.namespace,
 		},
 		Spec: userv1.MongoDBUserSpec{
-			Roles:                b.roles,
-			PasswordSecretKeyRef: b.passwordRef,
-			Username:             b.username,
-			Database:             b.database,
+			Roles:                    b.roles,
+			PasswordSecretKeyRef:     b.passwordRef,
+			Username:                 b.username,
+			Database:                 b.database,
+			ConnectionStringDatabase: b.connectionStringDatabase,
 			MongoDBResourceRef: userv1.MongoDBResourceRef{
 				Name: b.mongodbResourceName,
 			},
