@@ -24,6 +24,10 @@ var ErrTagNotFound = errors.New("tag not found")
 type Registry interface {
 	// CopyWithTags copies srcRef to dstRepo under each of the given tags.
 	CopyWithTags(srcRef string, dstRepo string, tags []string) error
+	// CopySignatures copies the cosign signature for srcRef's digest (and,
+	// if srcRef is a multiarch index, for each child manifest digest too)
+	// from srcRef's repository to dstRepo, under the registry's own host.
+	CopySignatures(srcRef string, dstRepo string) error
 	// ListTags returns all tags for the given image repository reference.
 	ListTags(repo string) ([]string, error)
 	// Digest returns the manifest digest for ref (a full "host/repo:tag"
@@ -94,11 +98,31 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 			}
 		}
 	}
+	return nil
+}
+
+// CopySignatures copies the cosign signature for srcRef's digest (and, if
+// srcRef is a multiarch index, for each child manifest digest too) from
+// srcRef's repository to dstRepo.
+func (t *cRegistry) CopySignatures(srcRef string, dstRepo string) error {
+	src, err := name.ParseReference(srcRef, t.nameOpts()...)
+	if err != nil {
+		return fmt.Errorf("failed to parse source ref %s: %w", srcRef, err)
+	}
+	desc, err := remote.Get(src, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return fmt.Errorf("failed to get %s: %w", srcRef, err)
+	}
+
 	if err := t.copySignature(src, desc.Digest, dstRepo); err != nil {
 		return fmt.Errorf("failed to copy signature for %s: %w", srcRef, err)
 	}
 
-	if idx != nil {
+	if desc.MediaType.IsIndex() {
+		idx, err := desc.ImageIndex()
+		if err != nil {
+			return fmt.Errorf("failed to get index %s: %w", srcRef, err)
+		}
 		idxManifest, err := idx.IndexManifest()
 		if err != nil {
 			return fmt.Errorf("failed to read index manifest for %s: %w", srcRef, err)

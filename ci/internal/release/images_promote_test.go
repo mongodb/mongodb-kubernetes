@@ -31,6 +31,13 @@ func (f *fakeRegistry) CopyWithTags(srcRef, dstRepo string, tags []string) error
 	return nil
 }
 
+func (f *fakeRegistry) CopySignatures(srcRef, dstRepo string) error {
+	if err := f.fail[srcRef]; err != nil {
+		return err
+	}
+	return nil
+}
+
 func (f *fakeRegistry) ListTags(repo string) ([]string, error) {
 	return nil, errors.New("fakeRegistry.ListTags not implemented")
 }

@@ -53,7 +53,7 @@ func TestCRegistry_CopyWithTags(t *testing.T) {
 	}
 }
 
-func TestCRegistry_CopyWithTags_CopiesSignatureIfPresent(t *testing.T) {
+func TestCRegistry_CopySignatures_CopiesSignatureIfPresent(t *testing.T) {
 	s := httptest.NewServer(registry.New())
 	defer s.Close()
 
@@ -85,10 +85,13 @@ func TestCRegistry_CopyWithTags_CopiesSignatureIfPresent(t *testing.T) {
 	require.NoError(t, remote.Write(sigRef, fakeSig), "failed to write signature image")
 
 	reg := &cRegistry{host: host, insecure: true}
-	tags := []string{"latest", "v1.0.0"}
 
-	require.NoError(t, reg.CopyWithTags(host+"/source-repo:v1", "target-repo", tags),
+	// Copy manifest first so the destination repo exists for the signature.
+	require.NoError(t, reg.CopyWithTags(host+"/source-repo:v1", "target-repo", []string{"latest", "v1.0.0"}),
 		"CopyWithTags failed")
+
+	require.NoError(t, reg.CopySignatures(host+"/source-repo:v1", "target-repo"),
+		"CopySignatures failed")
 
 	// The signature tag name is derived from the (unchanged) image digest,
 	// so a single copy covers every applied tag.
@@ -100,7 +103,7 @@ func TestCRegistry_CopyWithTags_CopiesSignatureIfPresent(t *testing.T) {
 	assert.Equal(t, wantSigDigest, dstSigDesc.Digest, "signature digest mismatch")
 }
 
-func TestCRegistry_CopyWithTags_CopiesSignaturesForIndexAndChildManifests(t *testing.T) {
+func TestCRegistry_CopySignatures_CopiesSignaturesForIndexAndChildManifests(t *testing.T) {
 	s := httptest.NewServer(registry.New())
 	defer s.Close()
 
@@ -148,8 +151,12 @@ func TestCRegistry_CopyWithTags_CopiesSignaturesForIndexAndChildManifests(t *tes
 
 	reg := &cRegistry{host: host, insecure: true}
 
+	// Copy manifest first so the destination repo exists for the signature.
 	require.NoError(t, reg.CopyWithTags(host+"/source-repo:v1", "target-repo", []string{"latest"}),
 		"CopyWithTags failed")
+
+	require.NoError(t, reg.CopySignatures(host+"/source-repo:v1", "target-repo"),
+		"CopySignatures failed")
 
 	// Assert that the signature for the index digest AND each child digest
 	// were copied to the destination.
@@ -163,7 +170,7 @@ func TestCRegistry_CopyWithTags_CopiesSignaturesForIndexAndChildManifests(t *tes
 	}
 }
 
-func TestCRegistry_CopyWithTags_NoSignatureIsNotAnError(t *testing.T) {
+func TestCRegistry_CopySignatures_NoSignatureIsNotAnError(t *testing.T) {
 	s := httptest.NewServer(registry.New())
 	defer s.Close()
 
@@ -186,6 +193,9 @@ func TestCRegistry_CopyWithTags_NoSignatureIsNotAnError(t *testing.T) {
 
 	require.NoError(t, reg.CopyWithTags(host+"/unsigned-repo:v1", "target-repo-unsigned", []string{"latest"}),
 		"CopyWithTags should succeed even when no signature exists")
+
+	require.NoError(t, reg.CopySignatures(host+"/unsigned-repo:v1", "target-repo-unsigned"),
+		"CopySignatures should succeed even when no signature exists")
 
 	// Confirm no signature tag was created at the destination either.
 	sigTag := signatureTagFor(imgDigest)
