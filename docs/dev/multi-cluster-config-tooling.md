@@ -148,9 +148,11 @@ Findings this surfaced:
   `failurePolicy: Ignore` (`pkg/webhook/setup.go`), so CR creation cannot be rejected mid-restart.
   Downstream snippet steps are either operator-independent or wait-based, so CI absorbs the delay.
   The wait that *is* load-bearing — for the `mck-member-*-token` Secret before
-  `generate-member-registration` reads it — stays. Follow-up idea (tagged `TODO(m1kola): token-wait`
-  in the snippets): make `generate-member-registration` poll for the token itself, removing the
-  per-cluster wait loop from every caller.
+  `generate-member-registration` reads it — has since moved **into** the command
+  (`iux-multi-cluster-token-wait`, follow-up after slice 6): `generate-member-registration` polls
+  for the Secret's `token`/`ca.crt` keys for up to a minute (`DefaultTokenWaitTimeout`), so the
+  per-cluster wait loops are gone from every caller — the snippets and the E2E harness
+  (`_wait_for_member_sa_token` deleted).
 - **`get_operator_helm_values` re-injected `multiCluster.clusters` in multi envs**
   (`scripts/funcs/operator_deployment:64-70`), which made the chart render the legacy
   `kube-config-volume` mount — and with no `multicluster setup` the kubeconfig Secret never exists,
