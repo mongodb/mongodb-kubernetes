@@ -26,6 +26,7 @@ func init() {
 	RecoverCmd.Flags().StringVar(&RecoverFlags.SourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
 	RecoverCmd.Flags().BoolVar(&RecoverFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	RecoverCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
+	RecoverCmd.Flags().StringArrayVar(&common.MemberClusterCAFiles, "member-cluster-ca", nil, "Custom CA certificate for a member cluster, in the form <member-cluster-name>=<path-to-pem-file>. Repeat the flag once per cluster. Overrides the CA read from that cluster's ServiceAccount token secret, for when TLS is terminated differently on the network path the operator takes to reach it. [optional]")
 }
 
 // RecoverCmd represents the recover command
@@ -38,6 +39,11 @@ resources to a new healthy topology.
 Example:
 
 kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-3,cluster-4" --member-cluster-namespace="mongodb-fresh" --central-cluster-namespace="mongodb" --operator-name=mongodb-kubernetes-operator-multi-cluster --source-cluster="cluster-1"
+
+Any custom CA certificates passed to 'setup' must be passed to 'recover' as well, otherwise the regenerated
+KubeConfig falls back to the CA from each cluster's ServiceAccount token secret:
+
+kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-3" --member-cluster-namespace="mongodb-fresh" --central-cluster-namespace="mongodb" --source-cluster="cluster-1" --member-cluster-ca=cluster-1=/path/to/cluster-1-ca.pem
 
 `,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -92,6 +98,10 @@ func parseRecoverFlags(args []string) error {
 		if RecoverFlags.MemberClusterApiServerUrls, err = common.GetMemberClusterApiServerUrls(kubeconfig, RecoverFlags.MemberClusters); err != nil {
 			return err
 		}
+	}
+
+	if RecoverFlags.MemberClusterCAs, err = common.ParseMemberClusterCAs(common.MemberClusterCAFiles, RecoverFlags.MemberClusters); err != nil {
+		return err
 	}
 	return nil
 }

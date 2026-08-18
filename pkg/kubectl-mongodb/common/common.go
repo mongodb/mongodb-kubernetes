@@ -29,6 +29,7 @@ type clusterType string
 var (
 	MemberClusters           string
 	MemberClustersApiServers string
+	MemberClusterCAFiles     []string
 )
 
 var (
@@ -58,6 +59,10 @@ type Flags struct {
 	SourceCluster                 string
 	CreateServiceAccountSecrets   bool
 	ImagePullSecrets              string
+	// MemberClusterCAs maps a member cluster name to the PEM encoded CA bundle that should be used
+	// as its certificate-authority-data in the generated KubeConfig, replacing the CA read from the
+	// cluster's ServiceAccount token Secret. Clusters absent from the map keep the ServiceAccount CA.
+	MemberClusterCAs map[string][]byte
 }
 
 const (
@@ -794,6 +799,13 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 		token, ok := tokenSecret.Data["token"]
 		if !ok {
 			return KubeConfigFile{}, xerrors.Errorf("key 'token' missing from token secret %s", tokenSecret.Name)
+		}
+
+		// A custom CA replaces the one from the ServiceAccount token Secret. That Secret holds the
+		// member cluster's internal CA, which is the wrong trust anchor whenever TLS is terminated
+		// elsewhere on the network path the Operator takes to reach the cluster's API server.
+		if customCA, ok := flags.MemberClusterCAs[clusterName]; ok {
+			ca = customCA
 		}
 
 		config.Clusters = append(config.Clusters, KubeConfigClusterItem{

@@ -30,6 +30,7 @@ func init() {
 	SetupCmd.Flags().BoolVar(&setupFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	SetupCmd.Flags().StringVar(&setupFlags.ImagePullSecrets, "image-pull-secrets", "", "Name of the secret for imagePullSecrets to set in created service accounts")
 	SetupCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
+	SetupCmd.Flags().StringArrayVar(&common.MemberClusterCAFiles, "member-cluster-ca", nil, "Custom CA certificate for a member cluster, in the form <member-cluster-name>=<path-to-pem-file>. Repeat the flag once per cluster. Overrides the CA read from that cluster's ServiceAccount token secret, for when TLS is terminated differently on the network path the operator takes to reach it. [optional]")
 }
 
 // SetupCmd represents the setup command
@@ -41,6 +42,11 @@ var SetupCmd = &cobra.Command{
 Example:
 
 kubectl-mongodb multicluster setup --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-2,cluster-3" --member-cluster-namespace=mongodb --central-cluster-namespace=mongodb --create-service-account-secrets --install-database-roles
+
+By default each member cluster is trusted via the CA from its ServiceAccount token secret. Use --member-cluster-ca
+to supply a different CA, for when TLS is terminated differently on the network path the operator takes to reach it:
+
+kubectl-mongodb multicluster setup --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-2" --member-cluster-namespace=mongodb --central-cluster-namespace=mongodb --member-cluster-ca=cluster-1=/path/to/cluster-1-ca.pem
 
 `,
 	Run: func(cmd *cobra.Command, _ []string) {
@@ -97,6 +103,10 @@ func parseSetupFlags() error {
 		if setupFlags.MemberClusterApiServerUrls, err = common.GetMemberClusterApiServerUrls(kubeconfig, setupFlags.MemberClusters); err != nil {
 			return err
 		}
+	}
+
+	if setupFlags.MemberClusterCAs, err = common.ParseMemberClusterCAs(common.MemberClusterCAFiles, setupFlags.MemberClusters); err != nil {
+		return err
 	}
 	return nil
 }

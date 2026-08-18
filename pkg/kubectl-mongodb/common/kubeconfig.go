@@ -1,8 +1,11 @@
 package common
 
 import (
+	"crypto/x509"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/dynamic"
@@ -37,6 +40,50 @@ func GetMemberClusterApiServerUrls(kubeconfig *clientcmdapi.Config, clusterNames
 		}
 	}
 	return urls, nil
+}
+
+// ParseMemberClusterCAs parses the repeated --member-cluster-ca entries, each of the form
+// <memberClusterName>=<pathToPemFile>, and returns a map of member cluster name to the contents of
+// the referenced PEM file. Every file is read and validated here, before any cluster is modified,
+// so that a bad entry fails the command instead of leaving half created resources behind.
+func ParseMemberClusterCAs(entries []string, memberClusters []string) (map[string][]byte, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	cas := map[string][]byte{}
+	for _, entry := range entries {
+		clusterName, path, found := strings.Cut(entry, "=")
+		clusterName = strings.TrimSpace(clusterName)
+		path = strings.TrimSpace(path)
+		if !found || clusterName == "" || path == "" {
+			return nil, xerrors.Errorf("invalid member-cluster-ca value '%s', expected format <memberClusterName>=<pathToPemFile>", entry)
+		}
+
+		if !slices.Contains(memberClusters, clusterName) {
+			return nil, xerrors.Errorf("member-cluster-ca refers to cluster '%s' which is not one of the member clusters %v", clusterName, memberClusters)
+		}
+
+		if _, ok := cas[clusterName]; ok {
+			return nil, xerrors.Errorf("member-cluster-ca specified more than once for cluster '%s'", clusterName)
+		}
+
+		caPEM, err := os.ReadFile(path)
+		if err != nil {
+			return nil, xerrors.Errorf("failed reading CA file '%s' for cluster '%s': %w", path, clusterName, err)
+		}
+
+		// The Operator's member cluster health checker builds a cert pool from this value alone,
+		// with no fallback to the system trust store, so an unusable bundle would silently mark
+		// every member cluster unhealthy. Reject it here instead.
+		if !x509.NewCertPool().AppendCertsFromPEM(caPEM) {
+			return nil, xerrors.Errorf("CA file '%s' for cluster '%s' does not contain any PEM encoded certificate", path, clusterName)
+		}
+
+		cas[clusterName] = caPEM
+	}
+
+	return cas, nil
 }
 
 // CreateClientMap crates a map of all MultiClusterClient for every member cluster, and the operator cluster.

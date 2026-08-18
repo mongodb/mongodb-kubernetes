@@ -3,9 +3,17 @@ package common
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	cryptorand "crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +303,154 @@ func TestCreateKubeConfig_IsComposedOf_ServiceAccountTokens_InAllClusters(t *tes
 		assert.Equal(t, flags.MemberClusters[i], user.Name, "User name should be the name of the cluster.")
 		assert.Equal(t, string(tokenBytes), user.User.Token, "Token from the service account secret should be set.")
 	}
+}
+
+func TestCreateKubeConfig_UsesCustomCA_WhenProvided(t *testing.T) {
+	ctx := context.Background()
+	flags := testFlags(t, false)
+
+	customCA := generateTestCAPEM(t, "custom-ca-for-member-cluster-0")
+	flags.MemberClusterCAs = map[string][]byte{flags.MemberClusters[0]: customCA}
+
+	clientMap := getClientResources(ctx, flags)
+	err := EnsureMultiClusterResources(ctx, flags, clientMap)
+	require.NoError(t, err)
+
+	kubeConfig, err := readKubeConfig(ctx, clientMap[flags.CentralCluster], flags.CentralClusterNamespace)
+	require.NoError(t, err)
+	require.Len(t, kubeConfig.Clusters, len(flags.MemberClusters))
+
+	assert.Equal(t, flags.MemberClusters[0], kubeConfig.Clusters[0].Name)
+	assert.Equal(t, customCA, kubeConfig.Clusters[0].Cluster.CertificateAuthorityData, "The custom CA should replace the one from the Service Account token Secret.")
+
+	for i := 1; i < len(flags.MemberClusters); i++ {
+		expectedCaBytes, err := readSecretKey(ctx, clientMap[flags.MemberClusters[i]], fmt.Sprintf("%s-token-secret", flags.ServiceAccount), flags.CentralClusterNamespace, "ca.crt")
+		require.NoError(t, err)
+		assert.Equal(t, expectedCaBytes, kubeConfig.Clusters[i].Cluster.CertificateAuthorityData, "Clusters without a custom CA should keep the Service Account token Secret CA.")
+	}
+}
+
+func TestParseMemberClusterCAs(t *testing.T) {
+	memberClusters := []string{"member-cluster-0", "member-cluster-1"}
+
+	dir := t.TempDir()
+	ca0 := generateTestCAPEM(t, "ca-0")
+	ca1 := generateTestCAPEM(t, "ca-1")
+	ca0Path := writeTestFile(t, dir, "ca-0.pem", ca0)
+	ca1Path := writeTestFile(t, dir, "ca-1.pem", ca1)
+	notAPemPath := writeTestFile(t, dir, "not-a-cert.pem", []byte("this is not a certificate"))
+
+	tests := []struct {
+		name          string
+		entries       []string
+		expected      map[string][]byte
+		expectedError string
+	}{
+		{
+			name:     "no entries yields no overrides",
+			entries:  nil,
+			expected: nil,
+		},
+		{
+			name:     "a single cluster is overridden",
+			entries:  []string{"member-cluster-0=" + ca0Path},
+			expected: map[string][]byte{"member-cluster-0": ca0},
+		},
+		{
+			name:     "every cluster is overridden",
+			entries:  []string{"member-cluster-0=" + ca0Path, "member-cluster-1=" + ca1Path},
+			expected: map[string][]byte{"member-cluster-0": ca0, "member-cluster-1": ca1},
+		},
+		{
+			name:     "surrounding whitespace is trimmed",
+			entries:  []string{" member-cluster-0 = " + ca0Path + " "},
+			expected: map[string][]byte{"member-cluster-0": ca0},
+		},
+		{
+			name:          "the separator is missing",
+			entries:       []string{ca0Path},
+			expectedError: "expected format <memberClusterName>=<pathToPemFile>",
+		},
+		{
+			name:          "the cluster name is empty",
+			entries:       []string{"=" + ca0Path},
+			expectedError: "expected format <memberClusterName>=<pathToPemFile>",
+		},
+		{
+			name:          "the path is empty",
+			entries:       []string{"member-cluster-0="},
+			expectedError: "expected format <memberClusterName>=<pathToPemFile>",
+		},
+		{
+			name:          "the cluster is not a member cluster",
+			entries:       []string{"member-cluster-9=" + ca0Path},
+			expectedError: "member-cluster-ca refers to cluster 'member-cluster-9' which is not one of the member clusters",
+		},
+		{
+			name:          "the same cluster is given twice",
+			entries:       []string{"member-cluster-0=" + ca0Path, "member-cluster-0=" + ca1Path},
+			expectedError: "member-cluster-ca specified more than once for cluster 'member-cluster-0'",
+		},
+		{
+			name:          "the file does not exist",
+			entries:       []string{"member-cluster-0=" + filepath.Join(dir, "does-not-exist.pem")},
+			expectedError: "failed reading CA file",
+		},
+		{
+			name:          "the file holds no PEM certificate",
+			entries:       []string{"member-cluster-0=" + notAPemPath},
+			expectedError: "does not contain any PEM encoded certificate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cas, err := ParseMemberClusterCAs(tt.entries, memberClusters)
+
+			if tt.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+				assert.Nil(t, cas, "No CAs should be returned alongside an error.")
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cas)
+		})
+	}
+}
+
+// generateTestCAPEM returns a self signed, PEM encoded CA certificate. It is generated rather than
+// hardcoded so the fixture is always accepted by x509.CertPool.AppendCertsFromPEM, which is what
+// both ParseMemberClusterCAs and the Operator's member cluster health checker rely on.
+func generateTestCAPEM(t *testing.T, commonName string) []byte {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour * 24),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(cryptorand.Reader, &template, &template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func writeTestFile(t *testing.T, dir, name string, contents []byte) string {
+	t.Helper()
+
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, contents, 0o600))
+	return path
 }
 
 func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
