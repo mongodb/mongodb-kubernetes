@@ -23,7 +23,15 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
             source .generated/context.export.env
-            scripts/mckci release publish images --commit "${revision}" --latest-marker latest
+            registry_override=""
+            if [[ "${IS_DRYRUN}" == "true" ]]; then
+              if [[ -z "${dryrun_registry_override:-}" ]]; then
+                echo "ERROR: IS_DRYRUN=true but dryrun_registry_override is unset" >&2
+                exit 1
+              fi
+              registry_override="${dryrun_registry_override}"
+            fi
+            scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
 
   # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
   # is not itself a trigger) and deletes "new-X.Y.Z".

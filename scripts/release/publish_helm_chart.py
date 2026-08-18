@@ -24,7 +24,20 @@ def run_command(command: list[str]):
         )
 
 
-def publish_helm_chart(chart_name: str, chart_info: HelmChartInfo, operator_version: str):
+def override_repo_prefix(override: str, original_repo: str) -> str:
+    """Replaces everything in original_repo up to and including the last "/"
+    with override, keeping the final path segment (the chart's own name)
+    intact so publishing under an override doesn't collide with other
+    charts/repos. E.g. override_repo_prefix("myregistry/mypath",
+    "quay.io/mongodb/helm-charts") == "myregistry/mypath/helm-charts".
+    """
+    name = original_repo.rsplit("/", 1)[-1]
+    return f"{override.rstrip('/')}/{name}"
+
+
+def publish_helm_chart(
+    chart_name: str, chart_info: HelmChartInfo, operator_version: str, registry_override: str = None
+):
     try:
         # If version_prefix is not specified, use the operator_version as is.
         if chart_info.version_prefix is not None:
@@ -41,6 +54,9 @@ def publish_helm_chart(chart_name: str, chart_info: HelmChartInfo, operator_vers
         repositories = [chart_info.repository]
         if chart_info.secondary_repositories:
             repositories += chart_info.secondary_repositories
+
+        if registry_override:
+            repositories = [override_repo_prefix(registry_override, repo) for repo in repositories]
 
         for repo in repositories:
             oci_registry = f"oci://{repo}"
@@ -78,12 +94,26 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         type=str,
         help="Operator version to use when publishing helm chart",
     )
+    parser.add_argument(
+        "--registry-override",
+        metavar="",
+        action="store",
+        required=False,
+        default=None,
+        type=str,
+        help='TESTING ONLY: if set (as "{registry}/{path}"), replaces the chart\'s OCI registry+namespace with this prefix, keeping the chart name as the final path segment (e.g. override "myregistry/mypath" turns quay.io/mongodb/helm-charts into myregistry/mypath/helm-charts) — lets a test run publish without touching the real production repo.',
+    )
     args = parser.parse_args()
 
     build_scenario = args.build_scenario
     build_info = load_build_info(build_scenario)
 
-    return publish_helm_chart(MONGODB_KUBERNETES_CHART, build_info.helm_charts[MONGODB_KUBERNETES_CHART], args.version)
+    return publish_helm_chart(
+        MONGODB_KUBERNETES_CHART,
+        build_info.helm_charts[MONGODB_KUBERNETES_CHART],
+        args.version,
+        args.registry_override,
+    )
 
 
 if __name__ == "__main__":
