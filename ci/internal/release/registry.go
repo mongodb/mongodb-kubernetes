@@ -58,11 +58,11 @@ func signatureTagFor(digest v1.Hash) string {
 func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) error {
 	src, err := name.ParseReference(srcRef, t.nameOpts()...)
 	if err != nil {
-		return fmt.Errorf("parse source ref %s: %w", srcRef, err)
+		return fmt.Errorf("failed to parse source ref %s: %w", srcRef, err)
 	}
 	desc, err := remote.Get(src, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
-		return fmt.Errorf("get %s: %w", srcRef, err)
+		return fmt.Errorf("failed to get %s: %w", srcRef, err)
 	}
 
 	var img v1.Image
@@ -70,23 +70,23 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 	if desc.MediaType.IsIndex() {
 		idx, err = desc.ImageIndex()
 		if err != nil {
-			return fmt.Errorf("get index %s: %w", srcRef, err)
+			return fmt.Errorf("failed to get index %s: %w", srcRef, err)
 		}
 	} else {
 		img, err = desc.Image()
 		if err != nil {
-			return fmt.Errorf("get image %s: %w", srcRef, err)
+			return fmt.Errorf("failed to get image %s: %w", srcRef, err)
 		}
 	}
 
 	for _, tag := range tags {
 		dst, err := name.NewTag(fmt.Sprintf("%s/%s:%s", t.host, dstRepo, tag), t.nameOpts()...)
 		if err != nil {
-			return fmt.Errorf("parse target tag %s: %w", tag, err)
+			return fmt.Errorf("failed to parse target tag %s: %w", tag, err)
 		}
 		if idx != nil {
 			if err := remote.WriteIndex(dst, idx, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
-				return fmt.Errorf("write index %s: %w", tag, err)
+				return fmt.Errorf("failed to write index %s: %w", tag, err)
 			}
 		} else {
 			if err := remote.Write(dst, img, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
@@ -95,17 +95,17 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 		}
 	}
 	if err := t.copySignature(src, desc.Digest, dstRepo); err != nil {
-		return fmt.Errorf("copy signature failed for %s: %w", srcRef, err)
+		return fmt.Errorf("failed to copy signature for %s: %w", srcRef, err)
 	}
 
 	if idx != nil {
 		idxManifest, err := idx.IndexManifest()
 		if err != nil {
-			return fmt.Errorf("read index manifest for %s: %w", srcRef, err)
+			return fmt.Errorf("failed to read index manifest for %s: %w", srcRef, err)
 		}
 		for _, m := range idxManifest.Manifests {
 			if err := t.copySignature(src, m.Digest, dstRepo); err != nil {
-				return fmt.Errorf("copy signature failed for %s (child %s): %w", srcRef, m.Digest, err)
+				return fmt.Errorf("failed to copy signature for %s (child %s): %w", srcRef, m.Digest, err)
 			}
 		}
 	}
@@ -125,20 +125,20 @@ func (t *cRegistry) copySignature(src name.Reference, digest v1.Hash, dstRepo st
 			log.Printf("no signature found for %s, skipping copy (image may be unsigned or an unsigned child manifest)", srcSigRef)
 			return nil
 		}
-		return fmt.Errorf("get signature %s: %w", srcSigRef, err)
+		return fmt.Errorf("failed to get signature %s: %w", srcSigRef, err)
 	}
 
 	sigImg, err := sigDesc.Image()
 	if err != nil {
-		return fmt.Errorf("read signature image %s: %w", srcSigRef, err)
+		return fmt.Errorf("failed to read signature image %s: %w", srcSigRef, err)
 	}
 
 	dstSigRef, err := name.NewTag(fmt.Sprintf("%s/%s:%s", t.host, dstRepo, sigTag), t.nameOpts()...)
 	if err != nil {
-		return fmt.Errorf("parse signature target tag %s: %w", sigTag, err)
+		return fmt.Errorf("failed to parse signature target tag %s: %w", sigTag, err)
 	}
 	if err := remote.Write(dstSigRef, sigImg, remote.WithAuthFromKeychain(authn.DefaultKeychain)); err != nil {
-		return fmt.Errorf("write signature %s: %w", sigTag, err)
+		return fmt.Errorf("failed to write signature %s: %w", sigTag, err)
 	}
 	return nil
 }
