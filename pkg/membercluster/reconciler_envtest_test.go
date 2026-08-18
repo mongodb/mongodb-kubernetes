@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -26,28 +25,23 @@ import (
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
+
+// TestMain boots one envtest control plane shared by all tests in this package
+// (see test/envtest/env), with only the MemberCluster CRD installed. Future
+// envtest-based tests in this package should use env.Shared(t) instead of
+// starting their own environment.
+func TestMain(m *testing.M) {
+	os.Exit(env.RunShared(m, env.WithCRDs("operator.mongodb.com_memberclusters.yaml")))
+}
 
 // Verifies the hot-reload path end to end against a real API server: a MemberCluster CR
 // registers a live cluster entry whose cache serves watches added after the manager has
 // started (Watch-after-start), and deleting the CR removes the entry and stops the
 // cluster's informers quietly.
-//
-// TODO(m1kola): master recently gained envtest integration helpers/utilities that are not
-// yet available on this branch; migrate this test to them after the next rebase onto the moved trunk.
 func TestReconcilerHotReload(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" { //nolint:forbidigo // envtest binaries location
-		t.Skip("KUBEBUILDER_ASSETS not set")
-	}
-
-	testEnv := &envtest.Environment{
-		CRDInstallOptions: envtest.CRDInstallOptions{
-			Paths: []string{"../../config/crd/bases/operator.mongodb.com_memberclusters.yaml"},
-		},
-	}
-	cfg, err := testEnv.Start()
-	require.NoError(t, err)
-	defer func() { assert.NoError(t, testEnv.Stop()) }()
+	cfg := env.Shared(t).Config
 
 	scheme := testScheme()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Scheme: scheme})
@@ -78,8 +72,8 @@ func TestReconcilerHotReload(t *testing.T) {
 	})
 	require.NoError(t, r.SetupWithManager(mgr))
 
-	// Derived from t.Context() but cancelled explicitly, before the deferred testEnv.Stop:
-	// the API server cannot shut down while the manager is still connected to it.
+	// Derived from t.Context() but cancelled explicitly: the manager must stop before
+	// TestMain tears the shared control plane down after m.Run().
 	mgrCtx, mgrCancel := context.WithCancel(t.Context())
 	defer mgrCancel()
 	go func() { _ = mgr.Start(mgrCtx) }()
