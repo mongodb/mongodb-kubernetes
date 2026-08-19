@@ -371,6 +371,34 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 	assert.True(t, hasError, "expected error when backup agent logPath differs from default")
 }
 
+func TestValidation_NonDefaultMongodSystemLogPath(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	proc := ac.Deployment.GetProcesses()[0]
+	proc.Args()["systemLog"] = map[string]interface{}{"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	hasWarning := false
+	for _, r := range results {
+		if r.Severity == SeverityWarning && strings.Contains(r.Message, "systemLog is not migrated") {
+			hasWarning = true
+			assert.Contains(t, r.Message, "/var/log/mongodb/mongod.log")
+			assert.Contains(t, r.Message, defaultMongodLogPath)
+		}
+	}
+	assert.True(t, hasWarning, "expected warning when mongod systemLog.path differs from the operator default")
+}
+
+func TestValidation_DefaultMongodSystemLogPath_NoWarning(t *testing.T) {
+	ac := baseValidReplicaSetAC()
+	proc := ac.Deployment.GetProcesses()[0]
+	proc.Args()["systemLog"] = map[string]interface{}{"destination": "file", "path": defaultMongodLogPath}
+
+	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
+	for _, r := range results {
+		assert.NotContains(t, r.Message, "systemLog is not migrated")
+	}
+}
+
 func TestValidation_ValidConfig_NoErrors(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 
