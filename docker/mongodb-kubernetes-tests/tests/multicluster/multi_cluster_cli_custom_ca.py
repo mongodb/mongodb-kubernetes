@@ -7,7 +7,6 @@ own, which is what makes the override observable, while still chaining to the AP
 
 import base64
 import tempfile
-from typing import Dict, List
 
 import kubernetes
 import yaml
@@ -36,7 +35,7 @@ KUBECONFIG_SECRET_NAME = "mongodb-enterprise-operator-multi-cluster-kubeconfig"
 SERVICE_ACCOUNT_NAME = "mongodb-kubernetes-operator-multi-cluster"
 
 
-def read_kubeconfig_cas(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> Dict[str, str]:
+def read_kubeconfig_cas(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> dict[str, str]:
     """Returns the certificate-authority-data of every cluster in the Operator's KubeConfig, as PEM."""
     secret = read_secret(namespace, KUBECONFIG_SECRET_NAME, api_client=central_cluster_client)
     kubeconfig = yaml.safe_load(secret["kubeconfig"])
@@ -47,11 +46,7 @@ def read_kubeconfig_cas(namespace: str, central_cluster_client: kubernetes.clien
 
 
 def read_service_account_ca(namespace: str, api_client: kubernetes.client.ApiClient) -> str:
-    """Returns ca.crt from the Operator ServiceAccount's token secret on a member cluster.
-
-    This is the CA the plugin uses when no override is given. The secret is located by name prefix,
-    the same way the plugin locates it.
-    """
+    """Returns ca.crt from the Operator ServiceAccount's token secret on a member cluster."""
     secrets = kubernetes.client.CoreV1Api(api_client=api_client).list_namespaced_secret(namespace).items
     for secret in secrets:
         if secret.metadata.name.startswith(f"{SERVICE_ACCOUNT_NAME}-token"):
@@ -61,7 +56,7 @@ def read_service_account_ca(namespace: str, api_client: kubernetes.client.ApiCli
 
 
 @fixture(scope="module")
-def custom_ca_cluster(member_cluster_names: List[str]) -> str:
+def custom_ca_cluster(member_cluster_names: list[str]) -> str:
     """The single member cluster whose CA is overridden. The others are the control group."""
     return member_cluster_names[0]
 
@@ -70,7 +65,7 @@ def custom_ca_cluster(member_cluster_names: List[str]) -> str:
 def custom_ca_bundle(
     custom_ca_cluster: str,
     namespace: str,
-    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_clients: list[MultiClusterClient],
 ) -> str:
     member_cluster_client = next(c for c in member_cluster_clients if c.cluster_name == custom_ca_cluster)
     cluster_ca = read_service_account_ca(namespace, member_cluster_client.api_client)
@@ -90,7 +85,7 @@ def custom_ca_file(custom_ca_bundle: str) -> str:
 def mongodb_multi(
     central_cluster_client: kubernetes.client.ApiClient,
     namespace: str,
-    member_cluster_names: List[str],
+    member_cluster_names: list[str],
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), RESOURCE_NAME, namespace)
@@ -106,8 +101,8 @@ def mongodb_multi(
 def test_setup_without_custom_ca_keeps_service_account_ca(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_names: List[str],
-    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: list[str],
+    member_cluster_clients: list[MultiClusterClient],
 ):
     run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
 
@@ -135,8 +130,8 @@ def test_create_mongodb_multi(mongodb_multi: MongoDBMulti):
 def test_setup_with_custom_ca_overrides_only_the_target_cluster(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
-    member_cluster_names: List[str],
-    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: list[str],
+    member_cluster_clients: list[MultiClusterClient],
     custom_ca_cluster: str,
     custom_ca_bundle: str,
     custom_ca_file: str,
@@ -167,8 +162,8 @@ def test_operator_reconciles_member_cluster_with_custom_ca(
     namespace: str,
     multi_cluster_operator: Operator,
     mongodb_multi: MongoDBMulti,
-    member_cluster_names: List[str],
-    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: list[str],
+    member_cluster_clients: list[MultiClusterClient],
     custom_ca_cluster: str,
 ):
     # the Operator builds its member cluster clients at startup, so the override lands only on restart
@@ -192,7 +187,7 @@ def test_member_clusters_report_healthy_with_custom_ca(
     central_cluster_client: kubernetes.client.ApiClient,
     multi_cluster_operator: Operator,
     mongodb_multi: MongoDBMulti,
-    member_cluster_names: List[str],
+    member_cluster_names: list[str],
 ):
     # a bad CA fails here quietly: reconciliation keeps working while every cluster is marked failed
     def all_clusters_reported_healthy() -> bool:

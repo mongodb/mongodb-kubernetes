@@ -1,7 +1,6 @@
 import base64
 import datetime
 import time
-from typing import List, Optional
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -52,9 +51,6 @@ def generate_csr(namespace: str, host: str, servicename: str):
 
 def generate_self_signed_ca_pem(common_name: str) -> bytes:
     """Returns a PEM encoded, self signed CA certificate.
-
-    The certificate signs nothing, it only has to be a structurally valid CA: something an x509 cert
-    pool accepts, so it can stand in for a trust anchor the test does not control.
     """
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
@@ -75,14 +71,14 @@ def generate_self_signed_ca_pem(common_name: str) -> bytes:
     return certificate.public_bytes(serialization.Encoding.PEM)
 
 
-def get_pem_certificate(name: str) -> Optional[bytes]:
+def get_pem_certificate(name: str) -> bytes | None:
     body = client.CertificatesV1Api().read_certificate_signing_request_status(name)
     if body.status.certificate is None:
         return None
     return base64.b64decode(body.status.certificate)
 
 
-def wait_for_certs_to_be_issued(certificates: List[str]) -> None:
+def wait_for_certs_to_be_issued(certificates: list[str]) -> None:
     un_issued_certs = set(certificates)
     while un_issued_certs:
         issued_certs = set()
