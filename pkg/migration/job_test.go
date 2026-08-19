@@ -4,12 +4,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -348,4 +351,24 @@ func TestBuildJobFromStatefulSet_SubjectDN(t *testing.T) {
 		}
 	}
 	assert.Equal(t, wantDN, subjectDN)
+}
+
+// TestBuildJobFromStatefulSet_SecurityContext asserts the Job pod gets the operator's default
+// security contexts, and that they are omitted when the platform manages them.
+func TestBuildJobFromStatefulSet_SecurityContext(t *testing.T) {
+	sts := &appsv1.StatefulSet{}
+	rs := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "default"}}
+
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+	podSpec := job.Spec.Template.Spec
+	require.NotNil(t, podSpec.SecurityContext)
+	assert.Equal(t, podtemplatespec.DefaultPodSecurityContext(), *podSpec.SecurityContext)
+	require.NotNil(t, podSpec.Containers[0].SecurityContext)
+	assert.Equal(t, container.DefaultSecurityContext(), *podSpec.Containers[0].SecurityContext)
+
+	t.Setenv(podtemplatespec.ManagedSecurityContextEnv, "true")
+	job = BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+	podSpec = job.Spec.Template.Spec
+	assert.Nil(t, podSpec.SecurityContext)
+	assert.Nil(t, podSpec.Containers[0].SecurityContext)
 }
