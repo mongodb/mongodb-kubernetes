@@ -296,15 +296,15 @@ def test_version_set(generated_cr: dict, custom_mdb_version: str):
 
 @mark.e2e_vm_migration_replicaset_external_access
 def test_agent_config(generated_cr: dict):
-    """Agent config must include logRotate and systemLog from the (uniform) process config."""
+    """Agent config must include logRotate from the (uniform) process config. systemLog is deliberately not
+    migrated: only /var/log/mongodb-mms-automation is volume-backed in the pod, so the operator picks
+    the mongod log path itself."""
     agent = generated_cr["spec"].get("agent", {}).get("mongod", {})
     lr = agent.get("logRotate", {})
     assert (
         lr.get("sizeThresholdMB") == "1000" or lr.get("sizeThresholdMB") == 1000
     ), f"Expected logRotate.sizeThresholdMB=1000, got: {lr}"
-    sl = agent.get("systemLog", {})
-    assert sl.get("destination") == "file", f"Expected systemLog.destination=file, got: {sl}"
-    assert sl.get("path") == "/data/mongodb.log", f"Expected systemLog.path, got: {sl}"
+    assert "systemLog" not in agent, f"systemLog should not be migrated, got: {agent}"
 
 
 # Lifecycle checks
