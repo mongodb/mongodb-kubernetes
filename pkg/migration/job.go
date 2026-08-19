@@ -11,7 +11,10 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // Labels for connectivity validation Jobs (used by both Job build and jobrunner).
@@ -152,6 +155,18 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 		{Name: "CLIENT_CERT_REQUIRED", Value: clientCertRequired},
 	}
 
+	// Same defaults the operator applies to its StatefulSet pods, so the Job is admitted
+	// under the same Pod Security Admission level. Skipped when the platform manages the
+	// security context itself (OpenShift), matching podtemplatespec.WithDefaultSecurityContextsModifications.
+	var podSecurityContext *corev1.PodSecurityContext
+	var containerSecurityContext *corev1.SecurityContext
+	if !env.ReadBoolOrDefault(podtemplatespec.ManagedSecurityContextEnv, false) { // nolint:forbidigo
+		psc := podtemplatespec.DefaultPodSecurityContext()
+		podSecurityContext = &psc
+		csc := container.DefaultSecurityContext()
+		containerSecurityContext = &csc
+	}
+
 	backoffLimit := int32(0)
 	ttlSecondsAfterFinished := int32(DefaultTTLSecondsAfterFinished)
 	job := &batchv1.Job{
@@ -164,7 +179,8 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 			TTLSecondsAfterFinished: &ttlSecondsAfterFinished,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
+					RestartPolicy:   corev1.RestartPolicyNever,
+					SecurityContext: podSecurityContext,
 					Containers: []corev1.Container{{
 						Name:            ConnectivityValidatorContainerName,
 						Image:           operatorImage,
@@ -172,6 +188,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 						Command:         []string{"/usr/local/bin/" + ConnectivityValidatorContainerName},
 						Env:             envVars,
 						VolumeMounts:    volumeMounts,
+						SecurityContext: containerSecurityContext,
 					}},
 					Volumes: volumes,
 				},
