@@ -13,7 +13,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 func TestBuildAuthModes_FromDeploymentAuthMechanisms(t *testing.T) {
@@ -256,7 +255,9 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 	assert.Equal(t, "X509", result.Authentication.InternalCluster)
 }
 
-func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
+// net.port is never migrated: Kubernetes members listen on the operator default while external
+// VM members keep their own port.
+func TestExtractAdditionalMongodConfig_NonDefaultPortNotMigrated(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
 			"args2_6": map[string]interface{}{
@@ -271,11 +272,7 @@ func TestExtractAdditionalMongodConfig_NonDefaultPort(t *testing.T) {
 	}
 
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
-	require.NotNil(t, config)
-	m := config.ToMap()
-	netMap, ok := m["net"].(map[string]interface{})
-	require.True(t, ok)
-	assert.EqualValues(t, 27018, netMap["port"])
+	assert.Nil(t, config)
 }
 
 func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
@@ -709,7 +706,7 @@ func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 	}
 
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
-	assert.Nil(t, config, "systemLog should not be extracted into additionalMongodConfig because the operator always overwrites it. Use spec.agent.mongod.systemLog instead")
+	assert.Nil(t, config, "systemLog should not be extracted into additionalMongodConfig because the operator always overwrites it")
 }
 
 func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
@@ -767,7 +764,7 @@ func TestExtractAgentConfig_LogRotateFromEndpoint(t *testing.T) {
 		},
 	}
 
-	agentConfig := extractAgentConfig(nil, projectProcessConfigs)
+	agentConfig := extractAgentConfig(projectProcessConfigs)
 	require.NotNil(t, agentConfig.Mongod.LogRotate)
 	assert.Equal(t, "1000", agentConfig.Mongod.LogRotate.SizeThresholdMB)
 	assert.Equal(t, 24, agentConfig.Mongod.LogRotate.TimeThresholdHrs)
@@ -784,14 +781,14 @@ func TestExtractAgentConfig_AuditLogRotateFromEndpoint(t *testing.T) {
 		},
 	}
 
-	agentConfig := extractAgentConfig(nil, projectProcessConfigs)
+	agentConfig := extractAgentConfig(projectProcessConfigs)
 	require.NotNil(t, agentConfig.Mongod.AuditLogRotate)
 	assert.Equal(t, "500", agentConfig.Mongod.AuditLogRotate.SizeThresholdMB)
 	assert.Equal(t, 48, agentConfig.Mongod.AuditLogRotate.TimeThresholdHrs)
 }
 
 func TestExtractAgentConfig_NilProcessConfigs(t *testing.T) {
-	agentConfig := extractAgentConfig(nil, nil)
+	agentConfig := extractAgentConfig(nil)
 	assert.Nil(t, agentConfig.Mongod.LogRotate)
 	assert.Nil(t, agentConfig.Mongod.AuditLogRotate)
 	assert.Nil(t, agentConfig.MonitoringAgent.LogRotate)
@@ -804,7 +801,7 @@ func TestExtractAgentConfig_EmptyEndpointData(t *testing.T) {
 		AuditLogRotate:  &automationconfig.AcLogRotate{},
 	}
 
-	cfg := extractAgentConfig(nil, projectProcessConfigs)
+	cfg := extractAgentConfig(projectProcessConfigs)
 	assert.Nil(t, cfg.Mongod.LogRotate)
 	assert.Nil(t, cfg.Mongod.AuditLogRotate)
 	assert.Nil(t, cfg.MonitoringAgent.LogRotate)
@@ -819,13 +816,20 @@ func TestExtractAgentConfig_AgentLogRotateMatchesMongod(t *testing.T) {
 		},
 	}
 
-	agentConfig := extractAgentConfig(nil, projectProcessConfigs)
+	agentConfig := extractAgentConfig(projectProcessConfigs)
 	require.NotNil(t, agentConfig.MonitoringAgent.LogRotate)
 	assert.Equal(t, 1000, agentConfig.MonitoringAgent.LogRotate.SizeThresholdMB)
 	assert.Equal(t, 24, agentConfig.MonitoringAgent.LogRotate.TimeThresholdHrs)
 	require.NotNil(t, agentConfig.BackupAgent.LogRotate)
 	assert.Equal(t, 1000, agentConfig.BackupAgent.LogRotate.SizeThresholdMB)
 	assert.Equal(t, 24, agentConfig.BackupAgent.LogRotate.TimeThresholdHrs)
+}
+
+func TestExtractAgentConfig_SystemLogNotMigrated(t *testing.T) {
+	// systemLog.path is not carried over: only util.PvcMountPathLogs is mounted in the pod, so a VM
+	// path would be unbacked by a volume. The operator picks the default instead.
+	agentConfig := extractAgentConfig(&ProjectConfigs{})
+	assert.Nil(t, agentConfig.Mongod.SystemLog)
 }
 
 func TestGetTLSModeFromMongodConfig(t *testing.T) {
@@ -977,7 +981,7 @@ func TestExtractCustomRoles_Empty(t *testing.T) {
 	assert.Empty(t, roles)
 }
 
-func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.T) {
+func TestExtractAdditionalMongodConfig_MultiMember_SamePort_NotMigrated(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
 		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
@@ -985,8 +989,7 @@ func TestExtractAdditionalMongodConfig_MultiMember_SamePort_Included(t *testing.
 	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
 
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
-	require.NotNil(t, config)
-	assert.Equal(t, 27018, maputil.ReadMapValueAsInt(config.ToMap(), "net", "port"))
+	assert.Nil(t, config)
 }
 
 func TestApplyClientCertificateMode_RequireCreatesField(t *testing.T) {

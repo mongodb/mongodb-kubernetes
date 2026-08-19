@@ -37,6 +37,9 @@ var infrastructureFieldPaths = [][]string{
 	{"storage", "dbPath"},
 	{"replication", "replSetName"},
 	{"security", "clusterAuthMode"},
+	// If external members are listening on a port different from 27017,
+	// there is no reason to make the MCK-managed members listen on the same port.
+	{"net", "port"},
 }
 
 // infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
@@ -331,14 +334,9 @@ func (p Process) IsDisabled() bool {
 	return cast.ToBool(p["disabled"])
 }
 
-// SystemLogMap returns the systemLog sub-map from args2_6, or nil if absent.
-func (p Process) SystemLogMap() map[string]interface{} {
-	return maputil.ReadMapValueAsMap(p.Args(), "systemLog")
-}
-
 // AdditionalMongodConfig recovers user-supplied mongod config from args2_6 during VM migration.
 // Infrastructure-managed fields listed in infrastructureFieldPaths and infrastructureTLSCertKeys
-// are stripped, along with default net.port and default TLS modes.
+// are stripped, along with default TLS modes.
 // Returns nil when nothing user-relevant remains.
 func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	if len(p.Args()) == 0 {
@@ -357,9 +355,6 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 		}
 	}
 
-	if port := maputil.ReadMapValueAsInt(m, "net", "port"); port == 0 || port == util.MongoDbDefaultPort {
-		maputil.DeleteMapValue(m, "net", "port")
-	}
 	for _, tlsKey := range []string{"tls", "ssl"} {
 		for _, certKey := range infrastructureTLSCertKeys {
 			maputil.DeleteMapValue(m, "net", tlsKey, certKey)
