@@ -96,7 +96,7 @@ func buildReplicaSetDbCommonSpec(ac *om.AutomationConfig, opts GenerateOptions, 
 		Security:               security,
 		Prometheus:             prom,
 		AdditionalMongodConfig: additionalConfig,
-		Agent:                  extractAgentConfig(opts.SourceProcess, opts.ProjectConfigs),
+		Agent:                  extractAgentConfig(opts.ProjectConfigs),
 	}, nil
 }
 

@@ -221,8 +221,9 @@ func applyClientCertificateMode(agentSSL *om.AgentSSL, additionalConfig *mdbv1.A
 	return additionalConfig
 }
 
-// extractAgentConfig builds spec.agent from project-level log rotation and the source process systemLog.
-func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfigs) mdbv1.AgentConfig {
+// extractAgentConfig builds spec.agent from project-level log rotation.
+// The source process systemLog is deliberately NOT carried over.
+func extractAgentConfig(projectConfigs *ProjectConfigs) mdbv1.AgentConfig {
 	var agentConfig mdbv1.AgentConfig
 	if projectConfigs != nil {
 		if lr := projectConfigs.SystemLogRotate; lr != nil && (lr.SizeThresholdMB != 0 || lr.TimeThresholdHrs != 0) {
@@ -233,9 +234,6 @@ func extractAgentConfig(sourceProcess *om.Process, projectConfigs *ProjectConfig
 		}
 		agentConfig.MonitoringAgent.LogRotate = om.LogRotateForAgentsFromAc(projectConfigs.SystemLogRotate)
 		agentConfig.BackupAgent.LogRotate = om.LogRotateForAgentsFromAc(projectConfigs.SystemLogRotate)
-	}
-	if sourceProcess != nil {
-		agentConfig.Mongod.SystemLog = automationconfig.SystemLogFromMap(sourceProcess.SystemLogMap())
 	}
 	return agentConfig
 }
