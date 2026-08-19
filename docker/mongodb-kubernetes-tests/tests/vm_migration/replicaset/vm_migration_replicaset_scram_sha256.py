@@ -380,11 +380,11 @@ def test_custom_roles_in_generated_cr(generated_cr: dict):
 @mark.e2e_vm_migration_replicaset_scram_sha256
 def test_settings_sourced_from_source_process(generated_cr_yaml: str):
     """When per-member config diverges, settings are taken from the source process (member 0).
-    Member 2 has logAppend=False and no oplogSizeMB -- neither should affect the generated CR."""
+    Member 2 has logAppend=False and no oplogSizeMB -- neither should affect the generated CR.
+    systemLog itself is not migrated at all, so member 2's divergence there is moot."""
     cr = generated_mongodb_doc(generated_cr_yaml)
-    sl = cr["spec"].get("agent", {}).get("mongod", {}).get("systemLog", {})
-    assert sl.get("destination") == "file", f"Expected destination=file, got: {sl}"
-    assert sl.get("path") == "/data/mongodb.log", f"Expected path=/data/mongodb.log, got: {sl}"
+    agent_mongod = cr["spec"].get("agent", {}).get("mongod", {})
+    assert "systemLog" not in agent_mongod, f"systemLog should not be migrated, got: {agent_mongod}"
     repl = cr["spec"].get("additionalMongodConfig", {}).get("replication", {})
     assert repl.get("oplogSizeMB") == 2048, f"Expected oplogSizeMB=2048 from source process, got: {repl}"
 
