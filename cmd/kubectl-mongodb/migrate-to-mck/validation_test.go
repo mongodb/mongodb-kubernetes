@@ -310,7 +310,7 @@ func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 	assert.Contains(t, results[0].Message, "rs-0")
 }
 
-func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
+func TestCheckTLS_ModeAlreadyDisabled_NoWarning(t *testing.T) {
 	d := om.Deployment{
 		"processes": []interface{}{
 			map[string]interface{}{
@@ -324,9 +324,7 @@ func TestCheckTLS_ModeDisabled_Warning(t *testing.T) {
 			},
 		},
 	}
-	results := validateTLS(sourceProcessFromDeployment(d))
-	require.Len(t, results, 1)
-	assert.Equal(t, SeverityWarning, results[0].Severity)
+	assert.Empty(t, validateTLS(sourceProcessFromDeployment(d)))
 }
 
 func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
@@ -343,10 +341,7 @@ func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 			},
 		},
 	}
-	results := validateTLS(sourceProcessFromDeployment(d))
-	for _, r := range results {
-		assert.NotEqual(t, SeverityWarning, r.Severity, "unexpected warning for TLS-enabled process")
-	}
+	assert.Empty(t, validateTLS(sourceProcessFromDeployment(d)))
 }
 
 func TestValidation_EmptyAutoUser(t *testing.T) {
