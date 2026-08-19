@@ -14,8 +14,9 @@ translation were wrong.
 """
 
 from kubetester import create_or_update_secret, try_load
-from kubetester.kubetester import KubernetesTester, skip_if_local
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongotester import with_scram
