@@ -7,8 +7,9 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
+BRANCH="${branch_name:-master}"
 
-git_last_changed=$(git ls-tree -r "origin/${branch_name:-master}" --name-only)
+git_last_changed=$(git ls-tree -r "origin/${BRANCH}" --name-only)
 
 if echo "${git_last_changed}" | grep -q -e 'cmd/kubectl-mongodb' -e 'pkg/kubectl-mongodb'; then
   echo 'regenerating multicluster RBAC public example'
