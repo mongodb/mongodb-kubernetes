@@ -3,12 +3,10 @@ on:
   push:
     branches:
       - master
-      - release-*
       - release-v*
   pull_request:
     branches:
       - master
-      - release-*
       - release-v*
 
 jobs:
