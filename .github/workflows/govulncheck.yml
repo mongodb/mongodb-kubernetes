@@ -4,12 +4,12 @@ on:
   push:
     branches:
       - master
-      - v*
+      - release-v*
   pull_request:
     branches:
       - master
       - release-*
-      - v*
+      - release-v*
     paths:
       - '**/*.go'
       - 'go.mod'

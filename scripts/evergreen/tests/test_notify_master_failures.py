@@ -88,14 +88,14 @@ class TestFormatSlackMessage:
         assert "#6411" in run_block
 
     def test_backport_branch_failure_message(self):
-        message = make_message(failed_tasks=FEW_TASKS, branch="v1")
-        assert "v1 build failed" in message["text"]
-        assert "v1 Build Failures" in message["blocks"][0]["text"]["text"]
+        message = make_message(failed_tasks=FEW_TASKS, branch="release-v1")
+        assert "release-v1 build failed" in message["text"]
+        assert "release-v1 Build Failures" in message["blocks"][0]["text"]["text"]
 
     def test_backport_branch_success_message(self):
-        message = make_message(branch="v2")
-        assert "v2 build passed" in message["text"]
-        assert "v2 Build Passed" in message["blocks"][0]["text"]["text"]
+        message = make_message(branch="release-v2")
+        assert "release-v2 build passed" in message["text"]
+        assert "release-v2 Build Passed" in message["blocks"][0]["text"]["text"]
 
     def test_groups_failures_by_variant(self):
         message = make_message(failed_tasks=FEW_TASKS)

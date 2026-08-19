@@ -130,10 +130,10 @@ fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
-# Detect "test" branches, e.g. "v1-test", "v2-test" -- these simulate real backport branches
-# (e.g. "v1", "v2") for CI/CD testing purposes only, without affecting production registries.
+# Detect "test" branches, e.g. "release-v1-test", "release-v2-test" -- these simulate real backport branches
+# (e.g. "release-v1", "release-v2") for CI/CD testing purposes only, without affecting production registries.
 IS_TEST_BRANCH=false
-if [[ "${branch_name:-}" =~ ^v[0-9]+-test$ ]]; then
+if [[ "${branch_name:-}" =~ ^release-v[0-9]+-test$ ]]; then
   IS_TEST_BRANCH=true
 fi
 export IS_TEST_BRANCH

@@ -19,7 +19,7 @@
 #                          testing against an upstream remote from a fork.
 #   TARGET_BRANCH          Branch to base the update PR on and merge into.
 #                          Defaults to "master". Set to a backporting branch
-#                          (e.g. "v1") when running this check on that branch.
+#                          (e.g. "release-v1") when running this check on that branch.
 #
 # Prerequisites (normal mode): oc (already logged in), jq, gh (authenticated via GH_TOKEN)
 # Prerequisites (dry-run + --actual-version): jq
