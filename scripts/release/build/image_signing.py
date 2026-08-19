@@ -141,9 +141,10 @@ def get_image_digest(image_name: str) -> Optional[str]:
 
 def get_platform_manifest_digests(image_name: str) -> List[str]:
     """
-    Returns the per-platform manifest digests if image_name is a multi-arch manifest list/OCI index, or an
-    empty list otherwise. Buildx attestation manifests (platform "unknown/unknown") are skipped since they
-    are not signed container images.
+    Returns the per-platform manifest digests if image_name is a multi-arch manifest list/OCI index,
+    or an empty list otherwise.
+    Buildx attestation manifests (platform "unknown/unknown") are skipped since they are not signed
+    container images.
 
     :param image_name: The full image name with its tag or digest.
     :return: A list of platform-specific manifest digests.
