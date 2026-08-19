@@ -17,9 +17,10 @@
 #   REMOTE                 Git remote to push to and create the PR against.
 #                          Defaults to "origin".  Set to e.g. "mongodb" when
 #                          testing against an upstream remote from a fork.
-#   TARGET_BRANCH          Branch to base the update PR on and merge into.
-#                          Defaults to "master". Set to a backporting branch
-#                          (e.g. "release-v1") when running this check on that branch.
+#   branch_name            Branch to base the update PR on and merge into
+#                          (Evergreen standard expansion; defaults to "master").
+#                          Set locally to e.g. "release-v1" when running on a
+#                          backporting branch.
 #
 # Prerequisites (normal mode): oc (already logged in), jq, gh (authenticated via GH_TOKEN)
 # Prerequisites (dry-run + --actual-version): jq
@@ -30,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_FILE="${CONFIG_FILE:-${PROJECT_ROOT}/kubernetes-versions.json}"
 REMOTE="${REMOTE:-origin}"
-TARGET_BRANCH="${TARGET_BRANCH:-master}"
+BRANCH="${branch_name:-master}"
 
 # --- argument parsing --------------------------------------------------------
 
@@ -129,8 +130,8 @@ create_update_pr() {
     local repo
     repo=$(remote_repo)
 
-    git fetch "${REMOTE}" "${TARGET_BRANCH}" --quiet || die "git fetch ${REMOTE} ${TARGET_BRANCH} failed"
-    git checkout -b "${branch}" "${REMOTE}/${TARGET_BRANCH}"
+    git fetch "${REMOTE}" "${BRANCH}" --quiet || die "git fetch ${REMOTE} ${BRANCH} failed"
+    git checkout -b "${branch}" "${REMOTE}/${BRANCH}"
 
     local tmp
     tmp=$(mktemp)
@@ -161,7 +162,7 @@ recorded a different minor version.  This PR updates the file to match reality.
 - [ ] Verify the OpenShift CI tasks pass with the updated version.
 EOF
         )" \
-        --base "${TARGET_BRANCH}" \
+        --base "${BRANCH}" \
         --head "${branch}"
 }
 

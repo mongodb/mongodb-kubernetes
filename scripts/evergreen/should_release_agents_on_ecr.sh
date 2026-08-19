@@ -4,12 +4,14 @@
 
 set -Eeou pipefail
 
+BRANCH="${branch_name:-master}"
+
 no_local_changes() {
   git diff --quiet -- release.json
 }
 
 no_changes_vs_branch() {
-  git diff --quiet "origin/${branch_name:-master}" -- release.json
+  git diff --quiet "origin/${BRANCH}" -- release.json
 }
 
 git fetch origin
@@ -21,7 +23,7 @@ else
   echo "release.json has changed, triggering ecr agent release"
   echo "git diff"
   git diff -- release.json
-  echo "git diff ${branch_name:-master}"
-  git diff "origin/${branch_name:-master}" -- release.json
+  echo "git diff ${BRANCH}"
+  git diff "origin/${BRANCH}" -- release.json
   exit 0
 fi
