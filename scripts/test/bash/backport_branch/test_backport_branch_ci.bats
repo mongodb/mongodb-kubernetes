@@ -2,7 +2,7 @@
 #
 # Regression tests for CI scripts that must diff against the current branch's
 # own remote state instead of a hardcoded origin/master. Builds a throwaway
-# local git remote with master + v1 branches so the origin/v1 comparison can
+# local git remote with master + release-v1 branches so the origin/release-v1 comparison can
 # be exercised without a real GitHub push or Evergreen project.
 #
 # Run via: scripts/test/bash/run.sh backport_branch
@@ -29,11 +29,11 @@ setup() {
     git branch -m master
     git push -q origin master
 
-    git checkout -q -b v1
-    echo '{"marker": "v1-value"}' > release.json
+    git checkout -q -b release-v1
+    echo '{"marker": "release-v1-value"}' > release.json
     git add release.json
-    git commit -q -m "v1 release.json diverges from master"
-    git push -q origin v1
+    git commit -q -m "release-v1 release.json diverges from master"
+    git push -q origin release-v1
 }
 
 teardown() {
@@ -42,47 +42,47 @@ teardown() {
 
 @test "should_release_agents_on_ecr: skips when release.json unchanged vs its own branch" {
     cd "${CLONE_DIR}"
-    git checkout -q v1
+    git checkout -q release-v1
 
-    run env branch_name=v1 "${SCRIPT}"
+    run env branch_name=release-v1 "${SCRIPT}"
 
     [ "$status" -eq 1 ]
     [[ "$output" == *"has not changed"* ]]
 }
 
-@test "should_release_agents_on_ecr: does NOT false-trigger just because v1 differs from master" {
+@test "should_release_agents_on_ecr: does NOT false-trigger just because release-v1 differs from master" {
     cd "${CLONE_DIR}"
-    git checkout -q v1
+    git checkout -q release-v1
 
-    # release.json on v1 differs from master's, but nothing has changed
-    # *within* v1 itself — comparing against origin/master (the old bug)
+    # release.json on release-v1 differs from master's, but nothing has changed
+    # *within* release-v1 itself — comparing against origin/master (the old bug)
     # would incorrectly report a change here.
-    run env branch_name=v1 "${SCRIPT}"
+    run env branch_name=release-v1 "${SCRIPT}"
 
     [ "$status" -eq 1 ]
 }
 
-@test "should_release_agents_on_ecr: triggers when release.json changes on v1" {
+@test "should_release_agents_on_ecr: triggers when release.json changes on release-v1" {
     cd "${CLONE_DIR}"
-    git checkout -q v1
-    echo '{"marker": "v1-value-modified"}' > release.json
+    git checkout -q release-v1
+    echo '{"marker": "release-v1-value-modified"}' > release.json
 
-    run env branch_name=v1 "${SCRIPT}"
+    run env branch_name=release-v1 "${SCRIPT}"
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"has changed"* ]]
 }
 
-@test "regenerate_multicluster_rbac: lists v1's own tree, not master's" {
+@test "regenerate_multicluster_rbac: lists release-v1's own tree, not master's" {
     cd "${CLONE_DIR}"
-    git checkout -q v1
+    git checkout -q release-v1
     mkdir -p pkg/kubectl-mongodb
     echo "marker" > pkg/kubectl-mongodb/only_on_v1.go
     git add pkg/kubectl-mongodb
-    git commit -q -m "add kubectl-mongodb path only on v1"
-    git push -q origin v1
+    git commit -q -m "add kubectl-mongodb path only on release-v1"
+    git push -q origin release-v1
 
-    tree_listing=$(env branch_name=v1 git ls-tree -r "origin/v1" --name-only)
+    tree_listing=$(env branch_name=release-v1 git ls-tree -r "origin/release-v1" --name-only)
 
     [[ "${tree_listing}" == *"pkg/kubectl-mongodb/only_on_v1.go"* ]]
 

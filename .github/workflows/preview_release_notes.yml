@@ -4,12 +4,12 @@ on:
     branches:
       - master
       - release-*
-      - v*
+      - release-v*
   pull_request:
     branches:
       - master
       - release-*
-      - v*
+      - release-v*
 
 jobs:
   preview_release_notes:

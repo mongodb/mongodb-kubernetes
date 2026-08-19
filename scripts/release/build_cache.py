@@ -5,7 +5,7 @@ This module consolidates all caching logic: cache write decisions,
 ECR repository management, and BuildKit cache configuration generation.
 
 Cache Strategy:
-- Each branch (master, v1, v2, ...) has its own cache, keyed by branch_name
+- Each branch (master, release-v1, release-v2, ...) has its own cache, keyed by branch_name
 - Only mainline merges (gitter_request) write to their branch's cache
 - PRs, manual patches, and other builds are read-only to prevent cache pollution
 """
