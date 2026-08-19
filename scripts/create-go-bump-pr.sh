@@ -21,7 +21,7 @@ fi
 version="${1#go}"
 branch="auto/bump-go-${version}"
 title="Bump Go version to ${version}"
-base_branch="${branch_name:-$(git rev-parse --abbrev-ref HEAD)}"
+base_branch="$(git rev-parse --abbrev-ref HEAD)"
 
 if [[ "${TEST_BUMP_DRY_RUN:-}" == "1" ]]; then
   printf 'create-go-bump-pr: dry-run: would open PR "%s" from branch %s\n' "${title}" "${branch}"
