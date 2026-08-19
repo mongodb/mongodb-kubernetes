@@ -7,7 +7,6 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
-	pkgtls "github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
@@ -387,9 +386,11 @@ func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	return results
 }
 
-// validateTLS warns when TLS is absent so the user knows to set net.tls.mode to "disabled".
+// validateTLS warns when the source process has no TLS section at all, so the user knows to set
+// net.tls.mode to "disabled" and match the operator, which always writes an explicit mode. A process
+// that already has the mode set to "disabled" needs no change and is not reported.
 func validateTLS(proc *om.Process) []ValidationResult {
-	if len(proc.NetTLSSections()) == 0 || pkgtls.GetTLSModeFromMongodConfig(proc.Args()) == pkgtls.Disabled {
+	if len(proc.NetTLSSections()) == 0 {
 		return []ValidationResult{{
 			Severity: SeverityWarning,
 			Message:  fmt.Sprintf("Process %q has no TLS. Set spec.additionalMongodConfig.net.tls.mode to \"disabled\" to match the operator and avoid a deployment change.", proc.Name()),
