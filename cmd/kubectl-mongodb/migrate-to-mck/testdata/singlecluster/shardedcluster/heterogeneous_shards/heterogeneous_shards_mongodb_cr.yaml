@@ -7,16 +7,6 @@ metadata:
   name: my-sharded-cluster
   namespace: mongodb
 spec:
-  agent:
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb-mms-automation/mongodb.log
-  configSrv:
-    additionalMongodConfig:
-      net:
-        port: 27019
   credentials: my-credentials
   externalMembers:
   - hostname: config-a.example.com:27019
@@ -63,8 +53,6 @@ spec:
     shardName: my-sharded-cluster-1
   shardOverrides:
   - additionalMongodConfig:
-      net:
-        port: 27018
       storage:
         wiredTiger:
           engineConfig:
@@ -72,8 +60,6 @@ spec:
     shardNames:
     - my-sharded-cluster-0
   - additionalMongodConfig:
-      net:
-        port: 27018
       storage:
         wiredTiger:
           engineConfig:

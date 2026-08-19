@@ -451,7 +451,7 @@ func TestGenerateMongoDBCR_HomogeneousShardsUseSpecShard(t *testing.T) {
 		ConfigMapName:         "my-om-config",
 	})
 
-	obj, _, err := GenerateMongoDBCR(ac, opts)
+	obj, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	mdb, ok := obj.(*mdbv1.MongoDB)
 	require.True(t, ok)
@@ -477,7 +477,7 @@ func TestGenerateMongoDBCR_HeterogeneousShardsUseOverridesAndOmitSpecShard(t *te
 		ConfigMapName:         "my-om-config",
 	})
 
-	obj, _, err := GenerateMongoDBCR(ac, opts)
+	obj, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	mdb, ok := obj.(*mdbv1.MongoDB)
 	require.True(t, ok)
@@ -529,7 +529,7 @@ func TestGenerateMongoDBCR_PerShardMongotHostBecomesShardOverrides(t *testing.T)
 		ConfigMapName:         "my-om-config",
 	})
 
-	obj, _, err := GenerateMongoDBCR(ac, opts)
+	obj, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	mdb, ok := obj.(*mdbv1.MongoDB)
 	require.True(t, ok)
@@ -560,7 +560,7 @@ func TestGenerateMongoDBCR_UniformMongotHostStaysInSpecShard(t *testing.T) {
 		ConfigMapName:         "my-om-config",
 	})
 
-	obj, _, err := GenerateMongoDBCR(ac, opts)
+	obj, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	mdb, ok := obj.(*mdbv1.MongoDB)
 	require.True(t, ok)
