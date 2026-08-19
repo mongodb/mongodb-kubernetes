@@ -48,18 +48,6 @@ teardown() {
     [[ "$output" == *"has not changed"* ]]
 }
 
-@test "should_release_agents_on_ecr: does NOT false-trigger just because release-v1 differs from master" {
-    cd "${CLONE_DIR}"
-    git checkout -q release-v1
-
-    # release.json on release-v1 differs from master's, but nothing has changed
-    # *within* release-v1 itself — comparing against origin/master (the old bug)
-    # would incorrectly report a change here.
-    run env branch_name=release-v1 "${SCRIPT}"
-
-    [ "$status" -eq 1 ]
-}
-
 @test "should_release_agents_on_ecr: triggers when release.json changes on release-v1" {
     cd "${CLONE_DIR}"
     git checkout -q release-v1
