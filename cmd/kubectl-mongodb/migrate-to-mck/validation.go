@@ -30,6 +30,7 @@ var (
 	defaultDownloadBase           = util.PvcMmsMountPath
 	defaultMonitoringAgentLogPath = fmt.Sprintf("%s/monitoring-agent.log", util.PvcMountPathLogs)
 	defaultBackupAgentLogPath     = fmt.Sprintf("%s/backup-agent.log", util.PvcMountPathLogs)
+	defaultMongodLogPath          = fmt.Sprintf("%s/mongodb.log", util.PvcMountPathLogs)
 	defaultAuthSchemaVersion      = om.CalculateAuthSchemaVersion()
 )
 
@@ -71,7 +72,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	}
 	results = append(results, ValidationResult{
 		Severity: SeverityWarning,
-		Message:  fmt.Sprintf("spec.additionalMongodConfig and spec.agent.mongod.systemLog will be taken from process %q. Review all members and reconcile any differences before migration.", sourceProcess.Name()),
+		Message:  fmt.Sprintf("spec.additionalMongodConfig will be taken from process %q. Review all members and reconcile any differences before migration.", sourceProcess.Name()),
 	})
 	results = append(results, validateProcessConfig(ac.Deployment, sourceProcess, projectConfigs)...)
 
@@ -332,6 +333,7 @@ func validateProcessConfig(d om.Deployment, sourceProcess *om.Process, projectPr
 	results = append(results, validateAuthSchemaVersion(d)...)
 	results = append(results, validateTLS(sourceProcess)...)
 	results = append(results, validateProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
+	results = append(results, validateMongodSystemLog(sourceProcess)...)
 
 	return results
 }
@@ -430,4 +432,18 @@ func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs
 	}
 
 	return results
+}
+
+// validateMongodSystemLog warns when the source process writes its mongod log somewhere other than
+// the operator default. systemLog is not migrated: the pod only mounts a log volume at
+// util.PvcMountPathLogs, so any other path would be unbacked by a volume. See extractAgentConfig.
+func validateMongodSystemLog(sourceProcess *om.Process) []ValidationResult {
+	logPath := sourceProcess.LogPath()
+	if logPath == "" || logPath == defaultMongodLogPath {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityWarning,
+		Message:  fmt.Sprintf("Process %q writes its mongod log to %q. systemLog is not migrated because only %q is backed by a volume in the pod; the migrated deployment will log to %q instead.", sourceProcess.Name(), logPath, util.PvcMountPathLogs, defaultMongodLogPath),
+	}}
 }
