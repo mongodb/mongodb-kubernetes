@@ -3386,6 +3386,7 @@ spec:
                   - shardNames
                   type: object
                 type: array
+                x-kubernetes-preserve-unknown-fields: true
               shardPodSpec:
                 properties:
                   persistence:
