@@ -101,6 +101,9 @@ func Publish(inputs PublishInputs, host string, reg Registry) (PublishResult, er
 	if err := reg.CopyWithTags(srcRef, inputs.ProdRepo, []string{marker}); err != nil {
 		return PublishResult{}, fmt.Errorf("publish %s (%s): %w", srcRef, marker, err)
 	}
+	if err := reg.CopySignatures(srcRef, inputs.ProdRepo); err != nil {
+		return PublishResult{}, fmt.Errorf("publish %s (signatures): %w", srcRef, err)
+	}
 	return result, nil
 }
 
