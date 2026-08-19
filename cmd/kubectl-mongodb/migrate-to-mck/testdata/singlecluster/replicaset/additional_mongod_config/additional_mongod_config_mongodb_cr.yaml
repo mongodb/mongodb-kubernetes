@@ -16,7 +16,6 @@ spec:
       compression:
         compressors: zlib,zstd
       maxIncomingConnections: 512
-      port: 27018
     operationProfiling:
       mode: slowOp
       slowOpThresholdMs: 200
@@ -41,11 +40,6 @@ spec:
           zstdCompressionLevel: 6
   agent:
     maxLogFileDurationHours: 0
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: true
-        path: /var/log/mongodb/mongod.log
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27018
