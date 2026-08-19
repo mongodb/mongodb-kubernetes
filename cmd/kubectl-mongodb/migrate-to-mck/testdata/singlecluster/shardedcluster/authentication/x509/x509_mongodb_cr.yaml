@@ -7,17 +7,7 @@ metadata:
   name: sc-x509-cluster
   namespace: mongodb
 spec:
-  agent:
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb/mongod.log
   configServerNameOverride: sc-x509-csrs
-  configSrv:
-    additionalMongodConfig:
-      net:
-        port: 27019
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
@@ -56,10 +46,6 @@ spec:
     certsSecretPrefix: mdb
     tls:
       ca: sc-x509-cluster-ca
-  shard:
-    additionalMongodConfig:
-      net:
-        port: 27018
   shardCount: 1
   shardNameOverrides:
   - replicaSetName: sc-x509-shard-rs

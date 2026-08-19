@@ -7,17 +7,7 @@ metadata:
   name: mycluster-v1
   namespace: mongodb
 spec:
-  agent:
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb-mms-automation/mongodb.log
   configServerNameOverride: csrs
-  configSrv:
-    additionalMongodConfig:
-      net:
-        port: 27019
   credentials: my-credentials
   externalMembers:
   - hostname: config-a.example.com:27019
@@ -61,10 +51,6 @@ spec:
     certsSecretPrefix: mdb
     tls:
       ca: mycluster-v1-ca
-  shard:
-    additionalMongodConfig:
-      net:
-        port: 27018
   shardCount: 2
   shardNameOverrides:
   - replicaSetName: shard0-rs
