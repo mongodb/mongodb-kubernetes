@@ -7,17 +7,7 @@ metadata:
   name: oidc-cluster
   namespace: mongodb
 spec:
-  agent:
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb/mongod.log
   configServerNameOverride: oidc-csrs
-  configSrv:
-    additionalMongodConfig:
-      net:
-        port: 27019
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
@@ -71,10 +61,6 @@ spec:
         configurationName: azure-svc
         issuerURI: https://login.microsoftonline.com/tenant-id/v2.0
         userClaim: sub
-  shard:
-    additionalMongodConfig:
-      net:
-        port: 27018
   shardCount: 1
   shardNameOverrides:
   - replicaSetName: oidc-shard-rs

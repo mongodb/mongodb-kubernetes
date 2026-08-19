@@ -7,16 +7,6 @@ metadata:
   name: my-sharded-cluster
   namespace: mongodb
 spec:
-  agent:
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb-mms-automation/mongodb.log
-  configSrv:
-    additionalMongodConfig:
-      net:
-        port: 27019
   credentials: my-credentials
   externalMembers:
   - hostname: config-a.example.com:27019
@@ -53,10 +43,6 @@ spec:
   opsManager:
     configMapRef:
       name: my-om-config
-  shard:
-    additionalMongodConfig:
-      net:
-        port: 27018
   shardCount: 2
   shardNameOverrides:
   - replicaSetName: shard0

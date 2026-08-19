@@ -7,17 +7,7 @@ metadata:
   name: sc-scram-cluster
   namespace: mongodb
 spec:
-  agent:
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb/mongod.log
   configServerNameOverride: sc-scram-csrs
-  configSrv:
-    additionalMongodConfig:
-      net:
-        port: 27019
   credentials: my-credentials
   externalMembers:
   - hostname: config-0.example.com:27019
@@ -51,10 +41,6 @@ spec:
       ignoreUnknownUsers: true
       modes:
       - SCRAM
-  shard:
-    additionalMongodConfig:
-      net:
-        port: 27018
   shardCount: 1
   shardNameOverrides:
   - replicaSetName: sc-scram-shard-rs
