@@ -468,6 +468,9 @@ func TestGenerateMongoDBCR_HeterogeneousShardsUseOverridesAndOmitSpecShard(t *te
 	setProcessCacheSizeGB(t, ac, "shard0-1", 4)
 	setProcessCacheSizeGB(t, ac, "shard1-0", 8)
 	setProcessCacheSizeGB(t, ac, "shard1-1", 8)
+	// Give the config server a setting of its own so the assertion below is not vacuous.
+	setProcessCacheSizeGB(t, ac, "my-sharded-cluster-config-0", 2)
+	setProcessCacheSizeGB(t, ac, "my-sharded-cluster-config-1", 2)
 
 	opts := withDeploymentData(ac, GenerateOptions{
 		CredentialsSecretName: "my-credentials",
