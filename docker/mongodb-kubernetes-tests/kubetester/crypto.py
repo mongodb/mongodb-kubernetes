@@ -50,8 +50,7 @@ def generate_csr(namespace: str, host: str, servicename: str):
 
 
 def generate_self_signed_ca_pem(common_name: str) -> bytes:
-    """Returns a PEM encoded, self signed CA certificate.
-    """
+    """Returns a PEM encoded, self signed CA certificate."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     now = datetime.datetime.now(datetime.timezone.utc)
