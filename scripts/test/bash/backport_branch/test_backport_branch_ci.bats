@@ -10,8 +10,6 @@
 setup() {
     PROJECT_DIR="$(git rev-parse --show-toplevel)"
     SCRIPT="${PROJECT_DIR}/scripts/evergreen/should_release_agents_on_ecr.sh"
-    RBAC_SCRIPT="${PROJECT_DIR}/scripts/dev/regenerate_multicluster_rbac.sh"
-
     WORK_DIR="$(mktemp -d)"
     REMOTE_DIR="${WORK_DIR}/remote.git"
     CLONE_DIR="${WORK_DIR}/clone"
@@ -73,7 +71,7 @@ teardown() {
     [[ "$output" == *"has changed"* ]]
 }
 
-@test "regenerate_multicluster_rbac: lists release-v1's own tree, not master's" {
+@test "git ls-tree: lists release-v1's own tree, not master's" {
     cd "${CLONE_DIR}"
     git checkout -q release-v1
     mkdir -p pkg/kubectl-mongodb
