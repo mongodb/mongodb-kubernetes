@@ -13,11 +13,6 @@ spec:
         allowConnectionsWithoutCertificates: false
   agent:
     maxLogFileDurationHours: 0
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /data/mongodb.log
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017

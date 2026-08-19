@@ -9,11 +9,6 @@ metadata:
 spec:
   agent:
     maxLogFileDurationHours: 0
-    mongod:
-      systemLog:
-        destination: file
-        logAppend: false
-        path: /var/log/mongodb/mongod.log
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
