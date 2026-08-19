@@ -1,18 +1,11 @@
 """Covers the --member-cluster-ca flag of `kubectl mongodb multicluster setup`.
 
-The KubeConfig the plugin writes for the Operator normally carries each member cluster's internal
-CA, copied from that cluster's ServiceAccount token secret. --member-cluster-ca replaces it, for
-deployments where TLS is terminated somewhere else on the path the Operator takes to reach the API
-server, which makes that internal CA the wrong trust anchor.
-
-There is no such TLS terminator in the e2e clusters, so the override used here is the member
-cluster's own CA with an unrelated self signed CA appended. Those bytes differ from what the plugin
-writes on its own, which is what makes the override observable, while still being a trust anchor the
-API server's certificate chains to, so the Operator has to keep working through it.
+The e2e clusters have no TLS terminator, so the override used here is the member cluster's own CA
+with an unrelated self signed CA appended: byte-wise different from what the plugin writes on its
+own, which is what makes the override observable, while still chaining to the API server's cert.
 """
 
 import base64
-import os
 import tempfile
 from typing import Dict, List
 
@@ -88,10 +81,9 @@ def custom_ca_bundle(
 
 @fixture(scope="module")
 def custom_ca_file(custom_ca_bundle: str) -> str:
-    path = os.path.join(tempfile.mkdtemp(), "member-cluster-ca.pem")
-    with open(path, "w") as ca_file:
+    with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".pem") as ca_file:
         ca_file.write(custom_ca_bundle)
-    return path
+    return ca_file.name
 
 
 @fixture(scope="module")
@@ -179,12 +171,10 @@ def test_operator_reconciles_member_cluster_with_custom_ca(
     member_cluster_clients: List[MultiClusterClient],
     custom_ca_cluster: str,
 ):
-    # The Operator builds its member cluster clients from the KubeConfig at startup, so the override
-    # only reaches it on restart.
+    # the Operator builds its member cluster clients at startup, so the override lands only on restart
     multi_cluster_operator.restart_operator_deployment()
 
-    # Deleting the StatefulSet in the overridden cluster forces the Operator to both read and write
-    # through the client that now trusts the custom CA.
+    # deleting the StatefulSet forces a read and a write through the client that trusts the custom CA
     member_cluster_client = next(c for c in member_cluster_clients if c.cluster_name == custom_ca_cluster)
     sts_name = f"{mongodb_multi.name}-{member_cluster_names.index(custom_ca_cluster)}"
     old_uid = get_statefulset(namespace, sts_name, api_client=member_cluster_client.api_client).metadata.uid
@@ -204,9 +194,7 @@ def test_member_clusters_report_healthy_with_custom_ca(
     mongodb_multi: MongoDBMulti,
     member_cluster_names: List[str],
 ):
-    # The member cluster health checker builds its cert pool from certificate-authority-data alone,
-    # with no fallback to the system trust store, so it is the part of the Operator a bad CA breaks
-    # most quietly: reconciliation keeps working while every cluster is marked failed.
+    # a bad CA fails here quietly: reconciliation keeps working while every cluster is marked failed
     def all_clusters_reported_healthy() -> bool:
         operator_pod = multi_cluster_operator.list_operator_pods()[0]
         logs = KubernetesTester.read_pod_logs(namespace, operator_pod.metadata.name, api_client=central_cluster_client)

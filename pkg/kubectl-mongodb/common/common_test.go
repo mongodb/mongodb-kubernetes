@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	cryptorand "crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -28,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 
+	cryptorand "crypto/rand"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -369,17 +369,17 @@ func TestParseMemberClusterCAs(t *testing.T) {
 		{
 			name:          "the separator is missing",
 			entries:       []string{ca0Path},
-			expectedError: "expected format <memberClusterName>=<pathToPemFile>",
+			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
 		},
 		{
 			name:          "the cluster name is empty",
 			entries:       []string{"=" + ca0Path},
-			expectedError: "expected format <memberClusterName>=<pathToPemFile>",
+			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
 		},
 		{
 			name:          "the path is empty",
 			entries:       []string{"member-cluster-0="},
-			expectedError: "expected format <memberClusterName>=<pathToPemFile>",
+			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
 		},
 		{
 			name:          "the cluster is not a member cluster",
@@ -399,7 +399,7 @@ func TestParseMemberClusterCAs(t *testing.T) {
 		{
 			name:          "the file holds no PEM certificate",
 			entries:       []string{"member-cluster-0=" + notAPemPath},
-			expectedError: "does not contain any PEM encoded certificate",
+			expectedError: "no PEM encoded certificate found",
 		},
 	}
 

@@ -26,7 +26,7 @@ func init() {
 	RecoverCmd.Flags().StringVar(&RecoverFlags.SourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
 	RecoverCmd.Flags().BoolVar(&RecoverFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	RecoverCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
-	RecoverCmd.Flags().StringArrayVar(&common.MemberClusterCAFiles, "member-cluster-ca", nil, "Custom CA certificate for a member cluster, in the form <member-cluster-name>=<path-to-pem-file>. Repeat the flag once per cluster. Overrides the CA read from that cluster's ServiceAccount token secret, for when TLS is terminated differently on the network path the operator takes to reach it. [optional]")
+	RecoverCmd.Flags().StringArrayVar(&common.MemberClusterCAFiles, "member-cluster-ca", nil, "Custom CA certificate for a member cluster, in the form <member-cluster-name>=<path-to-pem-file>, repeatable once per cluster. [optional, default will take the CA from that cluster's ServiceAccount token secret]")
 }
 
 // RecoverCmd represents the recover command
@@ -34,16 +34,11 @@ var RecoverCmd = &cobra.Command{
 	Use:   "recover",
 	Short: "Recover the multicluster environment for MongoDB resources after a dataplane failure",
 	Long: `'recover' re-configures a failed multicluster environment to a enable the shuffling of dataplane
-resources to a new healthy topology.
+resources to a new healthy topology. Any --member-cluster-ca values passed to 'setup' must be passed here too.
 
 Example:
 
 kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-3,cluster-4" --member-cluster-namespace="mongodb-fresh" --central-cluster-namespace="mongodb" --operator-name=mongodb-kubernetes-operator-multi-cluster --source-cluster="cluster-1"
-
-Any custom CA certificates passed to 'setup' must be passed to 'recover' as well, otherwise the regenerated
-KubeConfig falls back to the CA from each cluster's ServiceAccount token secret:
-
-kubectl-mongodb multicluster recover --central-cluster="operator-cluster" --member-clusters="cluster-1,cluster-3" --member-cluster-namespace="mongodb-fresh" --central-cluster-namespace="mongodb" --source-cluster="cluster-1" --member-cluster-ca=cluster-1=/path/to/cluster-1-ca.pem
 
 `,
 	Run: func(cmd *cobra.Command, args []string) {

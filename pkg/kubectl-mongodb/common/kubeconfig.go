@@ -43,9 +43,7 @@ func GetMemberClusterApiServerUrls(kubeconfig *clientcmdapi.Config, clusterNames
 }
 
 // ParseMemberClusterCAs parses the repeated --member-cluster-ca entries, each of the form
-// <memberClusterName>=<pathToPemFile>, and returns a map of member cluster name to the contents of
-// the referenced PEM file. Every file is read and validated here, before any cluster is modified,
-// so that a bad entry fails the command instead of leaving half created resources behind.
+// <member-cluster-name>=<path-to-pem-file>, and returns a map of member cluster name to PEM bundle.
 func ParseMemberClusterCAs(entries []string, memberClusters []string) (map[string][]byte, error) {
 	if len(entries) == 0 {
 		return nil, nil
@@ -57,7 +55,7 @@ func ParseMemberClusterCAs(entries []string, memberClusters []string) (map[strin
 		clusterName = strings.TrimSpace(clusterName)
 		path = strings.TrimSpace(path)
 		if !found || clusterName == "" || path == "" {
-			return nil, xerrors.Errorf("invalid member-cluster-ca value '%s', expected format <memberClusterName>=<pathToPemFile>", entry)
+			return nil, xerrors.Errorf("invalid member-cluster-ca value '%s', expected format <member-cluster-name>=<path-to-pem-file>", entry)
 		}
 
 		if !slices.Contains(memberClusters, clusterName) {
@@ -73,11 +71,9 @@ func ParseMemberClusterCAs(entries []string, memberClusters []string) (map[strin
 			return nil, xerrors.Errorf("failed reading CA file '%s' for cluster '%s': %w", path, clusterName, err)
 		}
 
-		// The Operator's member cluster health checker builds a cert pool from this value alone,
-		// with no fallback to the system trust store, so an unusable bundle would silently mark
-		// every member cluster unhealthy. Reject it here instead.
+		// the Operator builds its cert pool from this value alone, so reject a bundle it cannot use
 		if !x509.NewCertPool().AppendCertsFromPEM(caPEM) {
-			return nil, xerrors.Errorf("CA file '%s' for cluster '%s' does not contain any PEM encoded certificate", path, clusterName)
+			return nil, xerrors.Errorf("failed parsing CA file '%s' for cluster '%s': no PEM encoded certificate found", path, clusterName)
 		}
 
 		cas[clusterName] = caPEM

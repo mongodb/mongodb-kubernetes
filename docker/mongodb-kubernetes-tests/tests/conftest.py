@@ -1384,10 +1384,9 @@ def run_kube_config_creation_tool(
         operator_name,
     ]
 
-    # member_cluster_cas maps a member cluster name to a local PEM file, replacing the CA the tool
-    # would otherwise take from that cluster's ServiceAccount token secret.
     for cluster_name, ca_path in (member_cluster_cas or {}).items():
-        args.append(f"--member-cluster-ca={cluster_name}={ca_path}")
+        args.append("--member-cluster-ca")
+        args.append(f"{cluster_name}={ca_path}")
 
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
         args.append("--create-service-account-secrets")
