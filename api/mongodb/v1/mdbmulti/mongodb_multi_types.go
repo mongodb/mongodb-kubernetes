@@ -635,7 +635,8 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
+		domain := m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), domain)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).
