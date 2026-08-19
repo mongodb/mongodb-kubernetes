@@ -109,5 +109,8 @@ func Promote(inputs PromoteInputs, host string, reg Registry) (PromoteResult, er
 	if err := reg.CopyWithTags(inputs.Image, inputs.Repo, []string{latestTag}); err != nil {
 		return PromoteResult{}, fmt.Errorf("promote %s (latest): %w", inputs.Image, err)
 	}
+	if err := reg.CopySignatures(inputs.Image, inputs.Repo); err != nil {
+		return PromoteResult{}, fmt.Errorf("promote %s (signatures): %w", inputs.Image, err)
+	}
 	return result, nil
 }
