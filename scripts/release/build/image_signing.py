@@ -183,25 +183,6 @@ def get_manifest_digests(image_name: str) -> List[str]:
     return digests
 
 
-def _sig_tag_exists(repository: str, digest: str) -> bool:
-    sig_ref = f"{repository}:sha256-{digest.split(':', 1)[1]}.sig"
-    command = [
-        "docker",
-        "run",
-        "--rm",
-        f"--volume={os.path.expanduser('~')}/.aws:/root/.aws:ro",
-        "quay.io/skopeo/stable:latest",
-        "inspect",
-    ]
-    _append_ecr_creds(command, sig_ref)
-    command.append(f"docker://{sig_ref}")
-    try:
-        run_command_with_retries(command, retries=2)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-
-
 def build_cosign_docker_command(additional_args: List[str], cosign_command: List[str]) -> List[str]:
     """
     Common logic to build a cosign command with the garasign cosign image provided by DevProd.
@@ -331,19 +312,9 @@ def verify_signature(repository: str, tag: str):
 
     # cosign verify has no --recursive flag. Since sign_image signs the top-level
     # multi-arch image index AND each per-platform image individually (via
-    # --recursive), also verify every platform digest here. A *missing* signature
-    # on a platform digest is only a warning: images signed before recursive
-    # signing was introduced only have a signature on the index, and we don't
-    # want to break verification of those older images. An actual invalid
-    # signature on a platform digest is still a hard failure.
+    # --recursive), also verify every platform digest here.
     for digest in get_manifest_digests(image):
         platform_ref = f"{repository}@{digest}"
-        if not _sig_tag_exists(repository, digest):
-            logger.warning(
-                f"No recursive signature found for platform image {platform_ref}. "
-                "This is expected for images signed before recursive signing was introduced."
-            )
-            continue
         try:
             verify_ref(platform_ref)
         except subprocess.CalledProcessError as e:

@@ -45,7 +45,6 @@ def test_get_manifest_digests(mock_run, name, manifest, want_digests):
     assert digests == want_digests
 
 
-SIG_TAG_MISSING = CalledProcessError(1, ["skopeo", "inspect"], stderr="manifest unknown")
 NO_SIGNATURE_ERR = CalledProcessError(1, ["cosign", "verify"], stderr="Error: no signatures found")
 INVALID_SIGNATURE_ERR = CalledProcessError(
     1, ["cosign", "verify"], stderr="Error: no matching signatures: invalid signature when validating ASN.1"
@@ -62,22 +61,21 @@ INVALID_SIGNATURE_ERR = CalledProcessError(
             "",
         ),
         (
-            "platform digest missing signature: warns only, does not raise",
+            "platform digest missing signature: raises",
             ["sha256:amd64digest"],
             {
                 "side_effect": [
                     MagicMock(),
-                    SIG_TAG_MISSING,
+                    NO_SIGNATURE_ERR,
                 ]
             },
-            "",
+            "Failed to verify signature for platform image",
         ),
         (
             "platform digest has invalid signature: raises",
             ["sha256:amd64digest"],
             {
                 "side_effect": [
-                    MagicMock(),
                     MagicMock(),
                     INVALID_SIGNATURE_ERR,
                 ]
