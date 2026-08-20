@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -107,6 +108,27 @@ func TestLeaderFirstDeployWritesDirectivesOneDecisionPerPass(t *testing.T) {
 		reflect.ValueOf(mockedConn.CreateProject),
 		reflect.ValueOf(mockedConn.UpdateProject),
 		reflect.ValueOf(mockedConn.GenerateAgentKey))
+}
+
+func TestLeaderValidationFailureWritesNoDirective(t *testing.T) {
+	ctx := context.Background()
+	duplicateName := clusters[0]
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList([]string{duplicateName, duplicateName, clusters[2]}).Build()
+	reconciler, clientsMap, _ := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(m))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, result)
+
+	require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m))
+	assert.Equal(t, status.PhaseFailed, m.Status.Phase)
+	assert.Equal(t, fmt.Sprintf("Multiple clusters with the same name (%s) are not allowed", duplicateName), m.Status.Message)
+
+	// the invalid spec never reached planning: no directive anywhere
+	for clusterName, c := range clientsMap {
+		err := c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &operatorv1.MongoDBDirective{})
+		assert.True(t, apiErrors.IsNotFound(err), "no directive expected on cluster %s", clusterName)
+	}
 }
 
 func TestNonLeaderWritesNothing(t *testing.T) {

@@ -162,6 +162,13 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 	}
 	log.Infof("-> MultiClusterLeader.Reconcile (term %d)", term)
 
+	// same webhook validators the legacy path re-runs (warnings accumulate on the status in
+	// memory and ride the status write); Failed instead of legacy's Invalid to keep one terminal
+	// phase mapping with the planner's InvalidSpec
+	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
+		return commoncontroller.UpdateStatus(ctx, r.localClient, &mrs, workflow.Failed(err), log)
+	}
+
 	specHash, err := multiClusterSpecHash(mrs.Spec)
 	if err != nil {
 		return commoncontroller.UpdateStatus(ctx, r.localClient, &mrs, workflow.Failed(err), log)
