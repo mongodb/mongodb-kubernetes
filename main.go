@@ -346,7 +346,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(watchedResources, mongoDBSearchCRDPlural) {
-		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
+		operatorClusterName := operator.GetOperatorClusterName()
 		if operatorClusterName != "" {
 			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
 		}
@@ -615,6 +615,7 @@ func printEnvVariables() {
 		"BACKUP_WAIT_",
 		"POD_WAIT_",
 		"OPERATOR_ENV",
+		"OPERATOR_CLUSTER_NAME",
 		"WATCH_NAMESPACE",
 		"NAMESPACE",
 		"MANAGED_SECURITY_CONTEXT",
