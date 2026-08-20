@@ -247,6 +247,10 @@ func TestPublishAutomationConfig(t *testing.T) {
 	deployment, err = conn.ReadDeployment()
 	require.NoError(t, err)
 	assert.Equal(t, memberIds[m.Name+"-0-0"], deployment.GetReplicaSetByName(m.Name).MemberIds()[m.Name+"-0-0"])
+
+	// log rotation is reconciled after the deployment write, like the legacy path
+	mockedConn := conn.(*om.MockedOmConnection)
+	mockedConn.CheckOrderOfOperations(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment), reflect.ValueOf(mockedConn.ReadUpdateAgentsLogRotation))
 }
 
 func TestExecuteMapsDecisionsToStatuses(t *testing.T) {

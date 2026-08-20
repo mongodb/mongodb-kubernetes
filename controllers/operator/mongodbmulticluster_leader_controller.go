@@ -328,7 +328,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 		return err
 	}
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	return conn.ReadUpdateDeployment(func(d om.Deployment) error {
+	err = conn.ReadUpdateDeployment(func(d om.Deployment) error {
 		if err := ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, mrs.GetLastAdditionalMongodConfig(), mrs.Name, rs, caFilePath, "", nil, log); err != nil {
 			return err
 		}
@@ -337,6 +337,14 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 		d.SetOperatorSpecHash(specHash)
 		return nil
 	}, log)
+	if err != nil {
+		return err
+	}
+
+	if _, err := ReconcileLogRotateSetting(conn, mrs.Spec.Agent, log); err != nil {
+		return err
+	}
+	return nil
 }
 
 // enqueueSameNameRequest maps an event on a coupled object to the same-name request: the
