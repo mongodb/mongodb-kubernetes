@@ -39,16 +39,20 @@ import (
 // memory that survives operator restarts. It lives in the `<name>-state` ConfigMap on the
 // member's own cluster, owner-ref'd to the local CR copy (garbage-collected with it, by design:
 // if GitOps prunes the CR, the drain record goes too — recorded limitation).
+//
+// The mirror records what was applied; it cannot re-derive it. Repair while holding renders from
+// the LIVE local CR and is therefore possible only while that copy still hashes to
+// AppliedSpecHash — once GitOps delivers a newer spec mid-hold, a lost resource stays lost until
+// the fence opens (accepted for simplicity; storing the full applied spec would close that
+// window and is purely additive if ever needed).
 type MirrorState struct {
-	// AppliedSpec is the full spec the applied resources were rendered from — enough to repair
-	// them even after GitOps has delivered a newer (fence-failing) spec.
-	AppliedSpec mdbmultiv1.MongoDBMultiSpec `json:"appliedSpec"`
-	// AppliedSpecHash is the canonical hash of AppliedSpec, as fenced on at apply time.
+	// AppliedSpecHash is the canonical hash of the spec the applied resources were rendered
+	// from, as fenced on at apply time.
 	AppliedSpecHash    string `json:"appliedSpecHash"`
 	AppliedMemberCount int    `json:"appliedMemberCount"`
 	ClusterIndex       int    `json:"clusterIndex"`
-	// IndexAllocations is copied from the directive: Spec.Mapping is json:"-", so AppliedSpec
-	// alone cannot rebuild peer cluster indexes (duplicate services need them).
+	// IndexAllocations is copied from the directive at apply time; repair needs the peer
+	// cluster indexes for the duplicated services.
 	IndexAllocations map[string]int `json:"indexAllocations"`
 	// ProjectID is the project the applied resources point at; repair and fact observation use
 	// it rather than the (possibly newer) directive's.
@@ -106,7 +110,6 @@ func (r *ReconcileMongoDBDirective) act(ctx context.Context, directive *operator
 	}
 
 	mirror := MirrorState{
-		AppliedSpec:        mrs.Spec,
 		AppliedSpecHash:    directive.Spec.TargetSpecHash,
 		AppliedMemberCount: target.memberCount,
 		ClusterIndex:       target.clusterIndex,
@@ -126,11 +129,10 @@ func (r *ReconcileMongoDBDirective) act(ctx context.Context, directive *operator
 }
 
 // holdAndRepair is the hold path behind a failed fence: never advance, but keep the last applied
-// state standing. With no mirror this is a plain hold (nothing was ever applied). With a mirror,
-// re-render from the mirrored spec and re-apply idempotently — that repairs drift (a deleted
-// StatefulSet, a lost service) even when the local CR has already moved past the fence. Repair
-// errors are logged, never returned: a hold must stay a hold.
-func (r *ReconcileMongoDBDirective) holdAndRepair(ctx context.Context, directive *operatorv1.MongoDBDirective, log *zap.SugaredLogger) (reconcile.Result, error) {
+// state standing. Repair renders from the LIVE local CR, so it is gated on that copy still
+// hashing to the mirror — with no mirror (nothing ever applied) or a moved-on spec, holding is
+// all there is. Repair errors are logged, never returned: a hold must stay a hold.
+func (r *ReconcileMongoDBDirective) holdAndRepair(ctx context.Context, directive *operatorv1.MongoDBDirective, mrs *mdbmultiv1.MongoDBMultiCluster, localHash string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	owner := &mdbmultiv1.MongoDBMultiCluster{}
 	owner.Name = directive.Name
 	owner.Namespace = directive.Namespace
@@ -142,12 +144,10 @@ func (r *ReconcileMongoDBDirective) holdAndRepair(ctx context.Context, directive
 		return reconcile.Result{RequeueAfter: directiveHoldRetry}, nil
 	}
 
-	// rebuild the applied world from the mirror — deliberately not the live CR, which is either
-	// ahead of the fence or gone
-	mrs := &mdbmultiv1.MongoDBMultiCluster{}
-	mrs.Name = directive.Name
-	mrs.Namespace = directive.Namespace
-	mrs.Spec = mirror.AppliedSpec
+	if mrs == nil || localHash != mirror.AppliedSpecHash {
+		log.Debug("Holding without repair: the local spec copy no longer matches the applied state")
+		return reconcile.Result{RequeueAfter: directiveHoldRetry}, nil
+	}
 
 	target := materializeTarget{
 		clusterName:      directive.Spec.ClusterName,

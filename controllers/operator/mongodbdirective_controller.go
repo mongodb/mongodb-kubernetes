@@ -139,15 +139,19 @@ func (r *ReconcileMongoDBDirective) Reconcile(ctx context.Context, request recon
 	// term fence: reject the past, not the future — a NEWER term is a legitimate leader elected
 	// while our locally observed term was stale
 	term, _ := r.elector.Current(request.NamespacedName)
+	localCR := &mrs
+	if !crFound {
+		localCR = nil
+	}
 	if directive.Spec.LeadershipTerm < term {
 		log.Debugf("Holding: directive term %d is older than the locally observed term %d", directive.Spec.LeadershipTerm, term)
-		return r.holdAndRepair(ctx, &directive, log)
+		return r.holdAndRepair(ctx, &directive, localCR, localHash, log)
 	}
 
 	// spec fence: act only on an instruction planned from the exact spec we hold locally
 	if !crFound || directive.Spec.TargetSpecHash != localHash {
 		log.Debugf("Holding: the local spec copy (hash %q) does not match the directive's target spec hash %q", localHash, directive.Spec.TargetSpecHash)
-		return r.holdAndRepair(ctx, &directive, log)
+		return r.holdAndRepair(ctx, &directive, localCR, localHash, log)
 	}
 
 	return r.act(ctx, &directive, &mrs, log)
