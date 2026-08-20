@@ -1146,6 +1146,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_multi_cluster_rbac_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_recover_network_partition
     tags: [ "patch-run" ]
     commands:

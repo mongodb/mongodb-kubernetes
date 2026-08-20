@@ -147,9 +147,13 @@ def test_upgrade_operator(
 ):
     if is_multi_cluster():
         # MCK discovers members from MemberCluster CRs, which the MEKO 1.32 baseline does not create,
-        # so register them before the upgrade or the operator boots as single-cluster.
+        # so register them before the upgrade or the operator boots as single-cluster. No operator is
+        # running yet to validate RBAC (MEKO is downscaled); get_multi_cluster_operator below
+        # re-registers the members and waits for RBACValid=True once MCK is up.
         apply_member_cluster_crd(api_client=central_cluster_client)
-        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
+        configure_multi_cluster_members(
+            member_cluster_names, namespace, namespace, central_cluster_name, wait_for_rbac_valid=False
+        )
         operator = get_multi_cluster_operator(
             namespace,
             central_cluster_name,

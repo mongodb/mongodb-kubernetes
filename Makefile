@@ -291,9 +291,13 @@ manager: generate fmt vet
 mckci:
 	go build -o bin/mckci ./ci/cmd/mckci
 
+# Expected member-cluster RBAC version injected into the operator binary; sourced from release.json's
+# mongodbOperator (the source of truth for the rbac-version annotation rendered from helm_chart).
+EXPECTED_MEMBER_RBAC_VERSION := $(shell jq -r .mongodbOperator release.json)
+
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
-	go run ./main.go
+	go run -ldflags "-X github.com/mongodb/mongodb-kubernetes/pkg/util.ExpectedMemberRBACVersion=$(EXPECTED_MEMBER_RBAC_VERSION)" ./main.go
 
 # Install CRDs into a cluster
 install: manifests kustomize

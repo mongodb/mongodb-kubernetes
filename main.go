@@ -270,10 +270,8 @@ func run() error {
 	memberClustersProvider := multicluster.NewProvider()
 
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
-		// each member cluster's runtime entry (and tears it down on CR deletion) without an
-		// operator restart. The initial informer replay registers the CRs that already exist.
-		memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
+		const memberClusterRBACRecheckInterval = time.Minute
+		memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClusterRBACRecheckInterval, memberClustersProvider,
 			func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
 				return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
 					// Use the operator scheme so cross-cluster owner references

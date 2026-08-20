@@ -97,6 +97,13 @@ rules:
       - get
       - list
       - watch
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - memberclusters/status
+    verbs:
+      - update
+      - patch
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding

@@ -263,9 +263,13 @@ class TestOperatorUpgrade:
     ):
         # MCK discovers members from MemberCluster CRs, which MEKO does not create, so register them
         # before the upgrade. The MEKO kubeconfig Secret + member-list ConfigMap stay in place for the
-        # downgrade leg below.
+        # downgrade leg below. No operator is running yet to validate RBAC (MEKO is downscaled); the
+        # multi_cluster_operator fixture re-registers the members and waits for RBACValid=True once
+        # MCK is up.
         apply_member_cluster_crd(api_client=central_cluster_client)
-        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
+        configure_multi_cluster_members(
+            member_cluster_names, namespace, namespace, central_cluster_name, wait_for_rbac_valid=False
+        )
 
     def test_install_default_operator(self, namespace: str, multi_cluster_operator: Operator):
         logger.info("Installing the operator built from master")

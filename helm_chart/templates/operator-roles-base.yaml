@@ -163,6 +163,13 @@ rules:
       - get
       - list
       - watch
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - memberclusters/status
+    verbs:
+      - update
+      - patch
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''

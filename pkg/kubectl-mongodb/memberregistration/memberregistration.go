@@ -19,11 +19,7 @@ import (
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
-)
-
-const (
-	// credentialSecretKey is the single key in the credential Secret holding the kubeconfig.
-	credentialSecretKey = "kubeconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // Options carries the resolved flag values for a single member-cluster registration.
@@ -74,7 +70,7 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 			Namespace: opts.OperatorNamespace,
 		},
 		Type:       corev1.SecretTypeOpaque,
-		StringData: map[string]string{credentialSecretKey: string(kubeconfig)},
+		StringData: map[string]string{util.MemberClusterCredentialSecretKubeconfigKey: string(kubeconfig)},
 	}
 
 	memberCluster := &operatorv1.MemberCluster{

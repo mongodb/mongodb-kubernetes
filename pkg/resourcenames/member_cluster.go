@@ -21,6 +21,13 @@ func MemberClusterResourceName(memberClusterName string) string {
 	return memberClusterResourceNamePrefix + memberClusterName
 }
 
+// MemberClusterServiceAccountName returns the name of the operator's ServiceAccount on the
+// member cluster (mck-member-<member-cluster>-sa), carrying the mongodb.com/rbac-version
+// annotation the operator reads to validate the cluster's RBAC.
+func MemberClusterServiceAccountName(memberClusterName string) string {
+	return MemberClusterResourceName(memberClusterName) + "-sa"
+}
+
 // MemberClusterTokenSecretName returns the name of the long-lived ServiceAccount token Secret on the
 // member cluster for that cluster's operator ServiceAccount (mck-member-<member-cluster>-sa).
 func MemberClusterTokenSecretName(memberClusterName string) string {
