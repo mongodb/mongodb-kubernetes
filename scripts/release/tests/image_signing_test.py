@@ -4,7 +4,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from scripts.release.build.image_signing import get_platform_manifest_digests, verify_signature
+from scripts.release.build.image_signing import get_manifest_digests, verify_signature
 
 MULTI_ARCH_MANIFEST = {
     "mediaType": "application/vnd.oci.image.index.v1+json",
@@ -37,10 +37,10 @@ SINGLE_ARCH_MANIFEST = {
     ],
 )
 @patch("scripts.release.build.image_signing.run_command_with_retries")
-def test_get_platform_manifest_digests(mock_run, name, manifest, want_digests):
+def test_get_manifest_digests(mock_run, name, manifest, want_digests):
     mock_run.return_value = MagicMock(stdout=json.dumps(manifest))
 
-    digests = get_platform_manifest_digests("myrepo/myimage:1.0.0")
+    digests = get_manifest_digests("myrepo/myimage:1.0.0")
 
     assert digests == want_digests
 
@@ -90,7 +90,7 @@ INVALID_SIGNATURE_ERR = CalledProcessError(
         ),
     ],
 )
-@patch("scripts.release.build.image_signing.get_platform_manifest_digests")
+@patch("scripts.release.build.image_signing.get_manifest_digests")
 @patch("scripts.release.build.image_signing.run_command_with_retries")
 @patch("scripts.release.build.image_signing.requests")
 def test_verify_signature(

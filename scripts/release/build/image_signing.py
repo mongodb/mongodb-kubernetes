@@ -141,7 +141,7 @@ def get_image_digest(image_name: str) -> Optional[str]:
         logger.error(f"Failed to get digest for {image_name}: {e.stderr}")
 
 
-def get_platform_manifest_digests(image_name: str) -> List[str]:
+def get_manifest_digests(image_name: str) -> List[str]:
     """
     Returns the per-platform manifest digests if image_name is a multi-arch manifest list/OCI index,
     or an empty list otherwise.
@@ -336,7 +336,7 @@ def verify_signature(repository: str, tag: str):
     # signing was introduced only have a signature on the index, and we don't
     # want to break verification of those older images. An actual invalid
     # signature on a platform digest is still a hard failure.
-    for digest in get_platform_manifest_digests(image):
+    for digest in get_manifest_digests(image):
         platform_ref = f"{repository}@{digest}"
         if not _sig_tag_exists(repository, digest):
             logger.warning(
