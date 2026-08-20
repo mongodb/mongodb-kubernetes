@@ -276,6 +276,32 @@ func TestDecentralizedScaleDownACFirst(t *testing.T) {
 	assert.LessOrEqual(t, directiveDroppedAt, stsDroppedAt, "the member shrinks only on the advanced grant")
 }
 
+// TestDecentralizedFreeParityPins pins the spec surface that reaches the automation config and
+// the CR status through the reused legacy code, end to end in the three-operator world.
+func TestDecentralizedFreeParityPins(t *testing.T) {
+	ctx := context.Background()
+	fcv := "7.0"
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	m.Spec.FeatureCompatibilityVersion = &fcv
+	m.Spec.AdditionalMongodConfig = mdb.NewAdditionalMongodConfig("net.port", 30000)
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	deployment, err := mockedConn.ReadDeployment()
+	require.NoError(t, err)
+	processes := deployment.ProcessesCopy()
+	require.NotEmpty(t, processes)
+	for _, p := range processes {
+		assert.Equal(t, fcv, p.FeatureCompatibilityVersion())
+		assert.NotNil(t, maputil.ReadMapValueAsInterface(p.Args(), "net", "port"), "the custom port reaches the AC process args")
+	}
+
+	crCopy := &mdbmulti.MongoDBMultiCluster{}
+	require.NoError(t, w.clients[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), crCopy))
+	assert.Equal(t, fcv, crCopy.Status.FeatureCompatibilityVersion, "set by UpdateStatus on PhaseRunning")
+}
+
 func TestDecentralizedMongodConfigRemovalUnmerges(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
