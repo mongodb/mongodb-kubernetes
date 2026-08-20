@@ -1,0 +1,535 @@
+package operator
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+)
+
+// The planner is pure and the snapshot serializable, so every scenario — including every
+// mid-rollout crash prefix — is a hand-written snapshot: restarting from any prefix of applied
+// decisions IS re-planning from that world, since plan() keeps no memory between calls.
+
+const (
+	testPlanTerm     int64 = 5
+	testPlanHash           = "hash-current"
+	testPlanOldHash        = "hash-old"
+	testPlanProject        = "abcd1234"
+	testPlanDomain         = "cluster.local"
+	testPlanRSName         = "temple"
+	testPlanRSNs           = "my-namespace"
+	directiveGenSeen int64 = 3
+)
+
+var testPlanNow = time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+
+type snapshotBuilder struct {
+	s plannerSnapshot
+}
+
+// newSnapshot starts from three clusters with the given target member counts, indexes allocated
+// positionally, no directives, an empty (read) AC and empty (read) OM facts.
+func newSnapshot(targetCounts ...int) *snapshotBuilder {
+	b := &snapshotBuilder{s: plannerSnapshot{
+		Now:            testPlanNow,
+		LeadershipTerm: testPlanTerm,
+		Name:           testPlanRSName,
+		Namespace:      testPlanRSNs,
+		SpecHash:       testPlanHash,
+		ProjectID:      testPlanProject,
+		ClusterDomain:  testPlanDomain,
+		Directives:     map[string]directiveView{},
+		AC:             acView{Read: true, MemberCountsByIndex: map[int]int{}},
+		OMFacts:        omFactsView{Read: true, ProcessStates: map[string]processFactView{}},
+	}}
+	for i, count := range targetCounts {
+		b.s.Targets = append(b.s.Targets, clusterTarget{ClusterName: clusters[i], Members: count})
+	}
+	return b
+}
+
+func standardAllocations(b *snapshotBuilder) map[string]int {
+	allocations := map[string]int{}
+	for i, t := range b.s.Targets {
+		allocations[t.ClusterName] = i
+	}
+	return allocations
+}
+
+// withGrantedDirective adds a fully current directive: at the leader's term/hash/project with the
+// positional allocation map, echoed by the member, all facts true.
+func (b *snapshotBuilder) withGrantedDirective(clusterName string, memberCount int) *snapshotBuilder {
+	idx := standardAllocations(b)[clusterName]
+	b.s.Directives[clusterName] = directiveView{
+		Exists:     true,
+		Generation: directiveGenSeen,
+		Spec: operatorv1.MongoDBDirectiveSpec{
+			ClusterName:      clusterName,
+			LeadershipTerm:   testPlanTerm,
+			TargetSpecHash:   testPlanHash,
+			MemberCount:      memberCount,
+			ClusterIndex:     idx,
+			IndexAllocations: standardAllocations(b),
+			ProjectID:        testPlanProject,
+			AdvancedAt:       metav1.NewTime(testPlanNow.Add(-time.Minute)),
+		},
+		Status: operatorv1.MongoDBDirectiveStatus{
+			ObservedGeneration: directiveGenSeen,
+			ObservedSpecHash:   testPlanHash,
+			StsApplied:         true,
+			AgentRegistered:    true,
+			InGoalState:        true,
+		},
+	}
+	return b
+}
+
+func (b *snapshotBuilder) editDirective(clusterName string, edit func(d *directiveView)) *snapshotBuilder {
+	d := b.s.Directives[clusterName]
+	edit(&d)
+	b.s.Directives[clusterName] = d
+	return b
+}
+
+// withAC sets the AC counts positionally by cluster index.
+func (b *snapshotBuilder) withAC(countsByIndex ...int) *snapshotBuilder {
+	b.s.AC.MemberCountsByIndex = map[int]int{}
+	for i, count := range countsByIndex {
+		b.s.AC.MemberCountsByIndex[i] = count
+	}
+	return b
+}
+
+// withConvergedOMFacts marks every process of every cluster at the given counts (positional by
+// index) as registered and in goal state.
+func (b *snapshotBuilder) withConvergedOMFacts(countsByIndex ...int) *snapshotBuilder {
+	b.s.OMFacts.ProcessStates = map[string]processFactView{}
+	for i, count := range countsByIndex {
+		for _, hostname := range dns.GetMultiClusterProcessHostnames(testPlanRSName, testPlanRSNs, i, count, testPlanDomain, nil) {
+			b.s.OMFacts.ProcessStates[hostname] = processFactView{Registered: true, GoalAchieved: true}
+		}
+	}
+	return b
+}
+
+// converged is the steady world: directives granted at the target counts, AC matching, all facts
+// true — the snapshot plan() must call Noop on.
+func converged(targetCounts ...int) *snapshotBuilder {
+	b := newSnapshot(targetCounts...)
+	for i, count := range targetCounts {
+		b.withGrantedDirective(clusters[i], count)
+	}
+	return b.withAC(targetCounts...).withConvergedOMFacts(targetCounts...)
+}
+
+func (b *snapshotBuilder) build() plannerSnapshot {
+	return b.s
+}
+
+func TestPlanNoopWhenConverged(t *testing.T) {
+	decision := plan(converged(2, 2, 2).build())
+	assert.Equal(t, decisionNoop, decision.Kind, decision.Reason)
+}
+
+func TestPlanStaleWorldRefusal(t *testing.T) {
+	t.Run("Newer term on the AC", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.AC.LeadershipTerm = testPlanTerm + 1
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, "newer leadership term")
+	})
+
+	t.Run("Newer term on a directive", func(t *testing.T) {
+		b := converged(2, 2, 2).editDirective(clusters[1], func(d *directiveView) {
+			d.Spec.LeadershipTerm = testPlanTerm + 1
+		})
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, clusters[1])
+	})
+
+	t.Run("Refusal precedes even spec judgment", func(t *testing.T) {
+		// scaling both ways would be InvalidSpec, but a deposed leader must not judge the spec
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.s.Targets[1].Members = 1
+		b.s.AC.LeadershipTerm = testPlanTerm + 1
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+	})
+}
+
+func TestPlanScalingBothWaysRefused(t *testing.T) {
+	b := converged(2, 2, 2)
+	b.s.Targets[0].Members = 3 // up vs granted 2
+	b.s.Targets[1].Members = 1 // down vs granted 2
+	decision := plan(b.build())
+	assert.Equal(t, decisionInvalidSpec, decision.Kind)
+	assert.Contains(t, decision.Reason, "scale up and scale down")
+}
+
+func TestPlanRemovalGuard(t *testing.T) {
+	b := converged(2, 2, 2)
+	b.s.Targets = b.s.Targets[:2] // cluster 2 leaves the spec, its directive remains
+	decision := plan(b.build())
+	assert.Equal(t, decisionInvalidSpec, decision.Kind)
+	assert.Contains(t, decision.Reason, "cluster removal is not implemented")
+	assert.Contains(t, decision.Reason, clusters[2])
+}
+
+func TestPlanAllocationAcks(t *testing.T) {
+	t.Run("No directives: mint and record on the first cluster at member count 0", func(t *testing.T) {
+		decision := plan(newSnapshot(3, 2, 2).build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 0, decision.DirectiveSpec.MemberCount)
+		assert.Equal(t, map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}, decision.DirectiveSpec.IndexAllocations)
+		assert.Equal(t, testPlanTerm, decision.DirectiveSpec.LeadershipTerm)
+		assert.Equal(t, testPlanHash, decision.DirectiveSpec.TargetSpecHash)
+		assert.Equal(t, testPlanProject, decision.DirectiveSpec.ProjectID)
+		assert.Equal(t, metav1.NewTime(testPlanNow), decision.DirectiveSpec.AdvancedAt)
+	})
+
+	t.Run("One copy: push the map to the second cluster", func(t *testing.T) {
+		b := newSnapshot(3, 2, 2).withGrantedDirective(clusters[0], 0)
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[1], decision.TargetCluster)
+		assert.Equal(t, 0, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("Two copies: durable, advancement takes over", func(t *testing.T) {
+		b := newSnapshot(3, 2, 2).withGrantedDirective(clusters[0], 0).withGrantedDirective(clusters[1], 0)
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		// first deploy: full spec count, not another map push
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 3, decision.DirectiveSpec.MemberCount)
+	})
+}
+
+func TestPlanAllocationInvariant(t *testing.T) {
+	t.Run("A visible ghost entry is reused, never re-minted", func(t *testing.T) {
+		// a dead leader pushed cluster-2 -> 4 to a single copy; every visible entry consumes
+		// its index, so the current leader adopts 4 instead of minting a conflicting one
+		b := newSnapshot(3, 2, 2).withGrantedDirective(clusters[0], 0)
+		b.editDirective(clusters[0], func(d *directiveView) {
+			d.Spec.IndexAllocations = map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 4}
+		})
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, 4, decision.DirectiveSpec.IndexAllocations[clusters[2]])
+	})
+
+	t.Run("Key conflict: the value on more copies wins", func(t *testing.T) {
+		b := newSnapshot(3, 2, 2).
+			withGrantedDirective(clusters[0], 0).
+			withGrantedDirective(clusters[1], 0).
+			withGrantedDirective(clusters[2], 0)
+		b.editDirective(clusters[2], func(d *directiveView) {
+			d.Spec.IndexAllocations = map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 4}
+		})
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		// clusters[2]: 2 is on two copies, the ghost 4 on one — quorum-backed value overwrites
+		assert.Equal(t, 2, decision.DirectiveSpec.IndexAllocations[clusters[2]])
+	})
+
+	t.Run("A ghost on a converged copy is overwritten by the next advancement", func(t *testing.T) {
+		// the winning entry already has quorum, so no allocation push is due; the disagreeing
+		// copy is simply behind the plan and the ordinary directive write corrects it
+		b := converged(2, 2, 2)
+		b.editDirective(clusters[2], func(d *directiveView) {
+			d.Spec.IndexAllocations = map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 4}
+		})
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[2], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.IndexAllocations[clusters[2]])
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount) // count untouched
+	})
+
+	t.Run("No minting while a cluster is unreachable", func(t *testing.T) {
+		b := newSnapshot(3, 2, 2)
+		b.s.Directives[clusters[2]] = directiveView{Unreachable: true}
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, "unreachable")
+	})
+
+	t.Run("Steady-state cluster loss blocks nothing: others still advance", func(t *testing.T) {
+		// allocations fully acked before the loss; the AC at the lost cluster's spec count
+		// proves nothing is in flight there, so the reachable cluster's scale-up proceeds
+		b := converged(2, 2, 2)
+		b.s.Directives[clusters[2]] = directiveView{Unreachable: true}
+		b.s.Targets[0].Members = 3
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 3, decision.DirectiveSpec.MemberCount)
+	})
+}
+
+func TestPlanFirstDeployParallelism(t *testing.T) {
+	t.Run("Advances at full count with allocations durable", func(t *testing.T) {
+		b := newSnapshot(3, 2, 2).withGrantedDirective(clusters[0], 0).withGrantedDirective(clusters[1], 0)
+		assert.Equal(t, []string{clusters[0], clusters[1], clusters[2]}, advancementCandidates(b.build()))
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, 3, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("Mid-first-deploy crash stays parallel", func(t *testing.T) {
+		// two clusters already granted full counts, agents not yet converged, AC still empty:
+		// the restarted leader must keep advancing the third at FULL count, no convergence gate
+		b := newSnapshot(3, 2, 2).withGrantedDirective(clusters[0], 3).withGrantedDirective(clusters[1], 2)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		b.editDirective(clusters[1], func(d *directiveView) { d.Status.AgentRegistered = false; d.Status.InGoalState = false })
+		assert.Equal(t, []string{clusters[2]}, advancementCandidates(b.build()))
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[2], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+}
+
+func TestPlanExclusivity(t *testing.T) {
+	t.Run("One cluster, one member step", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 4
+		b.s.Targets[1].Members = 3
+		assert.Equal(t, []string{clusters[0]}, advancementCandidates(b.build()))
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 3, decision.DirectiveSpec.MemberCount) // 2+1, never the full 4
+	})
+
+	t.Run("Nothing moves while a cluster is in flight", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 4
+		b.s.Targets[1].Members = 3
+		b.withGrantedDirective(clusters[0], 3) // granted 3, AC still 2 -> mid-step
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		assert.Nil(t, advancementCandidates(b.build()))
+	})
+
+	t.Run("New cluster on an existing deployment scales one at a time", func(t *testing.T) {
+		b := converged(2, 2, 0)
+		b.s.Targets[2].Members = 2
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[2], decision.TargetCluster)
+		assert.Equal(t, 1, decision.DirectiveSpec.MemberCount) // 0 -> 1, never the jump
+	})
+}
+
+func TestPlanFenceDiscipline(t *testing.T) {
+	// the member's local CR copy still hashes to something older: it holds, and the planner
+	// never advances its count past what it has observed
+	b := converged(2, 2, 2)
+	b.s.Targets[0].Members = 3
+	b.editDirective(clusters[0], func(d *directiveView) { d.Status.ObservedSpecHash = testPlanOldHash })
+	decision := plan(b.build())
+	assert.Equal(t, decisionNotProgressing, decision.Kind)
+	assert.Contains(t, decision.Reason, "GitOps")
+}
+
+func TestPlanHashOnlyChangeRefreshesDirectives(t *testing.T) {
+	// same counts, new spec content: every directive gets its fence refreshed, no member moves
+	b := converged(2, 2, 2)
+	for _, cluster := range clusters {
+		b.editDirective(cluster, func(d *directiveView) { d.Spec.TargetSpecHash = testPlanOldHash })
+	}
+	decision := plan(b.build())
+	require.Equal(t, decisionWriteDirective, decision.Kind)
+	assert.Equal(t, clusters[0], decision.TargetCluster)
+	assert.Equal(t, 2, decision.DirectiveSpec.MemberCount) // count unchanged
+	assert.Equal(t, testPlanHash, decision.DirectiveSpec.TargetSpecHash)
+}
+
+// TestPlanScaleUpLadder walks the up ladder one snapshot per stage; each stage doubles as the
+// crash-prefix test for the previous decision (plan is memoryless).
+func TestPlanScaleUpLadder(t *testing.T) {
+	t.Run("Stage 1: grant one more member", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, 3, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("Stage 2: agents not registered yet, no AC write", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.AgentRegistered = false; d.Status.InGoalState = false })
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, "registered")
+	})
+
+	t.Run("Stage 3: agents registered, AC write at the granted counts", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteAC, decision.Kind)
+		assert.Equal(t, &acPayload{LeadershipTerm: testPlanTerm, MemberCounts: map[string]int{clusters[0]: 3, clusters[1]: 2, clusters[2]: 2}}, decision.AC)
+	})
+
+	t.Run("Stage 4: AC written, waiting on goal state", func(t *testing.T) {
+		b := converged(2, 2, 2).withAC(3, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, "goal state")
+	})
+
+	t.Run("Stage 5: converged at the new count", func(t *testing.T) {
+		decision := plan(converged(3, 2, 2).build())
+		assert.Equal(t, decisionNoop, decision.Kind)
+	})
+}
+
+// TestPlanScaleDownLadder walks the inverted ladder: the AC write comes FIRST, the member's
+// grant follows only after Ops Manager witnesses the remaining processes back in goal state.
+func TestPlanScaleDownLadder(t *testing.T) {
+	t.Run("Stage 1: the AC write initiates the step", func(t *testing.T) {
+		b := converged(3, 2, 2)
+		b.s.Targets[0].Members = 2
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteAC, decision.Kind)
+		assert.Equal(t, &acPayload{LeadershipTerm: testPlanTerm, MemberCounts: map[string]int{clusters[0]: 2, clusters[1]: 2, clusters[2]: 2}}, decision.AC)
+	})
+
+	t.Run("Stage 2: witness pending, no directive advance", func(t *testing.T) {
+		b := converged(3, 2, 2).withAC(2, 2, 2).withConvergedOMFacts(3, 2, 2)
+		b.s.Targets[0].Members = 2
+		// the shrinking member's own facts go false; they must not matter here
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.AgentRegistered = false; d.Status.InGoalState = false })
+		// the witness is not converged yet: mark the surviving processes as not in goal
+		for hostname, state := range b.s.OMFacts.ProcessStates {
+			state.GoalAchieved = false
+			b.s.OMFacts.ProcessStates[hostname] = state
+		}
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+	})
+
+	t.Run("Stage 2 blocked when the OM facts are unreadable", func(t *testing.T) {
+		b := converged(3, 2, 2).withAC(2, 2, 2)
+		b.s.Targets[0].Members = 2
+		b.s.OMFacts = omFactsView{Read: false}
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+	})
+
+	t.Run("Stage 3: witness converged, the grant follows the AC", func(t *testing.T) {
+		b := converged(3, 2, 2).withAC(2, 2, 2).withConvergedOMFacts(2, 2, 2)
+		b.s.Targets[0].Members = 2
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.AgentRegistered = false; d.Status.InGoalState = false })
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("Stage 4: converged at the reduced count", func(t *testing.T) {
+		decision := plan(converged(2, 2, 2).build())
+		assert.Equal(t, decisionNoop, decision.Kind)
+	})
+}
+
+func TestPlanStuckCluster(t *testing.T) {
+	freshAndStuck := func(advancedAt time.Time) planDecision {
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) {
+			d.Status.AgentRegistered = false
+			d.Status.InGoalState = false
+			d.Spec.AdvancedAt = metav1.NewTime(advancedAt)
+		})
+		return plan(b.build())
+	}
+
+	t.Run("Fresh step reads as waiting", func(t *testing.T) {
+		decision := freshAndStuck(testPlanNow.Add(-time.Minute))
+		require.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, "waiting for cluster")
+	})
+
+	t.Run("Old step reads as not progressing", func(t *testing.T) {
+		decision := freshAndStuck(testPlanNow.Add(-plannerNotProgressingAfter - time.Minute))
+		require.Equal(t, decisionNotProgressing, decision.Kind)
+		assert.Contains(t, decision.Reason, "has not progressed since")
+	})
+}
+
+func TestPlanSpecSkew(t *testing.T) {
+	// two of three members observe a common hash the leader does not have: the leader's own
+	// cluster is the stale one — say so instead of silently pinning the deployment
+	b := converged(2, 2, 2)
+	b.editDirective(clusters[0], func(d *directiveView) { d.Status.ObservedSpecHash = "hash-newer" })
+	b.editDirective(clusters[1], func(d *directiveView) { d.Status.ObservedSpecHash = "hash-newer" })
+	decision := plan(b.build())
+	require.Equal(t, decisionNotProgressing, decision.Kind)
+	assert.Contains(t, decision.Reason, "spec skew")
+}
+
+func TestPlanACUnreadable(t *testing.T) {
+	b := converged(2, 2, 2)
+	b.s.AC = acView{Read: false}
+	decision := plan(b.build())
+	require.Equal(t, decisionNotProgressing, decision.Kind)
+	assert.Contains(t, decision.Reason, "automation config")
+}
+
+func TestClassifyCluster(t *testing.T) {
+	current := func(edit func(d *directiveView)) directiveView {
+		d := directiveView{
+			Exists:     true,
+			Generation: directiveGenSeen,
+			Status: operatorv1.MongoDBDirectiveStatus{
+				ObservedGeneration: directiveGenSeen,
+				ObservedSpecHash:   testPlanHash,
+				StsApplied:         true,
+				AgentRegistered:    true,
+				InGoalState:        true,
+			},
+		}
+		edit(&d)
+		return d
+	}
+
+	cases := []struct {
+		name string
+		view directiveView
+		want clusterState
+	}{
+		{"missing", directiveView{}, awaitingDirective},
+		{"not acked", current(func(d *directiveView) { d.Status.ObservedGeneration = directiveGenSeen - 1 }), awaitingDirectiveAck},
+		{"spec lagging", current(func(d *directiveView) { d.Status.ObservedSpecHash = testPlanOldHash }), awaitingSpecSync},
+		{"sts pending", current(func(d *directiveView) { d.Status.StsApplied = false }), applyingStatefulSet},
+		{"agents pending", current(func(d *directiveView) { d.Status.AgentRegistered = false }), awaitingAgentRegistration},
+		{"goal pending", current(func(d *directiveView) { d.Status.InGoalState = false }), awaitingGoalState},
+		{"converged", current(func(d *directiveView) {}), inGoalState},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, classifyCluster(tc.view, testPlanHash))
+		})
+	}
+}
