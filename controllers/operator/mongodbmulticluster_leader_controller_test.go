@@ -52,7 +52,7 @@ func leaderReconcilerForTest(m *mdbmulti.MongoDBMultiCluster, self string, elect
 			clientsMap[clusterName] = mock.NewEmptyFakeClientBuilder().Build()
 		}
 	}
-	reconciler := newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector, omConnectionFactory.GetConnectionFunc, nil, architectures.NonStatic)
+	reconciler := newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector, omConnectionFactory.GetConnectionFunc, nil, architectures.NonStatic, false)
 	return reconciler, clientsMap, omConnectionFactory
 }
 

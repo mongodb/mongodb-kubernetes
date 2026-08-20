@@ -381,7 +381,7 @@ func run() error {
 		}
 
 		elector := operator.NewStaticElector(selfClusterName, leaderClusterName)
-		if err := setupMongoDBDirectiveCRD(mgr, memberClusterObjectsMap, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, agentDebug, agentDebugImage, propagateProxyEnv, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
+		if err := setupMongoDBDirectiveCRD(mgr, memberClusterObjectsMap, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, forceEnterprise, agentDebug, agentDebugImage, propagateProxyEnv, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
@@ -503,8 +503,8 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 // setupMongoDBDirectiveCRD registers the decentralized multi-cluster controllers: the leader
 // (plans MongoDBMultiCluster deployments by writing directives) and the member (materializes the
 // local directive). Every operator runs both; the elector decides which one acts per deployment.
-func setupMongoDBDirectiveCRD(mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, elector operator.Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, agentDebug bool, agentDebugImage string, propagateProxyEnv bool, maxConcurrentReconciles int) error {
-	if err := operator.AddMongoDBMultiClusterLeaderController(mgr, memberClusterObjectsMap, elector, om.NewOpsManagerConnection, imageUrls, defaultArchitecture, maxConcurrentReconciles); err != nil {
+func setupMongoDBDirectiveCRD(mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, elector operator.Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise, agentDebug bool, agentDebugImage string, propagateProxyEnv bool, maxConcurrentReconciles int) error {
+	if err := operator.AddMongoDBMultiClusterLeaderController(mgr, memberClusterObjectsMap, elector, om.NewOpsManagerConnection, imageUrls, defaultArchitecture, forceEnterprise, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return operator.AddMongoDBDirectiveController(mgr, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, agentDebug, agentDebugImage, propagateProxyEnv, maxConcurrentReconciles)

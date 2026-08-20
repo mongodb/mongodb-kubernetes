@@ -118,11 +118,12 @@ type ReconcileMongoDBMultiClusterLeader struct {
 	omConnectionFactory     om.ConnectionFactory
 	imageUrls               images.ImageUrls
 	defaultArchitecture     architectures.DefaultArchitecture
+	forceEnterprise         bool
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDBMultiClusterLeader{}
 
-func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture) *ReconcileMongoDBMultiClusterLeader {
+func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise bool) *ReconcileMongoDBMultiClusterLeader {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -135,6 +136,7 @@ func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClu
 		omConnectionFactory:     omConnectionFactory,
 		imageUrls:               imageUrls,
 		defaultArchitecture:     defaultArchitecture,
+		forceEnterprise:         forceEnterprise,
 	}
 }
 
@@ -320,8 +322,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 	}
 	sort.Slice(counts, func(i, j int) bool { return counts[i].ClusterIndex < counts[j].ClusterIndex })
 
-	// forceEnterprise is not wired in the POC (a main.go flag on the legacy path)
-	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], false, *mrs, counts, "", r.defaultArchitecture)
+	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, *mrs, counts, "", r.defaultArchitecture)
 	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, process.MemberOptionsFromCounts(*mrs, counts), processIds, mrs.Spec.Connectivity)
 
 	specHash, err := multiClusterSpecHash(mrs.Spec)
@@ -355,8 +356,8 @@ func enqueueSameNameRequest(_ context.Context, o client.Object) []reconcile.Requ
 }
 
 // AddMongoDBMultiClusterLeaderController creates the leader controller and adds it to the Manager.
-func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
-	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector, omConnectionFactory, imageUrls, defaultArchitecture)
+func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise bool, maxConcurrentReconciles int) error {
+	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector, omConnectionFactory, imageUrls, defaultArchitecture, forceEnterprise)
 	c, err := controller.New(util.MongoDbMultiClusterLeaderController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err
