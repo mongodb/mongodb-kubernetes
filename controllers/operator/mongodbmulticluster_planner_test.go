@@ -9,6 +9,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 )
@@ -129,6 +132,11 @@ func converged(targetCounts ...int) *snapshotBuilder {
 	return b.withAC(targetCounts...).withConvergedOMFacts(targetCounts...)
 }
 
+func (b *snapshotBuilder) withSpecViolations(violations ...string) *snapshotBuilder {
+	b.s.SpecViolations = violations
+	return b
+}
+
 func (b *snapshotBuilder) build() plannerSnapshot {
 	return b.s
 }
@@ -174,6 +182,60 @@ func TestPlanScalingBothWaysRefused(t *testing.T) {
 	decision := plan(b.build())
 	assert.Equal(t, decisionInvalidSpec, decision.Kind)
 	assert.Contains(t, decision.Reason, "scale up and scale down")
+}
+
+func TestDecentralizedSpecViolations(t *testing.T) {
+	specWithSecurity := func(security *mdbv1.Security) mdbmultiv1.MongoDBMultiSpec {
+		return mdbmultiv1.MongoDBMultiSpec{DbCommonSpec: mdbv1.DbCommonSpec{Security: security}}
+	}
+
+	assert.Empty(t, decentralizedSpecViolations(mdbmultiv1.MongoDBMultiSpec{}))
+
+	cases := []struct {
+		name string
+		spec mdbmultiv1.MongoDBMultiSpec
+		want string
+	}{
+		{"TLS enabled", specWithSecurity(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}), "spec.security.tls"},
+		{"certsSecretPrefix implies TLS", specWithSecurity(&mdbv1.Security{CertificatesSecretsPrefix: "prefix"}), "spec.security.tls"},
+		{"authentication enabled", specWithSecurity(&mdbv1.Security{Authentication: &mdbv1.Authentication{Enabled: true}}), "spec.security.authentication"},
+		{"internal cluster auth", specWithSecurity(&mdbv1.Security{Authentication: &mdbv1.Authentication{InternalCluster: "X509"}}), "internalCluster"},
+		{"roles", specWithSecurity(&mdbv1.Security{Roles: []mdbv1.MongoDBRole{{Role: "root"}}}), "roles"},
+		{"roleRefs", specWithSecurity(&mdbv1.Security{RoleRefs: []mdbv1.MongoDBRoleRef{{Name: "root"}}}), "roleRefs"},
+		{"backup enabled", mdbmultiv1.MongoDBMultiSpec{DbCommonSpec: mdbv1.DbCommonSpec{Backup: &mdbv1.Backup{Mode: "enabled"}}}, "spec.backup"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			violations := decentralizedSpecViolations(tc.spec)
+			require.Len(t, violations, 1)
+			assert.Contains(t, violations[0], tc.want)
+		})
+	}
+
+	t.Run("Features legacy MC does not support either are not refused", func(t *testing.T) {
+		// prometheus no-ops in legacy MC too (nil pc); a disabled backup configures nothing
+		spec := mdbmultiv1.MongoDBMultiSpec{DbCommonSpec: mdbv1.DbCommonSpec{
+			Prometheus: &v1.Prometheus{},
+			Backup:     &mdbv1.Backup{Mode: "disabled"},
+		}}
+		assert.Empty(t, decentralizedSpecViolations(spec))
+	})
+}
+
+func TestPlanUnsupportedSpecRefused(t *testing.T) {
+	t.Run("A violation refuses even a converged world", func(t *testing.T) {
+		decision := plan(converged(2, 2, 2).withSpecViolations("spec.security.tls").build())
+		assert.Equal(t, decisionInvalidSpec, decision.Kind)
+		assert.Contains(t, decision.Reason, "not supported in the decentralized POC")
+		assert.Contains(t, decision.Reason, "spec.security.tls")
+	})
+
+	t.Run("Stale world still precedes the violation", func(t *testing.T) {
+		b := converged(2, 2, 2).withSpecViolations("spec.security.tls")
+		b.s.AC.LeadershipTerm = testPlanTerm + 1
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+	})
 }
 
 func TestPlanRemovalGuard(t *testing.T) {

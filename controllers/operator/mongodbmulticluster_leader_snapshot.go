@@ -33,6 +33,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) assembleSnapshot(ctx context.Contex
 		SpecHash:       specHash,
 		ProjectID:      projectID,
 		ClusterDomain:  mrs.Spec.GetClusterDomain(),
+		SpecViolations: decentralizedSpecViolations(mrs.Spec),
 		Directives:     readDirectiveViews(ctx, r.memberClusterClientsMap, kube.ObjectKey(mrs.Namespace, mrs.Name), log),
 	}
 	for _, item := range mrs.Spec.ClusterSpecList {

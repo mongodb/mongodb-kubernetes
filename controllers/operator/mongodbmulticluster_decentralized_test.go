@@ -13,6 +13,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
@@ -264,6 +265,30 @@ func TestDecentralizedScaleDownACFirst(t *testing.T) {
 	require.GreaterOrEqual(t, stsDroppedAt, 0, "the StatefulSet never shrank")
 	assert.LessOrEqual(t, acDroppedAt, directiveDroppedAt, "the AC write initiates the scale-down")
 	assert.LessOrEqual(t, directiveDroppedAt, stsDroppedAt, "the member shrinks only on the advanced grant")
+}
+
+func TestDecentralizedUnsupportedSpecRefused(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+	baselineGrants := map[string]int{}
+	for _, clusterName := range clusters {
+		baselineGrants[clusterName] = w.readDirective(ctx, t, clusterName).Spec.MemberCount
+	}
+
+	w.applySpecEverywhere(ctx, t, func(m *mdbmulti.MongoDBMultiCluster) {
+		m.Spec.Security = &mdb.Security{TLSConfig: &mdb.TLSConfig{Enabled: true}}
+		m.Spec.ClusterSpecList[0].Members++
+	})
+	for i := 0; i < 3; i++ {
+		w.reconcileAll(ctx, t)
+	}
+
+	assert.Equal(t, status.PhaseFailed, w.leaderPhase(ctx, t))
+	for _, clusterName := range clusters {
+		assert.Equal(t, baselineGrants[clusterName], w.readDirective(ctx, t, clusterName).Spec.MemberCount, "no directive advancement on a refused spec")
+	}
 }
 
 func TestDecentralizedScalingBothWaysRefused(t *testing.T) {

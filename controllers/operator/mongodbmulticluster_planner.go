@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
@@ -47,6 +48,7 @@ type plannerSnapshot struct {
 	ProjectID      string
 	ClusterDomain  string
 	Targets        []clusterTarget          // spec order
+	SpecViolations []string                 // decentralizedSpecViolations(spec), precomputed so plan() stays spec-free
 	Directives     map[string]directiveView // by clusterName; includes removed-from-spec ones
 	AC             acView
 	OMFacts        omFactsView
@@ -164,12 +166,44 @@ func staleWorld(s plannerSnapshot) (planDecision, bool) {
 	return planDecision{}, false
 }
 
-// validate refuses any spec where one cluster scales up while another scales down (relative to
-// the granted counts): the scale direction decides the whole pass ordering (AC-first vs
-// grant-first), so a mixed direction is unplannable. Scalers are built over spec clusters only —
-// a removed-from-spec directive is the next guard's job, with its own message.
+// validate refuses specs the decentralized pair cannot deliver honestly (SpecViolations — an
+// unguarded TLS spec would wedge pods on a pem secret nobody creates), then any spec where one
+// cluster scales up while another scales down (relative to the granted counts): the scale
+// direction decides the whole pass ordering (AC-first vs grant-first), so a mixed direction is
+// unplannable. Scalers are built over spec clusters only — a removed-from-spec directive is the
+// next guard's job, with its own message.
 func validate(s plannerSnapshot) error {
+	if len(s.SpecViolations) > 0 {
+		return fmt.Errorf("not supported in the decentralized POC: %s", strings.Join(s.SpecViolations, ", "))
+	}
 	return blockScalingBothWays(plannerScalers(s))
+}
+
+// decentralizedSpecViolations lists the spec features the decentralized pair must refuse rather
+// than half-apply. Each entry is receipt-backed: TLS would mount a pem secret nobody creates and
+// publish an empty certificateKeyFile; auth, internal-cluster auth and roles have no
+// updateOmAuthentication/ensureRoles counterpart; backup was cut from M3.8. Features the legacy
+// multi-cluster controller does not support either (prometheus, vault) are NOT refused — same
+// silent no-op as legacy.
+func decentralizedSpecViolations(spec mdbmultiv1.MongoDBMultiSpec) []string {
+	var violations []string
+	security := spec.GetSecurity()
+	if security.IsTLSEnabled() {
+		violations = append(violations, "spec.security.tls (also implied by certsSecretPrefix)")
+	}
+	if security.Authentication != nil && security.Authentication.Enabled {
+		violations = append(violations, "spec.security.authentication")
+	}
+	if security.GetInternalClusterAuthenticationMode() != "" {
+		violations = append(violations, "spec.security.authentication.internalCluster")
+	}
+	if len(security.Roles) > 0 || len(security.RoleRefs) > 0 {
+		violations = append(violations, "spec.security.roles/roleRefs")
+	}
+	if spec.Backup != nil && spec.Backup.Mode == "enabled" {
+		violations = append(violations, "spec.backup")
+	}
+	return violations
 }
 
 func plannerScalers(s plannerSnapshot) []interfaces.MultiClusterReplicaSetScaler {
