@@ -8,6 +8,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -58,6 +59,29 @@ func CreateMongodProcessesMultiFromCounts(mongoDBImage string, forceEnterprise b
 		}
 	}
 	return processes
+}
+
+// MemberOptionsFromCounts flattens clusterSpecList[*].memberConfig in exactly the order
+// CreateMongodProcessesMultiFromCounts emits processes: per cluster, truncated or zero-padded to
+// the granted count, so votes/priority/tags stay attached to the right process while grants
+// differ from the spec (the legacy path flattens at spec counts and only warns on the drift).
+func MemberOptionsFromCounts(mrs mdbmultiv1.MongoDBMultiCluster, counts []ClusterProcessCount) []automationconfig.MemberOptions {
+	memberConfigByCluster := map[string][]automationconfig.MemberOptions{}
+	for _, item := range mrs.Spec.GetClusterSpecList() {
+		memberConfigByCluster[item.ClusterName] = item.MemberConfig
+	}
+	var options []automationconfig.MemberOptions
+	for _, count := range counts {
+		memberConfig := memberConfigByCluster[count.ClusterName]
+		for i := 0; i < count.MemberCount; i++ {
+			if i < len(memberConfig) {
+				options = append(options, memberConfig[i])
+			} else {
+				options = append(options, automationconfig.MemberOptions{})
+			}
+		}
+	}
+	return options
 }
 
 // CreateMongodProcessesWithLimitMulti creates the process array for automationConfig based on MultiCluster CR spec

@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -191,6 +192,25 @@ func TestCreateMongodProcessesMultiFromCounts(t *testing.T) {
 
 		require.Len(t, processes, 1)
 		assert.Equal(t, fmt.Sprintf("%s-1-0", mrs.Name), processes[0].Name())
+	})
+
+	t.Run("Member options line up with the granted process order", func(t *testing.T) {
+		priority := func(p string) *string { return &p }
+		withOptions := mrs.DeepCopy()
+		withOptions.Spec.ClusterSpecList[0].MemberConfig = []automationconfig.MemberOptions{{Priority: priority("2.0")}, {Priority: priority("1.5")}}
+		withOptions.Spec.ClusterSpecList[1].MemberConfig = []automationconfig.MemberOptions{{Priority: priority("1.0")}}
+
+		// cluster-0 granted below its configured options, cluster-1 granted above them
+		counts := []ClusterProcessCount{
+			{ClusterName: "cluster-0", ClusterIndex: 0, MemberCount: 1},
+			{ClusterName: "cluster-1", ClusterIndex: 1, MemberCount: 2},
+		}
+		options := MemberOptionsFromCounts(*withOptions, counts)
+
+		require.Len(t, options, len(CreateMongodProcessesMultiFromCounts(defaultMongoDBImage, false, *withOptions, counts, "", architectures.NonStatic)))
+		assert.Equal(t, "2.0", *options[0].Priority, "cluster-0's first member keeps its option, the truncated second never appears")
+		assert.Equal(t, "1.0", *options[1].Priority, "cluster-1's first member follows immediately, no positional drift")
+		assert.Nil(t, options[2].Priority, "the extra granted member pads with the zero value")
 	})
 
 	t.Run("Counts equal to the spec match the legacy builder", func(t *testing.T) {

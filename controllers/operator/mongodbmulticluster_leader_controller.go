@@ -300,7 +300,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 
 	// forceEnterprise is not wired in the POC (a main.go flag on the legacy path)
 	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], false, *mrs, counts, "", r.defaultArchitecture)
-	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, process.MemberOptionsFromCounts(*mrs, counts), processIds, mrs.Spec.Connectivity)
 
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	return conn.ReadUpdateDeployment(func(d om.Deployment) error {

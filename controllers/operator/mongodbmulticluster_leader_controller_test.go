@@ -23,6 +23,7 @@ import (
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -204,6 +205,9 @@ func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {
 func TestPublishAutomationConfig(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	priority := func(p string) *string { return &p }
+	m.Spec.ClusterSpecList[0].MemberConfig = []automationconfig.MemberOptions{{Priority: priority("2.0")}, {Priority: priority("1.5")}}
+	m.Spec.ClusterSpecList[1].MemberConfig = []automationconfig.MemberOptions{{Priority: priority("3.0")}}
 	reconciler, _, omConnectionFactory := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
 
 	// directives (and their allocation maps) in place after the first-deploy passes
@@ -227,6 +231,15 @@ func TestPublishAutomationConfig(t *testing.T) {
 	assert.Contains(t, memberIds, m.Name+"-0-1")
 	assert.Contains(t, memberIds, m.Name+"-1-0")
 	assert.Contains(t, memberIds, m.Name+"-2-0")
+
+	// member options follow the granted process order, not the spec's flattening
+	prioritiesByName := map[string]float32{}
+	for _, member := range rs.Members() {
+		prioritiesByName[member.Name()] = member.Priority()
+	}
+	assert.Equal(t, float32(2.0), prioritiesByName[m.Name+"-0-0"])
+	assert.Equal(t, float32(1.5), prioritiesByName[m.Name+"-0-1"])
+	assert.Equal(t, float32(3.0), prioritiesByName[m.Name+"-1-0"])
 
 	// republishing with one more member keeps the existing process ids stable
 	payload.MemberCounts[clusters[1]] = 2
