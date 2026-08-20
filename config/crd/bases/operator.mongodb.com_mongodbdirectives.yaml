@@ -65,6 +65,12 @@ spec:
               The spec is written only by the leader operator — the single writer — which may run on
               another cluster. The local member operator never writes the spec.
             properties:
+              advancedAt:
+                description: |-
+                  AdvancedAt is when the leader last changed this spec's instruction (any field other than
+                  AdvancedAt itself). It feeds the leader's not-progressing check; members never read it.
+                format: date-time
+                type: string
               clusterIndex:
                 description: ClusterIndex is the index allocated to this cluster,
                   used for object naming.

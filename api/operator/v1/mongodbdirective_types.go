@@ -39,6 +39,11 @@ type MongoDBDirectiveSpec struct {
 	// projects or agent keys (pre-provisioned).
 	// +optional
 	ProjectID string `json:"projectID,omitempty"`
+
+	// AdvancedAt is when the leader last changed this spec's instruction (any field other than
+	// AdvancedAt itself). It feeds the leader's not-progressing check; members never read it.
+	// +optional
+	AdvancedAt metav1.Time `json:"advancedAt,omitempty"`
 }
 
 // MongoDBDirectiveStatus defines the observed state of MongoDBDirective.
