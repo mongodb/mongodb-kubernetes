@@ -3,7 +3,9 @@ package operator
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,6 +15,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -135,4 +138,124 @@ func podServiceNames(name string, clusterIndex, members int) []string {
 		names[podNum] = dns.GetMultiServiceName(name, clusterIndex, podNum)
 	}
 	return names
+}
+
+func readDirectiveStatus(ctx context.Context, t *testing.T, c client.Client, m *mdbmulti.MongoDBMultiCluster) operatorv1.MongoDBDirectiveStatus {
+	readBack := operatorv1.MongoDBDirective{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
+	return readBack.Status
+}
+
+func TestMaterializerFactsStayFalse(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("agents never registered", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		directive, objects := materializerSeeds(t, m)
+		omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, false, objects...)
+
+		for range 2 {
+			_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+			require.NoError(t, err)
+		}
+
+		status := readDirectiveStatus(ctx, t, c, m)
+		assert.True(t, status.StsApplied)
+		assert.False(t, status.AgentRegistered)
+		assert.False(t, status.InGoalState)
+	})
+
+	t.Run("stale agent ping is not registered", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		directive, objects := materializerSeeds(t, m)
+		omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+		omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+			conn.(*om.MockedOmConnection).ReadAutomationAgentsFunc = func(int) (om.Paginated, error) {
+				agentStatuses := make([]om.AgentStatus, 0)
+				for _, hostname := range ownProcessHostnames(m, 0, directive.Spec.MemberCount) {
+					agentStatuses = append(agentStatuses, om.AgentStatus{
+						Hostname: hostname,
+						TypeName: "AUTOMATION",
+						LastConf: time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
+					})
+				}
+				return om.AutomationAgentStatusResponse{AutomationAgents: agentStatuses}, nil
+			}
+		})
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, objects...)
+
+		for range 2 {
+			_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+			require.NoError(t, err)
+		}
+
+		status := readDirectiveStatus(ctx, t, c, m)
+		assert.True(t, status.StsApplied)
+		assert.False(t, status.AgentRegistered)
+	})
+
+	t.Run("registered but not in goal state", func(t *testing.T) {
+		// no goal-state hook: the default mock builds the automation status without hostnames,
+		// so hostname-keyed goal lookups stay unachieved while registration succeeds
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		directive, objects := materializerSeeds(t, m)
+		omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, objects...)
+
+		for range 2 {
+			_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+			require.NoError(t, err)
+		}
+
+		status := readDirectiveStatus(ctx, t, c, m)
+		assert.True(t, status.StsApplied)
+		assert.True(t, status.AgentRegistered)
+		assert.False(t, status.InGoalState)
+	})
+}
+
+func TestMaterializerNeverWritesOM(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	directive, objects := materializerSeeds(t, m)
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, _ := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, objects...)
+
+	for range 2 {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+	}
+
+	conn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	conn.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(conn.UpdateDeployment),
+		reflect.ValueOf(conn.ReadUpdateDeployment),
+		reflect.ValueOf(conn.CreateProject),
+		reflect.ValueOf(conn.UpdateProject),
+		reflect.ValueOf(conn.GenerateAgentKey))
+}
+
+func TestMaterializerRequiresPreProvisionedAgentKey(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	directive, objects := materializerSeeds(t, m)
+	// drop the pre-provisioned agent API key secret from the seeds
+	seeds := make([]client.Object, 0, len(objects)-1)
+	for _, o := range objects {
+		if o.GetName() == agents.ApiKeySecretName(om.TestGroupID) {
+			continue
+		}
+		seeds = append(seeds, o)
+	}
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, seeds...)
+
+	// transient by contract: the installer provisions the key; the error return gives backoff
+	_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+	require.Error(t, err)
+
+	sts := appsv1.StatefulSet{}
+	assert.True(t, apiErrors.IsNotFound(c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts)))
+	assert.False(t, readDirectiveStatus(ctx, t, c, m).StsApplied)
 }
