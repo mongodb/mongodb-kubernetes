@@ -17,7 +17,10 @@ import (
 // fence on equality with the hash of their own local copy.
 //
 // TODO(decentralized-poc): no canonicalization yet — adding a spec field with a defaulted value
-// changes the hash across operator versions. Deferred to the materializer milestone.
+// changes the hash across operator versions, and an API-server round-trip is not byte-neutral
+// (observed: a nil additionalMongodConfig comes back as {}). Consumers must therefore hash the
+// object as READ from their API server, never an in-memory construction. Deferred to the
+// materializer milestone.
 func multiClusterSpecHash(spec mdbmultiv1.MongoDBMultiSpec) (string, error) {
 	// json.Marshal sorts map keys, so the serialization is deterministic; Spec.Mapping is
 	// excluded via `json:"-"`, so operator-internal mutation never perturbs the hash
