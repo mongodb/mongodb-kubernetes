@@ -21,10 +21,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -303,6 +306,109 @@ func TestMaterializerStaticArchitectureAgentVersion(t *testing.T) {
 			images = append(images, container.Image)
 		}
 		assert.Contains(t, images, "quay.io/mongodb/agent:108.0.2.8729-1")
+	})
+}
+
+// TestMaterializerFreeParityPins pins the legacy features that ride free through the shared
+// construction and service code — no decentralized-specific handling, only reuse.
+func TestMaterializerFreeParityPins(t *testing.T) {
+	ctx := context.Background()
+
+	run := func(t *testing.T, m *mdbmulti.MongoDBMultiCluster, mutate func(d *operatorv1.MongoDBDirective)) (client.Client, *operatorv1.MongoDBDirective) {
+		directive, objects := materializerSeeds(t, m)
+		if mutate != nil {
+			mutate(directive)
+		}
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), om.NewDefaultCachedOMConnectionFactory(), true, objects...)
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+		return c, directive
+	}
+
+	t.Run("External access: annotation placeholders are processed", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetExternalAccess(mdb.ExternalAccessConfiguration{
+			ExternalService: mdb.ExternalServiceConfiguration{Annotations: map[string]string{
+				create.PlaceholderPodIndex:          "{podIndex}",
+				create.PlaceholderClusterName:       "{clusterName}",
+				create.PlaceholderMongodProcessFQDN: "{mongodProcessFQDN}",
+			}},
+		}, nil).Build()
+		c, directive := run(t, m, nil)
+
+		for podNum := 0; podNum < directive.Spec.MemberCount; podNum++ {
+			externalService := corev1.Service{}
+			require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0-%d-svc-external", m.Name, podNum)), &externalService))
+			assert.Equal(t, fmt.Sprintf("%d", podNum), externalService.Annotations[create.PlaceholderPodIndex])
+			assert.Equal(t, clusters[0], externalService.Annotations[create.PlaceholderClusterName])
+			assert.Equal(t, fmt.Sprintf("%s-0-%d-svc.%s.svc.cluster.local", m.Name, podNum, m.Namespace), externalService.Annotations[create.PlaceholderMongodProcessFQDN])
+		}
+	})
+
+	t.Run("External access: an external domain suppresses the ClusterIP pod services", func(t *testing.T) {
+		domainTemplate := "cluster-%d.example.com"
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetExternalAccess(mdb.ExternalAccessConfiguration{}, &domainTemplate).Build()
+		c, directive := run(t, m, nil)
+
+		for podNum := 0; podNum < directive.Spec.MemberCount; podNum++ {
+			require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0-%d-svc-external", m.Name, podNum)), &corev1.Service{}))
+			err := c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0-%d-svc", m.Name, podNum)), &corev1.Service{})
+			assert.True(t, apiErrors.IsNotFound(err), "an external domain suppresses the ClusterIP pod service")
+		}
+	})
+
+	t.Run("StatefulSet override: per-cluster wins over global", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		m.Spec.StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"override": "global", "global-only": "yes"}}},
+		}}}
+		m.Spec.ClusterSpecList[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"override": "cluster"}}},
+		}}}
+		c, _ := run(t, m, nil)
+
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name+"-0"), &sts))
+		assert.Equal(t, "cluster", sts.Spec.Template.Labels["override"])
+		assert.Equal(t, "yes", sts.Spec.Template.Labels["global-only"])
+	})
+
+	t.Run("additionalMongodConfig port flows into every service", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		m.Spec.AdditionalMongodConfig = mdb.NewAdditionalMongodConfig("net.port", 30000)
+		c, directive := run(t, m, nil)
+
+		for _, svcName := range append([]string{m.Name + "-svc", m.Name + "-0-svc"}, podServiceNames(m.Name, 0, directive.Spec.MemberCount)...) {
+			svc := corev1.Service{}
+			require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, svcName), &svc), svcName)
+			assert.Equal(t, int32(30000), svc.Spec.Ports[0].Port, svcName)
+		}
+	})
+
+	t.Run("Agent startupOptions land in AGENT_FLAGS", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		m.Spec.Agent = mdb.AgentConfig{StartupParameters: mdb.StartupParameters{"maxLogFiles": "30"}}
+		c, _ := run(t, m, nil)
+
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name+"-0"), &sts))
+		flags := ""
+		for _, container := range sts.Spec.Template.Spec.Containers {
+			for _, envVar := range container.Env {
+				if envVar.Name == "AGENT_FLAGS" {
+					flags = envVar.Value
+				}
+			}
+		}
+		assert.Contains(t, flags, "-maxLogFiles=30,")
+	})
+
+	t.Run("Hostname-override ConfigMap at member count zero is empty, matching legacy", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		// legacy writes an empty-data CM for a members==0 cluster too (its CM loop does not skip)
+		c, _ := run(t, m, func(d *operatorv1.MongoDBDirective) { d.Spec.MemberCount = 0 })
+		cm := corev1.ConfigMap{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name+"-hostname-override"), &cm))
+		assert.Empty(t, cm.Data)
 	})
 }
 
