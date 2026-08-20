@@ -483,8 +483,10 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 
 	results := make([]AgentStatus, 0)
 	for _, r := range oc.hostResults.Results {
+		// TypeName always is AUTOMATION on the real /agents/AUTOMATION endpoint, and
+		// agents.GetMongoDBClusterState rejects anything else
 		results = append(results,
-			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339)})
+			AgentStatus{Hostname: r.Hostname, LastConf: time.Now().Add(time.Second * -1).Format(time.RFC3339), TypeName: "AUTOMATION"})
 	}
 
 	return AutomationAgentStatusResponse{AutomationAgents: results}, nil
