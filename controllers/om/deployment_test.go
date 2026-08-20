@@ -844,3 +844,42 @@ func defaultMongoDBVersioned(version string) mdbv1.DbSpec {
 	spec := mdbv1.NewReplicaSetBuilder().SetVersion(version).Build().Spec
 	return &spec
 }
+
+func TestOperatorLeadershipTermMarker(t *testing.T) {
+	d := NewDeployment()
+
+	_, ok := d.GetOperatorLeadershipTerm()
+	assert.False(t, ok)
+
+	d.SetOperatorLeadershipTerm(7)
+	term, ok := d.GetOperatorLeadershipTerm()
+	assert.True(t, ok)
+	assert.Equal(t, int64(7), term)
+}
+
+func TestOperatorLeadershipTermPreservesOtherOptions(t *testing.T) {
+	d := NewDeployment()
+	options := util.ReadOrCreateMap(d, "options")
+	options["downloadBase"] = "/var/lib/mongodb-mms-automation"
+
+	d.SetOperatorLeadershipTerm(3)
+
+	assert.Equal(t, "/var/lib/mongodb-mms-automation", options["downloadBase"])
+	term, ok := d.GetOperatorLeadershipTerm()
+	assert.True(t, ok)
+	assert.Equal(t, int64(3), term)
+}
+
+func TestOperatorLeadershipTermSurvivesJSONRoundTrip(t *testing.T) {
+	d := NewDeployment()
+	d.SetOperatorLeadershipTerm(42)
+
+	bytes, err := d.Serialize()
+	require.NoError(t, err)
+	roundTripped, err := BuildDeploymentFromBytes(bytes)
+	require.NoError(t, err)
+
+	term, ok := roundTripped.GetOperatorLeadershipTerm()
+	assert.True(t, ok)
+	assert.Equal(t, int64(42), term)
+}

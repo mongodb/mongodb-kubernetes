@@ -121,6 +121,44 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 	tlsConfig["CAFilePath"] = caFilePath
 }
 
+// operatorLeadershipTermKey is a namespaced key inside the AC's schemaless top-level "options"
+// object, which round-trips through the OM public API (unlike a new top-level field, which
+// strict deserialization rejects). It records the term of the leader operator that last
+// published the deployment: an audit trail and the term floor for disaster recovery. It fences
+// nothing — OM offers no client-usable compare-and-set.
+const operatorLeadershipTermKey = "operatorLeadershipTerm"
+
+// SetOperatorLeadershipTerm records the writing leader's term, merge-safe: it never clobbers
+// other options keys (contrast AutomationConfig.SetOptionsDownloadBase, which replaces the whole
+// map). A term change alone still causes a real publish, so callers must only set it on writes
+// they are making anyway, never as a standalone heartbeat.
+func (d Deployment) SetOperatorLeadershipTerm(term int64) {
+	options := util.ReadOrCreateMap(d, "options")
+	options[operatorLeadershipTermKey] = term
+}
+
+// GetOperatorLeadershipTerm returns the recorded term, tolerant of JSON round-trip numeric
+// widening (int64 in-process, float64 after unmarshal).
+func (d Deployment) GetOperatorLeadershipTerm() (int64, bool) {
+	options, ok := d["options"].(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+	switch v := options[operatorLeadershipTermKey].(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case json.Number:
+		term, err := v.Int64()
+		return term, err == nil
+	default:
+		return 0, false
+	}
+}
+
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
 // with the same name - update some fields there. Otherwise, add the new one
 func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
