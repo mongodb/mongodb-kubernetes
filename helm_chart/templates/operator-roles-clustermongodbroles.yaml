@@ -1,4 +1,3 @@
-{{ if .Values.operator.createOperatorServiceAccount }}
 {{- if .Values.operator.enableClusterMongoDBRoles }}
 ---
 kind: ClusterRole
@@ -27,4 +26,3 @@ subjects:
     namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
 
 {{- end }}{{/* if .Values.operator.enableClusterMongoDBRoles */}}
-{{- end }}{{/* if .Values.operator.createOperatorServiceAccount */}}

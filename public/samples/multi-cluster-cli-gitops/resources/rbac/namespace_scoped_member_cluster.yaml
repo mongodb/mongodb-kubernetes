@@ -1,145 +1,290 @@
-# Member Cluster, namespace-scoped resources
-apiVersion: rbac.authorization.k8s.io/v1
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mck-member-member-cluster-sa
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+---
+# Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
+# longer auto-created, so we create one explicitly for the operator to authenticate with.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mck-member-member-cluster-token
+  namespace: mongodb
+  annotations:
+    kubernetes.io/service-account.name: mck-member-member-cluster-sa
+    mongodb.com/rbac-version: "2.0.0"
+type: kubernetes.io/service-account-token
+---
 kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-appdb
-  namespace: member-namespace
+  name: mck-member-member-cluster-role-multicluster
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - patch
-  - delete
-  - get
-
+  # deletecollection is required only for multi-cluster operation: owner references
+  # don't work across clusters, so removing a multi-cluster workload (or a whole member
+  # cluster) deletes its resources via DeleteAllOf. Single-cluster deletion relies on
+  # Kubernetes garbage collection instead, so the base installation role doesn't grant
+  # this verb on these resources.
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+      - services
+    verbs:
+      - deletecollection
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+    verbs:
+      - deletecollection
+  # get on serviceaccounts lets the operator read the mck-member-<cluster-name>-sa
+  # mongodb.com/rbac-version annotation to validate this cluster's RBAC.
+  - apiGroups:
+      - ''
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-operator-multi-role
-  namespace: member-namespace
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  - configmaps
-  - services
-  verbs:
-  - get
-  - list
-  - create
-  - update
-  - delete
-  - watch
-  - deletecollection
-- apiGroups:
-  - apps
-  resources:
-  - statefulsets
-  - deployments
-  verbs:
-  - get
-  - list
-  - create
-  - update
-  - delete
-  - watch
-  - deletecollection
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumeclaims
-  verbs:
-  - get
-  - list
-  - create
-  - update
-  - watch
-  - patch
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
-  - delete
-  - deletecollection
-
----
-# Member Cluster, namespace-scoped resources
-apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
-metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-appdb
-  namespace: member-namespace
-roleRef:
-  apiGroup: ""
-  kind: Role
-  name: mongodb-kubernetes-appdb
-subjects:
-- kind: ServiceAccount
-  name: mongodb-kubernetes-appdb
-
----
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
 metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-operator-multi-role-binding
-  namespace: member-namespace
+  name: mck-member-member-cluster-role-multicluster-binding
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mongodb-kubernetes-operator-multi-role
+  name: mck-member-member-cluster-role-multicluster
 subjects:
-- kind: ServiceAccount
-  name: mongodb-kubernetes-operator-multicluster
-  namespace: central-namespace
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-role-base
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - delete
+      - update
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+      - deletecollection
 
 ---
-# Member Cluster, namespace-scoped resources
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-role-base-binding
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mck-member-member-cluster-role-base
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-pvc-resize
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-pvc-resize-binding
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mck-member-member-cluster-pvc-resize
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-appdb
-  namespace: member-namespace
+  name: mck-member-member-cluster-appdb
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-database-pods
-  namespace: member-namespace
+  name: mck-member-member-cluster-database-pods
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  labels:
-    multi-cluster: "true"
-  name: mongodb-kubernetes-ops-manager
-  namespace: member-namespace
+  name: mck-member-member-cluster-ops-manager
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 
 ---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-appdb
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - pods
+    verbs:
+      - patch
+      - delete
+      - get
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-appdb
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mck-member-member-cluster-appdb
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-appdb
+    namespace: mongodb
+---
+# Additional ClusterRole for clusterVersionDetection
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-cluster-telemetry
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+rules:
+  # Non-resource URL permissions
+  - nonResourceURLs:
+      - "/version"
+    verbs:
+      - get
+  # Cluster-scoped resource permissions
+  - apiGroups:
+      - ''
+    resources:
+      - namespaces
+    resourceNames:
+      - kube-system
+    verbs:
+      - get
+  - apiGroups:
+      - ''
+    resources:
+      - nodes
+    verbs:
+      - list
+---
+# ClusterRoleBinding for clusterVersionDetection
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: mck-member-member-cluster-cluster-telemetry-binding
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mck-member-member-cluster-cluster-telemetry
+subjects:
+  - kind: ServiceAccount
+    name: mck-member-member-cluster-sa
+    namespace: mongodb

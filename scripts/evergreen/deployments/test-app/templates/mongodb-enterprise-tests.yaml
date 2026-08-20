@@ -181,6 +181,14 @@ spec:
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: "{{ .Values.mdbDefaultArchitecture }}"
+    {{ if .Values.maxConcurrentReconciles }}
+    - name: MDB_MAX_CONCURRENT_RECONCILES
+      value: "{{ .Values.maxConcurrentReconciles }}"
+    {{ end }}
+    - name: MDB_OPERATOR_TELEMETRY_SEND_ENABLED
+      value: "{{ .Values.mdbOperatorTelemetrySendEnabled }}"
+    - name: MDB_OPERATOR_TELEMETRY_ENABLED
+      value: "{{ .Values.mdbOperatorTelemetryEnabled }}"
     - name: CLUSTER_DOMAIN
       value: "{{ .Values.clusterDomain }}"
     {{ if .Values.omDebugHttp }}

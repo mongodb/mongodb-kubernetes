@@ -1,0 +1,153 @@
+{{- /*
+Member-cluster credentials and multi-cluster-only RBAC.
+
+Rendered only when `memberCluster.enabled=true`, which is set exclusively by
+`kubectl mongodb multicluster generate-member-resources` (never by helm install / OLM).
+These resources are additive to the base installation RBAC and use a distinct,
+cluster-name-scoped naming convention (`mck-member-<cluster-name>-*`) so they never collide
+with the base `operator.name` resources — including when the operator's own cluster
+is also configured as a member cluster.
+
+This file renders only what is member-specific:
+
+  - the member ServiceAccount and its token Secret (the credentials the operator
+    authenticates with);
+  - mck-member-<cluster-name>-role-multicluster: the rules the operator needs ONLY
+    because of multi-cluster operation (see the rule comments below).
+
+Everything else the member cluster needs is rendered by the dual-mode templates, which
+share one source with the base installation: the operator's shared workload-management
+rules in operator-roles-base.yaml (mck-member-<cluster-name>-role-base), the operator's
+PVC-resize rules in operator-roles-pvc-resize.yaml, telemetry in
+operator-roles-telemetry.yaml, and the workload pods' RBAC (MongoDB, Ops Manager) in
+database-roles.yaml.
+
+The naming prefix is deliberately decoupled from `.Values.operator.name` (which still
+differs between single- and multi-cluster installs pending operator-name unification):
+the operator reconstructs the ServiceAccount name `mck-member-<cluster-name>-sa` from the
+MemberCluster CR's metadata.name (the same value passed here as memberCluster.name) when
+validating RBAC.
+
+memberCluster.* is intentionally absent from values.yaml — it is a plugin-internal render
+flag, not a user-facing install option, so guard the access with `default dict`.
+
+Scope model (set exclusively by the plugin):
+  - memberCluster.clusterScoped (bool): the operator watches all namespaces; the member
+    ServiceAccount gets ClusterRoles and single ClusterRoleBindings instead of
+    per-namespace RoleBindings.
+  - memberCluster.workloadNamespaces (list): namespaces where workloads run on the member
+    cluster; in narrowed mode the member ServiceAccount is bound in each of them plus the
+    operator namespace (which holds the SA and the token Secret). "*" is never a valid
+    entry — cluster-wide permission is expressed only via clusterScoped.
+*/ -}}
+{{- if (.Values.memberCluster | default dict).enabled }}
+{{- $name := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" .Values.memberCluster.name) }}
+{{- $namespace := include "mongodb-kubernetes-operator.namespace" . }}
+{{- $memberCluster := .Values.memberCluster | default dict }}
+{{- $clusterScoped := $memberCluster.clusterScoped | default false }}
+{{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($namespace | list) }}
+{{- if has "*" $workloadNamespaces }}
+{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" }}
+{{- end }}
+{{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
+{{- $roleScope := "Role" -}}
+{{- if or $clusterScoped (gt (len $bindingNamespaces) 1) }}
+{{- $roleScope = "ClusterRole" }}
+{{- end }}
+{{- $rbacVersion := .Chart.Version | quote }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-sa
+  namespace: {{ $namespace }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+---
+# Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
+# longer auto-created, so we create one explicitly for the operator to authenticate with.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}-token
+  namespace: {{ $namespace }}
+  annotations:
+    kubernetes.io/service-account.name: {{ $name }}-sa
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+type: kubernetes.io/service-account-token
+---
+kind: {{ $roleScope }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-multicluster
+{{- if eq $roleScope "Role" }}
+  namespace: {{ $namespace }}
+{{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+rules:
+  # deletecollection is required only for multi-cluster operation: owner references
+  # don't work across clusters, so removing a multi-cluster workload (or a whole member
+  # cluster) deletes its resources via DeleteAllOf. Single-cluster deletion relies on
+  # Kubernetes garbage collection instead, so the base installation role doesn't grant
+  # this verb on these resources.
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+      - services
+    verbs:
+      - deletecollection
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+    verbs:
+      - deletecollection
+  # get on serviceaccounts lets the operator read the mck-member-<cluster-name>-sa
+  # mongodb.com/rbac-version annotation to validate this cluster's RBAC.
+  - apiGroups:
+      - ''
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+{{- if $clusterScoped }}
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-multicluster-binding
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}-role-multicluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-sa
+    namespace: {{ $namespace }}
+{{- else }}
+{{- range $idx, $ns := $bindingNamespaces }}
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-multicluster-binding
+  namespace: {{ $ns }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $roleScope }}
+  name: {{ $name }}-role-multicluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-sa
+    namespace: {{ $namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

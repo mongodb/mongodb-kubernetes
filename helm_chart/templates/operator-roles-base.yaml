@@ -1,9 +1,58 @@
-{{ if .Values.operator.createOperatorServiceAccount }}
-{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
-{{- if .Values.operator.watchNamespace }}
-{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq }}
-{{- end }}
+{{- /*
+Operator RBAC for the clusters the operator manages workloads on. Dual-mode template:
+
+  - Base mode (helm install / OLM; memberCluster.enabled unset): renders the operator's
+    own role <operator.name> — the shared workload-management rules below plus the
+    central-only rules (CRD groups, operatorconfigs/memberclusters, cluster-wide
+    namespaces list/watch) — bound to the operator ServiceAccount across
+    operator.watchNamespace.
+
+  - Member mode (memberCluster.enabled=true, set exclusively by
+    `kubectl mongodb multicluster generate-member-resources`): renders
+    mck-member-<cluster-name>-role-base — ONLY the shared workload-management rules,
+    identical to the base-mode set (hence "-role-base") — bound to the member
+    ServiceAccount mck-member-<cluster-name>-sa, additive to the base installation RBAC.
+    The central-only rules are excluded: Custom Resources live on the central cluster
+    only. Rules the operator needs only because of multi-cluster operation
+    (deletecollection cleanup, the rbac-version self-read) live in
+    member-cluster-rbac.yaml as mck-member-<cluster-name>-role-multicluster.
+
+The shared workload-management rules are intentionally written once, unconditionally, so
+both modes render them identically. Only naming, annotations, central-only gating and
+the binding namespace source branch on the mode.
+*/ -}}
+{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
+{{- $rbacVersion := .Chart.Version | quote -}}
+{{- $name := .Values.operator.name -}}
+{{- $bindingName := .Values.operator.name -}}
+{{- $saName := .Values.operator.name -}}
+{{- if $memberMode -}}
+{{- $memberName := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" $memberCluster.name) -}}
+{{- $name = printf "%s-role-base" $memberName -}}
+{{- $bindingName = printf "%s-role-base-binding" $memberName -}}
+{{- $saName = printf "%s-sa" $memberName -}}
+{{- end -}}
+
+{{- $watchNamespace := list $operatorNamespace -}}
+{{- if $memberMode -}}
+{{- /* Member mode: the member SA is bound in memberCluster.workloadNamespaces plus the
+       operator namespace (which holds the SA and the token Secret). "*" is never a valid
+       entry — cluster-wide permission is expressed only via memberCluster.clusterScoped,
+       which renders a single ClusterRoleBinding. */ -}}
+{{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
+{{- if has "*" $workloadNamespaces -}}
+{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" -}}
+{{- end -}}
+{{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
+{{- if $memberCluster.clusterScoped | default false -}}
+{{- $watchNamespace = list "*" -}}
+{{- end -}}
+{{- else if .Values.operator.watchNamespace -}}
+{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
+{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
+{{- end -}}
 
 {{- $roleScope := "Role" -}}
 {{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
@@ -13,9 +62,13 @@
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}
+  name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+  namespace: {{ $operatorNamespace }}
+{{- end }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
 {{- end }}
 rules:
   - apiGroups:
@@ -63,6 +116,7 @@ rules:
       - watch
       - delete
       - deletecollection
+{{- if not $memberMode }}
   - apiGroups:
       - mongodbcommunity.mongodb.com
     resources:
@@ -100,6 +154,15 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - operatorconfigs
+      - memberclusters
+    verbs:
+      - get
+      - list
+      - watch
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''
@@ -109,6 +172,7 @@ rules:
       - list
       - watch
 {{- end}}
+{{- end }}
 {{- range $idx, $namespace := $watchNamespace }}
 
 {{- $namespaceBlock := "" }}
@@ -124,16 +188,18 @@ kind: RoleBinding
 {{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ $.Values.operator.name }}
+  name: {{ $bindingName }}
   {{ $namespaceBlock }}
+{{- if $memberMode }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
-  name: {{ $.Values.operator.name }}
+  name: {{ $name }}
 subjects:
   - kind: ServiceAccount
-    name: {{ $.Values.operator.name }}
+    name: {{ $saName }}
     namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
-{{- end }}
-
 {{- end }}

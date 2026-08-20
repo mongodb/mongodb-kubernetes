@@ -15,13 +15,15 @@ K8S_CTX_1=$(echo "${MEMBER_CLUSTERS}" | awk '{print $2}')
 export K8S_CTX_1
 
 # kind API server endpoints (127.0.0.1:<port>) are not reachable from pods, so
-# the kubeconfig Secret created by `kubectl mongodb multicluster setup` would
-# leave the operator unable to reach the member clusters. Build a kubeconfig
-# variant pointing at each cluster's node container IP on the shared docker
-# network (port 6443). Unlike the kubernetes Service clusterIP that the e2e
-# test-pod flow uses, the node IP is reachable BOTH from pods (the kind
-# interconnect routes via node IPs) and from this host (docker bridge) -- the
-# plugin itself talks to the API servers from the host while it runs.
+# the credential Secret emitted by `kubectl mongodb multicluster
+# generate-member-registration` -- which takes the API-server address from the
+# member cluster's kubeconfig context -- would leave the operator unable to
+# reach the member clusters. Build a kubeconfig variant pointing at each
+# cluster's node container IP on the shared docker network (port 6443). Unlike
+# the kubernetes Service clusterIP that the e2e test-pod flow uses, the node IP
+# is reachable BOTH from pods (the kind interconnect routes via node IPs) and
+# from this host (docker bridge) -- the plugin itself talks to the API servers
+# from the host while it runs.
 plugin_kubeconfig="${PROJECT_DIR}/.generated/snippets_plugin_kubeconfig"
 cp "${KUBECONFIG:-${HOME}/.kube/config}" "${plugin_kubeconfig}"
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do

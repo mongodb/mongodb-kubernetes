@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -376,4 +377,48 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetServiceAccountName(t *testing.T) {
+	podSpecWithSA := NewDefaultPodSpecWrapper(mdbv1.MongoDbPodSpec{
+		PodTemplateWrapper: v1.PodTemplateSpecWrapper{
+			PodTemplate: &corev1.PodTemplateSpec{Spec: corev1.PodSpec{ServiceAccountName: "user-sa"}},
+		},
+	})
+
+	tests := []struct {
+		name     string
+		opts     DatabaseStatefulSetOptions
+		expected string
+	}{
+		{
+			name:     "option used when pod template has no serviceAccountName",
+			opts:     DatabaseStatefulSetOptions{ServiceAccountName: "mck-member-cluster-a-database-pods"},
+			expected: "mck-member-cluster-a-database-pods",
+		},
+		{
+			name:     "pod template wins over the option default",
+			opts:     DatabaseStatefulSetOptions{PodSpec: podSpecWithSA, ServiceAccountName: util.MongoDBServiceAccount},
+			expected: "user-sa",
+		},
+		{
+			name:     "pod template wins over the option",
+			opts:     DatabaseStatefulSetOptions{PodSpec: podSpecWithSA, ServiceAccountName: "mck-member-cluster-a-database-pods"},
+			expected: "user-sa",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getServiceAccountName(tt.opts))
+		})
+	}
+}
+
+func TestOptionsBuildersDefaultServiceAccount(t *testing.T) {
+	rsOpts := ReplicaSetOptions()(*mdbv1.NewReplicaSetBuilder().Build())
+	assert.Equal(t, util.MongoDBServiceAccount, rsOpts.ServiceAccountName)
+
+	standaloneOpts := StandaloneOptions()(*mdbv1.NewStandaloneBuilder().Build())
+	assert.Equal(t, util.MongoDBServiceAccount, standaloneOpts.ServiceAccountName)
 }

@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import running_locally, wait_for_operator_pod_present, wait_for_operator_pod_restart
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -197,7 +197,9 @@ def operator_clusterwide(
 def get_operator_clusterwide(namespace, operator_installation_config):
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchNamespace"] = "*"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -207,7 +209,9 @@ def operator_vault_secret_backend(
 ) -> Operator:
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
@@ -218,20 +222,21 @@ def operator_vault_secret_backend_tls(
     helm_args = monitored_appdb_operator_installation_config.copy()
     helm_args["operator.vaultSecretBackend.enabled"] = "true"
     helm_args["operator.vaultSecretBackend.tlsSecretRef"] = "vault-tls"
-    return Operator(namespace=namespace, helm_args=helm_args).install()
+    operator = Operator(namespace=namespace, helm_args=helm_args).install()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 @fixture(scope="module")
-def operator_installation_config_quick_recovery(operator_installation_config: dict[str, str]) -> dict[str, str]:
+def operator_config_extra_spec() -> dict:
+    """Extra OperatorConfig spec merged into the CR when the operator config is applied during operator
+    installation. Defaults to no extra configuration.
+
+    Tests override this fixture to set OperatorConfig fields explicitly on the CR. For example, the
+    automatic-recovery tests (CLOUDP-189433 / CLOUDP-229222) shorten the recovery back-off via
+    {"automaticRecovery": {"delay": <seconds>}} so recovery triggers within the test window.
     """
-    This functions appends automatic recovery settings for CLOUDP-189433. In order to make the test runnable in
-    reasonable time, we override the Recovery back off to 120 seconds. This gives enough time for the initial
-    automation config to be published and statefulsets to be created before forcing the recovery.
-    """
-    operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=120"
-    )
-    return operator_installation_config
+    return {}
 
 
 @fixture(scope="module")
@@ -513,6 +518,7 @@ def default_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
 ) -> Operator:
     if is_multi_cluster():
         return get_multi_cluster_operator(
@@ -522,12 +528,18 @@ def default_operator(
             central_cluster_client,
             member_cluster_clients,
             member_cluster_names,
+            operator_config_extra_spec=operator_config_extra_spec,
         )
-    return get_default_operator(namespace, operator_installation_config)
+    return get_default_operator(
+        namespace, operator_installation_config, operator_config_extra_spec=operator_config_extra_spec
+    )
 
 
 def get_default_operator(
-    namespace: str, operator_installation_config: dict[str, str], apply_crds_first: bool = False
+    namespace: str,
+    operator_installation_config: dict[str, str],
+    apply_crds_first: bool = False,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test not interested in some custom Operator setting.
     TODO we use the helm template | kubectl apply -f process so far as Helm install/upgrade needs more refactoring in
@@ -536,6 +548,8 @@ def get_default_operator(
         namespace=namespace,
         helm_args=operator_installation_config,
     ).upgrade(apply_crds_first=apply_crds_first)
+
+    operator.apply_operator_config_and_wait(extra_spec=operator_config_extra_spec)
 
     return operator
 
@@ -546,10 +560,12 @@ def operator_with_monitored_appdb(
     monitored_appdb_operator_installation_config: dict[str, str],
 ) -> Operator:
     """Installs/upgrades a default Operator used by any test that needs the AppDB monitoring enabled."""
-    return Operator(
+    operator = Operator(
         namespace=namespace,
         helm_args=monitored_appdb_operator_installation_config,
     ).upgrade()
+    operator.apply_operator_config_and_wait()
+    return operator
 
 
 def get_central_cluster_name():
@@ -659,6 +675,7 @@ def multi_cluster_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
 ) -> Operator:
     return get_multi_cluster_operator(
         namespace,
@@ -667,6 +684,7 @@ def multi_cluster_operator(
         central_cluster_client,
         member_cluster_clients,
         member_cluster_names,
+        operator_config_extra_spec=operator_config_extra_spec,
     )
 
 
@@ -678,20 +696,13 @@ def get_multi_cluster_operator(
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
-    watched_resources: Optional[List[str]] = None,
+    operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     helm_opts = {
         "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-        # override the serviceAccountName for the operator deployment
-        "operator.createOperatorServiceAccount": "false",
     }
-    if watched_resources is not None:
-        helm_opts["operator.watchedResources"] = "{" + ",".join(watched_resources) + "}"
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -700,6 +711,8 @@ def get_multi_cluster_operator(
         helm_opts,
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        operator_config_extra_spec=operator_config_extra_spec,
+        configure_member_clusters=member_cluster_names,
     )
 
 
@@ -715,9 +728,6 @@ def multi_cluster_operator_with_monitored_appdb(
     print(f"\nSetting HELM_KUBECONTEXT to {central_cluster_name}")
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_monitored_appdb_operator_installation_config,
@@ -725,10 +735,9 @@ def multi_cluster_operator_with_monitored_appdb(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
     )
 
 
@@ -742,8 +751,6 @@ def multi_cluster_operator_manual_remediation(
     member_cluster_names: List[str],
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -751,11 +758,10 @@ def multi_cluster_operator_manual_remediation(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             "multiCluster.performFailOver": "false",
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
     )
 
 
@@ -771,9 +777,6 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
-    # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
-    if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -781,24 +784,30 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
+            # Skip creating the ClusterMongoDBRole RBAC.
             "operator.enableClusterMongoDBRoles": "false",
         },
         central_cluster_name,
         apply_crds_first=apply_crds_first,
+        configure_member_clusters=member_cluster_names,
+        operator_config_extra_spec={
+            "watchedResources": [
+                "mongodb",
+                "opsmanagers",
+                "mongodbusers",
+                "mongodbcommunity",
+                "mongodbsearch",
+                "mongodbmulticluster",
+                "voyageais",
+            ]
+        },
     )
 
 
-def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
+def get_multi_cluster_operator_clustermode(
+    namespace: str, member_clusters_workload_namespaces: Optional[str] = None
+) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = get_central_cluster_name()
-    run_kube_config_creation_tool(
-        get_member_cluster_names(),
-        namespace,
-        namespace,
-        get_member_cluster_names(),
-        True,
-    )
     return _install_multi_cluster_operator(
         namespace,
         get_multi_cluster_operator_installation_config(namespace),
@@ -806,11 +815,15 @@ def get_multi_cluster_operator_clustermode(namespace: str) -> Operator:
         get_member_cluster_clients(),
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # override the serviceAccountName for the operator deployment
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": "*",
         },
         get_central_cluster_name(),
+        configure_member_clusters=get_member_cluster_names(),
+        # The operator watches all namespaces, so member RBAC must be rendered cluster-scoped
+        # (ClusterRoles instead of per-namespace Roles) via --operator-cluster-scoped. Member-cluster
+        # caches are scoped from the operator's watchNamespace, so the member RBAC scope must cover it.
+        member_clusters_workload_namespaces=member_clusters_workload_namespaces,
+        member_clusters_operator_cluster_scoped=True,
     )
 
 
@@ -837,7 +850,6 @@ def install_multi_cluster_operator_set_members_fn(
 ) -> Callable[[List[str]], Operator]:
     def _fn(member_cluster_names: List[str]) -> Operator:
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-        mcn = ",".join(member_cluster_names)
         return _install_multi_cluster_operator(
             namespace,
             multi_cluster_operator_installation_config,
@@ -845,11 +857,9 @@ def install_multi_cluster_operator_set_members_fn(
             member_cluster_clients,
             {
                 "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-                # override the serviceAccountName for the operator deployment
-                "operator.createOperatorServiceAccount": "false",
-                "multiCluster.clusters": "{" + mcn + "}",
             },
             central_cluster_name,
+            configure_member_clusters=member_cluster_names,
         )
 
     return _fn
@@ -866,6 +876,11 @@ def _install_multi_cluster_operator(
     helm_chart_path: Optional[str] = None,
     custom_operator_version: Optional[str] = None,
     apply_crds_first: bool = False,
+    create_operator_config: bool = True,
+    operator_config_extra_spec: Optional[dict] = None,
+    configure_member_clusters: Optional[List[str]] = None,
+    member_clusters_workload_namespaces: Optional[str] = None,
+    member_clusters_operator_cluster_scoped: bool = False,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -876,14 +891,17 @@ def _install_multi_cluster_operator(
         helm_chart_path or "", custom_operator_version or ""
     )
 
-    prepare_multi_cluster_namespaces(
-        namespace,
-        multi_cluster_operator_installation_config,
-        member_cluster_clients,
-        central_cluster_name,
-        skip_central_cluster=True,
-        helm_chart_path=helm_chart_path,
-    )
+    # Only the released baseline needs this: it renders the chart's database-roles onto the member
+    # clusters, which generate-member-resources already does for the new path.
+    if configure_member_clusters is None:
+        prepare_multi_cluster_namespaces(
+            namespace,
+            multi_cluster_operator_installation_config,
+            member_cluster_clients,
+            central_cluster_name,
+            skip_central_cluster=True,
+            helm_chart_path=helm_chart_path,
+        )
 
     operator = Operator(
         name=operator_name,
@@ -893,6 +911,62 @@ def _install_multi_cluster_operator(
         helm_chart_path=helm_chart_path,
         operator_version=custom_operator_version,
     ).upgrade(multi_cluster=True, custom_operator_version=custom_operator_version, apply_crds_first=apply_crds_first)
+
+    # Legacy operators (e.g. MEKO, used as the starting point of upgrade tests) do not ship the
+    # OperatorConfig CRD, so creating the CR would fail. Such installs pass create_operator_config=False
+    # and the upgrade test creates the CR explicitly once the CRD has been applied.
+    if create_operator_config:
+        operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec=operator_config_extra_spec)
+    else:
+        operator.wait_for_operator_ready()
+
+    # Apply member-cluster RBAC and register each MemberCluster CR + credential Secret. Works the
+    # same for the in-cluster and local operator, since pytest runs in the same network vantage as
+    # the operator either way. If the central cluster also serves as a member, it's included in
+    # configure_member_clusters and gets the same treatment as any other member.
+    #
+    # TODO(m1kola): slice-9: for a local (host-run) operator the MemberCluster watcher currently
+    # stops the process on a CR change and nothing restarts it, so the operator must be (re)started
+    # after this runs. Slice 9 (no-restart hot reload, or an interim local restart-loop) makes it
+    # seamless. See docs/dev/multi-cluster-config-tooling.md.
+    if configure_member_clusters is not None:
+        assert operator_name is not None
+        # A fresh registration makes the operator restart to rebuild its member-cluster client map;
+        # snapshot the restart count first and wait for that restart so tests don't race it. If the
+        # MemberCluster CRs already exist (e.g. reinstalling the operator in an already-configured
+        # namespace) the operator picks them up at startup and does not restart, so skip the wait. The
+        # local operator has no pod to restart (see the slice-9 TODO above).
+        try:
+            existing_member_crs = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
+                group="operator.mongodb.com",
+                version="v1",
+                namespace=namespace,
+                plural="memberclusters",
+            )["items"]
+        except client.rest.ApiException:
+            existing_member_crs = []
+        wait_for_registration_restart = not local_operator() and len(existing_member_crs) == 0
+
+        previous_restart_count = None
+        if wait_for_registration_restart:
+            previous_restart_count = wait_for_operator_pod_present(
+                namespace, operator_name, api_client=central_cluster_client
+            )
+
+        configure_multi_cluster_members(
+            configure_member_clusters,
+            namespace,
+            namespace,
+            central_cluster_name,
+            workload_namespaces=member_clusters_workload_namespaces,
+            operator_cluster_scoped=member_clusters_operator_cluster_scoped,
+        )
+
+        if wait_for_registration_restart:
+            wait_for_operator_pod_restart(
+                namespace, operator_name, previous_restart_count, api_client=central_cluster_client
+            )
+        operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
@@ -951,6 +1025,8 @@ def official_meko_operator(
         helm_chart_path=LEGACY_OPERATOR_CHART,
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
 
 
@@ -980,6 +1056,8 @@ def install_legacy_deployment_state_meko(
         helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from legacy state management, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
     operator.wait_for_operator_ready()
     # Dumping deployments in logs ensures we are using the correct operator version
@@ -998,6 +1076,7 @@ def install_official_operator(
     helm_chart_path: Optional[str] = MCK_HELM_CHART,
     operator_name: Optional[str] = OPERATOR_NAME,
     operator_image: Optional[str] = OFFICIAL_OPERATOR_IMAGE_NAME,
+    create_operator_config: bool = True,
 ) -> Operator:
     """
     Installs the Operator from the official Helm Chart.
@@ -1013,7 +1092,6 @@ def install_official_operator(
     helm_args = {
         "registry.imagePullSecrets": operator_installation_config["registry.imagePullSecrets"],
         "managedSecurityContext": managed_security_context,
-        "operator.mdbDefaultArchitecture": operator_installation_config["operator.mdbDefaultArchitecture"],
     }
 
     # For upgrade tests in patch builds, we need to use ECR registries for workload images
@@ -1067,9 +1145,12 @@ def install_official_operator(
         assert operator_name is not None
         assert central_cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
-        # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
+        # Every baseline we install today is pre-2.x, so the legacy flow is hardcoded. A baseline on a
+        # released 2.x chart would instead need generate-member-resources/-registration from a released
+        # 2.x plugin, so dispatch on the baseline's major once that exists.
+        # Skipped for a local operator: installing a released in-cluster baseline is a CI-only flow.
         if not local_operator():
-            run_kube_config_creation_tool(
+            run_legacy_kube_config_creation_tool(
                 member_cluster_names,
                 namespace,
                 namespace,
@@ -1078,12 +1159,16 @@ def install_official_operator(
                 operator_name=operator_name,
             )
         operator_name = operator_name + "-multi-cluster"
+        # The released (pre-2.x) charts still need the legacy multiCluster.clusters value. It is
+        # no longer in the shared operator-installation-config ConfigMap, so derive it locally from
+        # MEMBER_CLUSTERS using helm --set list syntax ({a,b,c}), which kubetester's
+        # _create_helm_args passes through unescaped.
         helm_args.update(
             {
                 "operator.name": operator_name,
                 # override the serviceAccountName for the operator deployment
                 "operator.createOperatorServiceAccount": "false",
-                "multiCluster.clusters": operator_installation_config["multiCluster.clusters"],
+                "multiCluster.clusters": "{" + ",".join(member_cluster_names) + "}",
             }
         )
         # The "official" Operator will be installed from the Helm Repo ("mongodb/enterprise-operator")
@@ -1101,6 +1186,7 @@ def install_official_operator(
             helm_chart_path=helm_chart_path,
             custom_operator_version=custom_operator_version,
             operator_name=operator_name,
+            create_operator_config=create_operator_config,
         )
     else:
         # When testing the UBI image type we need to assume a few things
@@ -1351,7 +1437,15 @@ def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[s
     return api_servers
 
 
-def run_kube_config_creation_tool(
+def _mck1x_multi_cluster_plugin_path() -> str:
+    """Path to a released MCK 1.x kubectl-mongodb plugin, installed into the test image."""
+    return os.getenv(
+        "MCK1X_MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
+        "multi-cluster-kube-config-creator-mck1x",
+    )
+
+
+def run_legacy_kube_config_creation_tool(
     member_clusters: List[str],
     central_namespace: str,
     member_namespace: str,
@@ -1360,13 +1454,15 @@ def run_kube_config_creation_tool(
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
 ):
+    """Provision the pre-`MemberCluster` install flow: kubeconfig Secret + member-list ConfigMap.
+
+    "Legacy" is the flow, not a product — it is the only discovery mechanism MEKO and MCK 1.x
+    understand. Resource names come from the flags, so one released MCK 1.x plugin serves both.
+    """
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
     args: list[str] = [
-        os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
-        ),
+        _mck1x_multi_cluster_plugin_path(),
         "multicluster",
         "setup",
         "--member-clusters",
@@ -1397,12 +1493,139 @@ def run_kube_config_creation_tool(
         args.append("--cluster-scoped")
 
     try:
-        print(f"Running multi-cluster cli setup tool: {' '.join(args)}")
+        print(f"Running legacy multi-cluster cli setup tool: {' '.join(args)}")
         subprocess.check_output(args, stderr=subprocess.STDOUT)
-        print("Finished running multi-cluster cli setup tool")
+        print("Finished running legacy multi-cluster cli setup tool")
     except subprocess.CalledProcessError as exc:
         print(f"Status: FAIL Reason: {exc.output}")
         raise exc
+
+
+def _multi_cluster_plugin_path() -> str:
+    """Path to the built kubectl-mongodb plugin binary."""
+    return os.getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH", "multi-cluster-kube-config-creator")
+
+
+def _kubectl_apply_to_context(context: str, manifests: bytes):
+    """`kubectl apply -f -` the given manifests against a named kubeconfig context. Member and
+    central cluster names double as kubeconfig context names in the E2E harness, and the
+    ambient KUBECONFIG already carries cluster-reachable API-server addresses."""
+    print(f"Applying generated manifests to context {context}")
+    subprocess.run(
+        ["kubectl", "--context", context, "apply", "-f", "-"],
+        input=manifests,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=True,
+    )
+
+
+def _wait_for_member_sa_token(cluster: str, member_namespace: str, timeout: int = 120, interval: int = 5):
+    """Wait until the member ServiceAccount's token Secret (`mck-member-<cluster>-token`, per
+    pkg/resourcenames) is populated, so a subsequent read of it succeeds on the first try."""
+    secret_name = f"mck-member-{cluster}-token"
+    deadline = time.time() + timeout
+    while True:
+        token = subprocess.run(
+            [
+                "kubectl",
+                "--context",
+                cluster,
+                "-n",
+                member_namespace,
+                "get",
+                "secret",
+                secret_name,
+                "-o",
+                "jsonpath={.data.token}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout
+        if token:
+            return
+        if time.time() >= deadline:
+            raise TimeoutError(
+                f"ServiceAccount token Secret {secret_name} on {cluster} was not populated after {timeout}s"
+            )
+        print(f"Waiting for {secret_name} token on {cluster} to be populated...")
+        time.sleep(interval)
+
+
+def generate_and_apply_member_resources(
+    member_clusters: List[str],
+    member_namespace: str,
+    workload_namespaces: Optional[str] = None,
+    operator_cluster_scoped: bool = False,
+):
+    """Render and apply member-cluster RBAC to each member cluster."""
+    plugin = _multi_cluster_plugin_path()
+    for cluster in member_clusters:
+        args = [
+            plugin,
+            "multicluster",
+            "generate-member-resources",
+            "--member-cluster",
+            cluster,
+            "--member-cluster-namespace",
+            member_namespace,
+        ]
+        if workload_namespaces:
+            args += ["--workload-namespaces", workload_namespaces]
+        if operator_cluster_scoped:
+            args += ["--operator-cluster-scoped"]
+        print(f"Rendering member resources for {cluster}: {' '.join(args)}")
+        manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
+        _kubectl_apply_to_context(cluster, manifests)
+
+
+def generate_and_apply_member_registration(
+    member_clusters: List[str],
+    member_namespace: str,
+    operator_namespace: str,
+    central_cluster: str,
+):
+    """For each member cluster, extract its ServiceAccount token and apply the emitted
+    `MemberCluster` CR + credential Secret to the central (operator) cluster.
+
+    The command reads the API-server address from the member cluster's kubeconfig context
+    (context name == cluster name); the harness's ambient KUBECONFIG already carries
+    cluster-reachable addresses (see `configure_multi_cluster_environment`)."""
+    plugin = _multi_cluster_plugin_path()
+    for cluster in member_clusters:
+        args = [
+            plugin,
+            "multicluster",
+            "generate-member-registration",
+            "--member-cluster",
+            cluster,
+            "--member-cluster-context",
+            cluster,
+            "--member-cluster-namespace",
+            member_namespace,
+            "--operator-namespace",
+            operator_namespace,
+        ]
+        # Wait for the SA token Secret to be populated before reading it.
+        _wait_for_member_sa_token(cluster, member_namespace)
+        print(f"Generating member registration for {cluster}: {' '.join(args)}")
+        manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
+        _kubectl_apply_to_context(central_cluster, manifests)
+
+
+def configure_multi_cluster_members(
+    member_clusters: List[str],
+    member_namespace: str,
+    operator_namespace: str,
+    central_cluster: str,
+    workload_namespaces: Optional[str] = None,
+    operator_cluster_scoped: bool = False,
+):
+    """Apply member-cluster RBAC to each member cluster, then register each cluster with the
+    operator's cluster."""
+    generate_and_apply_member_resources(member_clusters, member_namespace, workload_namespaces, operator_cluster_scoped)
+    generate_and_apply_member_registration(member_clusters, member_namespace, operator_namespace, central_cluster)
 
 
 def get_api_servers_from_kubeconfig_secret(
@@ -1429,56 +1652,6 @@ def get_api_servers_from_test_pod_kubeconfig(namespace: str, member_cluster_name
 
 def get_test_pod_cluster_name():
     return os.environ["TEST_POD_CLUSTER"]
-
-
-def run_multi_cluster_recovery_tool(
-    member_clusters: List[str],
-    central_namespace: str,
-    member_namespace: str,
-    cluster_scoped: Optional[bool] = False,
-    service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
-    operator_name: str = OPERATOR_NAME,
-) -> int:
-    central_cluster = _read_multi_cluster_config_value("central_cluster")
-    member_clusters_str = ",".join(member_clusters)
-    args: list[str] = [
-        os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
-        ),
-        "multicluster",
-        "recover",
-        "--member-clusters",
-        member_clusters_str,
-        "--central-cluster",
-        central_cluster,
-        "--member-cluster-namespace",
-        member_namespace,
-        "--central-cluster-namespace",
-        central_namespace,
-        "--operator-name",
-        MULTI_CLUSTER_OPERATOR_NAME,
-        "--source-cluster",
-        member_clusters[0],
-        "--service-account",
-        service_account_name,
-        "--operator-name",
-        operator_name,
-    ]
-    if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
-        args.append("--create-service-account-secrets")
-
-    if cluster_scoped:
-        args.extend(["--cluster-scoped", "true"])
-
-    try:
-        print(f"Running multi-cluster cli recovery tool: {' '.join(args)}")
-        subprocess.check_output(args, stderr=subprocess.PIPE)
-        print("Finished running multi-cluster cli recovery tool")
-    except subprocess.CalledProcessError as exc:
-        print("Status: FAIL", exc.returncode, exc.output)
-        return exc.returncode
-    return 0
 
 
 def create_issuer(
@@ -1706,7 +1879,6 @@ def install_multi_cluster_operator_cluster_scoped(
     )
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
     member_cluster_namespaces = ",".join(watch_namespaces)
-    run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names, True)
 
     return _install_multi_cluster_operator(
         namespace,
@@ -1715,10 +1887,11 @@ def install_multi_cluster_operator_cluster_scoped(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            "operator.createOperatorServiceAccount": "false",
             "operator.watchNamespace": member_cluster_namespaces,
         },
         central_cluster_name,
+        configure_member_clusters=member_cluster_names,
+        member_clusters_workload_namespaces=member_cluster_namespaces,
     )
 
 

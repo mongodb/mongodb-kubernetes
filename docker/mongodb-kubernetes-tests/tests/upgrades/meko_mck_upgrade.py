@@ -4,7 +4,8 @@ import kubernetes
 from kubernetes import client
 from kubetester import try_load
 from kubetester.certs import create_mongodb_tls_certs
-from kubetester.helm import helm_uninstall
+from kubetester.helm import apply_member_cluster_crd, apply_operator_config_crd, helm_uninstall
+from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
@@ -13,17 +14,20 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
-from tests.conftest import get_multi_cluster_operator, is_multi_cluster, log_deployments_info
+from tests.conftest import (
+    configure_multi_cluster_members,
+    get_multi_cluster_operator,
+    is_multi_cluster,
+    log_deployments_info,
+)
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_NAME,
     LOCAL_HELM_CHART_DIR,
-    MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
     MULTI_CLUSTER_OPERATOR_NAME,
     OPERATOR_NAME,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.multicluster_appdb.multicluster_appdb_upgrade_downgrade_v1_27_to_mck import assert_cm_expected_data
 from tests.upgrades import downscale_operator_deployment
 
 logger = test_logger.get_test_logger(__name__)
@@ -121,7 +125,18 @@ def test_upgrade_operator(
     member_cluster_names: List[str],
 ):
     logger.info("Installing the operator via repo helm chart")
+    # The OperatorConfig CRD is only shipped by MCK, not by the legacy operator we are upgrading from.
+    # Apply it and wait for it to be established, then create the OperatorConfig CR before the operator
+    # is upgraded to MCK, so that the desired default architecture is configured from the start.
+    apply_operator_config_crd(api_client=central_cluster_client)
+    spec = build_operator_config_spec_from_test_env()
+    if spec:
+        create_operator_config(namespace, spec, api_client=central_cluster_client)
     if is_multi_cluster():
+        # MEKO discovers members from the member-list ConfigMap; MCK needs MemberCluster CRs, and one
+        # booting without any falls back to single-cluster. So register them before the upgrade.
+        apply_member_cluster_crd(api_client=central_cluster_client)
+        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
         operator = get_multi_cluster_operator(
             namespace,
             central_cluster_name,
@@ -166,12 +181,16 @@ def test_operator_still_running(namespace: str, central_cluster_client: client.A
     log_deployments_info(namespace)
 
     if is_multi_cluster():
-        # Check if member-list configmap is present and content is correct
-        logger.info(f"Checking correctness of member list configmap")
-        expected_data = {name: "" for name in member_cluster_names}
-        assert_cm_expected_data(
-            name=MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP,
+        # After the upgrade the operator discovers member clusters from MemberCluster CRs
+        # registered during the day-2 configuration flow, so assert one exists per member cluster.
+        logger.info("Checking MemberCluster CRs are registered")
+        registered = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
+            group="operator.mongodb.com",
+            version="v1",
             namespace=namespace,
-            expected_data=expected_data,
-            central_cluster_client=central_cluster_client,
+            plural="memberclusters",
         )
+        registered_names = {item["metadata"]["name"] for item in registered["items"]}
+        assert registered_names == set(
+            member_cluster_names
+        ), f"MemberCluster CRs mismatch, actual: {registered_names} != expected: {set(member_cluster_names)}"
