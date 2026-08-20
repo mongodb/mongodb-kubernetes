@@ -110,6 +110,51 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 	return project, conn, nil
 }
 
+// ReadProject is the read-only variant of ReadOrCreateProject: exact-name org/project lookup,
+// never CreateProject / UpdateProject / GenerateAgentKey (the decentralized leader only reads;
+// the installer pre-provisions the project and agent key). A missing organization or project is
+// returned as an error — the installer contract is not met; callers treat it as transient.
+// No mutex: there is nothing to serialize on a pure read.
+func ReadProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+	projectName := config.ProjectName
+	log = log.With("project", projectName)
+
+	// a temporary connection object without group id, same shape as ReadOrCreateProject's
+	omContext := om.OMContext{
+		GroupID:    "",
+		GroupName:  projectName,
+		OrgID:      config.OrgID,
+		BaseURL:    config.BaseURL,
+		PublicKey:  credentials.PublicAPIKey,
+		PrivateKey: credentials.PrivateAPIKey,
+
+		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
+		CACertificate:              config.SSLMMSCAConfigMapContents,
+	}
+
+	conn := connectionFactory(&omContext)
+
+	org, err := findOrganization(config.OrgID, projectName, conn, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	if org == nil {
+		return nil, nil, xerrors.Errorf("organization for project \"%s\" not found (expected to be pre-provisioned)", projectName)
+	}
+
+	project, err := findProject(projectName, org, conn, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	if project == nil {
+		return nil, nil, xerrors.Errorf("project \"%s\" not found in organization %s (expected to be pre-provisioned)", projectName, org.ID)
+	}
+
+	conn.ConfigureProject(project)
+
+	return project, conn, nil
+}
+
 func findOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
 	if orgID == "" {
 		// Note: this org_id = "" has to be explicitly set by the customer.
