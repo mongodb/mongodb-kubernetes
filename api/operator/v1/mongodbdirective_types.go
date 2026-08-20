@@ -33,6 +33,12 @@ type MongoDBDirectiveSpec struct {
 	// entries are never removed, so a re-added cluster gets its old index back.
 	// +optional
 	IndexAllocations map[string]int `json:"indexAllocations,omitempty"`
+
+	// ProjectID is the Ops Manager project this deployment belongs to, stamped by the leader.
+	// Members use it for read-only fact observation and pod configuration; they never create
+	// projects or agent keys (pre-provisioned).
+	// +optional
+	ProjectID string `json:"projectID,omitempty"`
 }
 
 // MongoDBDirectiveStatus defines the observed state of MongoDBDirective.

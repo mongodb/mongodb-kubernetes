@@ -9472,6 +9472,12 @@ spec:
                 description: MemberCount is the member count the local StatefulSet
                   is granted to advance to.
                 type: integer
+              projectID:
+                description: |-
+                  ProjectID is the Ops Manager project this deployment belongs to, stamped by the leader.
+                  Members use it for read-only fact observation and pod configuration; they never create
+                  projects or agent keys (pre-provisioned).
+                type: string
               targetSpecHash:
                 description: |-
                   TargetSpecHash is the hash of the workload CR spec this directive was planned from.

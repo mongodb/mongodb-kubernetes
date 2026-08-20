@@ -102,11 +102,12 @@ type ReconcileMongoDBMultiClusterLeader struct {
 	localClient             kubernetesClient.Client            // this cluster: the CR copy and its status
 	memberClusterClientsMap map[string]kubernetesClient.Client // holds the client for each of the member clusters, including this one
 	elector                 Elector
+	projectID               string // the Ops Manager project, stamped into every directive; "" until the leader's OM connection lands
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDBMultiClusterLeader{}
 
-func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector) *ReconcileMongoDBMultiClusterLeader {
+func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector, projectID string) *ReconcileMongoDBMultiClusterLeader {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -116,6 +117,7 @@ func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClu
 		localClient:             kubernetesClient.NewClient(localClient),
 		memberClusterClientsMap: clientsMap,
 		elector:                 elector,
+		projectID:               projectID,
 	}
 }
 
@@ -174,6 +176,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 			MemberCount:      item.Members,
 			ClusterIndex:     i,
 			IndexAllocations: indexAllocations,
+			ProjectID:        r.projectID,
 		}
 		if err := r.createOrUpdateDirective(ctx, memberClient, &mrs, directiveSpec); err != nil {
 			errs = errors.Join(errs, xerrors.Errorf("failed writing the directive to cluster %s: %w", item.ClusterName, err))
@@ -214,8 +217,8 @@ func enqueueSameNameRequest(_ context.Context, o client.Object) []reconcile.Requ
 }
 
 // AddMongoDBMultiClusterLeaderController creates the leader controller and adds it to the Manager.
-func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, maxConcurrentReconciles int) error {
-	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector)
+func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, projectID string, maxConcurrentReconciles int) error {
+	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector, projectID)
 	c, err := controller.New(util.MongoDbMultiClusterLeaderController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err

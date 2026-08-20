@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
@@ -41,7 +42,7 @@ func leaderReconcilerForTest(m *mdbmulti.MongoDBMultiCluster, self string, elect
 			clientsMap[clusterName] = mock.NewEmptyFakeClientBuilder().Build()
 		}
 	}
-	return newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector), clientsMap
+	return newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector, om.TestGroupID), clientsMap
 }
 
 func TestLeaderWritesDirectivesToAllClusters(t *testing.T) {
@@ -64,6 +65,7 @@ func TestLeaderWritesDirectivesToAllClusters(t *testing.T) {
 		assert.Equal(t, item.Members, directive.Spec.MemberCount)
 		assert.Equal(t, i, directive.Spec.ClusterIndex)
 		assert.Equal(t, wantAllocations, directive.Spec.IndexAllocations)
+		assert.Equal(t, om.TestGroupID, directive.Spec.ProjectID)
 	}
 
 	require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m))
