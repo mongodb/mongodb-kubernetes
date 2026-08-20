@@ -1,0 +1,145 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: mongodbdirectives.operator.mongodb.com
+spec:
+  group: operator.mongodb.com
+  names:
+    kind: MongoDBDirective
+    listKind: MongoDBDirectiveList
+    plural: mongodbdirectives
+    shortNames:
+    - mdbdir
+    singular: mongodbdirective
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clusterName
+      name: Cluster Name
+      type: string
+    - jsonPath: .spec.leadershipTerm
+      name: Term
+      type: integer
+    - jsonPath: .spec.memberCount
+      name: Member Count
+      type: integer
+    - jsonPath: .status.inGoalState
+      name: In Goal State
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MongoDBDirective carries the leader operator's instructions to one member cluster in a
+          decentralized multi-cluster deployment. One directive per member cluster resides on that
+          cluster's API server: the leader writes the spec (possibly from another cluster), the local
+          member operator writes the status. The leadershipTerm and targetSpecHash fields fence out
+          stale leaders and stale spec copies.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              MongoDBDirectiveSpec defines the desired state of MongoDBDirective.
+              The spec is written only by the leader operator — the single writer — which may run on
+              another cluster. The local member operator never writes the spec.
+            properties:
+              clusterIndex:
+                description: ClusterIndex is the index allocated to this cluster,
+                  used for object naming.
+                type: integer
+              clusterName:
+                description: |-
+                  ClusterName is the logical cluster identity of the member this directive addresses,
+                  matching clusterSpecList[].clusterName references in the workload CR.
+                minLength: 1
+                type: string
+              indexAllocations:
+                additionalProperties:
+                  type: integer
+                description: |-
+                  IndexAllocations is the full historical clusterName to index map. It is grow-only:
+                  entries are never removed, so a re-added cluster gets its old index back.
+                type: object
+              leadershipTerm:
+                description: |-
+                  LeadershipTerm is the term of the leader that wrote this spec. Members refuse directives
+                  whose term is older than the term of their local Lease (the term fence).
+                format: int64
+                type: integer
+              memberCount:
+                description: MemberCount is the member count the local StatefulSet
+                  is granted to advance to.
+                type: integer
+              targetSpecHash:
+                description: |-
+                  TargetSpecHash is the hash of the workload CR spec this directive was planned from.
+                  The member acts only when the hash of its local CR copy matches (the spec fence);
+                  otherwise it holds and keeps reporting status.
+                minLength: 1
+                type: string
+            required:
+            - clusterIndex
+            - clusterName
+            - leadershipTerm
+            - memberCount
+            - targetSpecHash
+            type: object
+          status:
+            description: |-
+              MongoDBDirectiveStatus defines the observed state of MongoDBDirective.
+              The status is written only by the member operator local to the addressed cluster. It reports
+              facts; classifying those facts is internal to the leader's planner and never serialized.
+            properties:
+              agentRegistered:
+                description: |-
+                  AgentRegistered reports that the automation agents of the granted members registered
+                  with Ops Manager.
+                type: boolean
+              inGoalState:
+                description: |-
+                  InGoalState reports that all local processes reached goal state for the current
+                  automation config version.
+                type: boolean
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the directive's metadata.generation last seen by the member.
+                  It means "I have seen instruction #N", not "I obeyed it".
+                format: int64
+                type: integer
+              observedSpecHash:
+                description: ObservedSpecHash is the hash of the member's local workload
+                  CR copy.
+                type: string
+              stsApplied:
+                description: |-
+                  StsApplied reports that the StatefulSet at the granted member count was accepted by the
+                  local API server.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
