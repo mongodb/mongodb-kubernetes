@@ -13,13 +13,16 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 func directiveReconcilerForTest(elector Elector, objects ...client.Object) (*ReconcileMongoDBDirective, client.Client) {
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(objects...).Build()
-	return newMongoDBDirectiveReconciler(c, elector), c
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	return newMongoDBDirectiveReconciler(c, elector, nil, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc), c
 }
 
 func buildDirective(m *mdbmulti.MongoDBMultiCluster, clusterName string, term int64, targetSpecHash string) *operatorv1.MongoDBDirective {

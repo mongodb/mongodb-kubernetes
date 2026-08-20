@@ -380,7 +380,7 @@ func run() error {
 		}
 
 		elector := operator.NewStaticElector(selfClusterName, leaderClusterName)
-		if err := setupMongoDBDirectiveCRD(mgr, memberClusterObjectsMap, elector, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
+		if err := setupMongoDBDirectiveCRD(mgr, memberClusterObjectsMap, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
@@ -502,14 +502,14 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 // setupMongoDBDirectiveCRD registers the decentralized multi-cluster controllers: the leader
 // (plans MongoDBMultiCluster deployments by writing directives) and the member (materializes the
 // local directive). Every operator runs both; the elector decides which one acts per deployment.
-func setupMongoDBDirectiveCRD(mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, elector operator.Elector, maxConcurrentReconciles int) error {
+func setupMongoDBDirectiveCRD(mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, elector operator.Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
 	// the leader stamps the OM project id into directives; wired for real with the leader's OM
 	// connection (planner milestone), empty until then
 	projectID := ""
 	if err := operator.AddMongoDBMultiClusterLeaderController(mgr, memberClusterObjectsMap, elector, projectID, maxConcurrentReconciles); err != nil {
 		return err
 	}
-	return operator.AddMongoDBDirectiveController(mgr, elector, maxConcurrentReconciles)
+	return operator.AddMongoDBDirectiveController(mgr, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, maxConcurrentReconciles)
 }
 
 func setupVoyageAICRD(ctx context.Context, mgr manager.Manager, maxConcurrentReconciles int) error {
