@@ -168,11 +168,7 @@ def get_platform_manifest_digests(image_name: str) -> List[str]:
 
     raw_command.append(f"{transport_protocol}{image_name}")
 
-    try:
-        result = run_command_with_retries(raw_command)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to get raw manifest for {image_name}: {e.stderr}")
-        return []
+    result = run_command_with_retries(raw_command)
 
     manifest = json.loads(result.stdout)
     manifest_list_media_types = (
