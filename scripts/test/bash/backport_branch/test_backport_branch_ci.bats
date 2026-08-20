@@ -68,7 +68,7 @@ teardown() {
     git commit -q -m "add kubectl-mongodb path only on release-v1"
     git push -q origin release-v1
 
-    tree_listing=$(env branch_name=release-v1 git ls-tree -r "origin/release-v1" --name-only)
+    tree_listing=$(git ls-tree -r "origin/release-v1" --name-only)
 
     [[ "${tree_listing}" == *"pkg/kubectl-mongodb/only_on_v1.go"* ]]
 
