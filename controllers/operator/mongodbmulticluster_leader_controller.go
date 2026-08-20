@@ -68,7 +68,10 @@ Seam in code (2026-08-20): the Elector interface in mongodbmulticluster_elector.
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"reflect"
+	"sort"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -84,30 +87,39 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 // ReconcileMongoDBMultiClusterLeader plans a MongoDBMultiCluster deployment across clusters by
-// writing directives; it never touches workload resources (that is the member controller's job,
-// gated by its local directive).
+// writing directives and publishing the automation config; it never touches workload resources
+// (that is the member controller's job, gated by its local directive).
 type ReconcileMongoDBMultiClusterLeader struct {
 	localClient             kubernetesClient.Client            // this cluster: the CR copy and its status
 	memberClusterClientsMap map[string]kubernetesClient.Client // holds the client for each of the member clusters, including this one
 	elector                 Elector
-	projectID               string // the Ops Manager project, stamped into every directive; "" until the leader's OM connection lands
+	omConnectionFactory     om.ConnectionFactory
+	imageUrls               images.ImageUrls
+	defaultArchitecture     architectures.DefaultArchitecture
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDBMultiClusterLeader{}
 
-func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector, projectID string) *ReconcileMongoDBMultiClusterLeader {
+func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture) *ReconcileMongoDBMultiClusterLeader {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -117,7 +129,9 @@ func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClu
 		localClient:             kubernetesClient.NewClient(localClient),
 		memberClusterClientsMap: clientsMap,
 		elector:                 elector,
-		projectID:               projectID,
+		omConnectionFactory:     omConnectionFactory,
+		imageUrls:               imageUrls,
+		defaultArchitecture:     defaultArchitecture,
 	}
 }
 
@@ -125,9 +139,8 @@ func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClu
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbmulticluster,mongodbmulticluster/status},verbs=get;list;watch;patch;update,namespace=placeholder
 // +kubebuilder:rbac:groups=operator.mongodb.com,resources=mongodbdirectives,verbs=get;list;watch;create;update,namespace=placeholder
 
-// Reconcile plans one pass for a MongoDBMultiCluster deployment. M1 shape: naive full grant —
-// every cluster in the spec gets its directive advanced straight to the desired state. The
-// planner milestone replaces the grant with plan(snapshot) → one decision per pass.
+// Reconcile plans one pass for a MongoDBMultiCluster deployment: assemble the snapshot, call the
+// pure planner, execute exactly one decision, map it one-to-one to a workflow status.
 func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
 	log := zap.S().With("MultiClusterLeader", request.NamespacedName)
 
@@ -154,51 +167,79 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 		return commoncontroller.UpdateStatus(ctx, r.localClient, &mrs, workflow.Failed(err), log)
 	}
 
-	// deliberately the raw list, not GetClusterSpecItems(): its last-achieved sequencing belongs
-	// to the legacy single-reconciler path; here sequencing is the planner milestone's job
-	clusterSpecList := mrs.Spec.ClusterSpecList
-	indexAllocations := make(map[string]int, len(clusterSpecList))
-	for i, item := range clusterSpecList {
-		indexAllocations[item.ClusterName] = i
+	conn, projectID, err := r.prepareReadOnlyConnection(ctx, &mrs, log)
+	if err != nil {
+		// transient: the pre-provisioned project ConfigMap/credentials/project are the
+		// installer's contract; back off until they appear
+		return reconcile.Result{}, err
 	}
 
-	var errs error
-	for i, item := range clusterSpecList {
-		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
-		if !ok {
-			errs = errors.Join(errs, xerrors.Errorf("no client for member cluster %s", item.ClusterName))
-			continue
-		}
-		directiveSpec := operatorv1.MongoDBDirectiveSpec{
-			ClusterName:      item.ClusterName,
-			LeadershipTerm:   term,
-			TargetSpecHash:   specHash,
-			MemberCount:      item.Members,
-			ClusterIndex:     i,
-			IndexAllocations: indexAllocations,
-			ProjectID:        r.projectID,
-		}
-		if err := r.createOrUpdateDirective(ctx, memberClient, &mrs, directiveSpec); err != nil {
-			errs = errors.Join(errs, xerrors.Errorf("failed writing the directive to cluster %s: %w", item.ClusterName, err))
-		}
-	}
-	if errs != nil {
-		return reconcile.Result{}, errs
+	snapshot := r.assembleSnapshot(ctx, &mrs, term, specHash, conn, projectID, log)
+	decision := plan(snapshot)
+	log.Infof("Planned decision %s: %s", decision.Kind, decision.Reason)
+	for _, t := range snapshot.Targets {
+		log.Debugf("Cluster %s: %s", t.ClusterName, classifyCluster(snapshot.Directives[t.ClusterName], snapshot.SpecHash))
 	}
 
-	return commoncontroller.UpdateStatus(ctx, r.localClient, &mrs, workflow.Pending("Directives written (term %d); waiting for member clusters to reach goal state", term), log)
+	return r.execute(ctx, &mrs, conn, decision, log)
 }
 
-// createOrUpdateDirective puts the desired directive spec on one member cluster. The directive
-// carries no owner reference: it is leader-managed and usually lives on a foreign cluster, where
-// an owner reference would never be garbage-collected.
-func (r *ReconcileMongoDBMultiClusterLeader) createOrUpdateDirective(ctx context.Context, memberClient kubernetesClient.Client, mrs *mdbmultiv1.MongoDBMultiCluster, directiveSpec operatorv1.MongoDBDirectiveSpec) error {
+// prepareReadOnlyConnection builds the leader's Ops Manager connection from the project
+// ConfigMap and credentials Secret on its own cluster, discovering the pre-provisioned project
+// read-only — never connection.PrepareOpsManagerConnection, which creates projects, retags them
+// and generates agent keys.
+func (r *ReconcileMongoDBMultiClusterLeader) prepareReadOnlyConnection(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (om.Connection, string, error) {
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.localClient, secrets.SecretClient{KubeClient: r.localClient}, mrs, log)
+	if err != nil {
+		return nil, "", err
+	}
+	omProject, conn, err := project.ReadProject(projectConfig, credsConfig, r.omConnectionFactory, log)
+	if err != nil {
+		return nil, "", err
+	}
+	return conn, omProject.ID, nil
+}
+
+// execute performs the one planned action and maps the decision one-to-one to a workflow status
+// — never workflow.Merge: one decision, one status.
+func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection, decision planDecision, log *zap.SugaredLogger) (reconcile.Result, error) {
+	switch decision.Kind {
+	case decisionWriteDirective:
+		memberClient, ok := r.memberClusterClientsMap[decision.TargetCluster]
+		if !ok {
+			return reconcile.Result{}, xerrors.Errorf("no client for member cluster %s", decision.TargetCluster)
+		}
+		if err := r.writeDirective(ctx, memberClient, kube.ObjectKey(mrs.Namespace, mrs.Name), decision.DirectiveSpec); err != nil {
+			return reconcile.Result{}, xerrors.Errorf("failed writing the directive to cluster %s: %w", decision.TargetCluster, err)
+		}
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
+	case decisionWriteAC:
+		if err := r.publishAutomationConfig(ctx, conn, mrs, *decision.AC, log); err != nil {
+			return reconcile.Result{}, xerrors.Errorf("failed publishing the automation config: %w", err)
+		}
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
+	case decisionInvalidSpec:
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Failed(errors.New(decision.Reason)), log)
+	case decisionNotProgressing:
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
+	}
+	return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.OK(), log)
+}
+
+// writeDirective puts the planned directive spec on one member cluster as a read-modify-write:
+// the stored allocation map is unioned into the decision's (a stored entry the planner did not
+// carry is preserved — a stale leader's single write must never regress a copy), AdvancedAt is
+// persisted only when the instruction actually changed, and an unchanged spec skips the write
+// entirely. A resourceVersion conflict (the member bumps it with status writes) is a transient
+// error; controller-runtime retries. The directive carries no owner reference: it is
+// leader-managed and usually lives on a foreign cluster, where GC would never fire.
+func (r *ReconcileMongoDBMultiClusterLeader) writeDirective(ctx context.Context, memberClient kubernetesClient.Client, nsName types.NamespacedName, desired operatorv1.MongoDBDirectiveSpec) error {
 	directive := operatorv1.MongoDBDirective{}
-	err := memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), &directive)
+	err := memberClient.Get(ctx, nsName, &directive)
 	if apiErrors.IsNotFound(err) {
 		directive = operatorv1.MongoDBDirective{
-			ObjectMeta: metav1.ObjectMeta{Name: mrs.Name, Namespace: mrs.Namespace},
-			Spec:       directiveSpec,
+			ObjectMeta: metav1.ObjectMeta{Name: nsName.Name, Namespace: nsName.Namespace},
+			Spec:       desired,
 		}
 		return memberClient.Create(ctx, &directive)
 	}
@@ -206,8 +247,63 @@ func (r *ReconcileMongoDBMultiClusterLeader) createOrUpdateDirective(ctx context
 		return err
 	}
 
-	directive.Spec = directiveSpec
+	merged := maps.Clone(desired.IndexAllocations)
+	for cluster, index := range directive.Spec.IndexAllocations {
+		if _, ok := merged[cluster]; !ok {
+			merged[cluster] = index
+		}
+	}
+	desired.IndexAllocations = merged
+
+	unchanged := desired
+	unchanged.AdvancedAt = directive.Spec.AdvancedAt
+	if reflect.DeepEqual(directive.Spec, unchanged) {
+		return nil // write-quiescence; keeping the old AdvancedAt also keeps stuckness visible
+	}
+
+	directive.Spec = desired
 	return memberClient.Update(ctx, &directive)
+}
+
+// publishAutomationConfig is the leader-only, non-blocking sibling of the legacy
+// updateOmDeploymentRs (mongodbmultireplicaset_controller.go): the same composition — existing
+// process ids reused by name, NewMultiClusterReplicaSetWithProcesses, ReconcileReplicaSetAC —
+// minus the blocking waits, which the staged directive facts replace (agentRegistered gates this
+// write, inGoalState gates the next step), and minus auth/TLS/log-rotation/backup (cut from the
+// POC; a nil Security makes their AC hooks no-op anyway).
+func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context.Context, conn om.Connection, mrs *mdbmultiv1.MongoDBMultiCluster, payload acPayload, log *zap.SugaredLogger) error {
+	existingDeployment, err := conn.ReadDeployment()
+	if err != nil {
+		return err
+	}
+	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.Name, existingDeployment)
+
+	// the planner's allocation map fixes each cluster's index; counts are the planned membership
+	allocations := map[string]int{}
+	for _, view := range readDirectiveViews(ctx, r.memberClusterClientsMap, kube.ObjectKey(mrs.Namespace, mrs.Name), log) {
+		for cluster, index := range view.Spec.IndexAllocations {
+			allocations[cluster] = index
+		}
+	}
+	counts := make([]process.ClusterProcessCount, 0, len(payload.MemberCounts))
+	for cluster, memberCount := range payload.MemberCounts {
+		counts = append(counts, process.ClusterProcessCount{ClusterName: cluster, ClusterIndex: allocations[cluster], MemberCount: memberCount})
+	}
+	sort.Slice(counts, func(i, j int) bool { return counts[i].ClusterIndex < counts[j].ClusterIndex })
+
+	// forceEnterprise is not wired in the POC (a main.go flag on the legacy path)
+	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], false, *mrs, counts, "", r.defaultArchitecture)
+	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
+
+	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
+	return conn.ReadUpdateDeployment(func(d om.Deployment) error {
+		if err := ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, nil, mrs.Name, rs, caFilePath, "", nil, log); err != nil {
+			return err
+		}
+		// the term piggybacks on a membership write we are making anyway, never standalone
+		d.SetOperatorLeadershipTerm(payload.LeadershipTerm)
+		return nil
+	}, log)
 }
 
 // enqueueSameNameRequest maps an event on a coupled object to the same-name request: the
@@ -217,8 +313,8 @@ func enqueueSameNameRequest(_ context.Context, o client.Object) []reconcile.Requ
 }
 
 // AddMongoDBMultiClusterLeaderController creates the leader controller and adds it to the Manager.
-func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, projectID string, maxConcurrentReconciles int) error {
-	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector, projectID)
+func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
+	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector, omConnectionFactory, imageUrls, defaultArchitecture)
 	c, err := controller.New(util.MongoDbMultiClusterLeaderController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err

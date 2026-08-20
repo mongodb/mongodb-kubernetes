@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -19,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 // fakeElector returns a fixed leadership belief, for injecting arbitrary terms in tests.
@@ -31,31 +36,54 @@ func (e fakeElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 	return e.term, e.isLeader
 }
 
-// leaderReconcilerForTest builds a leader reconciler over one fake client per member cluster,
-// with the CR seeded into the self cluster's client (the operator's local API server).
-func leaderReconcilerForTest(m *mdbmulti.MongoDBMultiCluster, self string, elector Elector) (*ReconcileMongoDBMultiClusterLeader, map[string]client.Client) {
+// leaderReconcilerForTest builds a leader reconciler over one fake client per member cluster.
+// The self cluster's client holds the CR plus the project ConfigMap and credentials Secret (the
+// leader discovers the pre-provisioned OM project through them); the shared mocked factory is
+// returned for OM-side assertions.
+func leaderReconcilerForTest(m *mdbmulti.MongoDBMultiCluster, self string, elector Elector) (*ReconcileMongoDBMultiClusterLeader, map[string]client.Client, *om.CachedOMConnectionFactory) {
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	clientsMap := make(map[string]client.Client)
 	for _, clusterName := range clusters {
 		if clusterName == self {
-			clientsMap[clusterName] = mock.NewEmptyFakeClientBuilder().WithObjects(m).Build()
+			clientsMap[clusterName] = mock.NewEmptyFakeClientBuilder().WithObjects(m).WithObjects(mock.GetDefaultResources()...).Build()
 		} else {
 			clientsMap[clusterName] = mock.NewEmptyFakeClientBuilder().Build()
 		}
 	}
-	return newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector, om.TestGroupID), clientsMap
+	reconciler := newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector, omConnectionFactory.GetConnectionFunc, nil, architectures.NonStatic)
+	return reconciler, clientsMap, omConnectionFactory
 }
 
-func TestLeaderWritesDirectivesToAllClusters(t *testing.T) {
+// driveLeaderPasses reconciles the leader repeatedly; each pass executes at most one decision.
+func driveLeaderPasses(ctx context.Context, t *testing.T, reconciler *ReconcileMongoDBMultiClusterLeader, m *mdbmulti.MongoDBMultiCluster, passes int) {
+	for i := 0; i < passes; i++ {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(m))
+		require.NoError(t, err, "pass %d", i)
+	}
+}
+
+func TestLeaderFirstDeployWritesDirectivesOneDecisionPerPass(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, clientsMap := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
+	reconciler, clientsMap, omConnectionFactory := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
 
+	// pass 1 records the allocation map on the first cluster at member count 0
 	result, err := reconciler.Reconcile(ctx, requestFromObject(m))
 	require.NoError(t, err)
 	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, result)
 
+	directive := operatorv1.MongoDBDirective{}
+	require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &directive))
+	assert.Equal(t, 0, directive.Spec.MemberCount)
+	assert.Equal(t, map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}, directive.Spec.IndexAllocations)
+	err = clientsMap[clusters[2]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &operatorv1.MongoDBDirective{})
+	assert.True(t, apiErrors.IsNotFound(err), "one decision per pass: the last cluster has no directive yet")
+
+	// allocation push + three full-count advancements (first deploy runs parallel, no
+	// convergence gate — the members never echo anything in this test)
+	driveLeaderPasses(ctx, t, reconciler, m, 4)
+
 	wantHash := mustSpecHash(t, m.Spec)
-	wantAllocations := map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}
 	for i, item := range m.Spec.ClusterSpecList {
 		directive := operatorv1.MongoDBDirective{}
 		require.NoError(t, clientsMap[item.ClusterName].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &directive))
@@ -64,22 +92,27 @@ func TestLeaderWritesDirectivesToAllClusters(t *testing.T) {
 		assert.Equal(t, wantHash, directive.Spec.TargetSpecHash)
 		assert.Equal(t, item.Members, directive.Spec.MemberCount)
 		assert.Equal(t, i, directive.Spec.ClusterIndex)
-		assert.Equal(t, wantAllocations, directive.Spec.IndexAllocations)
-		assert.Equal(t, om.TestGroupID, directive.Spec.ProjectID)
+		assert.Equal(t, om.TestGroupID, directive.Spec.ProjectID, "the discovered project id is stamped")
+		assert.False(t, directive.Spec.AdvancedAt.IsZero())
 	}
 
 	require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m))
 	assert.Equal(t, status.PhasePending, m.Status.Phase)
 
-	// second pass is idempotent: the directives exist, so the update path runs
-	_, err = reconciler.Reconcile(ctx, requestFromObject(m))
-	require.NoError(t, err)
+	// with no member echoing agentRegistered, more passes must not publish the automation config
+	driveLeaderPasses(ctx, t, reconciler, m, 2)
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedConn.CheckNumberOfUpdateRequests(t, 0)
+	mockedConn.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(mockedConn.CreateProject),
+		reflect.ValueOf(mockedConn.UpdateProject),
+		reflect.ValueOf(mockedConn.GenerateAgentKey))
 }
 
 func TestNonLeaderWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, clientsMap := leaderReconcilerForTest(m, clusters[1], NewStaticElector(clusters[1], clusters[0]))
+	reconciler, clientsMap, _ := leaderReconcilerForTest(m, clusters[1], NewStaticElector(clusters[1], clusters[0]))
 
 	result, err := reconciler.Reconcile(ctx, requestFromObject(m))
 	require.NoError(t, err)
@@ -97,14 +130,114 @@ func TestNonLeaderWritesNothing(t *testing.T) {
 func TestElectorTermFlowsIntoDirectiveSpec(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, clientsMap := leaderReconcilerForTest(m, clusters[0], fakeElector{term: 42, isLeader: true})
+	reconciler, clientsMap, _ := leaderReconcilerForTest(m, clusters[0], fakeElector{term: 42, isLeader: true})
 
 	_, err := reconciler.Reconcile(ctx, requestFromObject(m))
 	require.NoError(t, err)
 
-	for _, item := range m.Spec.ClusterSpecList {
-		directive := operatorv1.MongoDBDirective{}
-		require.NoError(t, clientsMap[item.ClusterName].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &directive))
-		assert.Equal(t, int64(42), directive.Spec.LeadershipTerm)
+	directive := operatorv1.MongoDBDirective{}
+	require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &directive))
+	assert.Equal(t, int64(42), directive.Spec.LeadershipTerm)
+}
+
+func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, clientsMap, _ := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
+	memberClient := reconciler.memberClusterClientsMap[clusters[1]]
+
+	// a stored entry the planner does not carry (a ghost from a previous leader) must survive
+	stored := buildDirective(m, clusters[1], 1, "old-hash")
+	stored.Spec.IndexAllocations = map[string]int{clusters[1]: 1, "removed-cluster": 9}
+	require.NoError(t, clientsMap[clusters[1]].Create(ctx, stored))
+
+	desired := operatorv1.MongoDBDirectiveSpec{
+		ClusterName:      clusters[1],
+		LeadershipTerm:   2,
+		TargetSpecHash:   "new-hash",
+		MemberCount:      2,
+		ClusterIndex:     1,
+		IndexAllocations: map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2},
+		ProjectID:        om.TestGroupID,
+		AdvancedAt:       metav1.NewTime(time.Now().Truncate(time.Second)),
 	}
+	require.NoError(t, reconciler.writeDirective(ctx, memberClient, kube.ObjectKey(m.Namespace, m.Name), desired))
+
+	readBack := operatorv1.MongoDBDirective{}
+	require.NoError(t, memberClient.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
+	assert.Equal(t, 9, readBack.Spec.IndexAllocations["removed-cluster"], "union keeps the stored entry")
+	assert.Equal(t, "new-hash", readBack.Spec.TargetSpecHash)
+	assert.Equal(t, desired.AdvancedAt, readBack.Spec.AdvancedAt)
+
+	// an unchanged instruction skips the write and keeps AdvancedAt, so stuckness stays visible
+	resourceVersion := readBack.ResourceVersion
+	repeat := desired
+	repeat.AdvancedAt = metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
+	require.NoError(t, reconciler.writeDirective(ctx, memberClient, kube.ObjectKey(m.Namespace, m.Name), repeat))
+	require.NoError(t, memberClient.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
+	assert.Equal(t, resourceVersion, readBack.ResourceVersion)
+	assert.Equal(t, desired.AdvancedAt, readBack.Spec.AdvancedAt)
+}
+
+func TestPublishAutomationConfig(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, _, omConnectionFactory := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
+
+	// directives (and their allocation maps) in place after the first-deploy passes
+	driveLeaderPasses(ctx, t, reconciler, m, 5)
+	conn := omConnectionFactory.GetConnection()
+
+	payload := acPayload{LeadershipTerm: 7, MemberCounts: map[string]int{clusters[0]: 2, clusters[1]: 1, clusters[2]: 1}}
+	require.NoError(t, reconciler.publishAutomationConfig(ctx, conn, m, payload, zap.S()))
+
+	deployment, err := conn.ReadDeployment()
+	require.NoError(t, err)
+	term, ok := deployment.GetOperatorLeadershipTerm()
+	assert.True(t, ok)
+	assert.Equal(t, int64(7), term)
+
+	rs := deployment.GetReplicaSetByName(m.Name)
+	require.NotNil(t, rs)
+	memberIds := rs.MemberIds()
+	assert.Len(t, memberIds, 4)
+	assert.Contains(t, memberIds, m.Name+"-0-0")
+	assert.Contains(t, memberIds, m.Name+"-0-1")
+	assert.Contains(t, memberIds, m.Name+"-1-0")
+	assert.Contains(t, memberIds, m.Name+"-2-0")
+
+	// republishing with one more member keeps the existing process ids stable
+	payload.MemberCounts[clusters[1]] = 2
+	require.NoError(t, reconciler.publishAutomationConfig(ctx, conn, m, payload, zap.S()))
+	deployment, err = conn.ReadDeployment()
+	require.NoError(t, err)
+	assert.Equal(t, memberIds[m.Name+"-0-0"], deployment.GetReplicaSetByName(m.Name).MemberIds()[m.Name+"-0-0"])
+}
+
+func TestExecuteMapsDecisionsToStatuses(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, clientsMap, _ := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
+
+	t.Run("InvalidSpec is terminal", func(t *testing.T) {
+		_, err := reconciler.execute(ctx, m, nil, planDecision{Kind: decisionInvalidSpec, Reason: "scaling both ways"}, zap.S())
+		require.NoError(t, err)
+		require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m))
+		assert.Equal(t, status.PhaseFailed, m.Status.Phase)
+	})
+
+	t.Run("NotProgressing is transient", func(t *testing.T) {
+		_, err := reconciler.execute(ctx, m, nil, planDecision{Kind: decisionNotProgressing, Reason: "waiting"}, zap.S())
+		require.NoError(t, err)
+		require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m))
+		assert.Equal(t, status.PhasePending, m.Status.Phase)
+	})
+
+	t.Run("Noop is Running", func(t *testing.T) {
+		result, err := reconciler.execute(ctx, m, nil, planDecision{Kind: decisionNoop, Reason: "converged"}, zap.S())
+		require.NoError(t, err)
+		assert.True(t, result.RequeueAfter > time.Hour)
+		require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m))
+		assert.Equal(t, status.PhaseRunning, m.Status.Phase)
+	})
 }

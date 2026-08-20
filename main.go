@@ -46,6 +46,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -503,10 +504,7 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 // (plans MongoDBMultiCluster deployments by writing directives) and the member (materializes the
 // local directive). Every operator runs both; the elector decides which one acts per deployment.
 func setupMongoDBDirectiveCRD(mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, elector operator.Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
-	// the leader stamps the OM project id into directives; wired for real with the leader's OM
-	// connection (planner milestone), empty until then
-	projectID := ""
-	if err := operator.AddMongoDBMultiClusterLeaderController(mgr, memberClusterObjectsMap, elector, projectID, maxConcurrentReconciles); err != nil {
+	if err := operator.AddMongoDBMultiClusterLeaderController(mgr, memberClusterObjectsMap, elector, om.NewOpsManagerConnection, imageUrls, defaultArchitecture, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return operator.AddMongoDBDirectiveController(mgr, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, maxConcurrentReconciles)
