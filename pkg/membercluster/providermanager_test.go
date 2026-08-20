@@ -210,3 +210,121 @@ func TestSyncErrorsWhenCredentialSecretMissing(t *testing.T) {
 	require.NoError(t, m.sync(ctx, mc, zap.S()))
 	assert.Contains(t, provider.Entries(), "cluster-bad")
 }
+
+func TestSyncRefusesDuplicateClusterName(t *testing.T) {
+	ctx := t.Context()
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
+		credentialSecret("mck-credential-a", "https://a.example.com:6443"),
+		credentialSecret("mck-credential-b", "https://b.example.com:6443"),
+	).Build()
+	provider := multicluster.NewProvider()
+	hook := &recordedHook{}
+	provider.RegisterHooks(ctx, hook.hooks())
+	m := newTestProviderManager(ctx, c, provider)
+
+	require.NoError(t, m.sync(ctx, memberClusterCR("cr-a", "shared-name", "mck-credential-a"), zap.S()))
+
+	// A second CR claiming the same clusterName is refused: first writer wins.
+	err := m.sync(ctx, memberClusterCR("cr-b", "shared-name", "mck-credential-b"), zap.S())
+	require.ErrorContains(t, err, `clusterName "shared-name" is already registered by MemberCluster "cr-a"`)
+	entry := provider.Entries()["shared-name"]
+	assert.Equal(t, "cr-a", entry.ResourceName)
+	assert.Equal(t, "https://a.example.com:6443", entry.Cluster.GetConfig().Host)
+	assert.Equal(t, []string{"shared-name"}, hook.added)
+	assert.Empty(t, hook.removed)
+
+	// Deleting the losing CR is a no-op; deleting the owner deregisters the entry.
+	m.remove(ctx, "cr-b", zap.S())
+	assert.Len(t, provider.Entries(), 1)
+	m.remove(ctx, "cr-a", zap.S())
+	assert.Empty(t, provider.Entries())
+}
+
+func TestRemoveKeepsProviderEntryOwnedByAnotherCR(t *testing.T) {
+	ctx := t.Context()
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
+		credentialSecret("mck-credential-a", "https://a.example.com:6443"),
+	).Build()
+	provider := multicluster.NewProvider()
+	m := newTestProviderManager(ctx, c, provider)
+
+	require.NoError(t, m.sync(ctx, memberClusterCR("cr-a", "shared-name", "mck-credential-a"), zap.S()))
+
+	// Simulate an entry that was overwritten by another CR (defence in depth: the
+	// duplicate-registration refusal should make this unreachable).
+	provider.Set(ctx, "shared-name", multicluster.Entry{ResourceName: "cr-b"})
+
+	m.remove(ctx, "cr-a", zap.S())
+	entry, ok := provider.Entries()["shared-name"]
+	require.True(t, ok, "the provider entry owned by cr-b must survive cr-a's removal")
+	assert.Equal(t, "cr-b", entry.ResourceName)
+}
+
+func TestSyncKeepsOldEntryWhenRebuildFails(t *testing.T) {
+	ctx := t.Context()
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
+		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
+	).Build()
+	provider := multicluster.NewProvider()
+
+	calls := 0
+	failingFactory := func(restConfig *restclient.Config) (cluster.Cluster, error) {
+		calls++
+		if calls > 1 {
+			return nil, fmt.Errorf("bad config")
+		}
+		return newTestCluster(restConfig)
+	}
+	m := newProviderManager(ctx, c, testNamespace, testClientTimeout, provider, failingFactory)
+
+	require.NoError(t, m.sync(ctx, memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"), zap.S()))
+	require.Len(t, provider.Entries(), 1)
+
+	// The spec change fails to build: the old entry keeps serving.
+	err := m.sync(ctx, withGeneration(memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"), 2), zap.S())
+	require.ErrorContains(t, err, "bad config")
+	assert.Equal(t, "https://east.example.com:6443", provider.Entries()["cluster-east"].Cluster.GetConfig().Host)
+}
+
+func TestStartDrainsEntriesOnShutdown(t *testing.T) {
+	ctx := t.Context()
+	c := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
+		credentialSecret("mck-credential-cluster-east", "https://east.example.com:6443"),
+	).Build()
+	provider := multicluster.NewProvider()
+
+	// A cluster whose Start blocks until its context is cancelled, like a real one.
+	blockingFactory := func(restConfig *restclient.Config) (cluster.Cluster, error) {
+		base, err := newTestCluster(restConfig)
+		return &blockingCluster{Cluster: base}, err
+	}
+	m := newProviderManager(ctx, c, testNamespace, testClientTimeout, provider, blockingFactory)
+	require.NoError(t, m.sync(ctx, memberClusterCR("cluster-east", "cluster-east", "mck-credential-cluster-east"), zap.S()))
+
+	mgrCtx, mgrCancel := context.WithCancel(ctx)
+	startDone := make(chan error, 1)
+	go func() { startDone <- m.Start(mgrCtx) }()
+
+	select {
+	case <-startDone:
+		t.Fatal("Start returned before the manager context was cancelled")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	mgrCancel()
+	select {
+	case err := <-startDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after shutdown: per-entry goroutines were not drained")
+	}
+}
+
+type blockingCluster struct {
+	cluster.Cluster
+}
+
+func (c *blockingCluster) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}

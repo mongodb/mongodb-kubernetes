@@ -35,6 +35,10 @@ func NewReconciler(baseCtx context.Context, c client.Client, namespace string, c
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// providerManager.Start drains the per-entry cluster goroutines on manager shutdown.
+	if err := mgr.Add(r.providerMgr); err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("membercluster").
 		For(&operatorv1.MemberCluster{}).
