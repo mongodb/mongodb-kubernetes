@@ -12,6 +12,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 )
@@ -222,6 +223,20 @@ func TestDecentralizedSpecViolations(t *testing.T) {
 		}}
 		assert.Empty(t, decentralizedSpecViolations(spec))
 	})
+}
+
+func TestClusterStatusOptionReportsGrantedCounts(t *testing.T) {
+	// mid-scale, the status must show what the leader instructed (granted), not the spec's target
+	b := converged(2, 2, 2)
+	b.s.Targets[0].Members = 4
+	b.withGrantedDirective(clusters[0], 3)
+	option := clusterStatusOption(b.build()).(status.MultiReplicaSetMemberOption)
+	assert.Equal(t, 7, option.Members)
+	assert.Equal(t, []status.ClusterStatusItem{
+		{ClusterName: clusters[0], Members: 3},
+		{ClusterName: clusters[1], Members: 2},
+		{ClusterName: clusters[2], Members: 2},
+	}, option.ClusterStatusList)
 }
 
 func TestPlanUnsupportedSpecRefused(t *testing.T) {

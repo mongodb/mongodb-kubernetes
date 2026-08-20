@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
 func TestMongoDBMultiSpecMinimumMajorVersion(t *testing.T) {
@@ -37,4 +38,20 @@ func TestMongoDBMultiSpecMinimumMajorVersion(t *testing.T) {
 			assert.Equalf(t, tt.want, m.MinimumMajorVersion(), "MinimumMajorVersion()")
 		})
 	}
+}
+
+func TestUpdateStatusPopulatesClusterStatusList(t *testing.T) {
+	m := &MongoDBMultiCluster{}
+	m.UpdateStatus(status.PhasePending, status.MultiReplicaSetMemberOption{
+		Members: 3,
+		ClusterStatusList: []status.ClusterStatusItem{
+			{ClusterName: "cluster-0", Members: 2},
+			{ClusterName: "cluster-1", Members: 1},
+		},
+	})
+
+	assert.Equal(t, ClusterStatusList{ClusterStatuses: []ClusterStatusItem{
+		{ClusterName: "cluster-0", Members: 2},
+		{ClusterName: "cluster-1", Members: 1},
+	}}, m.Status.ClusterStatusList)
 }

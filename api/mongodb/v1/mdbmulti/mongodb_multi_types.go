@@ -269,6 +269,15 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
 	}
 
+	if option, exists := status.GetOption(statusOptions, status.MultiReplicaSetMemberOption{}); exists {
+		memberOption := option.(status.MultiReplicaSetMemberOption)
+		clusterStatuses := make([]ClusterStatusItem, 0, len(memberOption.ClusterStatusList))
+		for _, item := range memberOption.ClusterStatusList {
+			clusterStatuses = append(clusterStatuses, ClusterStatusItem{ClusterName: item.ClusterName, Members: item.Members})
+		}
+		m.Status.ClusterStatusList = ClusterStatusList{ClusterStatuses: clusterStatuses}
+	}
+
 	if phase == status.PhaseRunning {
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 	}

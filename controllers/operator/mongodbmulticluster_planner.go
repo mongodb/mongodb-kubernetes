@@ -11,6 +11,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
@@ -238,6 +239,20 @@ func granted(s plannerSnapshot, clusterName string) int {
 		return d.Spec.MemberCount
 	}
 	return 0
+}
+
+// clusterStatusOption reports each spec cluster's granted member count — what the leader last
+// instructed, the closest honest "materialized" number it owns. Attached to every status write:
+// the list carries facts, not judgment, so it rides Failed and Pending too.
+func clusterStatusOption(s plannerSnapshot) status.Option {
+	items := make([]status.ClusterStatusItem, 0, len(s.Targets))
+	total := 0
+	for _, t := range s.Targets {
+		g := granted(s, t.ClusterName)
+		items = append(items, status.ClusterStatusItem{ClusterName: t.ClusterName, Members: g})
+		total += g
+	}
+	return status.MultiReplicaSetMemberOption{Members: total, ClusterStatusList: items}
 }
 
 // allocatedIndex resolves a cluster's index from the visible allocations, falling back to the

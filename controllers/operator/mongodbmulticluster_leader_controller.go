@@ -91,6 +91,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
@@ -190,7 +191,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 		log.Debugf("Cluster %s: %s", t.ClusterName, classifyCluster(snapshot.Directives[t.ClusterName], snapshot.SpecHash))
 	}
 
-	return r.execute(ctx, &mrs, conn, decision, log)
+	return r.execute(ctx, &mrs, conn, decision, log, clusterStatusOption(snapshot))
 }
 
 // prepareReadOnlyConnection builds the leader's Ops Manager connection from the project
@@ -210,8 +211,8 @@ func (r *ReconcileMongoDBMultiClusterLeader) prepareReadOnlyConnection(ctx conte
 }
 
 // execute performs the one planned action and maps the decision one-to-one to a workflow status
-// — never workflow.Merge: one decision, one status.
-func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection, decision planDecision, log *zap.SugaredLogger) (reconcile.Result, error) {
+// — never workflow.Merge: one decision, one status. The statusOptions ride every write.
+func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection, decision planDecision, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	switch decision.Kind {
 	case decisionWriteDirective:
 		memberClient, ok := r.memberClusterClientsMap[decision.TargetCluster]
@@ -221,7 +222,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *m
 		if err := r.writeDirective(ctx, memberClient, kube.ObjectKey(mrs.Namespace, mrs.Name), decision.DirectiveSpec); err != nil {
 			return reconcile.Result{}, xerrors.Errorf("failed writing the directive to cluster %s: %w", decision.TargetCluster, err)
 		}
-		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log, statusOptions...)
 	case decisionWriteAC:
 		if err := r.publishAutomationConfig(ctx, conn, mrs, *decision.AC, log); err != nil {
 			return reconcile.Result{}, xerrors.Errorf("failed publishing the automation config: %w", err)
@@ -230,13 +231,13 @@ func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *m
 			// the AC write already happened; the record is best-effort and the next pass retries
 			log.Warnf("Failed saving the last achieved spec annotation: %s", err)
 		}
-		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log, statusOptions...)
 	case decisionInvalidSpec:
-		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Failed(errors.New(decision.Reason)), log)
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Failed(errors.New(decision.Reason)), log, statusOptions...)
 	case decisionNotProgressing:
-		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
+		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log, statusOptions...)
 	}
-	return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.OK(), log)
+	return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.OK(), log, statusOptions...)
 }
 
 // saveLastAchievedSpec records, on the leader's OWN cluster copy only, the spec whose

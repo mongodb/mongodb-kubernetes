@@ -157,6 +157,14 @@ func TestDecentralizedFullDeployReachesRunning(t *testing.T) {
 
 	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
 
+	crCopy := &mdbmulti.MongoDBMultiCluster{}
+	require.NoError(t, w.clients[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), crCopy))
+	var wantClusterStatuses []mdbmulti.ClusterStatusItem
+	for _, item := range m.Spec.ClusterSpecList {
+		wantClusterStatuses = append(wantClusterStatuses, mdbmulti.ClusterStatusItem{ClusterName: item.ClusterName, Members: item.Members})
+	}
+	assert.Equal(t, wantClusterStatuses, crCopy.Status.ClusterStatusList.ClusterStatuses)
+
 	wantHash := mustSpecHash(t, m.Spec)
 	for _, item := range m.Spec.ClusterSpecList {
 		directive := w.readDirective(ctx, t, item.ClusterName)
