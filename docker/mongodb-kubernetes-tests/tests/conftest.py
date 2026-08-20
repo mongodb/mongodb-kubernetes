@@ -1352,13 +1352,14 @@ def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[s
 
 
 def run_kube_config_creation_tool(
-    member_clusters: List[str],
+    member_clusters: list[str],
     central_namespace: str,
     member_namespace: str,
-    member_cluster_names: List[str],
-    cluster_scoped: Optional[bool] = False,
+    member_cluster_names: list[str],
+    cluster_scoped: bool = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
+    member_cluster_cas: dict[str, str] | None = None,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1382,6 +1383,10 @@ def run_kube_config_creation_tool(
         "--operator-name",
         operator_name,
     ]
+
+    for cluster_name, ca_path in (member_cluster_cas or {}).items():
+        args.append("--member-cluster-ca")
+        args.append(f"{cluster_name}={ca_path}")
 
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
         args.append("--create-service-account-secrets")

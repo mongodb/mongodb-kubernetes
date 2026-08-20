@@ -29,6 +29,7 @@ type clusterType string
 var (
 	MemberClusters           string
 	MemberClustersApiServers string
+	MemberClusterCAFiles     []string
 )
 
 var (
@@ -58,6 +59,7 @@ type Flags struct {
 	SourceCluster                 string
 	CreateServiceAccountSecrets   bool
 	ImagePullSecrets              string
+	MemberClusterCAs              map[string][]byte
 }
 
 const (
@@ -794,6 +796,11 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 		token, ok := tokenSecret.Data["token"]
 		if !ok {
 			return KubeConfigFile{}, xerrors.Errorf("key 'token' missing from token secret %s", tokenSecret.Name)
+		}
+
+		// a custom CA, when given, replaces the one from the ServiceAccount token secret
+		if customCA, ok := flags.MemberClusterCAs[clusterName]; ok {
+			ca = customCA
 		}
 
 		config.Clusters = append(config.Clusters, KubeConfigClusterItem{

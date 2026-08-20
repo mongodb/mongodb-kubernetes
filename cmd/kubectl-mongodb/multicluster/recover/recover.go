@@ -26,6 +26,7 @@ func init() {
 	RecoverCmd.Flags().StringVar(&RecoverFlags.SourceCluster, "source-cluster", "", "The source cluster for recovery. This has to be one of the healthy member cluster that is the source of truth for new cluster configuration. [required]")
 	RecoverCmd.Flags().BoolVar(&RecoverFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	RecoverCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
+	RecoverCmd.Flags().StringArrayVar(&common.MemberClusterCAFiles, "member-cluster-ca", nil, "Custom CA certificate for a member cluster, in the form <member-cluster-name>=<path-to-pem-file>, repeatable once per cluster. [optional, default will take the CA from that cluster's ServiceAccount token secret]")
 }
 
 // RecoverCmd represents the recover command
@@ -33,7 +34,7 @@ var RecoverCmd = &cobra.Command{
 	Use:   "recover",
 	Short: "Recover the multicluster environment for MongoDB resources after a dataplane failure",
 	Long: `'recover' re-configures a failed multicluster environment to a enable the shuffling of dataplane
-resources to a new healthy topology.
+resources to a new healthy topology. Any --member-cluster-ca values passed to 'setup' must be passed here too.
 
 Example:
 
@@ -92,6 +93,10 @@ func parseRecoverFlags(args []string) error {
 		if RecoverFlags.MemberClusterApiServerUrls, err = common.GetMemberClusterApiServerUrls(kubeconfig, RecoverFlags.MemberClusters); err != nil {
 			return err
 		}
+	}
+
+	if RecoverFlags.MemberClusterCAs, err = common.ParseMemberClusterCAs(common.MemberClusterCAFiles, RecoverFlags.MemberClusters); err != nil {
+		return err
 	}
 	return nil
 }

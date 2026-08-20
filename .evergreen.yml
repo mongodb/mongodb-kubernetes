@@ -1056,6 +1056,7 @@ task_groups:
       - e2e_multi_cluster_replica_set_member_options
       - e2e_multi_cluster_recover
       - e2e_multi_cluster_recover_clusterwide
+      - e2e_multi_cluster_cli_custom_ca
       - e2e_multi_cluster_specific_namespaces
       - e2e_multi_cluster_scram
       - e2e_multi_cluster_tls_with_x509
