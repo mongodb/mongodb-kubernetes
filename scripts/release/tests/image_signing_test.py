@@ -45,10 +45,13 @@ def test_get_platform_manifest_digests(mock_run, name, manifest, want_digests):
     assert digests == want_digests
 
 
+OK = MagicMock()
 NO_SIGNATURE_ERR = CalledProcessError(1, ["cosign", "verify"], stderr="Error: no signatures found")
 INVALID_SIGNATURE_ERR = CalledProcessError(
     1, ["cosign", "verify"], stderr="Error: no matching signatures: invalid signature when validating ASN.1"
 )
+# _sig_tag_exists calls run_command_with_retries; any CalledProcessError means the tag wasn't found.
+SIG_TAG_MISSING = CalledProcessError(1, ["skopeo", "inspect"], stderr="manifest unknown")
 
 
 @pytest.mark.parametrize(
@@ -57,15 +60,15 @@ INVALID_SIGNATURE_ERR = CalledProcessError(
         (
             "top-level and all platform digests signed: passes",
             ["sha256:amd64digest", "sha256:arm64digest"],
-            [MagicMock(), MagicMock(), MagicMock()],
+            [OK, OK, OK, OK, OK],
             "",
-            3,
+            5,
             True,
         ),
         (
             "platform digest missing signature: warns only, does not raise",
             ["sha256:amd64digest"],
-            [MagicMock(), NO_SIGNATURE_ERR],
+            [OK, SIG_TAG_MISSING],
             "",
             2,
             True,
@@ -73,9 +76,9 @@ INVALID_SIGNATURE_ERR = CalledProcessError(
         (
             "platform digest has invalid signature: raises",
             ["sha256:amd64digest"],
-            [MagicMock(), INVALID_SIGNATURE_ERR],
+            [OK, OK, INVALID_SIGNATURE_ERR],
             "Failed to verify signature for platform image",
-            2,
+            3,
             True,
         ),
         (

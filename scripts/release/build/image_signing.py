@@ -104,6 +104,11 @@ def is_ecr_registry(image_name: str) -> bool:
     return "amazonaws.com" in image_name
 
 
+def _append_ecr_creds(command: List[str], image_name: str) -> None:
+    if is_ecr_registry(image_name):
+        command.append(f"--creds=AWS:{get_ecr_login_password(os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))}")
+
+
 def get_image_digest(image_name: str) -> Optional[str]:
     """
     Retrieves the digest of an image from its tag. Uses the skopeo container to be able to retrieve manifests tags as well.
@@ -124,10 +129,7 @@ def get_image_digest(image_name: str) -> Optional[str]:
     ]
 
     # Specify ECR credentials if necessary
-    if is_ecr_registry(image_name):
-        aws_region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-        ecr_password = get_ecr_login_password(aws_region)
-        digest_command.append(f"--creds=AWS:{ecr_password}")
+    _append_ecr_creds(digest_command, image_name)
 
     digest_command.append(f"{transport_protocol}{image_name}")
 
@@ -161,10 +163,7 @@ def get_platform_manifest_digests(image_name: str) -> List[str]:
         "--raw",
     ]
 
-    if is_ecr_registry(image_name):
-        aws_region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-        ecr_password = get_ecr_login_password(aws_region)
-        raw_command.append(f"--creds=AWS:{ecr_password}")
+    _append_ecr_creds(raw_command, image_name)
 
     raw_command.append(f"{transport_protocol}{image_name}")
 
@@ -186,6 +185,25 @@ def get_platform_manifest_digests(image_name: str) -> List[str]:
             continue
         digests.append(entry["digest"])
     return digests
+
+
+def _sig_tag_exists(repository: str, digest: str) -> bool:
+    sig_ref = f"{repository}:sha256-{digest.split(':', 1)[1]}.sig"
+    command = [
+        "docker",
+        "run",
+        "--rm",
+        f"--volume={os.path.expanduser('~')}/.aws:/root/.aws:ro",
+        "quay.io/skopeo/stable:latest",
+        "inspect",
+    ]
+    _append_ecr_creds(command, sig_ref)
+    command.append(f"docker://{sig_ref}")
+    try:
+        run_command_with_retries(command, retries=2)
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
 
 def build_cosign_docker_command(additional_args: List[str], cosign_command: List[str]) -> List[str]:
@@ -324,17 +342,16 @@ def verify_signature(repository: str, tag: str):
     # signature on a platform digest is still a hard failure.
     for digest in get_platform_manifest_digests(image):
         platform_ref = f"{repository}@{digest}"
+        if not _sig_tag_exists(repository, digest):
+            logger.warning(
+                f"No recursive signature found for platform image {platform_ref}. "
+                "This is expected for images signed before recursive signing was introduced."
+            )
+            continue
         try:
             verify_ref(platform_ref)
         except subprocess.CalledProcessError as e:
-            stderr = e.stderr or ""
-            if "no signatures found" in stderr:
-                logger.warning(
-                    f"No recursive signature found for platform image {platform_ref}. "
-                    "This is expected for images signed before recursive signing was introduced."
-                )
-                continue
-            raise Exception(f"Failed to verify signature for platform image {platform_ref}: {stderr}")
+            raise Exception(f"Failed to verify signature for platform image {platform_ref}: {e.stderr}")
 
     end_time = time.time()
     duration = end_time - start_time
