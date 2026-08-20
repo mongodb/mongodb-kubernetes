@@ -74,6 +74,7 @@ const (
 	mongoDBSearchCRDPlural       = "mongodbsearch"
 	voyageAICRDPlural            = "voyageais"
 	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
+	mongoDBDirectiveCRDPlural    = "mongodbdirectives"
 )
 
 var (
@@ -268,7 +269,12 @@ func run() error {
 	// memberClusterObjectsMap is a map of clusterName -> clusterObject
 	memberClusterObjectsMap := make(map[string]runtime_cluster.Cluster)
 
-	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
+	// the decentralized controllers (mongodbdirectives) need the member-cluster clients too, and
+	// must be able to run with the legacy mongodbmulticluster controller switched off
+	needsMemberClusterClients := slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) ||
+		slices.Contains(watchedResources, mongoDBDirectiveCRDPlural)
+
+	if needsMemberClusterClients {
 		// Discover member clusters from MemberCluster CRs + their per-cluster credential Secrets.
 		// A direct (uncached) client is used because the manager cache is not started yet.
 		directClient, err := client.New(cfg, client.Options{Scheme: scheme})
@@ -356,6 +362,25 @@ func run() error {
 	}
 	if slices.Contains(watchedResources, voyageAICRDPlural) {
 		if err := setupVoyageAICRD(ctx, mgr, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
+			return err
+		}
+	}
+	if slices.Contains(watchedResources, mongoDBDirectiveCRDPlural) {
+		selfClusterName := operator.GetOperatorClusterName()
+		leaderClusterName := env.ReadOrDefault(util.OperatorLeaderClusterNameEnv, "")
+		log.Infof("Decentralized multi-cluster mode enabled: operator cluster identity = %q, designated leader cluster = %q", selfClusterName, leaderClusterName)
+
+		// the leader writes directives to its own cluster through the same map as to its peers;
+		// the manager already is a cluster.Cluster for the local API server, so no new informers
+		// and no mgr.Add
+		if selfClusterName != "" {
+			if _, ok := memberClusterObjectsMap[selfClusterName]; !ok {
+				memberClusterObjectsMap[selfClusterName] = mgr
+			}
+		}
+
+		elector := operator.NewStaticElector(selfClusterName, leaderClusterName)
+		if err := setupMongoDBDirectiveCRD(mgr, memberClusterObjectsMap, elector, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
@@ -472,6 +497,16 @@ func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, image
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
 		WithValidator(&mdbmultiv1.MongoDBMultiClusterValidator{}).
 		Complete()
+}
+
+// setupMongoDBDirectiveCRD registers the decentralized multi-cluster controllers: the leader
+// (plans MongoDBMultiCluster deployments by writing directives) and the member (materializes the
+// local directive). Every operator runs both; the elector decides which one acts per deployment.
+func setupMongoDBDirectiveCRD(mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, elector operator.Elector, maxConcurrentReconciles int) error {
+	if err := operator.AddMongoDBMultiClusterLeaderController(mgr, memberClusterObjectsMap, elector, maxConcurrentReconciles); err != nil {
+		return err
+	}
+	return operator.AddMongoDBDirectiveController(mgr, elector, maxConcurrentReconciles)
 }
 
 func setupVoyageAICRD(ctx context.Context, mgr manager.Manager, maxConcurrentReconciles int) error {
