@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
@@ -234,6 +236,128 @@ func TestMaterializerNeverWritesOM(t *testing.T) {
 		reflect.ValueOf(conn.CreateProject),
 		reflect.ValueOf(conn.UpdateProject),
 		reflect.ValueOf(conn.GenerateAgentKey))
+}
+
+func TestMaterializerDuplicateServices(t *testing.T) {
+	ctx := context.Background()
+
+	peerPodServices := func(m *mdbmulti.MongoDBMultiCluster) []string {
+		names := podServiceNames(m.Name, 1, m.Spec.ClusterSpecList[1].Members)
+		return append(names, podServiceNames(m.Name, 2, m.Spec.ClusterSpecList[2].Members)...)
+	}
+
+	t.Run("enabled: peer pod services are duplicated locally", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		m.Spec.DuplicateServiceObjects = ptr.To(true)
+		directive, objects := materializerSeeds(t, m)
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), om.NewDefaultCachedOMConnectionFactory(), true, objects...)
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+
+		for _, svcName := range peerPodServices(m) {
+			svc := corev1.Service{}
+			require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, svcName), &svc), "expected duplicated service %s", svcName)
+		}
+	})
+
+	t.Run("disabled: only own pods get services", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		m.Spec.DuplicateServiceObjects = ptr.To(false)
+		directive, objects := materializerSeeds(t, m)
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), om.NewDefaultCachedOMConnectionFactory(), true, objects...)
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+
+		for _, svcName := range podServiceNames(m.Name, 0, directive.Spec.MemberCount) {
+			svc := corev1.Service{}
+			require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, svcName), &svc))
+		}
+		for _, svcName := range peerPodServices(m) {
+			err := c.Get(ctx, kube.ObjectKey(m.Namespace, svcName), &corev1.Service{})
+			assert.True(t, apiErrors.IsNotFound(err), "unexpected duplicated service %s", svcName)
+		}
+	})
+}
+
+func TestMaterializerMirror(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	directive, objects := materializerSeeds(t, m)
+	reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), om.NewDefaultCachedOMConnectionFactory(), true, objects...)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+	require.NoError(t, err)
+
+	cm := corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-state", m.Name)), &cm))
+	require.Len(t, cm.OwnerReferences, 1)
+	assert.Equal(t, m.Name, cm.OwnerReferences[0].Name)
+	assert.True(t, *cm.OwnerReferences[0].Controller)
+
+	mirror := MirrorState{}
+	require.NoError(t, json.Unmarshal([]byte(cm.Data["state"]), &mirror))
+	assert.Equal(t, directive.Spec.TargetSpecHash, mirror.AppliedSpecHash)
+	assert.Equal(t, directive.Spec.MemberCount, mirror.AppliedMemberCount)
+	assert.Equal(t, 0, mirror.ClusterIndex)
+	assert.Equal(t, directive.Spec.IndexAllocations, mirror.IndexAllocations)
+	assert.Equal(t, om.TestGroupID, mirror.ProjectID)
+	assert.Equal(t, m.Spec.ClusterSpecList, mirror.AppliedSpec.ClusterSpecList)
+}
+
+func TestMaterializerRepairsFromMirrorWhileHolding(t *testing.T) {
+	ctx := context.Background()
+
+	setup := func(t *testing.T) (*ReconcileMongoDBDirective, client.Client, *mdbmulti.MongoDBMultiCluster, *operatorv1.MongoDBDirective) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		directive, objects := materializerSeeds(t, m)
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), om.NewDefaultCachedOMConnectionFactory(), true, objects...)
+
+		// a successful advance pass writes the mirror
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+
+		// the STS goes missing while the fence breaks (a newer directive the local spec copy
+		// has not caught up with)
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
+		require.NoError(t, c.Delete(ctx, &sts))
+
+		stored := operatorv1.MongoDBDirective{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &stored))
+		stored.Spec.TargetSpecHash = "a-spec-this-cluster-has-not-received"
+		require.NoError(t, c.Update(ctx, &stored))
+
+		return reconciler, c, m, directive
+	}
+
+	t.Run("deleted StatefulSet is rebuilt at the applied member count", func(t *testing.T) {
+		reconciler, c, m, directive := setup(t)
+
+		result, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{RequeueAfter: directiveHoldRetry}, result)
+
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
+		assert.Equal(t, int32(directive.Spec.MemberCount), *sts.Spec.Replicas)
+	})
+
+	t.Run("repairs even when the local CR copy is gone", func(t *testing.T) {
+		// the real API server would garbage-collect the owner-ref'd mirror with the CR; the
+		// fake client does not, which is exactly the window this repair path covers
+		reconciler, c, m, directive := setup(t)
+		require.NoError(t, c.Delete(ctx, m))
+
+		result, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{RequeueAfter: directiveHoldRetry}, result)
+
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
+		assert.Equal(t, int32(directive.Spec.MemberCount), *sts.Spec.Replicas)
+	})
 }
 
 func TestMaterializerRequiresPreProvisionedAgentKey(t *testing.T) {
