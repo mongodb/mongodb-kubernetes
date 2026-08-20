@@ -770,6 +770,12 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	if om.Spec.ExternalApplicationDatabaseRef != nil {
+		om.Status.AppDbStatus = AppDbStatus{}
+		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
+		return
+	}
+
 	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
