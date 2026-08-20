@@ -35,6 +35,31 @@ func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool,
 	return processes
 }
 
+// ClusterProcessCount is one cluster's slice of a multi-cluster replica set, expressed with
+// explicit granted values instead of the CR's spec (the decentralized leader plans from
+// directive grants, not from mrs.GetClusterSpecItems()).
+type ClusterProcessCount struct {
+	ClusterName  string
+	ClusterIndex int
+	MemberCount  int
+}
+
+// CreateMongodProcessesMultiFromCounts is the decentralized-planner sibling of
+// CreateMongodProcessesWithLimitMulti: identical process naming and hostname derivation, but
+// membership comes from the explicit counts (callers pass them sorted by ClusterIndex). Kept
+// side by side deliberately so the legacy-parity analysis can diff the two.
+func CreateMongodProcessesMultiFromCounts(mongoDBImage string, forceEnterprise bool, mrs mdbmultiv1.MongoDBMultiCluster, counts []ClusterProcessCount, certFileName string, defaultArchitecture architectures.DefaultArchitecture) []om.Process {
+	processes := make([]om.Process, 0)
+	for _, count := range counts {
+		hostnames := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, count.ClusterIndex, count.MemberCount, mrs.Spec.GetClusterDomain(), mrs.Spec.GetExternalDomainForMemberCluster(count.ClusterName))
+		for podNum, hostname := range hostnames {
+			name := fmt.Sprintf("%s-%d-%d", mrs.Name, count.ClusterIndex, podNum)
+			processes = append(processes, om.NewMongodProcess(name, hostname, mongoDBImage, forceEnterprise, mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations, mrs.CalculateFeatureCompatibilityVersion(), defaultArchitecture))
+		}
+	}
+	return processes
+}
+
 // CreateMongodProcessesWithLimitMulti creates the process array for automationConfig based on MultiCluster CR spec
 func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bool, mrs mdbmultiv1.MongoDBMultiCluster, certFileName string, defaultArchitecture architectures.DefaultArchitecture) ([]om.Process, error) {
 	hostnames := make([]string, 0)

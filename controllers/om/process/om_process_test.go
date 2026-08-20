@@ -5,8 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
@@ -150,4 +153,55 @@ func baseReplicaSet(name string, members int) *mdbv1.MongoDB {
 		SetVersion("7.0.0").
 		SetFCVersion(defaultFCV).
 		Build()
+}
+
+func TestCreateMongodProcessesMultiFromCounts(t *testing.T) {
+	clusters := []string{"cluster-0", "cluster-1", "cluster-2"}
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+
+	t.Run("Explicit counts drive names and hostnames", func(t *testing.T) {
+		counts := []ClusterProcessCount{
+			{ClusterName: "cluster-0", ClusterIndex: 0, MemberCount: 2},
+			{ClusterName: "cluster-1", ClusterIndex: 1, MemberCount: 1},
+		}
+		processes := CreateMongodProcessesMultiFromCounts(defaultMongoDBImage, false, *mrs, counts, "", architectures.NonStatic)
+
+		require.Len(t, processes, 3)
+		expectedNames := []string{
+			fmt.Sprintf("%s-0-0", mrs.Name),
+			fmt.Sprintf("%s-0-1", mrs.Name),
+			fmt.Sprintf("%s-1-0", mrs.Name),
+		}
+		var expectedHostnames []string
+		for _, count := range counts {
+			expectedHostnames = append(expectedHostnames, dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, count.ClusterIndex, count.MemberCount, mrs.Spec.GetClusterDomain(), nil)...)
+		}
+		for i, process := range processes {
+			assert.Equal(t, expectedNames[i], process.Name())
+			assert.Equal(t, expectedHostnames[i], process.HostName())
+		}
+	})
+
+	t.Run("Zero-count cluster contributes no processes", func(t *testing.T) {
+		counts := []ClusterProcessCount{
+			{ClusterName: "cluster-0", ClusterIndex: 0, MemberCount: 0},
+			{ClusterName: "cluster-1", ClusterIndex: 1, MemberCount: 1},
+		}
+		processes := CreateMongodProcessesMultiFromCounts(defaultMongoDBImage, false, *mrs, counts, "", architectures.NonStatic)
+
+		require.Len(t, processes, 1)
+		assert.Equal(t, fmt.Sprintf("%s-1-0", mrs.Name), processes[0].Name())
+	})
+
+	t.Run("Counts equal to the spec match the legacy builder", func(t *testing.T) {
+		counts := make([]ClusterProcessCount, len(mrs.Spec.ClusterSpecList))
+		for i, item := range mrs.Spec.ClusterSpecList {
+			counts[i] = ClusterProcessCount{ClusterName: item.ClusterName, ClusterIndex: i, MemberCount: item.Members}
+		}
+		processes := CreateMongodProcessesMultiFromCounts(defaultMongoDBImage, false, *mrs, counts, "", architectures.NonStatic)
+
+		legacyProcesses, err := CreateMongodProcessesWithLimitMulti(defaultMongoDBImage, false, *mrs, "", architectures.NonStatic)
+		require.NoError(t, err)
+		assert.Equal(t, legacyProcesses, processes)
+	})
 }
