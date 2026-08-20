@@ -9,7 +9,6 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests.conftest import configure_multi_cluster_members
-from tests.constants import MULTI_CLUSTER_OPERATOR_NAME
 from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
@@ -82,16 +81,9 @@ def test_recover_operator_add_cluster(
     member_cluster_names: List[str],
     namespace: str,
     central_cluster_name: str,
-    central_cluster_client: kubernetes.client.ApiClient,
 ):
     # Register the previously left-out member cluster.
     configure_multi_cluster_members([member_cluster_names[-1]], namespace, namespace, central_cluster_name)
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover
@@ -123,12 +115,6 @@ def test_recover_operator_remove_cluster(
         name=f"mck-credential-{removed_cluster_name}",
         namespace=namespace,
     )
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator.wait_for_operator_ready()
 
 
 @pytest.mark.e2e_multi_cluster_recover
