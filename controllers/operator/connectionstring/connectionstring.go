@@ -14,6 +14,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -185,7 +186,11 @@ func (b *builder) Build() string {
 	if authSource != "" {
 		connectionParams["authSource"] = authSource
 	}
-	if authMechanism != "" {
+	// Users authenticating against $external use X.509 or LDAP, so a SCRAM mechanism the resource
+	// also enables must not leak into their connection string. Which of the two applies is a
+	// property of how the individual user was provisioned rather than of the deployment, so the
+	// mechanism is left for the client to supply.
+	if authMechanism != "" && b.connectionParams["authSource"] != constants.ExternalDB {
 		connectionParams["authMechanism"] = authMechanism
 	}
 
