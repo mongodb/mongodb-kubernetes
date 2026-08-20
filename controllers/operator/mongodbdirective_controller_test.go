@@ -48,7 +48,7 @@ func TestMemberEchoWrittenWhenFencesFail(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, reconcile.Result{RequeueAfter: directiveHoldRetry}, result)
 
-		wantHash := roundTrippedSpecHash(t, m.DeepCopy())
+		wantHash := mustSpecHash(t, m.Spec)
 		readBack := operatorv1.MongoDBDirective{}
 		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
 		assert.Equal(t, directive.Generation, readBack.Status.ObservedGeneration)
@@ -73,7 +73,7 @@ func TestMemberEchoWrittenWhenFencesFail(t *testing.T) {
 func TestMemberFences(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	localHash := roundTrippedSpecHash(t, m.DeepCopy())
+	localHash := mustSpecHash(t, m.Spec)
 
 	// M1 note: a fence hold and the act() hold return the same result — the observable
 	// distinction (the staged facts moving) arrives with the materializer. These cases pin the

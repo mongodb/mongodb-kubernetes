@@ -30,19 +30,6 @@ func (e fakeElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 	return e.term, e.isLeader
 }
 
-// roundTrippedSpecHash hashes the spec the way every consumer does: from the object as stored
-// and returned by an API server. The round-trip is not byte-neutral (e.g. a nil
-// additionalMongodConfig comes back as {}), so hashing the in-memory object would disagree with
-// what reconcilers compute from their Get — the exact skew the canonicalization TODO tracks.
-func roundTrippedSpecHash(t *testing.T, m *mdbmulti.MongoDBMultiCluster) string {
-	c := mock.NewEmptyFakeClientBuilder().WithObjects(m).Build()
-	read := mdbmulti.MongoDBMultiCluster{}
-	require.NoError(t, c.Get(context.Background(), kube.ObjectKey(m.Namespace, m.Name), &read))
-	hash, err := multiClusterSpecHash(read.Spec)
-	require.NoError(t, err)
-	return hash
-}
-
 // leaderReconcilerForTest builds a leader reconciler over one fake client per member cluster,
 // with the CR seeded into the self cluster's client (the operator's local API server).
 func leaderReconcilerForTest(m *mdbmulti.MongoDBMultiCluster, self string, elector Elector) (*ReconcileMongoDBMultiClusterLeader, map[string]client.Client) {
@@ -66,7 +53,7 @@ func TestLeaderWritesDirectivesToAllClusters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, result)
 
-	wantHash := roundTrippedSpecHash(t, m.DeepCopy())
+	wantHash := mustSpecHash(t, m.Spec)
 	wantAllocations := map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}
 	for i, item := range m.Spec.ClusterSpecList {
 		directive := operatorv1.MongoDBDirective{}
