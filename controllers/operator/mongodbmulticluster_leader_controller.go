@@ -67,6 +67,7 @@ Seam in code (2026-08-20): the Elector interface in mongodbmulticluster_elector.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -98,6 +99,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -224,6 +226,10 @@ func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *m
 		if err := r.publishAutomationConfig(ctx, conn, mrs, *decision.AC, log); err != nil {
 			return reconcile.Result{}, xerrors.Errorf("failed publishing the automation config: %w", err)
 		}
+		if err := r.saveLastAchievedSpec(ctx, mrs); err != nil {
+			// the AC write already happened; the record is best-effort and the next pass retries
+			log.Warnf("Failed saving the last achieved spec annotation: %s", err)
+		}
 		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
 	case decisionInvalidSpec:
 		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Failed(errors.New(decision.Reason)), log)
@@ -231,6 +237,21 @@ func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *m
 		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log)
 	}
 	return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.OK(), log)
+}
+
+// saveLastAchievedSpec records, on the leader's OWN cluster copy only, the spec whose
+// additionalMongodConfig was just merged into the AC — the diff base that lets a later removal
+// of an option actually un-merge it (GetLastAdditionalMongodConfig reads this annotation).
+// Annotations survive GitOps applies; a leadership change loses the record, so the first removal
+// after a failover is a one-time no-op. Reusing util.LastAchievedSpec also rides the watch
+// predicate's self-write suppression. The legacy analog additionally stores achieved counts,
+// member ids and roles; only additionalMongodConfig is consumed here.
+func (r *ReconcileMongoDBMultiClusterLeader) saveLastAchievedSpec(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster) error {
+	achievedSpecBytes, err := json.Marshal(mrs.Spec)
+	if err != nil {
+		return err
+	}
+	return annotations.SetAnnotations(ctx, mrs, map[string]string{util.LastAchievedSpec: string(achievedSpecBytes)}, r.localClient)
 }
 
 // writeDirective puts the planned directive spec on one member cluster as a read-modify-write:
@@ -308,7 +329,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 	}
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	return conn.ReadUpdateDeployment(func(d om.Deployment) error {
-		if err := ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, nil, mrs.Name, rs, caFilePath, "", nil, log); err != nil {
+		if err := ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, mrs.GetLastAdditionalMongodConfig(), mrs.Name, rs, caFilePath, "", nil, log); err != nil {
 			return err
 		}
 		// the term and content hash piggyback on a write we are making anyway, never standalone

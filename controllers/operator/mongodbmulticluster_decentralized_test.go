@@ -22,6 +22,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // This file is the M3 deliverable: a full deployment reaching Running in the unit-test world —
@@ -265,6 +266,46 @@ func TestDecentralizedScaleDownACFirst(t *testing.T) {
 	require.GreaterOrEqual(t, stsDroppedAt, 0, "the StatefulSet never shrank")
 	assert.LessOrEqual(t, acDroppedAt, directiveDroppedAt, "the AC write initiates the scale-down")
 	assert.LessOrEqual(t, directiveDroppedAt, stsDroppedAt, "the member shrinks only on the advanced grant")
+}
+
+func TestDecentralizedMongodConfigRemovalUnmerges(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	m.Spec.AdditionalMongodConfig = mdb.NewAdditionalMongodConfig("setParameter.maxIndexBuildMemoryUsageMegabytes", 150)
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	deployment, err := mockedConn.ReadDeployment()
+	require.NoError(t, err)
+	processes := deployment.ProcessesCopy()
+	require.NotEmpty(t, processes)
+	for _, p := range processes {
+		assert.NotNil(t, maputil.ReadMapValueAsInterface(p.Args(), "setParameter", "maxIndexBuildMemoryUsageMegabytes"))
+	}
+
+	// removing the option must un-merge it — a content-only change, no member moves
+	w.applySpecEverywhere(ctx, t, func(m *mdbmulti.MongoDBMultiCluster) {
+		m.Spec.AdditionalMongodConfig = nil
+	})
+	w.driveToRunning(ctx, t, 30)
+
+	deployment, err = mockedConn.ReadDeployment()
+	require.NoError(t, err)
+	for _, p := range deployment.ProcessesCopy() {
+		assert.Nil(t, maputil.ReadMapValueAsInterface(p.Args(), "setParameter", "maxIndexBuildMemoryUsageMegabytes"))
+	}
+
+	// the diff base lives on the leader's OWN cluster copy only
+	for i, clusterName := range clusters {
+		crCopy := &mdbmulti.MongoDBMultiCluster{}
+		require.NoError(t, w.clients[clusterName].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), crCopy))
+		if i == 0 {
+			assert.Contains(t, crCopy.Annotations, util.LastAchievedSpec)
+		} else {
+			assert.NotContains(t, crCopy.Annotations, util.LastAchievedSpec)
+		}
+	}
 }
 
 func TestDecentralizedUnsupportedSpecRefused(t *testing.T) {
