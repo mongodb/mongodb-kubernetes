@@ -141,13 +141,13 @@ func (r *ReconcileMongoDBDirective) Reconcile(ctx context.Context, request recon
 	term, _ := r.elector.Current(request.NamespacedName)
 	if directive.Spec.LeadershipTerm < term {
 		log.Debugf("Holding: directive term %d is older than the locally observed term %d", directive.Spec.LeadershipTerm, term)
-		return reconcile.Result{RequeueAfter: directiveHoldRetry}, nil
+		return r.holdAndRepair(ctx, &directive, log)
 	}
 
 	// spec fence: act only on an instruction planned from the exact spec we hold locally
 	if !crFound || directive.Spec.TargetSpecHash != localHash {
 		log.Debugf("Holding: the local spec copy (hash %q) does not match the directive's target spec hash %q", localHash, directive.Spec.TargetSpecHash)
-		return reconcile.Result{RequeueAfter: directiveHoldRetry}, nil
+		return r.holdAndRepair(ctx, &directive, log)
 	}
 
 	return r.act(ctx, &directive, &mrs, log)
@@ -163,14 +163,6 @@ func (r *ReconcileMongoDBDirective) echoObservations(ctx context.Context, direct
 	directive.Status.ObservedGeneration = directive.Generation
 	directive.Status.ObservedSpecHash = localHash
 	return r.localClient.Status().Update(ctx, directive)
-}
-
-// act materializes the granted state on this cluster (StatefulSets, services, read-only OM
-// status probes) and reports the staged facts. M1: a no-op hold — the materializer milestone
-// drops in here.
-func (r *ReconcileMongoDBDirective) act(ctx context.Context, directive *operatorv1.MongoDBDirective, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (reconcile.Result, error) {
-	log.Debug("Fences passed; holding until the materializer milestone lands")
-	return reconcile.Result{RequeueAfter: directiveHoldRetry}, nil
 }
 
 // AddMongoDBDirectiveController creates the member controller and adds it to the Manager.
