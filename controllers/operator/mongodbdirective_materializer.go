@@ -11,6 +11,7 @@ import (
 	"maps"
 
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 // MirrorState is the member-local record of what this operator last applied — the hold/repair
@@ -214,6 +216,16 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 	if item := mrs.GetClusterSpecByName(target.clusterName); item != nil && item.StatefulSetConfiguration != nil {
 		stsOverride = item.StatefulSetConfiguration.SpecWrapper.Spec
 	}
+
+	// static architecture ships the agent inside the versioned agent image, so the version must
+	// be resolved from Ops Manager (a read); failure holds observably, like the legacy Failed
+	automationAgentVersion := ""
+	if architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) && !mrs.Spec.IsAgentImageOverridden() {
+		automationAgentVersion, err = resolveAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, r.customAgentURL, log)
+		if err != nil {
+			return facts, xerrors.Errorf("failed to get the agent version (override the agent image by providing a pod template to skip the lookup): %w", err)
+		}
+	}
 	opts := mconstruct.MultiClusterReplicaSetOptions(
 		mconstruct.WithClusterNum(target.clusterIndex),
 		Replicas(target.memberCount),
@@ -226,9 +238,7 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 		WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
-		// static architecture needs an agent version from OM (a read the POC skips); non-static
-		// runs with an unversioned agent image reference, like the legacy non-static path
-		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, "")),
+		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
 		WithCustomAgentURL(r.customAgentURL),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture)),
 		WithAgentDebug(r.agentDebug),

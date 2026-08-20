@@ -25,10 +25,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
@@ -243,6 +246,63 @@ func TestMaterializerOperatorFlagsPlumbing(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"delve-image:latest"}, debugImages)
+}
+
+func TestMaterializerStaticArchitectureAgentVersion(t *testing.T) {
+	ctx := context.Background()
+	nonExistingPath := "/foo/bar/foo"
+	agentContainerOverride := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: util.AgentContainerName, Image: "foo"}}}}
+
+	staticReconciler := func(t *testing.T, m *mdbmulti.MongoDBMultiCluster) (*ReconcileMongoDBDirective, client.Client, *operatorv1.MongoDBDirective, *om.CachedOMConnectionFactory) {
+		directive, objects := materializerSeeds(t, m)
+		omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, objects...)
+		reconciler.defaultArchitecture = architectures.Static
+		reconciler.imageUrls = images.ImageUrls{util.AgentImageUrlEnv: "quay.io/mongodb/agent"}
+		return reconciler, c, directive, omConnectionFactory
+	}
+
+	t.Run("Version retrieval fails, image overridden: materializes", func(t *testing.T) {
+		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetPodSpecTemplate(agentContainerOverride).Build()
+		reconciler, c, directive, _ := staticReconciler(t, m)
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+		readBack := operatorv1.MongoDBDirective{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
+		assert.True(t, readBack.Status.StsApplied)
+	})
+
+	t.Run("Version retrieval fails, image not overridden: holds with facts false", func(t *testing.T) {
+		t.Setenv(agentVersionManagement.MappingFilePathEnv, nonExistingPath)
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		reconciler, c, directive, _ := staticReconciler(t, m)
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.Error(t, err)
+		readBack := operatorv1.MongoDBDirective{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
+		assert.False(t, readBack.Status.StsApplied)
+	})
+
+	t.Run("Version retrieval succeeds: the agent image carries the resolved version", func(t *testing.T) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		reconciler, c, directive, omConnectionFactory := staticReconciler(t, m)
+		omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+			conn.(*om.MockedOmConnection).SetAgentVersion("108.0.2.8729-1", "")
+		})
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
+		var images []string
+		for _, container := range sts.Spec.Template.Spec.Containers {
+			images = append(images, container.Image)
+		}
+		assert.Contains(t, images, "quay.io/mongodb/agent:108.0.2.8729-1")
+	})
 }
 
 func TestMaterializerNeverWritesOM(t *testing.T) {

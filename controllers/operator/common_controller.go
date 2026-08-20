@@ -767,10 +767,16 @@ func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn 
 // the version is extracted from the URL filename, overriding the Ops Manager API,
 // mapping file, and Cloud Manager paths.
 func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
+	return resolveAgentVersion(conn, omVersion, isAppDB, r.customAgentURL, log)
+}
+
+// resolveAgentVersion is the reconciler-independent body of getAgentVersion, for callers that do
+// not embed ReconcileCommonController.
+func resolveAgentVersion(conn om.Connection, omVersion string, isAppDB bool, customAgentURL string, log *zap.SugaredLogger) (string, error) {
 	// When a custom agent URL is set, derive the version from the URL filename.
 	// This overrides all other version resolution (Ops Manager API, mapping, Cloud Manager).
-	if r.customAgentURL != "" {
-		return agentVersionFromURL(r.customAgentURL), nil
+	if customAgentURL != "" {
+		return agentVersionFromURL(customAgentURL), nil
 	}
 
 	m, err := agentVersionManagement.GetAgentVersionManager()
