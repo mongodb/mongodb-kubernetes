@@ -18,6 +18,12 @@ const (
 	// MongoDbMultiReplicaSetController name of the multi-cluster ReplicaSet controller
 	MongoDbMultiReplicaSetController = "mongodbmultireplicaset-controller"
 
+	// MongoDbMultiClusterLeaderController name of the decentralized multi-cluster leader controller
+	MongoDbMultiClusterLeaderController = "mongodbmulticluster-leader-controller"
+
+	// MongoDbDirectiveController name of the decentralized multi-cluster member controller
+	MongoDbDirectiveController = "mongodbdirective-controller"
+
 	// MongoDbShardedClusterController name of the ShardedCluster controller
 	MongoDbShardedClusterController = "mongodbshardedcluster-controller"
 
@@ -202,6 +208,7 @@ const (
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	OperatorClusterNameEnv           = "OPERATOR_CLUSTER_NAME"
+	OperatorLeaderClusterNameEnv     = "OPERATOR_LEADER_CLUSTER_NAME"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"

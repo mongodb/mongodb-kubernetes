@@ -14,7 +14,7 @@ const (
 )
 
 // WatchedResource identifies a CRD that the operator will actively reconcile.
-// +kubebuilder:validation:Enum=mongodb;opsmanagers;mongodbusers;mongodbcommunity;mongodbsearch;mongodbmulticluster;clustermongodbroles;voyageais
+// +kubebuilder:validation:Enum=mongodb;opsmanagers;mongodbusers;mongodbcommunity;mongodbsearch;mongodbmulticluster;clustermongodbroles;voyageais;mongodbdirectives
 type WatchedResource string
 
 const (
@@ -26,6 +26,9 @@ const (
 	WatchedResourceMongoDBMultiCluster WatchedResource = "mongodbmulticluster"
 	WatchedResourceClusterMongoDBRoles WatchedResource = "clustermongodbroles"
 	WatchedResourceVoyageAI            WatchedResource = "voyageais"
+	// WatchedResourceMongoDBDirectives enables the decentralized multi-cluster controllers.
+	// Deliberately absent from AllWatchedResources: opt-in only.
+	WatchedResourceMongoDBDirectives WatchedResource = "mongodbdirectives"
 )
 
 // AllWatchedResources lists every CRD the operator can reconcile. It is the default value

@@ -9752,6 +9752,7 @@ spec:
                   - mongodbmulticluster
                   - clustermongodbroles
                   - voyageais
+                  - mongodbdirectives
                   type: string
                 type: array
                 x-kubernetes-list-type: set
