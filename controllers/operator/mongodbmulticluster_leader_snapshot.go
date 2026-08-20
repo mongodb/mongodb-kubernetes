@@ -91,6 +91,7 @@ func readDirectiveViews(ctx context.Context, clients map[string]kubernetesClient
 func acViewFromDeployment(deployment om.Deployment, rsName string) acView {
 	view := acView{Read: true, MemberCountsByIndex: map[int]int{}}
 	view.LeadershipTerm, _ = deployment.GetOperatorLeadershipTerm()
+	view.SpecHash, _ = deployment.GetOperatorSpecHash()
 	rs := deployment.GetReplicaSetByName(rsName)
 	if rs == nil {
 		return view

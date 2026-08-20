@@ -72,6 +72,7 @@ type directiveView struct {
 type acView struct {
 	Read                bool
 	LeadershipTerm      int64       // 0 when never stamped
+	SpecHash            string      // spec hash the deployment content was last built from; "" when never stamped
 	MemberCountsByIndex map[int]int // cluster index -> live process count for this replica set
 }
 
@@ -626,6 +627,15 @@ func acWriteNeeded(s plannerSnapshot) (acPayload, bool) {
 			}
 			return acPayload{LeadershipTerm: s.LeadershipTerm, MemberCounts: counts}, true
 		}
+	}
+
+	// content refresh: a spec change that moves no member (say an additionalMongodConfig edit)
+	// still changes the deployment content. Everything above is settled and every member is
+	// converged at the current hash, so republish at the unchanged counts; the write re-stamps
+	// the hash, making this fire exactly once per content change. Skipped while the AC is empty —
+	// the first real membership write stamps it.
+	if !isFirstDeployment(s) && s.AC.SpecHash != s.SpecHash {
+		return acPayload{LeadershipTerm: s.LeadershipTerm, MemberCounts: grantedCounts}, true
 	}
 	return acPayload{}, false
 }

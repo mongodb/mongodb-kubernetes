@@ -101,12 +101,14 @@ func (b *snapshotBuilder) editDirective(clusterName string, edit func(d *directi
 	return b
 }
 
-// withAC sets the AC counts positionally by cluster index.
+// withAC sets the AC counts positionally by cluster index, content stamped at the current spec
+// hash (a stale-content world overrides s.AC.SpecHash explicitly).
 func (b *snapshotBuilder) withAC(countsByIndex ...int) *snapshotBuilder {
 	b.s.AC.MemberCountsByIndex = map[int]int{}
 	for i, count := range countsByIndex {
 		b.s.AC.MemberCountsByIndex[i] = count
 	}
+	b.s.AC.SpecHash = testPlanHash
 	return b
 }
 
@@ -405,17 +407,42 @@ func TestPlanFenceDiscipline(t *testing.T) {
 	assert.Contains(t, decision.Reason, "GitOps")
 }
 
+// TestPlanHashOnlyChangeRefreshesDirectives walks the content-only ladder: no member moves, but
+// the fences refresh one directive at a time and the deployment content republishes at the end.
 func TestPlanHashOnlyChangeRefreshesDirectives(t *testing.T) {
-	// same counts, new spec content: every directive gets its fence refreshed, no member moves
-	b := converged(2, 2, 2)
-	for _, cluster := range clusters {
-		b.editDirective(cluster, func(d *directiveView) { d.Spec.TargetSpecHash = testPlanOldHash })
-	}
-	decision := plan(b.build())
-	require.Equal(t, decisionWriteDirective, decision.Kind)
-	assert.Equal(t, clusters[0], decision.TargetCluster)
-	assert.Equal(t, 2, decision.DirectiveSpec.MemberCount) // count unchanged
-	assert.Equal(t, testPlanHash, decision.DirectiveSpec.TargetSpecHash)
+	t.Run("Stage 1: refresh the first directive's fence at the unchanged count", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.AC.SpecHash = testPlanOldHash
+		for _, cluster := range clusters {
+			b.editDirective(cluster, func(d *directiveView) { d.Spec.TargetSpecHash = testPlanOldHash })
+		}
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount) // count unchanged
+		assert.Equal(t, testPlanHash, decision.DirectiveSpec.TargetSpecHash)
+	})
+
+	t.Run("Stage 2: a member still behind the new fence blocks the content republish", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.AC.SpecHash = testPlanOldHash
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.ObservedSpecHash = testPlanOldHash })
+		decision := plan(b.build())
+		assert.Equal(t, decisionNotProgressing, decision.Kind)
+	})
+
+	t.Run("Stage 3: fences echoed everywhere, republish the content at unchanged counts", func(t *testing.T) {
+		b := converged(2, 2, 2)
+		b.s.AC.SpecHash = testPlanOldHash
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteAC, decision.Kind)
+		assert.Equal(t, &acPayload{LeadershipTerm: testPlanTerm, MemberCounts: map[string]int{clusters[0]: 2, clusters[1]: 2, clusters[2]: 2}}, decision.AC)
+	})
+
+	t.Run("Stage 4: content re-stamped, converged", func(t *testing.T) {
+		decision := plan(converged(2, 2, 2).build())
+		assert.Equal(t, decisionNoop, decision.Kind)
+	})
 }
 
 // TestPlanScaleUpLadder walks the up ladder one snapshot per stage; each stage doubles as the

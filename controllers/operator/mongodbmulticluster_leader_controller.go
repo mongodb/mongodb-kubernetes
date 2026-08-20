@@ -302,13 +302,18 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], false, *mrs, counts, "", r.defaultArchitecture)
 	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, process.MemberOptionsFromCounts(*mrs, counts), processIds, mrs.Spec.Connectivity)
 
+	specHash, err := multiClusterSpecHash(mrs.Spec)
+	if err != nil {
+		return err
+	}
 	caFilePath := fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
 	return conn.ReadUpdateDeployment(func(d om.Deployment) error {
 		if err := ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, nil, mrs.Name, rs, caFilePath, "", nil, log); err != nil {
 			return err
 		}
-		// the term piggybacks on a membership write we are making anyway, never standalone
+		// the term and content hash piggyback on a write we are making anyway, never standalone
 		d.SetOperatorLeadershipTerm(payload.LeadershipTerm)
+		d.SetOperatorSpecHash(specHash)
 		return nil
 	}, log)
 }

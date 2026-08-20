@@ -159,6 +159,28 @@ func (d Deployment) GetOperatorLeadershipTerm() (int64, bool) {
 	}
 }
 
+// operatorSpecHashKey records, next to the term, the hash of the CR spec whose content the
+// deployment was last built from. The leader compares it against its own spec hash to decide
+// whether a content-only change (counts unchanged — say an additionalMongodConfig edit) still
+// needs a republish; membership changes keep it current for free.
+const operatorSpecHashKey = "operatorSpecHash"
+
+// SetOperatorSpecHash records the spec hash, merge-safe like SetOperatorLeadershipTerm: only on
+// writes the caller is making anyway, never as a standalone touch.
+func (d Deployment) SetOperatorSpecHash(hash string) {
+	options := util.ReadOrCreateMap(d, "options")
+	options[operatorSpecHashKey] = hash
+}
+
+func (d Deployment) GetOperatorSpecHash() (string, bool) {
+	options, ok := d["options"].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	hash, ok := options[operatorSpecHashKey].(string)
+	return hash, ok
+}
+
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
 // with the same name - update some fields there. Otherwise, add the new one
 func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {

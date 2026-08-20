@@ -883,3 +883,25 @@ func TestOperatorLeadershipTermSurvivesJSONRoundTrip(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, int64(42), term)
 }
+
+func TestOperatorSpecHashMarker(t *testing.T) {
+	d := NewDeployment()
+
+	_, ok := d.GetOperatorSpecHash()
+	assert.False(t, ok)
+
+	d.SetOperatorLeadershipTerm(7)
+	d.SetOperatorSpecHash("hash-abc")
+
+	bytes, err := d.Serialize()
+	require.NoError(t, err)
+	roundTripped, err := BuildDeploymentFromBytes(bytes)
+	require.NoError(t, err)
+
+	hash, ok := roundTripped.GetOperatorSpecHash()
+	assert.True(t, ok)
+	assert.Equal(t, "hash-abc", hash)
+	term, ok := roundTripped.GetOperatorLeadershipTerm()
+	assert.True(t, ok)
+	assert.Equal(t, int64(7), term, "the two markers share the options map without clobbering each other")
+}
