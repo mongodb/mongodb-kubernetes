@@ -23,10 +23,10 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
