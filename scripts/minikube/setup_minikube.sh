@@ -74,16 +74,7 @@ start_minikube_cluster() {
   # --force allows running minikube with root privileges
   local start_args=("--driver=podman" "--container-runtime=containerd" "--force")
   start_args+=("--cpus=4" "--memory=8g")
-  start_args+=("--cni=bridge")
-
-  # s390x + rootful podman: kubeadm inside the container can't auto-detect
-  # a non-loopback IP. Pass --listen-address with the host's primary IP,
-  # which tells kubeadm what apiserver-advertise-address to use.
-  local HOST_IP
-  HOST_IP=$(ip -4 addr show scope global | awk '/inet / {print $2; exit}' | cut -d/ -f1)
-  if [[ -n "${HOST_IP}" ]]; then
-    start_args+=("--listen-address=${HOST_IP}")
-  fi
+  # --cni=bridge removed: podman's default CNI handles networking in rootful mode
 
   echo "Starting minikube with args: ${start_args[*]}"
   if sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" start "${start_args[@]}"; then
