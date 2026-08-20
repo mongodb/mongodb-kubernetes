@@ -8,6 +8,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"maps"
 
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ import (
 
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
@@ -78,6 +80,10 @@ type materializedFacts struct {
 	inGoalState     bool
 }
 
+// errPVCResizeInProgress marks a pass where the StatefulSet must not be applied yet because its
+// PVCs are still expanding; act() turns it into a quiet hold instead of an error backoff.
+var errPVCResizeInProgress = errors.New("pvc resize in progress")
+
 // act materializes the granted state on this cluster and reports the staged facts. Called with
 // both fences passed: the local CR copy is exactly the spec the directive was planned from.
 func (r *ReconcileMongoDBDirective) act(ctx context.Context, directive *operatorv1.MongoDBDirective, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) (reconcile.Result, error) {
@@ -105,6 +111,16 @@ func (r *ReconcileMongoDBDirective) act(ctx context.Context, directive *operator
 		projectID:        directive.Spec.ProjectID,
 	}
 	facts, err := r.materialize(ctx, mrs, target, log)
+	if errors.Is(err, errPVCResizeInProgress) {
+		// nothing new was applied, so no mirror write; the phase lives in the member's logs (the
+		// member cannot write the MongoDBMultiCluster status) and the leader keeps reporting the
+		// cluster as still applying
+		log.Info("Holding: PVC resize in progress")
+		if err := r.writeFacts(ctx, directive, facts, log); err != nil {
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{RequeueAfter: directiveHoldRetry}, nil
+	}
 	if err != nil {
 		// best-effort facts before surfacing the error: the echo already persisted, the leader
 		// must still see what did not happen
@@ -247,6 +263,22 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 		WithProxyEnvPropagation(r.propagateProxyEnv),
 	)
 	sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+
+	// legacy parity: HandlePVCResize is self-contained (it re-derives the resize state from the
+	// live vs desired StatefulSet) and orphan-deletes the StatefulSet when a resize completed —
+	// the CreateOrUpdate below recreates it, adopting the pods
+	pvcResizeStatus := create.HandlePVCResize(ctx, r.localClient, &sts, log)
+	if !pvcResizeStatus.IsOK() {
+		if pvcResizeStatus.Phase() == mdbstatus.PhaseFailed {
+			msg := ""
+			if option, exists := mdbstatus.GetOption(pvcResizeStatus.StatusOptions(), mdbstatus.MessageOption{}); exists {
+				msg, _ = option.Value().(string)
+			}
+			return facts, xerrors.Errorf("pvc resize failed: %s", msg)
+		}
+		return facts, errPVCResizeInProgress
+	}
+
 	if _, err := statefulset.CreateOrUpdateStatefulset(ctx, r.localClient, mrs.Namespace, log, &sts); err != nil {
 		return facts, err
 	}

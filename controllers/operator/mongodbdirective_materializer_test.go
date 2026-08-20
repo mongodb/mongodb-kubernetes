@@ -18,6 +18,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -302,6 +303,76 @@ func TestMaterializerStaticArchitectureAgentVersion(t *testing.T) {
 			images = append(images, container.Image)
 		}
 		assert.Contains(t, images, "quay.io/mongodb/agent:108.0.2.8729-1")
+	})
+}
+
+func TestMaterializerPVCResize(t *testing.T) {
+	ctx := context.Background()
+
+	// worldWithAppliedSts runs one pass so the StatefulSet exists, then rewrites its live volume
+	// claim storage to simulate the size the cluster was created with before a spec change
+	worldWithAppliedSts := func(t *testing.T, liveStorage string) (*ReconcileMongoDBDirective, client.Client, *operatorv1.MongoDBDirective, appsv1.StatefulSet) {
+		m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		m.Spec.Persistent = util.BooleanRef(true) // the default builder is not persistent
+		directive, objects := materializerSeeds(t, m)
+		omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+		reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, objects...)
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
+		require.NotEmpty(t, sts.Spec.VolumeClaimTemplates, "the default spec is persistent")
+		sts.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse(liveStorage)
+		require.NoError(t, c.Update(ctx, &sts))
+		return reconciler, c, directive, sts
+	}
+
+	t.Run("Storage decrease is refused", func(t *testing.T) {
+		reconciler, c, directive, sts := worldWithAppliedSts(t, "500Gi") // live above the desired = spec asks to shrink
+		_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.ErrorContains(t, err, "pvc resize failed")
+
+		readBack := operatorv1.MongoDBDirective{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(sts.Namespace, directive.Name), &readBack))
+		assert.False(t, readBack.Status.StsApplied)
+	})
+
+	t.Run("Expansion with converged PVCs orphans and recreates the StatefulSet", func(t *testing.T) {
+		reconciler, c, directive, sts := worldWithAppliedSts(t, "1Gi") // live below the desired = expansion
+
+		result, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err)
+		assert.Equal(t, reconcile.Result{RequeueAfter: directiveHoldRetry}, result)
+
+		recreated := appsv1.StatefulSet{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(sts.Namespace, sts.Name), &recreated))
+		assert.NotEqual(t, "1Gi", recreated.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String(), "the StatefulSet was recreated at the desired storage")
+	})
+
+	t.Run("Expansion holds while a PVC is still resizing", func(t *testing.T) {
+		reconciler, c, directive, sts := worldWithAppliedSts(t, "1Gi")
+		livePVC := corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-%s-0", sts.Spec.VolumeClaimTemplates[0].Name, sts.Name), Namespace: sts.Namespace},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+			},
+			Status: corev1.PersistentVolumeClaimStatus{Capacity: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("1Gi")}},
+		}
+		require.NoError(t, c.Create(ctx, &livePVC))
+
+		result, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+		require.NoError(t, err, "an in-progress resize is a quiet hold, not an error")
+		assert.Equal(t, reconcile.Result{RequeueAfter: directiveHoldRetry}, result)
+
+		patched := corev1.PersistentVolumeClaim{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(livePVC.Namespace, livePVC.Name), &patched))
+		assert.NotEqual(t, "1Gi", patched.Spec.Resources.Requests.Storage().String(), "the PVC was patched to the desired storage")
+
+		readBack := operatorv1.MongoDBDirective{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(sts.Namespace, directive.Name), &readBack))
+		assert.False(t, readBack.Status.StsApplied)
 	})
 }
 
