@@ -843,7 +843,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 // BuildAppDBConnectionURL returns the connection string to the AppDB, reading the Ops Manager user password.
 // It assumes ReconcileAppDB has already been called and the password secret exists.
 func (r *ReconcileAppDbReplicaSet) BuildAppDBConnectionURL(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	password, err := r.readAppDbPassword(ctx, opsManager)
+	password, err := r.readAppDbPassword(ctx, opsManager, log)
 	if err != nil {
 		return "", xerrors.Errorf("Error getting AppDB password: %w", err)
 	}
@@ -1721,10 +1721,12 @@ func (r *ReconcileAppDbReplicaSet) generatePasswordAndCreateSecret(ctx context.C
 // ensureAppDbPassword will return the password that was specified by the user, or the auto generated password stored in
 // the secret (generate it and store in secret otherwise)
 func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
-	password, err := r.readAppDbPassword(ctx, opsManager)
+	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
+
+	password, err := r.readAppDbPassword(ctx, opsManager, log)
 	if err != nil {
 		if secret.SecretNotExist(err) {
-			if passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef; passwordRef != nil && passwordRef.Name != "" {
+			if passwordRef != nil && passwordRef.Name != "" {
 				return "", xerrors.Errorf("password secret %s referenced by spec.applicationDatabase.passwordSecretKeyRef does not exist", passwordRef.Name)
 			}
 			log.Debugf("Generated AppDB password and storing in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
@@ -1734,8 +1736,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 	}
 
 	// User-provided password ref path: watch the secret and clean up the auto-generated one.
-	if passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef; passwordRef != nil && passwordRef.Name != "" {
-		log.Debugf("Reading password from secret/%s", passwordRef.Name)
+	if passwordRef != nil && passwordRef.Name != "" {
 
 		r.resourceWatcher.AddWatchedResourceIfNotAdded(
 			passwordRef.Name,
@@ -1748,23 +1749,25 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDbPassword(ctx context.Context, opsM
 		if err := r.DeleteSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())); err != nil && !secret.SecretNotExist(err) {
 			return "", err
 		}
-	} else {
-		log.Debugf("Using auto generated AppDB password stored in secret/%s", opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
 	}
 
 	return password, nil
 }
 
-func (r *ReconcileAppDbReplicaSet) readAppDbPassword(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+func (r *ReconcileAppDbReplicaSet) readAppDbPassword(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (string, error) {
 	passwordRef := opsManager.Spec.AppDB.PasswordSecretKeyRef
 	if passwordRef != nil && passwordRef.Name != "" {
 		if passwordRef.Key == "" {
 			passwordRef.Key = "password"
 		}
-		return secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, kube.ObjectKey(opsManager.Namespace, passwordRef.Name))
+
+		secretObjectKey := kube.ObjectKey(opsManager.Namespace, passwordRef.Name)
+		log.Debugf("Reading AppDB password from secret %s", secretObjectKey)
+		return secret.ReadKey(ctx, r.SecretClient, passwordRef.Key, secretObjectKey)
 	}
 
 	secretObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName())
+	log.Debugf("Using auto generated AppDB password stored in secret %s", secretObjectKey)
 	return secret.ReadKey(ctx, r.SecretClient, util.OpsManagerPasswordKey, secretObjectKey)
 }
 
