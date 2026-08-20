@@ -145,8 +145,6 @@ def get_platform_manifest_digests(image_name: str) -> List[str]:
     """
     Returns the per-platform manifest digests if image_name is a multi-arch manifest list/OCI index,
     or an empty list otherwise.
-    Buildx attestation manifests (platform "unknown/unknown") are skipped since they are not signed
-    container images.
 
     :param image_name: The full image name with its tag or digest.
     :return: A list of platform-specific manifest digests.
@@ -181,8 +179,6 @@ def get_platform_manifest_digests(image_name: str) -> List[str]:
     digests = []
     for entry in manifest.get("manifests", []):
         platform = entry.get("platform", {})
-        if platform.get("architecture") == "unknown" or platform.get("os") == "unknown":
-            continue
         digests.append(entry["digest"])
     return digests
 

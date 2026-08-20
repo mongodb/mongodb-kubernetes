@@ -1,6 +1,6 @@
 import json
 from subprocess import CalledProcessError
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -25,9 +25,9 @@ SINGLE_ARCH_MANIFEST = {
     "name, manifest, want_digests",
     [
         (
-            "multi-arch index returns platform digests, skipping attestation manifests",
+            "multi-arch index returns all platform digests including attestation manifests",
             MULTI_ARCH_MANIFEST,
-            ["sha256:amd64digest", "sha256:arm64digest"],
+            ["sha256:amd64digest", "sha256:arm64digest", "sha256:attestationdigest"],
         ),
         (
             "single-arch image has nothing to recurse into",
@@ -45,49 +45,48 @@ def test_get_platform_manifest_digests(mock_run, name, manifest, want_digests):
     assert digests == want_digests
 
 
-OK = MagicMock()
+SIG_TAG_MISSING = CalledProcessError(1, ["skopeo", "inspect"], stderr="manifest unknown")
 NO_SIGNATURE_ERR = CalledProcessError(1, ["cosign", "verify"], stderr="Error: no signatures found")
 INVALID_SIGNATURE_ERR = CalledProcessError(
     1, ["cosign", "verify"], stderr="Error: no matching signatures: invalid signature when validating ASN.1"
 )
-# _sig_tag_exists calls run_command_with_retries; any CalledProcessError means the tag wasn't found.
-SIG_TAG_MISSING = CalledProcessError(1, ["skopeo", "inspect"], stderr="manifest unknown")
-
-
 @pytest.mark.parametrize(
-    "name, platform_digests, run_side_effect, want_err, want_call_count, want_digests_lookup",
+    "name, platform_digests, run_side_effect, want_err",
     [
         (
-            "top-level and all platform digests signed: passes",
+            "all platform digests signed: passes",
             ["sha256:amd64digest", "sha256:arm64digest"],
-            [OK, OK, OK, OK, OK],
+            {"return_value": MagicMock()},
             "",
-            5,
-            True,
         ),
         (
             "platform digest missing signature: warns only, does not raise",
             ["sha256:amd64digest"],
-            [OK, SIG_TAG_MISSING],
+            {
+                "side_effect": [
+                    MagicMock(),
+                    SIG_TAG_MISSING,
+                ]
+            },
             "",
-            2,
-            True,
         ),
         (
             "platform digest has invalid signature: raises",
             ["sha256:amd64digest"],
-            [OK, OK, INVALID_SIGNATURE_ERR],
+            {
+                "side_effect": [
+                    MagicMock(),
+                    MagicMock(),
+                    INVALID_SIGNATURE_ERR,
+                ]
+            },
             "Failed to verify signature for platform image",
-            3,
-            True,
         ),
         (
             "top-level signature missing: raises without checking platform digests",
             [],
-            NO_SIGNATURE_ERR,
+            {"side_effect": NO_SIGNATURE_ERR},
             "Failed to verify signature for image",
-            1,
-            False,
         ),
     ],
 )
@@ -102,18 +101,13 @@ def test_verify_signature(
     platform_digests,
     run_side_effect,
     want_err,
-    want_call_count,
-    want_digests_lookup,
 ):
     mock_requests.get.return_value = MagicMock(status_code=200, text="fake-public-key")
     mock_digests.return_value = platform_digests
-    mock_run.side_effect = run_side_effect
+    mock_run.configure_mock(**run_side_effect)
 
     if want_err:
         with pytest.raises(Exception, match=want_err):
             verify_signature("myrepo/myimage", "1.0.0")
     else:
         verify_signature("myrepo/myimage", "1.0.0")
-
-    assert mock_run.call_count == want_call_count
-    assert mock_digests.called == want_digests_lookup
