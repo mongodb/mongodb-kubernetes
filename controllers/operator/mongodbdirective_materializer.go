@@ -31,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -218,6 +219,7 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 		Replicas(target.memberCount),
 		mconstruct.WithStsOverride(&stsOverride),
 		mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(target.clusterIndex)),
+		mconstruct.WithServiceAccount(resourcenames.WorkloadDatabasePodsServiceAccount.Name(target.clusterName, false)),
 		PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(""),
 		WithLabels(mrs.GetOwnerLabels()),
@@ -227,8 +229,12 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 		// static architecture needs an agent version from OM (a read the POC skips); non-static
 		// runs with an unversioned agent image reference, like the legacy non-static path
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, "")),
+		WithCustomAgentURL(r.customAgentURL),
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture)),
+		WithAgentDebug(r.agentDebug),
+		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
+		WithProxyEnvPropagation(r.propagateProxyEnv),
 	)
 	sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
 	if _, err := statefulset.CreateOrUpdateStatefulset(ctx, r.localClient, mrs.Namespace, log, &sts); err != nil {

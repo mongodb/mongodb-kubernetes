@@ -61,6 +61,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // directiveHoldRetry is how long a holding member waits before re-observing the world.
@@ -79,11 +80,15 @@ type ReconcileMongoDBDirective struct {
 	databaseNonStaticImageVersion     string
 	defaultArchitecture               architectures.DefaultArchitecture
 	omConnectionFactory               om.ConnectionFactory
+	customAgentURL                    string
+	agentDebug                        bool
+	agentDebugImage                   string
+	propagateProxyEnv                 bool
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDBDirective{}
 
-func newMongoDBDirectiveReconciler(localClient client.Client, elector Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omConnectionFactory om.ConnectionFactory) *ReconcileMongoDBDirective {
+func newMongoDBDirectiveReconciler(localClient client.Client, elector Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omConnectionFactory om.ConnectionFactory, customAgentURL string, agentDebug bool, agentDebugImage string, propagateProxyEnv bool) *ReconcileMongoDBDirective {
 	return &ReconcileMongoDBDirective{
 		localClient:                       kubernetesClient.NewClient(localClient),
 		elector:                           elector,
@@ -92,6 +97,10 @@ func newMongoDBDirectiveReconciler(localClient client.Client, elector Elector, i
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 		defaultArchitecture:               defaultArchitecture,
 		omConnectionFactory:               omConnectionFactory,
+		customAgentURL:                    customAgentURL,
+		agentDebug:                        agentDebug,
+		agentDebugImage:                   agentDebugImage,
+		propagateProxyEnv:                 propagateProxyEnv,
 	}
 }
 
@@ -170,8 +179,9 @@ func (r *ReconcileMongoDBDirective) echoObservations(ctx context.Context, direct
 }
 
 // AddMongoDBDirectiveController creates the member controller and adds it to the Manager.
-func AddMongoDBDirectiveController(mgr manager.Manager, elector Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, maxConcurrentReconciles int) error {
-	reconciler := newMongoDBDirectiveReconciler(mgr.GetClient(), elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, om.NewOpsManagerConnection)
+func AddMongoDBDirectiveController(mgr manager.Manager, elector Elector, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, defaultArchitecture architectures.DefaultArchitecture, agentDebug bool, agentDebugImage string, propagateProxyEnv bool, maxConcurrentReconciles int) error {
+	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "") // nolint:forbidigo
+	reconciler := newMongoDBDirectiveReconciler(mgr.GetClient(), elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, om.NewOpsManagerConnection, customAgentURL, agentDebug, agentDebugImage, propagateProxyEnv)
 	c, err := controller.New(util.MongoDbDirectiveController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err

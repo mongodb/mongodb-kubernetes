@@ -28,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
@@ -40,7 +41,7 @@ func materializerReconcilerForTest(elector Elector, omConnectionFactory *om.Cach
 		WithObjects(objects...).
 		WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, addOMHosts)}).
 		Build()
-	return newMongoDBDirectiveReconciler(c, elector, nil, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc), c
+	return newMongoDBDirectiveReconciler(c, elector, nil, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, "", false, "", false), c
 }
 
 // materializerSeeds returns the standard cluster contents for a materializer test: the CR, its
@@ -215,6 +216,33 @@ func TestMaterializerFactsStayFalse(t *testing.T) {
 		assert.True(t, status.AgentRegistered)
 		assert.False(t, status.InGoalState)
 	})
+}
+
+func TestMaterializerOperatorFlagsPlumbing(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	directive, objects := materializerSeeds(t, m)
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, c := materializerReconcilerForTest(NewStaticElector(clusters[0], clusters[1]), omConnectionFactory, true, objects...)
+	reconciler.agentDebug = true
+	reconciler.agentDebugImage = "delve-image:latest"
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(directive))
+	require.NoError(t, err)
+
+	sts := appsv1.StatefulSet{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
+	assert.Equal(t, resourcenames.WorkloadDatabasePodsServiceAccount.Name(clusters[0], false), sts.Spec.Template.Spec.ServiceAccountName, "per-member-cluster service account, like the legacy path")
+
+	require.NotNil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
+	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)
+	var debugImages []string
+	for _, container := range sts.Spec.Template.Spec.InitContainers {
+		if container.Name == "delve-sidecar" {
+			debugImages = append(debugImages, container.Image)
+		}
+	}
+	assert.Equal(t, []string{"delve-image:latest"}, debugImages)
 }
 
 func TestMaterializerNeverWritesOM(t *testing.T) {

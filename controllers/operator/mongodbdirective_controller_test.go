@@ -22,7 +22,7 @@ import (
 func directiveReconcilerForTest(elector Elector, objects ...client.Object) (*ReconcileMongoDBDirective, client.Client) {
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(objects...).Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	return newMongoDBDirectiveReconciler(c, elector, nil, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc), c
+	return newMongoDBDirectiveReconciler(c, elector, nil, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, "", false, "", false), c
 }
 
 func buildDirective(m *mdbmulti.MongoDBMultiCluster, clusterName string, term int64, targetSpecHash string) *operatorv1.MongoDBDirective {
