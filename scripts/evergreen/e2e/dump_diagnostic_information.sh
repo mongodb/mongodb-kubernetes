@@ -354,6 +354,105 @@ dump_events() {
     kubectl --context="${context}" get events -n "${namespace}" -o yaml > "logs/${prefix}events_detailed.yaml"
 }
 
+# om_api_get performs a digest-authenticated GET against the Ops Manager public API.
+# OM_DUMP_CURL, OM_DUMP_USER, OM_DUMP_KEY and OM_DUMP_BASE_URL are prepared per project
+# by dump_one_project_automation_config.
+om_api_get() {
+    "${OM_DUMP_CURL[@]}" --digest -sSk -u "${OM_DUMP_USER}:${OM_DUMP_KEY}" "${OM_DUMP_BASE_URL}/api/public/v1.0${1}"
+}
+
+dump_one_project_automation_config() {
+    local context="${1}"
+    local namespace="${2}"
+    local project="${3}"
+    local base_url="${4}"
+
+    local host
+    host=$(echo "${base_url}" | sed -E 's|^[a-z]+://([^:/]+).*|\1|')
+
+    # An in-cluster Ops Manager is only resolvable inside the cluster, so run curl from
+    # inside the OM pod - the same trick dump_metrics uses with the operator pod.
+    # Cloud Manager / Cloud QA is reachable from this host directly.
+    local om_svc="" om_ns=""
+    OM_DUMP_CURL=(curl)
+    OM_DUMP_BASE_URL="${base_url}"
+    if [[ "${host}" == *.svc.cluster.local ]]; then
+        om_svc=$(echo "${host}" | cut -d. -f1)
+        om_ns=$(echo "${host}" | cut -d. -f2)
+        local om_pod
+        om_pod=$(kubectl --context="${context}" -n "${om_ns}" get endpoints "${om_svc}" -o jsonpath='{.subsets[0].addresses[0].targetRef.name}' 2> /dev/null)
+        if [[ -z "${om_pod}" ]]; then
+            echo "No ready Ops Manager pod behind ${om_svc}; skipping project ${project}"
+            return
+        fi
+        OM_DUMP_CURL=(kubectl --context="${context}" -n "${om_ns}" exec "${om_pod}" -- curl)
+    fi
+
+    # Credentials: the harness admin key if the environment has one (Cloud QA, external OM),
+    # otherwise the admin-key Secret the operator created for a test-deployed OM.
+    if [[ -n "${OM_API_KEY:-}" ]]; then
+        # Same credential preference as configure_operator.sh
+        OM_DUMP_USER="${OM_PUBLIC_API_KEY:-${OM_USER:-}}"
+        OM_DUMP_KEY="${OM_API_KEY}"
+    elif [[ -n "${om_svc}" ]]; then
+        local om_name="${om_svc%-svc}"
+        local admin_key
+        admin_key=$(decode_secret "${context}" "${om_ns}-${om_name}-admin-key" "${namespace}" 2> /dev/null)
+        if [[ -z "${admin_key}" ]]; then
+            # Secret name format of operators before multiple-OM support
+            admin_key=$(decode_secret "${context}" "${om_name}-admin-key" "${namespace}" 2> /dev/null)
+        fi
+        OM_DUMP_USER=$(jq -r '.publicKey // empty' <<< "${admin_key}")
+        OM_DUMP_KEY=$(jq -r '.privateKey // empty' <<< "${admin_key}")
+        if [[ -z "${OM_DUMP_USER}" || -z "${OM_DUMP_KEY}" ]]; then
+            echo "No admin API key found for Ops Manager ${om_name}; skipping project ${project}"
+            return
+        fi
+    else
+        echo "No Ops Manager credentials available for ${base_url}; skipping project ${project}"
+        return
+    fi
+
+    local group_id
+    group_id=$(om_api_get "/groups/byName/$(jq -rn --arg v "${project}" '$v|@uri')" | jq -r '.id // empty')
+    if [[ -z "${group_id}" ]]; then
+        echo "No Ops Manager project named ${project} found; skipping"
+        return
+    fi
+
+    echo "Dumping automation config for Ops Manager project ${project} (${group_id})"
+    local out_prefix="logs/z_om_${project// /_}"
+    # mongoDbVersions is a huge build catalog with no diagnostic value
+    om_api_get "/groups/${group_id}/automationConfig" | jq 'del(.mongoDbVersions)' > "${out_prefix}_automation_config.json"
+    om_api_get "/groups/${group_id}/automationStatus" | jq . > "${out_prefix}_automation_status.json"
+}
+
+# dump_automation_configs saves, for every Ops Manager project the test used, the
+# automation config the operator wrote and the automation status (how far each agent got
+# applying it). Projects and their OM instances are discovered from the project
+# ConfigMaps in the namespace - the same objects the operator reads its OM connection
+# from - so this covers Cloud QA projects and test-deployed Ops Managers alike.
+dump_automation_configs() {
+    [[ "${MODE-}" = "dev" ]] && return
+
+    local context="${1}"
+    local namespace="${2}"
+
+    local project_configmaps
+    project_configmaps=$(kubectl --context="${context}" -n "${namespace}" get configmaps -o json | jq -c '[.items[].data | select(.projectName != null and .baseUrl != null) | {projectName, baseUrl}] | unique | .[]')
+    if [[ -z "${project_configmaps}" ]]; then
+        echo "No project ConfigMaps in ${namespace}; skipping automation config dump"
+        return
+    fi
+
+    mkdir -p logs
+
+    local cm
+    while IFS= read -r cm; do
+        dump_one_project_automation_config "${context}" "${namespace}" "$(jq -r '.projectName' <<< "${cm}")" "$(jq -r '.baseUrl' <<< "${cm}")"
+    done <<< "${project_configmaps}"
+}
+
 # dump_namespace dumps a namespace, diagnostics, logs and generic Kubernetes
 # resources.
 dump_namespace() {

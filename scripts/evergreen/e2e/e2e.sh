@@ -40,9 +40,12 @@ dump_cluster_information() {
       echo "Dumping diagnostics for context ${member_cluster}"
       dump_all "${member_cluster}" || true
     done
+
+    dump_automation_configs "${CENTRAL_CLUSTER}" "${NAMESPACE}" || true
   else
     # Dump all the information we can from this namespace
     dump_all "$(kubectl config current-context)" || true
+    dump_automation_configs "$(kubectl config current-context)" "${NAMESPACE}" || true
   fi
 }
 
