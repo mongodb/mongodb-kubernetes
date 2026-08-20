@@ -50,6 +50,8 @@ NO_SIGNATURE_ERR = CalledProcessError(1, ["cosign", "verify"], stderr="Error: no
 INVALID_SIGNATURE_ERR = CalledProcessError(
     1, ["cosign", "verify"], stderr="Error: no matching signatures: invalid signature when validating ASN.1"
 )
+
+
 @pytest.mark.parametrize(
     "name, platform_digests, run_side_effect, want_err",
     [
