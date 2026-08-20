@@ -969,6 +969,8 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 }
 
 func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
+	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
+	// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
 	appDBReplicaSet := opsManager.Spec.AppDB
 	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
 
