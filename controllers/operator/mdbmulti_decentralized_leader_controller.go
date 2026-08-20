@@ -60,5 +60,7 @@ Shape: elector as a separate manager.Runnable (own ticker — heartbeats never q
 Talks to this controller via: elector.Current() (term, isLeader) read once at snapshot time (a term, never a bare bool),
 GenericEvent into a source.Channel to wake us on transitions, optional ctx cancel on loss.
 Renewal = re-prove majority every ~10s; on failure: stop guarded work, then step down.
+Seam in code (2026-08-20): the Elector interface in mdbmulti_decentralized_elector.go; StaticElector
+("am I the designated leader cluster?") stands in until the majority lease lands (roadmap M3.7).
 
 */
