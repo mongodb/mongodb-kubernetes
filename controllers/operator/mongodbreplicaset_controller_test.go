@@ -438,6 +438,57 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	}
 }
 
+// TestDeleteReplicaSetWithExternalMembers verifies that deleting a hybrid (mid-migration)
+// replica set leaves the Ops Manager automation config and monitored hosts intact, so the
+// still-running VM deployment survives. Only feature controls are cleared.
+func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	// Reconcile first without external members so that Ops Manager ends up holding a real replica
+	// set with monitored hosts, then mark the resource hybrid. Reconciling with external members
+	// already set would require seeding the mocked automation config with matching external
+	// processes and TLS settings (see checkExternalMembersDrift / validateACForMigration), none of
+	// which the deletion path reads: OnDelete only looks at spec.externalMembers.
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	rs.Spec.ExternalMembers = fourExternalMembers()
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	hostsBefore, err := mockedOmConn.GetHosts()
+	require.NoError(t, err)
+	require.NotEmpty(t, hostsBefore.Results, "precondition: the replica set is monitored in OM")
+
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+
+	// The replica set and its processes must still be in the automation config.
+	d, err := mockedOmConn.ReadDeployment()
+	require.NoError(t, err)
+	assert.NotEmpty(t, d.GetReplicaSets(), "replica set must stay in the automation config")
+	assert.NotEmpty(t, d.GetProcessNames(om.ReplicaSet{}, rs.Name), "processes must stay in the automation config")
+
+	// Monitoring must be untouched.
+	hostsAfter, err := mockedOmConn.GetHosts()
+	require.NoError(t, err)
+	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
+
+	// None of the destructive cleanup operations may have happened.
+	mockedOmConn.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment),
+		reflect.ValueOf(mockedOmConn.RemoveHost))
+
+	// Feature controls must have been cleared.
+	cf, err := mockedOmConn.GetControlledFeature()
+	require.NoError(t, err)
+	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
+	assert.NotNil(t, cf.Policies)
+	assert.Empty(t, cf.Policies)
+}
+
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
@@ -1417,6 +1468,11 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	if len(annotationsOverride) > 0 {
 		b.Spec.ExternalAccessConfiguration.ExternalService.Annotations = annotationsOverride
 	}
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetExternalMembers(members []mdbv1.ExternalMember) *ReplicaSetBuilder {
+	b.Spec.ExternalMembers = members
 	return b
 }
 
