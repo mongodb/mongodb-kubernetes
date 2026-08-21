@@ -52,6 +52,19 @@ func TestMandatorySingleClusterFieldsAreSpecified(t *testing.T) {
 	assert.Equal(t, "The following fields must be specified in single cluster topology: mongodsPerShardCount, mongosCount, configServerCount", err.Error())
 }
 
+// During a VM->Kubernetes migration the Kubernetes counts legitimately start at 0 (the VM
+// externalMembers carry the cluster and the Kubernetes side grows incrementally), so the mandatory
+// single-cluster field check must be waived while externalMembers is present.
+func TestMandatorySingleClusterFieldsAreSpecified_WaivedDuringMigration(t *testing.T) {
+	scSingle := NewDefaultShardedClusterBuilder().Build()
+	scSingle.Spec.MongodsPerShardCount = 0
+	scSingle.Spec.MongosCount = 0
+	scSingle.Spec.ConfigServerCount = 0
+	scSingle.Spec.ExternalMembers = []ExternalMember{{ProcessName: "vm-0", Hostname: "vm-0:27017", Type: "mongod"}}
+	_, err := validator.ValidateCreate(ctx, scSingle)
+	require.NoError(t, err)
+}
+
 func TestShardOverridesAreCorrect(t *testing.T) {
 	intPointer := ptr.To(3)
 	resourceName := "foo"

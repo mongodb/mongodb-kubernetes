@@ -10,17 +10,20 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -255,6 +258,8 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 			if numberOfClustersUsed > 0 {
 				properties.DatabaseClusters = ptr.To(numberOfClustersUsed)
 			}
+
+			populateMigrationFields(&properties, item.Status.Conditions, len(item.Spec.GetExternalMembers()))
 
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
@@ -637,4 +642,30 @@ func getAuthenticationAgentMode(security *mdbv1.Security) string {
 	}
 
 	return security.Authentication.Agents.Mode
+}
+
+// populateMigrationFields records the migration lifecycle of a VM-to-Kubernetes migration.
+//
+// Snapshots are point-in-time observations of the Migrating condition, so a single snapshot never
+// carries a migration duration. Instead, an active snapshot reports the exact instant the migration
+// started and a completed snapshot reports the exact instant it finished, both taken from the
+// condition's LastTransitionTime. Duration is derived downstream by aggregating the snapshots of one
+// deploymentUID: migrationCompletedAt minus the earliest migrationStartedAt observed for it.
+func populateMigrationFields(props *DeploymentUsageSnapshotProperties, conditions []metav1.Condition, externalCount int) {
+	cond := meta.FindStatusCondition(conditions, mdbstatus.ConditionMigrating)
+	if cond == nil {
+		return
+	}
+
+	isActive := cond.Status == metav1.ConditionTrue
+	isComplete := cond.Status == metav1.ConditionFalse && cond.Reason == string(mdbstatus.MigratingReasonComplete)
+
+	props.MigrationPhase = cond.Reason
+	props.ExternalMembersCount = ptr.To(externalCount)
+
+	if isActive {
+		props.MigrationStartedAt = cond.LastTransitionTime.UTC().Format(time.RFC3339)
+	} else if isComplete {
+		props.MigrationCompletedAt = cond.LastTransitionTime.UTC().Format(time.RFC3339)
+	}
 }

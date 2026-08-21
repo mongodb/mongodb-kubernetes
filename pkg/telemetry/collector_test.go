@@ -1579,3 +1579,246 @@ func (m *mockConfigClient) GetAPIReader() client.Reader {
 	k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(kubeSystemNamespace).Build()
 	return k8sClient
 }
+
+func TestCollectDeploymentsSnapshotMigration(t *testing.T) {
+	startedAt := time.Now().Add(-10 * time.Minute)
+	completedAt := time.Now().Add(-2 * time.Minute)
+
+	tests := map[string]struct {
+		objects           []client.Object
+		totalEvents       int
+		migrationUID      string
+		validateMigration func(t *testing.T, props map[string]any)
+		validateAll       func(t *testing.T, events []Event)
+	}{
+		"no migration conditions": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "no-migration", UID: "no-migration-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+				},
+			},
+			totalEvents:  1,
+			migrationUID: "no-migration-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.NotContains(t, props, "migrationPhase")
+				assert.NotContains(t, props, "migrationStartedAt")
+				assert.NotContains(t, props, "externalMembersCount")
+			},
+		},
+		"active migration InProgress": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "active-migration", UID: "active-migration-uid"},
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+						},
+						ExternalMembers: []mdbv1.ExternalMember{
+							{ProcessName: "rs0/vm1:27017", Hostname: "vm1:27017", Type: "mongod"},
+							{ProcessName: "rs0/vm2:27017", Hostname: "vm2:27017", Type: "mongod"},
+						},
+					},
+					Status: mdbv1.MongoDbStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Migrating",
+								Status:             metav1.ConditionTrue,
+								Reason:             "InProgress",
+								LastTransitionTime: metav1.Time{Time: startedAt},
+							},
+						},
+					},
+				},
+			},
+			totalEvents:  1,
+			migrationUID: "active-migration-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "InProgress", props["migrationPhase"])
+				assert.Equal(t, float64(2), props["externalMembersCount"])
+				assert.Equal(t, startedAt.UTC().Format(time.RFC3339), props["migrationStartedAt"],
+					"startedAt must be the exact condition transition instant, since duration is derived from it downstream")
+				assert.NotContains(t, props, "migrationCompletedAt")
+				assert.NotContains(t, props, "migrationDurationSeconds")
+			},
+		},
+		"active migration Extending": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "extending", UID: "extending-uid"},
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+						},
+						ExternalMembers: []mdbv1.ExternalMember{
+							{ProcessName: "rs0/vm1:27017", Hostname: "vm1:27017", Type: "mongod"},
+						},
+					},
+					Status: mdbv1.MongoDbStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Migrating",
+								Status:             metav1.ConditionTrue,
+								Reason:             "Extending",
+								LastTransitionTime: metav1.Time{Time: startedAt},
+							},
+						},
+					},
+				},
+			},
+			totalEvents:  1,
+			migrationUID: "extending-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Extending", props["migrationPhase"])
+				assert.Equal(t, float64(1), props["externalMembersCount"])
+			},
+		},
+		"completed migration": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "completed", UID: "completed-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+					Status: mdbv1.MongoDbStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Migrating",
+								Status:             metav1.ConditionFalse,
+								Reason:             "MigrationComplete",
+								LastTransitionTime: metav1.Time{Time: completedAt},
+							},
+						},
+					},
+				},
+			},
+			totalEvents:  1,
+			migrationUID: "completed-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "MigrationComplete", props["migrationPhase"])
+				assert.Equal(t, completedAt.UTC().Format(time.RFC3339), props["migrationCompletedAt"])
+				// The True->False transition re-stamps LastTransitionTime, so the start is not
+				// recoverable here; it comes from an earlier active snapshot.
+				assert.NotContains(t, props, "migrationStartedAt")
+				assert.NotContains(t, props, "migrationDurationSeconds")
+				assert.Equal(t, float64(0), props["externalMembersCount"])
+			},
+		},
+		"dry run Validating carries a start": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "validating", UID: "validating-uid"},
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet},
+						ExternalMembers: []mdbv1.ExternalMember{
+							{ProcessName: "rs0/vm1:27017", Hostname: "vm1:27017", Type: "mongod"},
+						},
+					},
+					Status: mdbv1.MongoDbStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Migrating",
+								Status:             metav1.ConditionTrue,
+								Reason:             "Validating",
+								LastTransitionTime: metav1.Time{Time: startedAt},
+							},
+						},
+					},
+				},
+			},
+			totalEvents:  1,
+			migrationUID: "validating-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Validating", props["migrationPhase"])
+				assert.Equal(t, startedAt.UTC().Format(time.RFC3339), props["migrationStartedAt"])
+				assert.Equal(t, float64(1), props["externalMembersCount"])
+			},
+		},
+		"False with a non-Complete reason emits nothing": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "other-false", UID: "other-false-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+					Status: mdbv1.MongoDbStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Migrating",
+								Status:             metav1.ConditionFalse,
+								Reason:             "SomeFutureReason",
+								LastTransitionTime: metav1.Time{Time: completedAt},
+							},
+						},
+					},
+				},
+			},
+			totalEvents:  1,
+			migrationUID: "other-false-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.NotContains(t, props, "migrationPhase")
+				assert.NotContains(t, props, "migrationCompletedAt")
+				assert.NotContains(t, props, "externalMembersCount")
+			},
+		},
+		"mixed resources: one migrating, one not": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "migrating", UID: "migrating-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+					Status: mdbv1.MongoDbStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               "Migrating",
+								Status:             metav1.ConditionTrue,
+								Reason:             "Pruning",
+								LastTransitionTime: metav1.Time{Time: startedAt},
+							},
+						},
+					},
+				},
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "not-migrating", UID: "not-migrating-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+				},
+			},
+			totalEvents:  2,
+			migrationUID: "migrating-uid",
+			validateMigration: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Pruning", props["migrationPhase"])
+			},
+			validateAll: func(t *testing.T, events []Event) {
+				t.Helper()
+				nonMigrating := findEventWithDeploymentUID(events, "not-migrating-uid")
+				require.NotNil(t, nonMigrating, "non-migrating resource should still produce a deployment event")
+				assert.NotContains(t, nonMigrating.Properties, "migrationPhase")
+				assert.NotContains(t, nonMigrating.Properties, "externalMembersCount")
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(tc.objects...).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			events := collectDeploymentsSnapshot(context.Background(), mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
+
+			require.Len(t, events, tc.totalEvents)
+			if tc.validateMigration != nil {
+				event := findEventWithDeploymentUID(events, tc.migrationUID)
+				require.NotNilf(t, event, "event with deploymentUID %s not found", tc.migrationUID)
+				assert.Equal(t, Deployments, event.Source)
+				tc.validateMigration(t, event.Properties)
+			}
+			if tc.validateAll != nil {
+				tc.validateAll(t, events)
+			}
+		})
+	}
+}

@@ -315,7 +315,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	// Recovery is skipped when a migration dry-run is active.
-	isDryRun := rs.Annotations[util.MigrationDryRunAnnotation] == "true"
+	isDryRun := rs.IsMigrationDryRun()
 	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
@@ -340,10 +340,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if operatorImage == "" {
 			return r.updateStatus(ctx,
 				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
-				)),
+				mdbstatus.NewMigrationStatusOptionWithCondition(
+					mdbstatus.MigrationCondition(mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
+						"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
+					),
+				),
 			)
 		}
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
@@ -828,7 +829,9 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // so it uses the same credentials volumes and mounts as the STS.
 //
 // The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
-// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+// outcomes. The Migrating condition Reason is Validating while the dry-run annotation is set;
+// NetworkConnectivityVerified on status.conditions carries ConnectivityCheckRunning or ConnectivityCheckPassed;
+// while the Job runs, reason is NetworkConnectivityVerifiedReasonRunning ("Running").
 // While the Job runs, reconciliation is requeued after 30s. When the Job reports a connectivity
 // failure, the resource phase is Failed, it is requeued after 5 minutes. Earlier failures
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
