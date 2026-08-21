@@ -61,6 +61,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		resourceType        mdbv1.ResourceType
 		authModes           []string
 		internalClusterAuth string
+		externalDomain      *string
 		expectError         bool
 		expectedErrMsg      string
 	}{
@@ -160,6 +161,17 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
 			expectError:  false,
+		},
+		// External domain validation tests
+		{
+			name:           "SingleCluster with externalDomain",
+			version:        "8.2.0",
+			topology:       mdbv1.ClusterTopologySingleCluster,
+			resourceType:   mdbv1.ReplicaSet,
+			authModes:      []string{},
+			externalDomain: ptr.To("example.com"),
+			expectError:    true,
+			expectedErrMsg: errExternalDomainNotSupported.Error(),
 		},
 		// Authentication mode tests
 		{
@@ -280,6 +292,9 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := newEnterpriseSearchSource(c.version, c.topology, c.resourceType, c.authModes, c.internalClusterAuth)
+			if c.externalDomain != nil {
+				src.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: c.externalDomain}
+			}
 			err := src.Validate()
 
 			if c.expectError {
@@ -368,6 +383,51 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 
 			shardNames := src.GetShardNames()
 			assert.Equal(t, tc.expectedShards, shardNames)
+		})
+	}
+}
+
+func TestShardedInternalSearchSource_Validate(t *testing.T) {
+	cases := []struct {
+		name           string
+		topology       string
+		externalDomain *string
+		expectError    bool
+	}{
+		{
+			name:        "SingleCluster without externalDomain",
+			topology:    mdbv1.ClusterTopologySingleCluster,
+			expectError: false,
+		},
+		{
+			name:           "SingleCluster with externalDomain",
+			topology:       mdbv1.ClusterTopologySingleCluster,
+			externalDomain: ptr.To("example.com"),
+			expectError:    true,
+		},
+		{
+			name:           "MultiCluster with externalDomain also rejected",
+			topology:       mdbv1.ClusterTopologyMultiCluster,
+			externalDomain: ptr.To("example.com"),
+			expectError:    true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB("test-sharded", "test-ns", 2, "8.2.0")
+			mdb.Spec.Topology = c.topology
+			if c.externalDomain != nil {
+				mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: c.externalDomain}
+			}
+			src := NewShardedInternalSearchSource(mdb, nil)
+
+			err := src.Validate()
+			if c.expectError {
+				assert.ErrorIs(t, err, errExternalDomainNotSupported)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }
