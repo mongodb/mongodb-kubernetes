@@ -56,14 +56,14 @@ func NewStandaloneBuilder() *MongoDBBuilder {
 }
 
 func NewClusterBuilder() *MongoDBBuilder {
-	sizeConfig := status.MongodbShardedClusterSizeConfig{
+	sizeConfig := status.MongodbShardedClusterSizeSpec{
 		ShardCount:           2,
 		MongodsPerShardCount: 3,
 		ConfigServerCount:    4,
 		MongosCount:          2,
 	}
 	mongodb := defaultMongoDB(ShardedCluster)
-	mongodb.mdb.Spec.MongodbShardedClusterSizeConfig = sizeConfig
+	mongodb.mdb.Spec.MongodbShardedClusterSizeSpec = sizeConfig
 	return mongodb
 }
 

@@ -397,6 +397,8 @@ spec:
                 format: hostname
                 type: string
               configServerCount:
+                maximum: 50
+                minimum: 0
                 type: integer
               configSrv:
                 properties:
@@ -651,6 +653,8 @@ spec:
                         members:
                           description: Amount of members for this MongoDB Replica
                             Set
+                          maximum: 50
+                          minimum: 0
                           type: integer
                         podSpec:
                           properties:
@@ -883,8 +887,12 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               members:
                 description: Amount of members for this MongoDB Replica Set
+                maximum: 50
+                minimum: 0
                 type: integer
               mongodsPerShardCount:
+                maximum: 50
+                minimum: 0
                 type: integer
               mongos:
                 properties:
@@ -1139,6 +1147,8 @@ spec:
                         members:
                           description: Amount of members for this MongoDB Replica
                             Set
+                          maximum: 50
+                          minimum: 0
                           type: integer
                         podSpec:
                           properties:
@@ -1229,6 +1239,8 @@ spec:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               mongosCount:
+                maximum: 50
+                minimum: 0
                 type: integer
               mongosPodSpec:
                 properties:
@@ -1957,6 +1969,8 @@ spec:
                         members:
                           description: Amount of members for this MongoDB Replica
                             Set
+                          maximum: 50
+                          minimum: 0
                           type: integer
                         podSpec:
                           properties:
@@ -2047,6 +2061,8 @@ spec:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               shardCount:
+                maximum: 250
+                minimum: 0
                 type: integer
               shardOverrides:
                 description: |-
@@ -2285,6 +2301,8 @@ spec:
                           members:
                             description: Amount of members for this MongoDB Replica
                               Set
+                            maximum: 50
+                            minimum: 0
                             type: integer
                           podSpec:
                             properties:

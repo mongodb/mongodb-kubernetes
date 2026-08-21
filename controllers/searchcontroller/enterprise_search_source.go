@@ -12,6 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 type EnterpriseResourceSearchSource struct {
@@ -26,7 +27,11 @@ func (r EnterpriseResourceSearchSource) HostSeeds(shardName string) ([]string, e
 	if shardName != "" {
 		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
-	seeds := make([]string, r.Spec.Members)
+	members := r.Spec.Members
+	if members < 0 || members > constants.MaxReplicaSetMembers {
+		return nil, fmt.Errorf("spec.members must be between 0 and %d, got %d", constants.MaxReplicaSetMembers, members)
+	}
+	seeds := make([]string, members)
 	clusterDomain := r.Spec.GetClusterDomain()
 	for i := range seeds {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 type namingStandard int
@@ -85,6 +86,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateX509AuthConfig,
 		validateLBConfig,
 		validateMultipleReplicasRequireLB,
+		validateReplicaCountsInRange,
 		validateShardOverrides,
 	}
 }
@@ -154,6 +156,40 @@ func validateMultipleReplicasRequireLB(s *MongoDBSearch) v1.ValidationResult {
 				"please configure load balancing in spec.clusters[].loadBalancer.",
 			max,
 		)
+	}
+	return v1.ValidationSuccess()
+}
+
+// validateReplicaCountsInRange bounds every mongot and Envoy replica count. These counts become
+// StatefulSet/Deployment replica counts and loop bounds, so an unbounded value lets a single CR
+// exhaust the operator's memory. This duplicates the CRD markers so the counts are still rejected on
+// clusters running an older CRD.
+func validateReplicaCountsInRange(s *MongoDBSearch) v1.ValidationResult {
+	check := func(path string, replicas *int32) *v1.ValidationResult {
+		if replicas == nil {
+			return nil
+		}
+		if *replicas < 0 || *replicas > constants.MaxSearchReplicas {
+			res := v1.ValidationError("'%s' must be between 0 and %d, got %d", path, constants.MaxSearchReplicas, *replicas)
+			return &res
+		}
+		return nil
+	}
+
+	for i, c := range s.Spec.Clusters {
+		if res := check(fmt.Sprintf("spec.clusters[%d].replicas", i), c.Replicas); res != nil {
+			return *res
+		}
+		if c.LoadBalancer != nil && c.LoadBalancer.Managed != nil {
+			if res := check(fmt.Sprintf("spec.clusters[%d].loadBalancer.managed.replicas", i), c.LoadBalancer.Managed.Replicas); res != nil {
+				return *res
+			}
+		}
+		for j, o := range c.ShardOverrides {
+			if res := check(fmt.Sprintf("spec.clusters[%d].shardOverrides[%d].replicas", i, j), o.Replicas); res != nil {
+				return *res
+			}
+		}
 	}
 	return v1.ValidationSuccess()
 }

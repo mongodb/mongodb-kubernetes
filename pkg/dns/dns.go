@@ -7,6 +7,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
+// maxReplicas is a last-resort sanity bound on the number of DNS names generated for a single
+// StatefulSet. It is deliberately far above any supported topology (spec.members is capped at 50 by
+// the CRD) so that it never truncates a legitimate list -- it exists only to stop an unvalidated
+// count from panicking or OOMKilling the operator in GetDNSNames.
+const maxReplicas = 1000
+
 func GetMultiPodName(stsName string, clusterNum, podNum int) string {
 	return fmt.Sprintf("%s-%d-%d", stsName, clusterNum, podNum)
 }
@@ -98,6 +104,16 @@ func GetDnsForStatefulSetReplicasSpecified(set appsv1.StatefulSet, clusterDomain
 // should be used only in situations when statefulset doesn't exist any more (the main example is when the mongodb custom
 // resource is being deleted - then the dependant statefulsets cannot be read any more as they get into Terminated state)
 func GetDNSNames(statefulSetName, service, namespace, clusterDomain string, replicas int, externalDomain *string) (hostnames, names []string) {
+	// This is the shared sink for every replica/shard count in the CRDs, so bound it defensively: a
+	// negative count panics in make and a very large one allocates enough to get the operator
+	// OOMKilled. The counts are validated upstream (CRD markers plus the webhook validators); this is
+	// a last resort for paths that reach here without passing through them.
+	if replicas < 0 {
+		replicas = 0
+	} else if replicas > maxReplicas {
+		replicas = maxReplicas
+	}
+
 	names = make([]string, replicas)
 	hostnames = make([]string, replicas)
 

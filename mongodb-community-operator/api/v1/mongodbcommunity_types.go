@@ -60,6 +60,8 @@ var (
 type MongoDBCommunitySpec struct {
 	// Members is the number of members in the replica set
 	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
 	Members int `json:"members"`
 	// Type defines which type of MongoDB deployment the resource should create
 	// +kubebuilder:validation:Enum=ReplicaSet

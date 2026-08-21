@@ -66,6 +66,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
@@ -818,9 +819,50 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 		if r.deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters == nil {
 			r.deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters = map[string]map[string]int{}
 		}
+		r.deploymentState.clampSizeCounts(log)
 	}
 
 	return nil
+}
+
+// clampSizeCounts bounds the counts read back from the deployment state ConfigMap. The CRD and the
+// webhook bound what a user can put in the spec, but the state ConfigMap is a plain ConfigMap in the
+// resource's namespace: anyone who can write it can put an arbitrary count there, and these counts
+// feed allocation and loop bounds directly (for example the max(spec.ShardCount, state.ShardCount)
+// loops in prepareDesiredShardsConfiguration). A poisoned value would otherwise survive a fix to the
+// CR itself, so clamp on read rather than trusting what we wrote.
+func (s *ShardedClusterDeploymentState) clampSizeCounts(log *zap.SugaredLogger) {
+	clamp := func(name string, value int, maximum int) int {
+		if value < 0 || value > maximum {
+			clamped := max(min(value, maximum), 0)
+			log.Warnf("Deployment state %s is out of range (%d); clamping to %d. The state ConfigMap may have been modified externally.", name, value, clamped)
+			return clamped
+		}
+		return value
+	}
+
+	sizeConfig := &s.Status.MongodbShardedClusterSizeConfig
+	sizeConfig.ShardCount = clamp("shardCount", sizeConfig.ShardCount, constants.MaxShardCount)
+	sizeConfig.MongodsPerShardCount = clamp("mongodsPerShardCount", sizeConfig.MongodsPerShardCount, constants.MaxReplicaSetMembers)
+	sizeConfig.MongosCount = clamp("mongosCount", sizeConfig.MongosCount, constants.MaxReplicaSetMembers)
+	sizeConfig.ConfigServerCount = clamp("configServerCount", sizeConfig.ConfigServerCount, constants.MaxReplicaSetMembers)
+	s.Status.Members = clamp("members", s.Status.Members, constants.MaxReplicaSetMembers)
+
+	inClusters := s.Status.SizeStatusInClusters
+	for name, counts := range map[string]map[string]int{
+		"shardMongodsInClusters":        inClusters.ShardMongodsInClusters,
+		"mongosCountInClusters":         inClusters.MongosCountInClusters,
+		"configServerMongodsInClusters": inClusters.ConfigServerMongodsInClusters,
+	} {
+		for cluster, count := range counts {
+			counts[cluster] = clamp(fmt.Sprintf("%s[%s]", name, cluster), count, constants.MaxReplicaSetMembers)
+		}
+	}
+	for shard, counts := range inClusters.ShardOverridesInClusters {
+		for cluster, count := range counts {
+			counts[cluster] = clamp(fmt.Sprintf("shardOverridesInClusters[%s][%s]", shard, cluster), count, constants.MaxReplicaSetMembers)
+		}
+	}
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {

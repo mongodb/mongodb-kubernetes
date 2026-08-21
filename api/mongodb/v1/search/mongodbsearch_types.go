@@ -255,6 +255,7 @@ type ClusterSpec struct {
 	// Set to 0 to take mongot offline: the StatefulSet scales to 0 while the MongoDBSearch CR stays.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
 	Replicas *int32 `json:"replicas,omitempty"`
 	// ResourceRequirements configures resource requests and limits for this cluster's mongot pods.
 	// +optional
@@ -316,6 +317,7 @@ type ShardOverride struct {
 	// Set to 0 to take these shards' mongot offline.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=50
 	Replicas *int32 `json:"replicas,omitempty"`
 	// ResourceRequirements replaces the cluster's mongot resource requests/limits for these shards.
 	// +optional
@@ -382,6 +384,7 @@ type ManagedLBConfig struct {
 	// Defaults to 1 if not specified.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=50
 	Replicas *int32 `json:"replicas,omitempty"`
 	// ResourceRequirements for the Envoy container.
 	// When not set, defaults to requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}.

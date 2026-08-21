@@ -678,3 +678,70 @@ users:
 	t.Setenv(multicluster.KubeConfigPathEnv, file.Name())
 	return file
 }
+
+func TestShardCountMagnitudeIsBounded(t *testing.T) {
+	// A count in this range is used as an allocation/loop bound before any effective validation,
+	// which drives a multi-GB allocation and gets the operator OOMKilled (KUBE-308).
+	for _, tc := range []struct {
+		name       string
+		shardCount int
+		expectErr  string
+	}{
+		{"large positive", 1_000_000_000, "shardCount must be between 1 and 250, got 1000000000"},
+		{"negative", -1, "shardCount must be between 1 and 250, got -1"},
+		{"just above max", 251, "shardCount must be between 1 and 250, got 251"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scSingle := NewDefaultShardedClusterBuilder().Build()
+			scSingle.Spec.ShardCount = tc.shardCount
+			_, err := validator.ValidateCreate(ctx, scSingle)
+			require.Error(t, err)
+			assert.Equal(t, tc.expectErr, err.Error())
+
+			scMulti := NewDefaultMultiShardedClusterBuilder().Build()
+			scMulti.Spec.ShardCount = tc.shardCount
+			_, err = validator.ValidateCreate(ctx, scMulti)
+			require.Error(t, err)
+			assert.Equal(t, tc.expectErr, err.Error())
+		})
+	}
+
+	t.Run("at max is accepted", func(t *testing.T) {
+		sc := NewDefaultShardedClusterBuilder().Build()
+		sc.Spec.ShardCount = 250
+		_, err := validator.ValidateCreate(ctx, sc)
+		assert.NoError(t, err)
+	})
+}
+
+func TestSingleClusterSizeFieldsMagnitudeIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		mutate    func(sc *MongoDB)
+		expectErr string
+	}{
+		{
+			"mongodsPerShardCount",
+			func(sc *MongoDB) { sc.Spec.MongodsPerShardCount = 1_000_000_000 },
+			"mongodsPerShardCount must be between 1 and 50, got 1000000000",
+		},
+		{
+			"mongosCount",
+			func(sc *MongoDB) { sc.Spec.MongosCount = -5 },
+			"mongosCount must be between 1 and 50, got -5",
+		},
+		{
+			"configServerCount",
+			func(sc *MongoDB) { sc.Spec.ConfigServerCount = 51 },
+			"configServerCount must be between 1 and 50, got 51",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := NewDefaultShardedClusterBuilder().Build()
+			tc.mutate(sc)
+			_, err := validator.ValidateCreate(ctx, sc)
+			require.Error(t, err)
+			assert.Equal(t, tc.expectErr, err.Error())
+		})
+	}
+}

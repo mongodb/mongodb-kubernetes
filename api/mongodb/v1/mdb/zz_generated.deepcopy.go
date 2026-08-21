@@ -863,7 +863,7 @@ func (in *MongoDbSpec) DeepCopyInto(out *MongoDbSpec) {
 	*out = *in
 	in.DbCommonSpec.DeepCopyInto(&out.DbCommonSpec)
 	in.ShardedClusterSpec.DeepCopyInto(&out.ShardedClusterSpec)
-	out.MongodbShardedClusterSizeConfig = in.MongodbShardedClusterSizeConfig
+	out.MongodbShardedClusterSizeSpec = in.MongodbShardedClusterSizeSpec
 	if in.PodSpec != nil {
 		in, out := &in.PodSpec, &out.PodSpec
 		*out = new(MongoDbPodSpec)

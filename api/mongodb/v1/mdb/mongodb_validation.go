@@ -17,6 +17,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -347,6 +348,12 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 func replicasetMemberIsSpecified(ms MongoDbSpec) v1.ValidationResult {
 	if ms.ResourceType == ReplicaSet && ms.Members == 0 {
 		return v1.ValidationError("'spec.members' must be specified if type of MongoDB is %s", ms.ResourceType)
+	}
+	// The member count is used as an allocation and loop bound (host seed slices, DNS name slices)
+	// before this point on clusters running an older CRD without the kubebuilder bounds, so reject
+	// out-of-range magnitudes here too rather than only ==0.
+	if ms.Members < 0 || ms.Members > constants.MaxReplicaSetMembers {
+		return v1.ValidationError("'spec.members' must be between 1 and %d, got %d", constants.MaxReplicaSetMembers, ms.Members)
 	}
 	return v1.ValidationSuccess()
 }

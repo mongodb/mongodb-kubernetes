@@ -266,6 +266,8 @@ spec:
                 type: array
               members:
                 description: Members is the number of members in the replica set
+                maximum: 50
+                minimum: 0
                 type: integer
               prometheus:
                 description: Prometheus configurations.
