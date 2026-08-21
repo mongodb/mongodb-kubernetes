@@ -197,6 +197,25 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: update_docs_snippets
+    commands:
+      - func: clone
+      - func: setup_gh
+      - command: subprocess.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - version_id
+          env:
+            MCK_DIR: src/github.com/mongodb/mongodb-kubernetes
+            AWS_ACCESS_KEY_ID: ${enterprise_aws_access_key_id}
+            AWS_SECRET_ACCESS_KEY: ${enterprise_aws_secret_access_key}
+            GH_APP_ID: ${rh_gh_app_id}
+            GH_APP_INSTALLATION_ID: ${rh_gh_app_installation_id}
+            GH_APP_PEM_B64: ${rh_gh_app_pem_b64}
+          binary: scripts/dev/update_docs_snippets.sh
+
 task_groups:
   - name: gke_code_snippets_task_group
     <<: *setup_and_teardown_group_gke_code_snippets
@@ -247,6 +266,19 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: kind_code_snippets_task_group
+
+  - name: update_docs_repo
+    display_name: update_docs_repo
+    run_on:
+      - ubuntu2404-small
+    allowed_requesters: [ "patch" ]
+    depends_on:
+      - name: "*"
+        variant: public_gke_code_snippets
+      - name: "*"
+        variant: public_kind_code_snippets
+    tasks:
+      - name: update_docs_snippets
 
     #TODO: re-enabled for staging (master merge) to gate promote; was disabled due to GKE resource issues https://jira.mongodb.org/browse/CLOUDP-345083
   - name: private_gke_code_snippets
