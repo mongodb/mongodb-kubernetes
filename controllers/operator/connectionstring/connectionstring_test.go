@@ -91,13 +91,12 @@ func TestBuild_SRV_TLSParameter(t *testing.T) {
 		assert.NotContains(t, b.Build(), "ssl=false")
 	})
 
-	t.Run("standard connection without TLS does not include ssl=false", func(t *testing.T) {
+	t.Run("standard connection without TLS includes ssl=false", func(t *testing.T) {
 		b := Builder().
 			SetScheme(SchemeMongoDB).
 			SetHostnames([]string{"host:27017"}).
 			SetIsReplicaSet(true).
 			SetName("my-rs")
-		assert.NotContains(t, b.Build(), "ssl=false")
-		assert.NotContains(t, b.Build(), "ssl=")
+		assert.Contains(t, b.Build(), "ssl=false")
 	})
 }
