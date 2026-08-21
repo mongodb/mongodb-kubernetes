@@ -13,15 +13,12 @@ from kubetester import (
     read_configmap,
     read_namespace,
     try_load,
-    wait_until,
 )
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.kubetester import KubernetesTester, create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
-from kubetester.omtester import OMTester, time_to_millis
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
@@ -533,38 +530,9 @@ class TestRestore:
     ):
         """PiT restore Workload MongoDB data from Primary OM."""
         workload_tester = primary_om.get_om_tester(project_name=f"{workload_mdb.name}-project")
-        configs = workload_tester.api_read_backup_configs()
-        print(f"Backup configs for {workload_mdb.name}-project: {len(configs)}")
-        for cfg in configs:
-            print(f"  clusterId={cfg['clusterId']}, status={cfg.get('statusName', 'N/A')}")
-            snapshots = workload_tester.api_get_snapshots(cfg["clusterId"])
-            print(f"  snapshots: {len(snapshots)}")
-            for s in snapshots:
-                print(f"    id={s['id']}, complete={s.get('complete')}, created={s['created']['date']}")
-            try:
-                ranges = workload_tester.api_get_restorable_time_ranges(cfg["clusterId"])
-                print(f"  restorable time ranges: {len(ranges)}")
-                for r in ranges:
-                    print(f"    {r}")
-            except Exception as e:
-                print(f"  Failed to get restorable time ranges: {e}")
-
-        # Use the latest restorable timestamp instead of the original workload PIT, which
-        # may fall outside the range after the backup meta DB PiT restore. The sentinel was
-        # written before the range started, so it survives a restore to any point in it.
-        cluster_id = restore_points["workloadClusterId"]
-        # latest_restorable: list[int] = []
-        #
-        # def restorable_range_exists() -> bool:
-        #     ranges = workload_tester.api_get_restorable_time_ranges(cluster_id)
-        #     if not ranges:
-        #         return False
-        #     end = max(ranges, key=lambda r: r["end"]["time"])["end"]
-        #     latest_restorable.append(end["time"] * 1000 + end["increment"])
-        #     return True
-        #
-        # run_periodically(restorable_range_exists, timeout=600)
-        job_id = workload_tester.create_restore_job_pit(int(restore_points["workloadClusterId"]), cluster_id=cluster_id)
+        job_id = workload_tester.create_restore_job_pit(
+            int(restore_points["workloadPitMillis"]), cluster_id=(restore_points["workloadClusterId"])
+        )
         workload_tester.wait_until_restore_job_is_ready(job_id)
 
         # FINISHED ≠ applied (see test_restore_appdb); the sentinel check in the next test is

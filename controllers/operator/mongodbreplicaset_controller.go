@@ -852,6 +852,10 @@ func (r *ReplicaSetReconcilerHelper) releaseAppDBStatefulsetOwnership(ctx contex
 }
 
 func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+
 	secretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
 	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
 
@@ -898,6 +902,10 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 }
 
 func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
+	if mdb.Spec.Role != mdbv1.RoleAppDB {
+		return nil
+	}
+
 	secretName := fmt.Sprintf("%s-keyfile", mdb.Name)
 	secretObjectKey := kube.ObjectKey(mdb.Namespace, secretName)
 
