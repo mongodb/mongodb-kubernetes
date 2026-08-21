@@ -421,15 +421,15 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error ensuring shared global resources %w", err)), log, opsManagerExtraStatusParams)
 	}
 
+	r.configureWatchersForDynamicResources(ctx, opsManager, log)
+
 	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 	retryResult := reconcile.Result{RequeueAfter: time.Second}
 
-	r.configureWatchersForDynamicResources(ctx, opsManager, log)
-
-	appDbReconciler, err := r.createNewAppDBReconciler(ctx, opsManager, log)
-	if err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", err)), log, opsManagerExtraStatusParams)
+	appDbReconciler, appDBReconcilerErr := r.createAppDBReconcile(ctx, opsManager, log)
+	if appDBReconcilerErr != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", appDBReconcilerErr)), log, opsManagerExtraStatusParams)
 	}
 
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
@@ -485,9 +485,11 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), opsManager.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
-		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), opsManager.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		if opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+			for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
+				path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), opsManager.Namespace, s)
+				vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+			}
 		}
 
 		for k, val := range vaultMap {
@@ -502,6 +504,14 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
 	return workflow.OK().ReconcileResult()
+}
+
+func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
+	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		return r.createNewExternalAppDBReconciler(log), nil
+	}
+
+	return r.createNewAppDBReconciler(ctx, opsManager, log)
 }
 
 // ensureSharedGlobalResources ensures that resources that are shared across watched namespaces (e.g. secrets) are in sync
@@ -911,11 +921,16 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 	// update the central URL
 	setConfigProperty(reconcilerHelper.opsManager, util.MmsCentralUrlPropKey, reconcilerHelper.opsManager.CentralURL(), log)
 
-	if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
-		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
-	}
-	if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
-		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
+	// TODO(CLOUDP-TBD): reflects internal AppDB's TLS setting even in external-AppDB mode —
+	// same deferred TLS/CA parity gap as opsmanager_construction.go's AppDBTlsCAConfigMapName.
+	// Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not fixed here.
+	if reconcilerHelper.opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+		if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
+			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
+		}
+		if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
+			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
+		}
 	}
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
@@ -970,9 +985,14 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 
 func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
-	// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
-	appDBReplicaSet := opsManager.Spec.AppDB
-	r.SetupCommonWatchers(appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
+	// That means we need to remove first, which SetupCommonWatchers or RemoveDependentWatchedResources does, then register additional watches
+	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+		r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
+
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalApplicationDatabaseRef.Name, opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(opsManager))
+	} else {
+		r.SetupCommonWatchers(opsManager.Spec.AppDB, nil, nil, opsManager.Spec.AppDB.GetName())
+	}
 
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
@@ -2049,12 +2069,13 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		}
 	}
 
-	if opsManager.Spec.AppDB.IsMultiCluster() {
+	if opsManager.Spec.ExternalApplicationDatabaseRef == nil && opsManager.Spec.AppDB.IsMultiCluster() {
 		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
 		if err != nil {
 			log.Errorf("Error initializing AppDB reconciler helper: %s", err)
 			return
 		}
+
 		for _, memberCluster := range appDbHelper.GetHealthyMemberClusters() {
 			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
 				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
