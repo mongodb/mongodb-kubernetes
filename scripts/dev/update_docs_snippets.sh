@@ -1,38 +1,49 @@
 #!/usr/bin/env bash
 
-# Script to create PR in docs repository with updates of code snippets and outputs.
-# Prerequisites:
-#  * OUTPUTS_VERSION_ID - evergreen version id from a snippets run, which archives outputs from tests to s3:
-#    * evergreen patch -p mongodb-kubernetes -v public_kind_code_snippets -v public_gke_code_snippets -t all -f -y -u --browse
-#    * or generally any test run (i.e. public run executed as part of a tag)
-#  * 10gen/docs-mongodb-internal repository cloned to DOCS_DIR
-# It copies (replaces whole directories):
-#  * snippets scripts (from the current branch)
-#  * snippets outputs archived from s3
-# Usage:
-#   cd <mongodb-kubernetes directory>
-#   ./scripts/dev/update_docs_snippets.sh
+# Downloads code-snippet outputs from S3 and creates a PR in the docs repository.
 #
-# To customize directories run
+# Prerequisites:
+#  * OUTPUTS_VERSION_ID - Evergreen version/patch ID from a snippets run (archives outputs to S3).
+#  * AWS credentials with read access to s3://operator-e2e-artifacts/
+#
+# The docs repo can be provided either way:
+#  * Pre-cloned at DOCS_DIR (default: docs-mongodb-internal, relative to parent dir).
+#  * Or auto-cloned: set GITHUB_TOKEN and the script clones ${DOCS_REPO} to a temp dir.
+#
+# PR creation requires GITHUB_TOKEN and the gh CLI.
+#
+# Usage (manual):
+#   cd <mongodb-kubernetes directory>
+#   OUTPUTS_VERSION_ID=<patch-id> \
+#   DOCS_DIR=~/mdb/docs-mongodb-internal \
+#     ./scripts/dev/update_docs_snippets.sh
+#
+# Usage (auto-clone + PR, no pre-cloned repo needed):
+#   cd <mongodb-kubernetes directory>
+#   OUTPUTS_VERSION_ID=<patch-id> \
+#   GITHUB_TOKEN=$(gh auth token) \
+#     ./scripts/dev/update_docs_snippets.sh
+#
+# To customize directories:
 #   MCK_DIR=<path to MCK repository> \
 #   DOCS_DIR=<path to docs repository> \
 #     scripts/dev/update_docs_snippets.sh
 #
-# Examples:
-#
-#   MCK_DIR=~/mdb/mongodb-kubernetes DOCS_DIR=~/mdb/docs-k8s-operator scripts/dev/update_docs_snippets.sh
-#
-#   Create snippets PR from a 69038706b0fce50007f25a9d evg patch run
-#   MCK_DIR=$(pwd) MCK_BRANCH=archive-snippets-outputs DOCS_DIR=~/mdb/docs-mongodb-internal \
-#    version_id=69038706b0fce50007f25a9d scripts/dev/update_docs_snippets.sh
-#
-#   Update a previously created snippets PR in a branch: MCK-snippets-update-690cf87c07b9040007901fac
-#     with the updates from another patch_id=690d2946d131f20007fecfe1
-#   MCK_DIR=~/mdb/mongodb-kubernetes \
-#   DOCS_DIR=~/mdb/docs-mongodb-internal \
-#   OUTPUTS_VERSION_ID=690d2946d131f20007fecfe1 \
-#   DOCS_PR_BRANCH=MCK-snippets-update-690cf87c07b9040007901fac \
-#   scripts/dev/update_docs_snippets.sh
+# Env vars:
+#   OUTPUTS_VERSION_ID  Evergreen version/patch ID (required; also accepts version_id).
+#   MCK_DIR             Path to MCK repo (default: mongodb-kubernetes).
+#   DOCS_DIR            Path to docs repo (default: docs-mongodb-internal).
+#   DOCS_REPO           GitHub org/repo for docs (default: 10gen/docs-mongodb-internal).
+#   DOCS_BRANCH         Base branch in docs repo (default: main).
+#   DOCS_VERSION        Version dir in docs repo (default: upcoming).
+#   DOCS_PR_BRANCH      Branch name for the PR (default: MCK-snippets-update-${OUTPUTS_VERSION_ID}).
+#   DOCS_PR_TITLE       PR title (default: "Update MCK code snippets for ${OUTPUTS_VERSION_ID}").
+#   GITHUB_TOKEN        GitHub token for auto-clone and PR creation.
+#   GH_APP_ID           GitHub App ID for token minting (fallback when GITHUB_TOKEN is unset).
+#   GH_APP_INSTALLATION_ID  GitHub App installation ID.
+#   GH_APP_PEM_B64      Base64-encoded GitHub App PEM private key.
+#   NO_PUSH             Set to 1 to skip git push.
+#   DRY_RUN             Set to 1 to skip push and PR creation.
 
 set -eou pipefail
 
@@ -51,6 +62,33 @@ DOCS_VERSION=${DOCS_VERSION:-"upcoming"}
 DOCS_PR_BRANCH=${DOCS_PR_BRANCH:-"MCK-snippets-update-${OUTPUTS_VERSION_ID}"}
 # Set NO_PUSH=1 to skip pushing after commit
 NO_PUSH=${NO_PUSH:-0}
+# GitHub repo for docs PR (org/repo)
+DOCS_REPO=${DOCS_REPO:-"10gen/docs-mongodb-internal"}
+# PR title
+DOCS_PR_TITLE=${DOCS_PR_TITLE:-"Update MCK code snippets for ${OUTPUTS_VERSION_ID}"}
+# Dry-run mode: skip push and PR creation
+DRY_RUN=${DRY_RUN:-0}
+
+# If GITHUB_TOKEN is not set but GitHub App credentials are available, mint a token.
+if [[ -z "${GITHUB_TOKEN:-}" && -n "${GH_APP_PEM_B64:-}" ]]; then
+  echo "Minting GitHub App token..."
+  GITHUB_TOKEN="$(scripts/mckci github app-token \
+    --app-id "${GH_APP_ID:-}" \
+    --installation-id "${GH_APP_INSTALLATION_ID:-}" \
+    --pem-base64 "${GH_APP_PEM_B64}")"
+  export GITHUB_TOKEN
+fi
+
+# Auto-clone the docs repo if DOCS_DIR doesn't exist and we have a GitHub token.
+if [[ -n "${GITHUB_TOKEN:-}" ]] && [[ ! -d "${DOCS_DIR}" ]]; then
+  echo "DOCS_DIR (${DOCS_DIR}) not found; cloning ${DOCS_REPO}..."
+  DOCS_DIR=$(mktemp -d)
+  git clone "https://${GITHUB_TOKEN}@github.com/${DOCS_REPO}.git" "${DOCS_DIR}"
+elif [[ ! -d "${DOCS_DIR}" ]]; then
+  echo "DOCS_DIR (${DOCS_DIR}) not found and GITHUB_TOKEN not set; cannot proceed." >&2
+  echo "Either set GITHUB_TOKEN for auto-clone or clone ${DOCS_REPO} to ${DOCS_DIR} manually." >&2
+  exit 1
+fi
 
 docs_include_code_examples_dir="${DOCS_DIR}/content/kubernetes/${DOCS_VERSION}/source/includes/code-examples"
 
@@ -104,11 +142,42 @@ function prepare_docs_pr() {
 
   git add "${docs_include_code_examples_dir}"
   git commit -m "Update sample files from MCK"
-  if [[ "${NO_PUSH}" != "1" ]]; then
-    git push
+  if [[ "${DRY_RUN}" == "1" ]]; then
+    echo "[DRY-RUN] Would push branch ${DOCS_PR_BRANCH} to ${DOCS_REPO}"
+  elif [[ "${NO_PUSH}" != "1" ]]; then
+    git push --set-upstream origin "${DOCS_PR_BRANCH}"
   else
     echo "Skipping push (NO_PUSH=1)"
   fi
+  popd
+}
+
+function create_docs_pr() {
+  if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    echo "GITHUB_TOKEN not set; skipping PR creation."
+    return 0
+  fi
+
+  if [[ "${DRY_RUN}" == "1" ]]; then
+    echo "[DRY-RUN] Would create PR: ${DOCS_PR_BRANCH} → ${DOCS_BRANCH} in ${DOCS_REPO}"
+    echo "[DRY-RUN] Title: ${DOCS_PR_TITLE}"
+    return 0
+  fi
+
+  if ! command -v gh &>/dev/null; then
+    echo "gh CLI not found; cannot create PR." >&2
+    return 1
+  fi
+
+  pushd "${DOCS_DIR}"
+  # Authenticate gh with the token
+  echo "${GITHUB_TOKEN}" | gh auth login --with-token 2>/dev/null || true
+  gh pr create \
+    --repo "${DOCS_REPO}" \
+    --base "${DOCS_BRANCH}" \
+    --head "${DOCS_PR_BRANCH}" \
+    --title "${DOCS_PR_TITLE}" \
+    --body "Auto-generated from MCK snippets run \`${OUTPUTS_VERSION_ID}\`."
   popd
 }
 
@@ -136,4 +205,5 @@ rsync -a --delete --exclude='README.md' --exclude='env_variables_*.sh' \
   "${MCK_DIR}/docs/search/" "${docs_include_code_examples_dir}/search/"
 
 prepare_docs_pr
+create_docs_pr
 popd
