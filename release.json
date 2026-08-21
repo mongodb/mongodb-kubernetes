@@ -36,8 +36,8 @@
     },
     {
       "9": {
-        "opsManagerVersion": "9.0.0-rc1",
-        "agentVersion": "109.0.0.9221-1"
+        "opsManagerVersion": "9.0.0-rc2",
+        "agentVersion": "109.0.0.9244-1"
       }
     }
   ],
@@ -82,7 +82,7 @@
         "8.0.23",
         "8.0.24",
         "8.0.25",
-        "9.0.0-rc1"
+        "9.0.0-rc2"
       ],
       "variants": [
         "ubi"
@@ -286,8 +286,8 @@
             "agent_version": "108.0.25.9029-1",
             "tools_version": "100.17.0"
           },
-          "9.0.0-rc1": {
-            "agent_version": "109.0.0.9221-1",
+          "9.0.0-rc2": {
+            "agent_version": "109.0.0.9244-1",
             "tools_version": "100.17.0"
           }
         }

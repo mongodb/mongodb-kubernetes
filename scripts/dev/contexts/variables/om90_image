@@ -8,5 +8,5 @@ export OM_VERSION
 # This URL override needs to be removed once we approach OM 9.0.0 GA.
 # find_om_url in scripts/release/atomic_pipeline.py looks versions up in the public
 # release archive, which does not contain unreleased RC builds.
-om_download_url="https://mciuploads.s3.amazonaws.com/ops-manager-9.0/ops_manager_9.0_package_rpm_0e892b77302306bf0d54e9eb288ecd620416e476_26_08_06_15_11_10/PACKAGE_OPS_MANAGER/mongodb-mms-9.0.0-rc1.500.20260806T1526Z.tar.gz"
+om_download_url="https://s3.amazonaws.com/mongodb-mms-build-onprem/bd937b2f47ca7e4fbc7edcc797f96e2706c475ac/mongodb-mms-9.0.0-rc2.500.20260821T0720Z.tar.gz"
 export om_download_url
