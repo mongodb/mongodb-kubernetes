@@ -427,6 +427,12 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
+	if rs.IsReconciliationDisabled() {
+		log.Infof("MongoDB %s/%s reconciliation disabled by %s annotation; skipping",
+			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
+	}
+
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
@@ -1065,7 +1071,13 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 }
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	helper, err := r.newReconcilerHelper(ctx, obj.(*mdbv1.MongoDB), log)
+	rs := obj.(*mdbv1.MongoDB)
+	if rs.IsReconciliationDisabled() {
+		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
+			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)
+		return nil
+	}
+	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
 		return err
 	}

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>om-backup-restore-initial-state</title>
+  <!--
+    MongoDB brand fonts. Lexend Deca (body) and Source Code Pro (mono)
+    are pulled from the @fontsource jsDelivr mirror (versioned, stable
+    URL — same pinning rationale as the Excalidraw bundle below) and
+    registered under Excalidraw's hardcoded canvas font names
+    "Helvetica" (fontFamily 2) and "Cascadia" (fontFamily 3) so the
+    canvas measureText/fillText calls resolve to the brand fonts.
+
+    We register the fonts *programmatically* via FontFace.load() in the
+    bootstrap script below (rather than via @font-face CSS) so the load
+    is fully synchronised with the canvas-measurement code path:
+    Excalidraw's convertToExcalidrawElements runs measureText
+    immediately on call, so it must observe the loaded font NOW, not
+    "eventually". CSS @font-face + document.fonts.load() works in a
+    real browser tab but headless Chrome with --dump-dom captures the
+    DOM before async font fetches resolve, leaving canvas with system
+    fallback metrics. FontFace + document.fonts.add() with awaited
+    .load() is deterministic.
+
+    If jsDelivr is offline the fetch throws, the catch block falls
+    through, and Excalidraw renders with system Helvetica/Cascadia
+    (i.e. pre-fix behaviour) instead of hanging.
+  -->
+  <style>
+    html,body,#root{margin:0;padding:0;height:100%;width:100%;overflow:hidden;font-family:"Helvetica",system-ui}
+    #canonical{display:none}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <pre id="canonical"></pre>
+  <!--
+    Scene JSON is embedded in a non-executing <script type="application/json">
+    block instead of inline `const scene = …;`. Two reasons:
+      1. Defends against `</script>` injection: when JSON contains literal
+         `</script>` (possible inside text labels), inline-JS embedding
+         breaks out of the script block. JSON-script-tag embedding does not
+         execute the contents, and JSON.stringify of `<` is `<` not escaped,
+         but the parser only stops at the literal closing tag of the JSON
+         block. We still escape `</` defensively in the Python writer.
+      2. Stable extraction: diff_scene reads this exact tag by id, so the
+         baseline parser is decoupled from the rendering script.
+  -->
+  <script id="diagram-scene" type="application/json">{"type":"excalidraw","version":2,"source":"file://","elements":[{"type":"rectangle","version":191,"versionNonce":105327600,"isDeleted":false,"id":"ns_mgmt_bg","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":35,"angle":0,"x":-139.16153259324113,"y":56.26083867139539,"strokeColor":"#00684A","backgroundColor":"#E3FCF7","width":640.6591420720581,"height":522.5041197454245,"seed":605710011,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[],"updated":1786705270747,"link":null,"locked":false},{"type":"text","version":111,"versionNonce":1731848464,"isDeleted":false,"id":"ns_mgmt_label","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":71.20747669812363,"y":75.31456870242525,"strokeColor":"#00684A","backgroundColor":"transparent","width":231.11985778808594,"height":23,"seed":238073461,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":20,"fontFamily":2,"text":"management-mongodb","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"management-mongodb","lineHeight":1.15,"baseline":19},{"type":"rectangle","version":147,"versionNonce":813756400,"isDeleted":false,"id":"meta_om","fillStyle":"solid","strokeWidth":1.5,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":-92.28992737507815,"y":132.45252556899453,"strokeColor":"#00684A","backgroundColor":"#00ED64","width":552.1672895484674,"height":55,"seed":859035483,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"VL4glOPNipzCq8USJTxAS"},{"id":"a2","type":"arrow"},{"id":"a1","type":"arrow"},{"id":"ARSFxNID5ALE4UKEiH7SW","type":"arrow"},{"id":"Xv270ywPx5y7EF0ofRghD","type":"arrow"}],"updated":1786705270747,"link":null,"locked":false},{"type":"rectangle","version":437,"versionNonce":1211778832,"isDeleted":false,"id":"meta_appdb","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":-99.47650792602482,"y":305.4871913798963,"strokeColor":"#00684A","backgroundColor":"#E3FCF7","width":250.56916246216397,"height":53.13960476473904,"seed":740040661,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"2oX_pwpNW72SbKZdu9W8h"},{"id":"a2","type":"arrow"}],"updated":1786705270747,"link":null,"locked":false},{"type":"rectangle","version":767,"versionNonce":616395248,"isDeleted":false,"id":"backup_meta_db","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":199.75364573111028,"y":308.5256237477036,"strokeColor":"#00684A","backgroundColor":"#F9EBFF","width":257.43482669622097,"height":55,"seed":1259746299,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"OAvgyHYVKsbbaLIM-PqD5"},{"id":"ARSFxNID5ALE4UKEiH7SW","type":"arrow"},{"id":"Xv270ywPx5y7EF0ofRghD","type":"arrow"}],"updated":1786705270747,"link":null,"locked":false},{"type":"rectangle","version":511,"versionNonce":1134072955,"isDeleted":false,"id":"ns_primary_bg","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":35,"angle":0,"x":654.6589622240504,"y":55.84002310172582,"strokeColor":"#00684A","backgroundColor":"#ffc9c9","width":731.6686228307183,"height":520,"seed":1066622261,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[],"updated":1786721054482,"link":null,"locked":false},{"type":"text","version":195,"versionNonce":572109808,"isDeleted":false,"id":"ns_primary_label","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":947.7128121537519,"y":69.75688157811422,"strokeColor":"#00684A","backgroundColor":"transparent","width":178.05990600585938,"height":23,"seed":1002699931,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":20,"fontFamily":2,"text":"primary-mongodb","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"primary-mongodb","lineHeight":1.15,"baseline":19},{"type":"text","version":292,"versionNonce":1576250299,"isDeleted":false,"id":"ns_primary_warning","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":832.6383913811599,"y":100.22712277547147,"strokeColor":"#e03131","backgroundColor":"transparent","width":414.65966796875,"height":23,"seed":1341910677,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721035816,"link":null,"locked":false,"fontSize":20,"fontFamily":2,"text":"DISASTER TARGET - wiped in disaster step","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"DISASTER TARGET - wiped in disaster step","lineHeight":1.15,"baseline":19},{"type":"rectangle","version":274,"versionNonce":604942320,"isDeleted":false,"id":"primary_om","fillStyle":"solid","strokeWidth":1.5,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":687.743047784182,"y":139.20932582103705,"strokeColor":"#00684A","backgroundColor":"#00ED64","width":665.567446252915,"height":55,"seed":821014843,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"nfuxdmvCvlItpla0lBmOe"},{"id":"a5","type":"arrow"},{"id":"a7","type":"arrow"},{"id":"a6","type":"arrow"},{"id":"ua5Wb3ynoLxNJxWtDlY4O","type":"arrow"}],"updated":1786705317873,"link":null,"locked":false},{"type":"rectangle","version":404,"versionNonce":464838928,"isDeleted":false,"id":"ext_appdb","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":691.2390906909011,"y":309.0766979025998,"strokeColor":"#00684A","backgroundColor":"#00ED64","width":300,"height":55,"seed":1544246261,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"kpIAGH9sdY-tjcYcmDVoM"},{"id":"a6","type":"arrow"},{"id":"a1","type":"arrow"},{"id":"a5","type":"arrow"},{"id":"ua5Wb3ynoLxNJxWtDlY4O","type":"arrow"}],"updated":1786705270747,"link":null,"locked":false},{"type":"rectangle","version":463,"versionNonce":1330739184,"isDeleted":false,"id":"workload_meta_db","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":1046.7560213830536,"y":307.7109030815031,"strokeColor":"#00684A","backgroundColor":"#F9EBFF","width":300,"height":55,"seed":1006359003,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"2TjyLwA7jQyAe-sLr1GZo"},{"id":"a6","type":"arrow"}],"updated":1786705270747,"link":null,"locked":false},{"type":"rectangle","version":486,"versionNonce":715200347,"isDeleted":false,"id":"ns_workload_bg","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":35,"angle":0,"x":1526.7835956987851,"y":55.97905957822249,"strokeColor":"#00684A","backgroundColor":"#ffc9c9","width":440.1324510574104,"height":280,"seed":1435220923,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[],"updated":1786721044774,"link":null,"locked":false},{"type":"text","version":254,"versionNonce":1449643285,"isDeleted":false,"id":"ns_workload_label","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":1636.0673805539614,"y":67.97373563364857,"strokeColor":"#00684A","backgroundColor":"transparent","width":200.4198455810547,"height":23,"seed":1726689653,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721047442,"link":null,"locked":false,"fontSize":20,"fontFamily":2,"text":"workloads-mongodb","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"workloads-mongodb","lineHeight":1.15,"baseline":19},{"type":"rectangle","version":353,"versionNonce":998661205,"isDeleted":false,"id":"workload_mdb","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":1608.5963097597287,"y":133.49255133394,"strokeColor":"#00684A","backgroundColor":"#00ED64","width":280,"height":55,"seed":900893787,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"mD9wItKLWbJKO-WQCagbd"},{"id":"a7","type":"arrow"}],"updated":1786721050914,"link":null,"locked":false},{"type":"rectangle","version":357,"versionNonce":1396061968,"isDeleted":false,"id":"s3_bucket","fillStyle":"solid","strokeWidth":1.5,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":-139.1712573301163,"y":639.6936707884238,"strokeColor":"#001E2B","backgroundColor":"#ffffff","width":1527.869469363563,"height":50,"seed":500120277,"groupIds":[],"frameId":null,"roundness":{"type":3},"boundElements":[{"type":"text","id":"oFssm9iQgn6HS-wSaqKbA"},{"id":"ua5Wb3ynoLxNJxWtDlY4O","type":"arrow"}],"updated":1786705270747,"link":null,"locked":false},{"type":"arrow","version":1091,"versionNonce":1270383088,"isDeleted":false,"id":"a1","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":466.7754150883402,"y":166.19699654498868,"strokeColor":"#001E2B","backgroundColor":"transparent","width":223.0017506009774,"height":167.78618591189365,"seed":1442203899,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"nQVywiMBePDL5Zc5heBh_"}],"updated":1786705270747,"link":null,"locked":false,"startBinding":{"elementId":"meta_om","focus":-0.884674102279951,"gap":6.898052914950995},"endBinding":{"elementId":"ext_appdb","focus":-0.7838265902129453,"gap":1.461925001583495},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[115.80595214588357,91.39781732521067],[223.0017506009774,167.78618591189365]]},{"type":"arrow","version":1367,"versionNonce":1266472208,"isDeleted":false,"id":"a2","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":27.63253962759638,"y":195.56213217402234,"strokeColor":"#001E2B","backgroundColor":"transparent","width":1.9046933309523517,"height":107.94148892660405,"seed":1646991413,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"F2IxZft2MSDLB5vy5Nybd"}],"updated":1786705270747,"link":null,"locked":false,"startBinding":{"elementId":"meta_om","gap":8.109606605027807,"focus":0.56191990313188},"endBinding":{"elementId":"meta_appdb","gap":1.983570279269884,"focus":-0.004644554848970752},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[-1.9046933309523517,107.94148892660405]]},{"type":"text","version":18,"versionNonce":1462944752,"isDeleted":false,"id":"F2IxZft2MSDLB5vy5Nybd","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":9.471275274584265,"y":199.29205583876976,"strokeColor":"#1e1e1e","backgroundColor":"transparent","width":69.50395202636719,"height":18.4,"seed":1337165296,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"connects","textAlign":"center","verticalAlign":"middle","containerId":"a2","originalText":"connects","lineHeight":1.15,"baseline":15},{"type":"arrow","version":1367,"versionNonce":235206416,"isDeleted":false,"id":"a5","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":826.2935703871462,"y":198.50197320245675,"strokeColor":"#001E2B","backgroundColor":"transparent","width":0.4623210232148267,"height":106.2294152149934,"seed":411993659,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"6ObqvsEnGIb9lXCQqOV4d"}],"updated":1786705312713,"link":null,"locked":false,"startBinding":{"elementId":"primary_om","focus":0.5838383476004363,"gap":4.29264738141967},"endBinding":{"elementId":"ext_appdb","focus":-0.09555446062194553,"gap":4.345309485149642},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[0.4623210232148267,106.2294152149934]]},{"type":"text","version":15,"versionNonce":404369168,"isDeleted":false,"id":"6ObqvsEnGIb9lXCQqOV4d","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":747.1042027849318,"y":215.34787571718002,"strokeColor":"#1e1e1e","backgroundColor":"transparent","width":69.50395202636719,"height":18.4,"seed":2126351632,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"connects","textAlign":"center","verticalAlign":"middle","containerId":"a5","originalText":"connects","lineHeight":1.15,"baseline":15},{"type":"arrow","version":1389,"versionNonce":361295632,"isDeleted":false,"id":"a6","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":1193.9123086305633,"y":199.01403428417396,"strokeColor":"#001E2B","backgroundColor":"transparent","width":0.774309894816497,"height":105.92252688296551,"seed":1647333109,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"AcxL0aPipddi8wMhE0022"}],"updated":1786705312714,"link":null,"locked":false,"startBinding":{"elementId":"primary_om","focus":-0.5200582639614825,"gap":4.804708463136905},"endBinding":{"elementId":"workload_meta_db","focus":-0.01230412861415447,"gap":2.7743419143636174},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[0.774309894816497,105.92252688296551]]},{"type":"text","version":86,"versionNonce":1092734224,"isDeleted":false,"id":"AcxL0aPipddi8wMhE0022","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":1110.8283255229726,"y":224.05924377720507,"strokeColor":"#1e1e1e","backgroundColor":"transparent","width":165.80784606933594,"height":55.199999999999996,"seed":1006926320,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"snapshots and oplog \nmetadada for \nworkloads","textAlign":"center","verticalAlign":"middle","containerId":"a6","originalText":"snapshots and oplog metadada for workloads","lineHeight":1.15,"baseline":52},{"type":"arrow","version":1130,"versionNonce":1620631669,"isDeleted":false,"id":"a7","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":1354.3104940370972,"y":164.5157431330723,"strokeColor":"#001E2B","backgroundColor":"transparent","width":249.3172991283693,"height":0.287611275833882,"seed":1391986395,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"xqGVMDLdhmXr-qr_Dsrba"}],"updated":1786721050914,"link":null,"locked":false,"startBinding":{"elementId":"primary_om","gap":1,"focus":-0.06485364835368254},"endBinding":{"elementId":"workload_mdb","gap":4.968516594262383,"focus":-0.11092475628182792},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[249.3172991283693,-0.287611275833882]]},{"type":"text","version":142,"versionNonce":373019632,"isDeleted":false,"id":"VL4glOPNipzCq8USJTxAS","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":100.30078221849146,"y":149.60252556899454,"strokeColor":"#00684A","backgroundColor":"transparent","width":166.98587036132812,"height":20.7,"seed":1374082485,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":18,"fontFamily":2,"text":"Meta Ops Manager","textAlign":"center","verticalAlign":"middle","containerId":"meta_om","originalText":"Meta Ops Manager","lineHeight":1.15,"baseline":16},{"type":"text","version":433,"versionNonce":1527751440,"isDeleted":false,"id":"2oX_pwpNW72SbKZdu9W8h","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":-76.51983807189596,"y":322.8569937622658,"strokeColor":"#00684A","backgroundColor":"transparent","width":204.65582275390625,"height":18.4,"seed":709646101,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"Meta OM AppDB (internal)","textAlign":"center","verticalAlign":"middle","containerId":"meta_appdb","originalText":"Meta OM AppDB (internal)","lineHeight":1.15,"baseline":15},{"type":"text","version":781,"versionNonce":1501287920,"isDeleted":false,"id":"OAvgyHYVKsbbaLIM-PqD5","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":205.87115215783405,"y":326.8256237477036,"strokeColor":"#00684A","backgroundColor":"transparent","width":245.19981384277344,"height":18.4,"seed":1362799733,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":" Meta OM Backup Metadata DB","textAlign":"center","verticalAlign":"middle","containerId":"backup_meta_db","originalText":" Meta OM Backup Metadata DB","lineHeight":1.15,"baseline":15},{"type":"text","version":266,"versionNonce":1706851088,"isDeleted":false,"id":"nfuxdmvCvlItpla0lBmOe","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":924.5148385375926,"y":156.35932582103706,"strokeColor":"#00684A","backgroundColor":"transparent","width":192.02386474609375,"height":20.7,"seed":645354965,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705312713,"link":null,"locked":false,"fontSize":18,"fontFamily":2,"text":"Primary Ops Manager","textAlign":"center","verticalAlign":"middle","containerId":"primary_om","originalText":"Primary Ops Manager","lineHeight":1.15,"baseline":16},{"type":"text","version":425,"versionNonce":2037094384,"isDeleted":false,"id":"kpIAGH9sdY-tjcYcmDVoM","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":725.8071830370925,"y":327.3766979025998,"strokeColor":"#00684A","backgroundColor":"transparent","width":230.8638153076172,"height":18.4,"seed":1964495669,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"Primary OM AppDB (external)","textAlign":"center","verticalAlign":"middle","containerId":"ext_appdb","originalText":"Primary OM AppDB (external)","lineHeight":1.15,"baseline":15},{"type":"text","version":476,"versionNonce":1454251792,"isDeleted":false,"id":"2TjyLwA7jQyAe-sLr1GZo","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":1065.2681063439911,"y":326.0109030815031,"strokeColor":"#00684A","backgroundColor":"transparent","width":262.975830078125,"height":18.4,"seed":159491221,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"Primary OM Backup Metadata DB","textAlign":"center","verticalAlign":"middle","containerId":"workload_meta_db","originalText":"Primary OM Backup Metadata DB","lineHeight":1.15,"baseline":15},{"type":"text","version":350,"versionNonce":1333922229,"isDeleted":false,"id":"mD9wItKLWbJKO-WQCagbd","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":1670.820362188928,"y":151.79255133394003,"strokeColor":"#00684A","backgroundColor":"transparent","width":155.55189514160156,"height":18.4,"seed":124406261,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721050914,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"Workload MongoDB","textAlign":"center","verticalAlign":"middle","containerId":"workload_mdb","originalText":"Workload MongoDB","lineHeight":1.15,"baseline":15},{"type":"text","version":345,"versionNonce":1740094736,"isDeleted":false,"id":"oFssm9iQgn6HS-wSaqKbA","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":259.4518623614308,"y":655.4936707884237,"strokeColor":"#001E2B","backgroundColor":"transparent","width":730.6232299804688,"height":18.4,"seed":2144813909,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"S3 Bucket (snapshots + oplog) - external AWS storage, not part of any Kubernetes namespace","textAlign":"center","verticalAlign":"middle","containerId":"s3_bucket","originalText":"S3 Bucket (snapshots + oplog) - external AWS storage, not part of any Kubernetes namespace","lineHeight":1.15,"baseline":15},{"type":"text","version":50,"versionNonce":1585077232,"isDeleted":false,"id":"nQVywiMBePDL5Zc5heBh_","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":503.4637455919469,"y":313.2146485975729,"strokeColor":"#001E2B","backgroundColor":"transparent","width":106.20790100097656,"height":36.8,"seed":1193152693,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"manages and\nbacks up","textAlign":"center","verticalAlign":"middle","containerId":"a1","originalText":"manages and\nbacks up","lineHeight":1.15,"baseline":33},{"type":"text","version":42,"versionNonce":568171280,"isDeleted":false,"id":"xqGVMDLdhmXr-qr_Dsrba","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":1365.9504719654633,"y":148.37836184383298,"strokeColor":"#001E2B","backgroundColor":"transparent","width":106.20790100097656,"height":36.8,"seed":182727189,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"manages and\nbacks up","textAlign":"center","verticalAlign":"middle","containerId":"a7","originalText":"manages and\nbacks up","lineHeight":1.15,"baseline":33},{"type":"arrow","version":1461,"versionNonce":1978635024,"isDeleted":false,"id":"ARSFxNID5ALE4UKEiH7SW","fillStyle":"solid","strokeWidth":1,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":330.4043977121946,"y":191.77447752417982,"strokeColor":"#001E2B","backgroundColor":"transparent","width":1.265232371266677,"height":114.9919231612945,"seed":1044612880,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"obuRvnSQOyYfS1GKyOeNN"}],"updated":1786705270747,"link":null,"locked":false,"startBinding":{"elementId":"meta_om","focus":-0.5318561258659142,"gap":4.321951955185284},"endBinding":{"elementId":"backup_meta_db","focus":0.002683096436128329,"gap":1.759223062229296},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[-1.265232371266677,114.9919231612945]]},{"type":"text","version":75,"versionNonce":1355998704,"isDeleted":false,"id":"obuRvnSQOyYfS1GKyOeNN","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":246.86785849189334,"y":221.67043910482707,"strokeColor":"#1e1e1e","backgroundColor":"transparent","width":165.80784606933594,"height":55.199999999999996,"seed":1073171216,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"snapshots and oplog \nmetadata for \nprimary-om","textAlign":"center","verticalAlign":"middle","containerId":"ARSFxNID5ALE4UKEiH7SW","originalText":"snapshots and oplog metadata for \nprimary-om","lineHeight":1.15,"baseline":52},{"type":"arrow","version":989,"versionNonce":325101552,"isDeleted":false,"id":"Xv270ywPx5y7EF0ofRghD","fillStyle":"solid","strokeWidth":1,"strokeStyle":"dashed","roughness":0,"opacity":100,"angle":0,"x":182.14724662763746,"y":190.66398283985947,"strokeColor":"#00684A","backgroundColor":"transparent","width":3.788161985677334,"height":450.4358839351529,"seed":715482096,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"yRlIKzsILXZNUVEf7IiHL"}],"updated":1786705270747,"link":null,"locked":false,"startBinding":{"elementId":"meta_om","focus":0.0050230171452408596,"gap":3.2114572708649405},"endBinding":null,"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[-1.703198666401704,202.3234801785837],[-3.788161985677334,450.4358839351529]]},{"type":"text","version":86,"versionNonce":1314000656,"isDeleted":false,"id":"yRlIKzsILXZNUVEf7IiHL","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":97.54012492656778,"y":374.5874630184432,"strokeColor":"#1e1e1e","backgroundColor":"transparent","width":165.80784606933594,"height":36.8,"seed":1244882416,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"snapshots and oplog \nfor primary-om","textAlign":"center","verticalAlign":"middle","containerId":"Xv270ywPx5y7EF0ofRghD","originalText":"snapshots and oplog \nfor primary-om","lineHeight":1.15,"baseline":33},{"type":"text","version":25,"versionNonce":48638448,"isDeleted":false,"id":"6dN0jD1ftrwZZYFV2rL6N","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":507.3416796641427,"y":1075.8426957275528,"strokeColor":"#001E2B","backgroundColor":"transparent","width":431.6476745605469,"height":18.4,"seed":1935960560,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"MCK Operator (cluster-scoped, WATCH_NAMESPACE=*)","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"MCK Operator (cluster-scoped, WATCH_NAMESPACE=*)","lineHeight":1.15,"baseline":15},{"type":"text","version":510,"versionNonce":734594741,"isDeleted":false,"id":"dz65oDFvyGGBzd9NlbPym","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":692.9635515293727,"y":432.55763645867034,"strokeColor":"#00684A","backgroundColor":"transparent","width":121.805908203125,"height":20.7,"seed":1898032112,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721064791,"link":null,"locked":false,"fontSize":18,"fontFamily":2,"text":"Restore Order","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"Restore Order","lineHeight":1.15,"baseline":16},{"type":"text","version":513,"versionNonce":1254123541,"isDeleted":false,"id":"dOb8ZeeTR2uAAX8R2hmcd","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":693.2650183725112,"y":462.25130724709413,"strokeColor":"#001E2B","backgroundColor":"transparent","width":345.35968017578125,"height":18.4,"seed":166112752,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721064791,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"1. Restore External AppDB (PiT via Meta OM)","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"1. Restore External AppDB (PiT via Meta OM)","lineHeight":1.15,"baseline":15},{"type":"text","version":515,"versionNonce":1258593653,"isDeleted":false,"id":"nvbw9hBjN-yyfUgCDP9OK","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":692.9635515293727,"y":487.78104764684895,"strokeColor":"#001E2B","backgroundColor":"transparent","width":352.5916748046875,"height":18.4,"seed":112947184,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721064791,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"2. Restore Backup Meta DB (PiT via Meta OM)","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"2. Restore Backup Meta DB (PiT via Meta OM)","lineHeight":1.15,"baseline":15},{"type":"text","version":511,"versionNonce":333129429,"isDeleted":false,"id":"OngaTUQlCqPbZ5e3MXyCE","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":692.6572223177965,"y":512.4747184352727,"strokeColor":"#001E2B","backgroundColor":"transparent","width":368.9757080078125,"height":18.4,"seed":1336406512,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721064791,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"3. Bring up Primary OM, verify projects restored","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"3. Bring up Primary OM, verify projects restored","lineHeight":1.15,"baseline":15},{"type":"arrow","version":2330,"versionNonce":8631568,"isDeleted":false,"id":"ua5Wb3ynoLxNJxWtDlY4O","fillStyle":"solid","strokeWidth":1,"strokeStyle":"dashed","roughness":0,"opacity":100,"angle":6.257159390400789,"x":1023.3256183066593,"y":198.0298496267667,"strokeColor":"#00684A","backgroundColor":"transparent","width":155.89753149491912,"height":436.9080442312828,"seed":34750224,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[{"type":"text","id":"49pu0K8xwtkvsPGhM1yvt"}],"updated":1786705449185,"link":null,"locked":false,"startBinding":{"elementId":"primary_om","focus":0.010006079853206359,"gap":5.852001417517755},"endBinding":{"elementId":"s3_bucket","focus":0.7302785494920719,"gap":6.858216566118017},"lastCommittedPoint":null,"startArrowhead":null,"endArrowhead":"arrow","points":[[0,0],[-2.7268985831872214,230.36107524776205],[151.00660431212668,226.29613523382997],[153.1706329117319,436.9080442312828]]},{"type":"text","version":116,"versionNonce":1217736688,"isDeleted":false,"id":"49pu0K8xwtkvsPGhM1yvt","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":1,"opacity":100,"angle":0,"x":1086.536140421432,"y":499.72537713154077,"strokeColor":"#1e1e1e","backgroundColor":"transparent","width":165.80784606933594,"height":36.8,"seed":1368907024,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786705270747,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"snapshots and oplog \nfor workloads","textAlign":"center","verticalAlign":"middle","containerId":"ua5Wb3ynoLxNJxWtDlY4O","originalText":"snapshots and oplog for workloads","lineHeight":1.15,"baseline":33},{"type":"text","version":128,"versionNonce":307782805,"isDeleted":false,"id":"ns_workload_warning","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":1541.0213158555052,"y":98.239489311087,"strokeColor":"#e03131","backgroundColor":"transparent","width":414.65966796875,"height":23,"seed":1525349217,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721046008,"link":null,"locked":false,"fontSize":20,"fontFamily":2,"text":"DISASTER TARGET - wiped in disaster step","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"DISASTER TARGET - wiped in disaster step","lineHeight":1.15,"baseline":19},{"type":"text","version":62,"versionNonce":131695669,"isDeleted":false,"id":"legend_4_workload_restore","fillStyle":"solid","strokeWidth":2,"strokeStyle":"solid","roughness":0,"opacity":100,"angle":0,"x":692.6572223177965,"y":537.4320944650246,"strokeColor":"#001E2B","backgroundColor":"transparent","width":463.5196228027344,"height":18.4,"seed":1914152662,"groupIds":[],"frameId":null,"roundness":null,"boundElements":[],"updated":1786721064791,"link":null,"locked":false,"fontSize":16,"fontFamily":2,"text":"4. Recreate Workload MongoDB, PiT restore - verify sentinel","textAlign":"left","verticalAlign":"top","containerId":null,"originalText":"4. Recreate Workload MongoDB, PiT restore - verify sentinel","lineHeight":1.15,"baseline":15}],"appState":{"gridSize":null,"viewBackgroundColor":"#ffffff"},"files":{}}</script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+          integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+          integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"
+          crossorigin="anonymous"></script>
+  <script>window.EXCALIDRAW_ASSET_PATH="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+  <script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"
+          integrity="sha384-2RnaDBiRrWXqT5k4HtP4X4gh/ukRFg9zn1Sjt+JeYQOUWSYYnN1tKE4FL9QA3Wdl"
+          crossorigin="anonymous"></script>
+  <script>
+    // Resolve `fixedPoint` arrow bindings to concrete x/y/width/height/points
+    // geometry. Excalidraw treats bindings as advisory — they update arrow
+    // endpoints when a bound shape MOVES, but on a fresh mount the arrow is
+    // drawn from its literal x/y + points. If the author supplied
+    // `x: 0, y: 0, points: [[0,0],[40,0]]` and trusted the bindings to
+    // position the arrow, the result is a 40-px line at canvas (0,0) — i.e.
+    // off-screen and invisible. This shim runs before mount/canonicalize and
+    // rewrites such arrows to the real geometry inferred from the bound
+    // shapes. Polyline arrows (3+ points) are left alone: a bend pattern is
+    // intentional geometry that we shouldn't flatten.
+    function resolveFixedPointArrows(els) {
+      const byId = Object.create(null);
+      for (const e of els) byId[e.id] = e;
+      return els.map(e => {
+        if (e.type !== "arrow") return e;
+        const sb = e.startBinding, eb = e.endBinding;
+        const sFP = sb && Array.isArray(sb.fixedPoint) ? sb.fixedPoint : null;
+        const eFP = eb && Array.isArray(eb.fixedPoint) ? eb.fixedPoint : null;
+        if (!sFP || !eFP) return e;
+        const src = byId[sb.elementId], dst = byId[eb.elementId];
+        if (!src || !dst) return e;
+        if (typeof src.x !== "number" || typeof dst.x !== "number") return e;
+        // Skip polylines — they have intentional geometry.
+        if (Array.isArray(e.points) && e.points.length > 2) return e;
+        const sx = src.x + (src.width || 0) * sFP[0];
+        const sy = src.y + (src.height || 0) * sFP[1];
+        const ex = dst.x + (dst.width || 0) * eFP[0];
+        const ey = dst.y + (dst.height || 0) * eFP[1];
+        return Object.assign({}, e, {
+          x: sx, y: sy,
+          width: ex - sx, height: ey - sy,
+          points: [[0, 0], [ex - sx, ey - sy]],
+        });
+      });
+    }
+
+    // Brand fonts to register under Excalidraw's hardcoded family names.
+    // Each entry is [family-name-Excalidraw-asks-for, weight, woff2 URL].
+    // Three Lexend Deca weights cover the body-text range Excalidraw
+    // emits at fontSize 14-28; one Source Code Pro Medium covers
+    // monospace. Add more here if the diagrams ever need extra weights.
+    // Excalidraw's getFontString() produces e.g. "16px Cascadia" with no
+    // weight token, which the CSS font shorthand parses as
+    // font-weight:normal (400). The FontFaceSet then looks for a 400
+    // face under that family name; if there isn't one, it can fall back
+    // to a system match instead of stretching our 500. Register all four
+    // weights at the same URL (the woff2 itself is one weight; CSS just
+    // points multiple FontFace entries at the same source) so any
+    // Excalidraw weight request matches.
+    const LEXEND = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-400-normal.woff2";
+    const LEXEND_300 = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-300-normal.woff2";
+    const LEXEND_500 = "https://cdn.jsdelivr.net/npm/@fontsource/lexend-deca@5.1.0/files/lexend-deca-latin-500-normal.woff2";
+    const SCP = "https://cdn.jsdelivr.net/npm/@fontsource/source-code-pro@5.1.0/files/source-code-pro-latin-500-normal.woff2";
+    const BRAND_FONTS = [
+      ["Helvetica", "300", LEXEND_300],
+      ["Helvetica", "400", LEXEND],
+      ["Helvetica", "500", LEXEND_500],
+      // Source Code Pro Medium covers all canvas-asks-for-Cascadia
+      // weights — Excalidraw never goes mono+bold, but registering 400
+      // and 500 against the same woff2 is a belt-and-braces guard
+      // against the FontFaceSet resolving 400 to a system fallback.
+      ["Cascadia",  "400", SCP],
+      ["Cascadia",  "500", SCP],
+    ];
+
+    async function loadBrandFonts() {
+      // Per-font fetch+load+add, all in parallel. We collect the loaded
+      // FontFace instances so the caller could inspect them; don't fail
+      // the whole batch if one URL is unreachable — render with whatever
+      // we got and let the rest fall back to system fonts.
+      const tasks = BRAND_FONTS.map(async ([family, weight, url]) => {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) return null;
+          const buf = await resp.arrayBuffer();
+          const ff = new FontFace(family, buf, { weight });
+          await ff.load();
+          document.fonts.add(ff);
+          return ff;
+        } catch (_) {
+          return null;
+        }
+      });
+      // Hard cap: don't let the brand-font fetch block the render forever
+      // if the CDN is down. 6s is well above a warm-cache load (<300ms
+      // total) and still under Chrome's 30s virtual-time-budget for
+      // canonicalize. After the timeout we proceed with whatever fonts
+      // managed to register; missing fonts fall through to system
+      // Helvetica/Cascadia (i.e. pre-fix behaviour, not a hard fail).
+      await Promise.race([
+        Promise.all(tasks),
+        new Promise(r => setTimeout(r, 6000)),
+      ]);
+    }
+
+    (async () => {
+      // Brand fonts must be loaded BEFORE convertToExcalidrawElements is
+      // called below, because that function runs Canvas2D measureText
+      // synchronously to compute text bounding boxes. If the font isn't
+      // registered with the FontFaceSet at measure time, measureText
+      // falls back to system Helvetica/Cascadia (typically much narrower
+      // than Lexend Deca / Source Code Pro), the bounding box is too
+      // small, and text clips on the user's first save when the real
+      // font finally loads and re-flows.
+      await loadBrandFonts();
+
+      const scene = JSON.parse(document.getElementById("diagram-scene").textContent);
+      // Normalize compact/shorthand elements (labeled shapes, etc.) into
+      // Excalidraw's canonical form via the library's own helper. This splits
+      // `{label}` rectangles into shape + bound text, measures text geometry
+      // with Canvas 2D (pixel-accurate), and fills in bookkeeping fields.
+      // Scenes that are already normalized pass through unchanged.
+      const pseudoTypes = new Set(["cameraUpdate", "restoreCheckpoint", "delete"]);
+      const rawReal = (scene.elements || []).filter(e => !pseudoTypes.has(e.type));
+      // `convertToExcalidrawElements` expects skeleton input (shapes with a
+      // `label: {...}` shorthand). Running it over already-canonical elements
+      // (shape + separate text with `containerId`) clobbers the container
+      // binding, so labels end up left-aligned against the box edge. Detect
+      // skeleton form by presence of the `label` shorthand key.
+      // Resolve placeholder arrow geometry from fixedPoint bindings BEFORE
+      // convertToExcalidrawElements runs — the converter consumes
+      // `fixedPoint` and rewrites bindings into the internal `focus`/`gap`
+      // form, after which the shim has nothing to read. Runs in both
+      // canonicalize and render branches: if the arrow is bound but its
+      // x/y/points haven't been set, this is the only place it gets correct
+      // geometry before paint.
+      const skeletonResolved = resolveFixedPointArrows(rawReal);
+
+      const isSkeleton = skeletonResolved.some(e => e && typeof e.label === "object" && e.label !== null);
+      let normalizedElements = (isSkeleton && ExcalidrawLib.convertToExcalidrawElements)
+        ? ExcalidrawLib.convertToExcalidrawElements(skeletonResolved, { regenerateIds: false })
+        : skeletonResolved;
+
+      const params = new URLSearchParams(location.search);
+      // Canonicalize mode: run the scene through convertToExcalidrawElements
+      // + restoreElements (which fills in all default bookkeeping fields, the
+      // way Excalidraw's "Save to..." does), stuff the result into #canonical
+      // as JSON text, and skip the React mount entirely. The parent Python
+      // process reads it back via --dump-dom.
+      if (params.get("canonicalize") === "1") {
+        const restored = ExcalidrawLib.restoreElements
+          ? ExcalidrawLib.restoreElements(normalizedElements, null)
+          : normalizedElements;
+        const canonical = {
+          type: "excalidraw",
+          version: 2,
+          source: "mck-dev diagram skill",
+          elements: restored,
+          appState: { viewBackgroundColor: "#ffffff", gridSize: null },
+          files: {},
+        };
+        document.getElementById("canonical").textContent = JSON.stringify(canonical);
+      } else {
+        // Query params for viewport control:
+        //   ?zoom=1.5           absolute zoom factor (1 = 100%)
+        //   ?fit=0.9            fit-to-viewport with this zoom multiplier (default 0.9)
+        //   ?cx=400&cy=300      scene-space coords to center on viewport (requires zoom)
+        //   ?ui=0               hide the Excalidraw editor UI for clean screenshots
+        const qZoom = parseFloat(params.get("zoom"));
+        const qFit  = parseFloat(params.get("fit"));
+        const qCx   = parseFloat(params.get("cx"));
+        const qCy   = parseFloat(params.get("cy"));
+        const hideUI = params.get("ui") === "0";
+        const App = () => {
+          return React.createElement("div", {style: {height: "100vh"}},
+            React.createElement(ExcalidrawLib.Excalidraw, {
+              initialData: {
+                elements: normalizedElements,
+                appState: {viewBackgroundColor: "#ffffff"},
+              },
+              UIOptions: hideUI ? { canvasActions: { changeViewBackgroundColor:false, clearCanvas:false, export:false, loadScene:false, saveToActiveFile:false, theme:false, saveAsImage:false }, welcomeScreen:false, tools:{image:false} } : undefined,
+              viewModeEnabled: hideUI,
+              excalidrawAPI: (api) => {
+                setTimeout(() => {
+                  if (!isNaN(qZoom)) {
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const els = normalizedElements.filter(e => !e.isDeleted && typeof e.x === "number");
+                    const xs = els.map(e => e.x), ys = els.map(e => e.y);
+                    const xe = els.map(e => e.x + (e.width||0)), ye = els.map(e => e.y + (e.height||0));
+                    const bx = (Math.min(...xs) + Math.max(...xe)) / 2;
+                    const by = (Math.min(...ys) + Math.max(...ye)) / 2;
+                    const cx = isNaN(qCx) ? bx : qCx;
+                    const cy = isNaN(qCy) ? by : qCy;
+                    api.updateScene({ appState: {
+                      zoom: { value: qZoom },
+                      scrollX: W / (2 * qZoom) - cx,
+                      scrollY: H / (2 * qZoom) - cy,
+                    }});
+                  } else {
+                    // Manual bounding-box fit. scrollToContent({fitToViewport})
+                    // produces NaN zoom on some hand-written scenes (blank canvas
+                    // with "NaN%" zoom indicator); compute zoom + scroll ourselves
+                    // from explicit x/y/width/height, which never NaNs.
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const els = normalizedElements.filter(e => !e.isDeleted && typeof e.x === "number");
+                    if (els.length === 0) return;
+                    const xs = els.map(e => e.x), ys = els.map(e => e.y);
+                    const xe = els.map(e => e.x + (e.width||0)), ye = els.map(e => e.y + (e.height||0));
+                    const minX = Math.min(...xs), minY = Math.min(...ys);
+                    const maxX = Math.max(...xe), maxY = Math.max(...ye);
+                    const contentW = Math.max(1, maxX - minX);
+                    const contentH = Math.max(1, maxY - minY);
+                    const fit = isNaN(qFit) ? 0.9 : qFit;
+                    const zoom = Math.min(W / contentW, H / contentH) * fit;
+                    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+                    api.updateScene({ appState: {
+                      zoom: { value: zoom },
+                      scrollX: W / (2 * zoom) - cx,
+                      scrollY: H / (2 * zoom) - cy,
+                    }});
+                  }
+                }, 50);
+              }
+            })
+          );
+        };
+        ReactDOM.createRoot(document.getElementById("root"))
+          .render(React.createElement(App));
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -127,21 +127,34 @@ class OMTester(object):
     def get_latest_backup_completion_time(self):
         return self.latest_backup_completion_time or 0
 
-    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600):
+    def create_restore_job_pit(
+        self,
+        pit_milliseconds: int,
+        retry: int = 120,
+        timeout_seconds: int = 600,
+        cluster_id: Optional[str] = None,
+    ) -> str:
         """Creates a restore job to restore the mongodb cluster to some version specified by the parameter.
+
+        Returns the restore job id.
 
         Retries on 409 Conflict or 'Invalid restore point' until the request succeeds or
         timeout_seconds is reached (the API can return 409 temporarily until the restore point is available).
+
+        If cluster_id is provided, it is used directly instead of looking up the backup config.
+        This is needed when a project has multiple backup configs (e.g. after a disaster restore)
+        and the caller wants to target a specific one.
         """
-        cluster_id = self.get_backup_cluster_id()
+        if cluster_id is None:
+            cluster_id = self.get_backup_cluster_id()
         start_time = time.time()
         attempt = 0
         while retry > 0:
             try:
                 span = trace.get_current_span()
                 span.set_attribute(key="mck.pit_retries", value=retry)
-                self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
-                return
+                response = self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
+                return response.json()["results"][0]["id"]
             except Exception as e:
                 elapsed = time.time() - start_time
                 if elapsed >= timeout_seconds:
@@ -233,8 +246,8 @@ class OMTester(object):
 
     def get_backup_cluster_id(self, expected_config_count: int = 1, is_sharded_cluster: bool = False) -> str:
         configs = self.api_read_backup_configs()
-        assert len(configs) == expected_config_count
 
+        assert len(configs) == expected_config_count
         if not is_sharded_cluster:
             # we can use the first config as there's only one MongoDB in deployment
             return configs[0]["clusterId"]
@@ -676,6 +689,34 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots").json()[
             "results"
         ]
+
+    def api_get_restorable_time_ranges(self, cluster_id: str) -> List:
+        return self.om_request(
+            "post",
+            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs/restorableTimeRanges",
+        ).json()
+
+    def wait_until_pit_restorable(self, pit_milliseconds: int, timeout: int = 300) -> None:
+        """Wait until the given PIT timestamp falls within a restorable time range.
+
+        Polls the OM restorableTimeRanges API until the backup agent has captured
+        the oplog up to the given point, confirming the PIT is restorable.
+        """
+        from datetime import datetime, timezone
+
+        pit_dt = datetime.fromtimestamp(pit_milliseconds / 1000, tz=timezone.utc)
+        cluster_id = self.get_backup_cluster_id()
+
+        def pit_is_restorable() -> bool:
+            ranges = self.api_get_restorable_time_ranges(cluster_id)
+            for r in ranges:
+                start = datetime.fromisoformat(r["start"]["date"].replace("Z", "+00:00"))
+                end = datetime.fromisoformat(r["end"]["date"].replace("Z", "+00:00"))
+                if start <= pit_dt <= end:
+                    return True
+            return False
+
+        run_periodically(fn=pit_is_restorable, timeout=timeout)
 
     def api_get_clusters(self) -> Dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/").json()

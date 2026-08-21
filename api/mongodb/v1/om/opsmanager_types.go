@@ -1179,3 +1179,7 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	ownerReference := *metav1.NewControllerRef(&m.OpsManager, groupVersionKind)
 	return []metav1.OwnerReference{ownerReference}
 }
+
+func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
+	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
+}
