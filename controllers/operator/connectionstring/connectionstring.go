@@ -199,7 +199,7 @@ func (b *builder) Build() string {
 	for k := range connectionParams {
 		keys = append(keys, k)
 	}
-	uri += "/" + b.connectionStringDatabase + "?"
+	uri += "/" + stringutil.EncodeUserinfoComponent(b.connectionStringDatabase) + "?"
 
 	// sorting parameters to make a url stable
 	sort.Strings(keys)
