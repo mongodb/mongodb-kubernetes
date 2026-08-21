@@ -154,6 +154,7 @@ class TestOpsManagerMixed:
         ops_manager.load()
         ops_manager.set_appdb_version(custom_appdb_version)
         ops_manager["spec"]["configuration"] = {"mms.helpAndSupportPage.enabled": "true"}
+        ops_manager.allow_mdb_rc_versions()
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)

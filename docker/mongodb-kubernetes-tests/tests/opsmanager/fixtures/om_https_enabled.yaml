@@ -222,5 +222,39 @@ spec:
               volumeMounts:
                 - name: mongodb-versions
                   mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-9-0
+              image: curlimages/curl:latest
+              securityContext:
+                runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-9.0.0-rc0.tgz
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-9.0.0-rc0.tgz
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
+            - name: setting-up-rhel-mongodb-9-0-sig
+              image: curlimages/curl:latest
+              securityContext:
+                runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                  - ALL
+              command:
+                - curl
+                - -L
+                - https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-9.0.0-rc0.tgz.sig
+                - -o
+                - /mongodb-ops-manager/mongodb-releases/mongodb-linux-x86_64-rhel8-9.0.0-rc0.tgz.sig
+              volumeMounts:
+                - name: mongodb-versions
+                  mountPath: /mongodb-ops-manager/mongodb-releases
   backup:
     enabled: false
