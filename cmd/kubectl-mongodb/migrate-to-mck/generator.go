@@ -86,8 +86,8 @@ func generateExtraResources(ac *om.AutomationConfig, opts GenerateOptions) []cli
 	return resources
 }
 
-// marshalMultiDoc serializes each object to YAML, joined by YAML document separator markers.
-func marshalMultiDoc(objects []client.Object) (string, error) {
+// renderObjects serializes objects to the same multi-document YAML written by the CLI output path.
+func renderObjects(objects []client.Object) (string, error) {
 	var sb strings.Builder
 	for i, obj := range objects {
 		if i > 0 {
