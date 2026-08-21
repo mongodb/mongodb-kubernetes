@@ -547,9 +547,6 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 		string(secret.Data["connectionString.standardSrv"]))
 }
 
-// TestConnectionStringSecret_ExternalUser_OnScramAndX509Resource_HasNoAuthMechanism covers a
-// resource with both SCRAM and X.509 enabled. The SCRAM mechanism must not leak into the
-// connection string of a user authenticating against $external, and no password is written.
 func TestConnectionStringSecret_ExternalUser_OnScramAndX509Resource_HasNoAuthMechanism(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
