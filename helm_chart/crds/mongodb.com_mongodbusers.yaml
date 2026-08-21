@@ -50,8 +50,9 @@ spec:
             properties:
               connectionStringDatabase:
                 description: |-
-                  ConnectionStringDatabase is the database placed in the connection string URI path.
-                  Leaves the URI path empty when unset.
+                  ConnectionStringDatabase is an optional database name for the connection string URI path
+                  (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
+                  depends on the connecting client.
                 type: string
               connectionStringSecretName:
                 type: string
