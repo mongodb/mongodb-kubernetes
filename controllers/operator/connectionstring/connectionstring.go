@@ -177,8 +177,7 @@ func (b *builder) Build() string {
 	}
 	if b.isTLSEnabled {
 		connectionParams["ssl"] = "true"
-	} else if b.scheme == SchemeMongoDBSRV {
-		// SRV connection strings assume TLS by default; explicitly disable when the cluster has no TLS.
+	} else {
 		connectionParams["ssl"] = "false"
 	}
 
@@ -204,7 +203,7 @@ func (b *builder) Build() string {
 	for k := range connectionParams {
 		keys = append(keys, k)
 	}
-	uri += "/" + b.connectionStringDatabase + "?"
+	uri += "/" + stringutil.EncodeUserinfoComponent(b.connectionStringDatabase) + "?"
 
 	// sorting parameters to make a url stable
 	sort.Strings(keys)

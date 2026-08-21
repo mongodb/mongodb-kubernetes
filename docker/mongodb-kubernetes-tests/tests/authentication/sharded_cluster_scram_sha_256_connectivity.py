@@ -161,7 +161,7 @@ def test_credentials_secret_is_created(standard_secret: Dict[str, str]):
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in standard_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in standard_secret["connectionString.standard"]
+    assert "ssl=false" in standard_secret["connectionString.standard"]
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
@@ -194,7 +194,7 @@ def test_non_admin_db_credentials_secret_is_created(non_admin_standard_secret: D
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in non_admin_standard_secret["connectionString.standard"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standard"]
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity

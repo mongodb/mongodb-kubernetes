@@ -30,6 +30,17 @@ func TestBuild_DatabaseInPath(t *testing.T) {
 		cs := build("")
 		assert.Contains(t, cs, "/?")
 	})
+
+	t.Run("reserved URI characters in database are percent-encoded", func(t *testing.T) {
+		cs := build("my?db#name")
+		assert.Contains(t, cs, "/my%3Fdb%23name?")
+		assert.NotContains(t, cs, "/my?db#name?")
+	})
+
+	t.Run("space in database is percent-encoded", func(t *testing.T) {
+		cs := build("my db")
+		assert.Contains(t, cs, "/my%20db?")
+	})
 }
 
 func TestBuild_CredentialEncoding(t *testing.T) {
@@ -114,13 +125,12 @@ func TestBuild_SRV_TLSParameter(t *testing.T) {
 		assert.NotContains(t, b.Build(), "ssl=false")
 	})
 
-	t.Run("standard connection without TLS does not include ssl=false", func(t *testing.T) {
+	t.Run("standard connection without TLS includes ssl=false", func(t *testing.T) {
 		b := Builder().
 			SetScheme(SchemeMongoDB).
 			SetHostnames([]string{"host:27017"}).
 			SetIsReplicaSet(true).
 			SetName("my-rs")
-		assert.NotContains(t, b.Build(), "ssl=false")
-		assert.NotContains(t, b.Build(), "ssl=")
+		assert.Contains(t, b.Build(), "ssl=false")
 	})
 }

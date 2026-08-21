@@ -213,7 +213,7 @@ def test_credentials_secret_is_created(replica_set: MongoDB, standard_secret: Di
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in standard_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in standard_secret["connectionString.standard"]
+    assert "ssl=false" in standard_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -236,7 +236,7 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in non_admin_standard_secret["connectionString.standard"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -315,7 +315,7 @@ def test_space_password_credentials_secret_is_created(space_password_standard_se
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in space_password_standard_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in space_password_standard_secret["connectionString.standard"]
+    assert "ssl=false" in space_password_standard_secret["connectionString.standard"]
     # space must be encoded as %20, not + — check only the userinfo segment to avoid false positives
     for key in ("connectionString.standard", "connectionString.standardSrv"):
         conn = space_password_standard_secret[key]
@@ -364,7 +364,7 @@ def test_plus_password_credentials_secret_is_created(plus_password_standard_secr
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standardSrv"]
     assert "ssl=false" in plus_password_standard_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in plus_password_standard_secret["connectionString.standard"]
+    assert "ssl=false" in plus_password_standard_secret["connectionString.standard"]
     # literal + in password must be percent-encoded as %2B in userinfo so that pymongo's
     # unquote_plus does not decode it as a space character
     for key in ("connectionString.standard", "connectionString.standardSrv"):
@@ -477,7 +477,7 @@ def test_connection_string_secret_is_created(connection_string_secret: Dict[str,
     assert f"authSource={USER_DATABASE}" in connection_string_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in connection_string_secret["connectionString.standardSrv"]
     assert "ssl=false" in connection_string_secret["connectionString.standardSrv"]
-    assert "ssl=false" not in connection_string_secret["connectionString.standard"]
+    assert "ssl=false" in connection_string_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity

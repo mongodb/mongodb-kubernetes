@@ -33,7 +33,7 @@ func TestPublishImages(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: rpStaging, ReleaseRepo: rpProd, Version: "1.0.24"},
 	}
 
-	results, err := PublishImages(images, "abc1234", "latest", "", false, false, insecureConnect)
+	results, err := PublishImages(images, "abc1234", "latest", "", false, false, true, insecureConnect)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestPublishImagesRegistryOverride(t *testing.T) {
 	}
 
 	override := prodHost + "/test-namespace"
-	results, err := PublishImages(images, "abc1234", "latest", override, false, false, insecureConnect)
+	results, err := PublishImages(images, "abc1234", "latest", override, false, false, true, insecureConnect)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestPublishImagesHardFailsOnMissingPromotedTag(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: stagingHost + "/staging/mongodb-kubernetes-readinessprobe", ReleaseRepo: prodHost + "/mongodb/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
 	}
 
-	_, err := PublishImages(images, "abc1234", "latest", "", false, false, insecureConnect)
+	_, err := PublishImages(images, "abc1234", "latest", "", false, false, true, insecureConnect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected hard failure mentioning readiness-probe, got %v", err)
 	}
@@ -108,7 +108,7 @@ func TestPublishImagesHardFailsOnMissingPromotedTag(t *testing.T) {
 
 func TestPublishImagesCommitRequired(t *testing.T) {
 	images := []ReleaseImage{{Name: "operator", StagingRepo: "h/staging/op", ReleaseRepo: "h/op"}}
-	_, err := PublishImages(images, "", "", "", false, false, insecureConnect)
+	_, err := PublishImages(images, "", "", "", false, false, true, insecureConnect)
 	if err == nil || !strings.Contains(err.Error(), "commit") {
 		t.Fatalf("expected commit error, got %v", err)
 	}
@@ -138,7 +138,7 @@ func TestPublishImagesRefusesAllOnAnyConflict(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: rpStaging, ReleaseRepo: rpProd, Version: "1.0.24"},
 	}
 
-	_, err := PublishImages(images, "abc1234", "latest", "", false, false, insecureConnect)
+	_, err := PublishImages(images, "abc1234", "latest", "", false, false, true, insecureConnect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected conflict error mentioning readiness-probe, got %v", err)
 	}
@@ -147,7 +147,7 @@ func TestPublishImagesRefusesAllOnAnyConflict(t *testing.T) {
 		t.Error("operator production tag should not exist: images must be refused before any writes")
 	}
 
-	results, err := PublishImages(images, "abc1234", "latest", "", true, false, insecureConnect)
+	results, err := PublishImages(images, "abc1234", "latest", "", true, false, true, insecureConnect)
 	if err != nil {
 		t.Fatalf("force: unexpected error: %v", err)
 	}
