@@ -346,7 +346,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 	_, err := d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
+	assert.Len(t, d.getShardedClusterByName("sc001").Shards(), 3)
 	assert.Len(t, d.GetReplicaSets(), 4)
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
 
@@ -363,7 +363,7 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
+	assert.Len(t, d.getShardedClusterByName("sc001").Shards(), 2)
 	assert.Len(t, d.GetReplicaSets(), 4)
 
 	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
@@ -399,7 +399,7 @@ func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
 		Finalizing:      false,
 	})
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("ac-mongos").shards(), 1)
+	assert.Len(t, d.getShardedClusterByName("ac-mongos").Shards(), 1)
 	// The junk RS is still present in the deployment.
 	assert.Len(t, d.GetReplicaSets(), 3)
 

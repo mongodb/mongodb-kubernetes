@@ -12,8 +12,6 @@ spec:
       tls:
         allowConnectionsWithoutCertificates: false
         mode: allowTLS
-  agent:
-    maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
