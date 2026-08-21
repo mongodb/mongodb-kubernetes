@@ -30,6 +30,7 @@ func newPublishImageCmd() *cobra.Command {
 		latestMarker string
 		force        bool
 		dryRun       bool
+		allowPartial bool
 	)
 
 	cmd := &cobra.Command{
@@ -53,12 +54,13 @@ version.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			host := strings.TrimPrefix(strings.TrimPrefix(registryURL, "https://"), "http://")
 			result, err := release.Publish(release.PublishInputs{
-				StagingImage: stagingImage,
-				Commit:       commit,
-				ProdRepo:     prodRepo,
-				LatestMarker: latestMarker,
-				Force:        force,
-				DryRun:       dryRun,
+				StagingImage:           stagingImage,
+				Commit:                 commit,
+				ProdRepo:               prodRepo,
+				LatestMarker:           latestMarker,
+				Force:                  force,
+				DryRun:                 dryRun,
+				AllowPartialSignatures: allowPartial,
 			}, host, release.DefaultRegistryConnector(registryURL))
 			if err != nil {
 				return err
@@ -92,6 +94,7 @@ version.`,
 	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite the :{version} production tag even if it already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
+	cmd.Flags().BoolVar(&allowPartial, "allow-partial-signatures", false, "don't fail when child manifest .sig tags are missing")
 
 	MustNotErr(cmd.MarkFlagRequired("staging-image"))
 	MustNotErr(cmd.MarkFlagRequired("latest-marker"))
@@ -101,12 +104,14 @@ version.`,
 
 func newPublishImagesCmd() *cobra.Command {
 	var (
-		buildInfo    string
-		releaseJSON  string
-		commit       string
-		latestMarker string
-		force        bool
-		dryRun       bool
+		buildInfo        string
+		releaseJSON      string
+		commit           string
+		latestMarker     string
+		registryOverride string
+		force            bool
+		dryRun           bool
+		allowPartial     bool
 	)
 
 	cmd := &cobra.Command{
@@ -135,7 +140,7 @@ published version.`,
 			if err != nil {
 				return err
 			}
-			results, err := release.PublishImages(images, commit, latestMarker, force, dryRun, release.DefaultRegistryConnector)
+			results, err := release.PublishImages(images, commit, latestMarker, registryOverride, force, dryRun, allowPartial, release.DefaultRegistryConnector)
 			if err != nil {
 				return err
 			}
@@ -163,8 +168,10 @@ published version.`,
 	cmd.Flags().StringVar(&releaseJSON, "release-json", "release.json", "path to release.json")
 	cmd.Flags().StringVar(&commit, "commit", "", "commit SHA to publish")
 	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable :{marker} production tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
+	cmd.Flags().StringVar(&registryOverride, "registry-override", "", "if set, replaces every image's release-registry host+namespace with this prefix (keeping each image's own repo name suffix) — for testing against a non-production registry; e.g. \"quay.io/my-test-org\"")
 	cmd.Flags().BoolVar(&force, "force", false, "publish every image even if any production tag already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
+	cmd.Flags().BoolVar(&allowPartial, "allow-partial-signatures", false, "don't fail when child manifest .sig tags are missing")
 
 	MustNotErr(cmd.MarkFlagRequired("commit"))
 	MustNotErr(cmd.MarkFlagRequired("latest-marker"))
