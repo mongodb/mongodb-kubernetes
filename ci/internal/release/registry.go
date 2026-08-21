@@ -19,15 +19,20 @@ import (
 // exist yet (as opposed to a real registry-access failure).
 var ErrTagNotFound = errors.New("tag not found")
 
+// ErrSignatureNotFound is returned when a cosign .sig tag does not exist.
+var ErrSignatureNotFound = errors.New("signature not found")
+
 // Registry is the abstracted OCI interface. The default implementation talks to
 // a real registry via go-containerregistry; tests can substitute a fake.
 type Registry interface {
 	// CopyWithTags copies srcRef to dstRepo under each of the given tags.
 	CopyWithTags(srcRef string, dstRepo string, tags []string) error
 	// CopySignatures copies the cosign signature for srcRef's digest (and,
-	// if srcRef is a multiarch index, for each child manifest digest too)
-	// from srcRef's repository to dstRepo, under the registry's own host.
-	CopySignatures(srcRef string, dstRepo string) error
+	// if srcRef is a multiarch index, for each child manifest digest too —
+	// returning ErrSignatureNotFound when the top-level .sig tag is missing,
+	// or when a child manifest .sig tag is missing and
+	// allowPartialSignatures is false).
+	CopySignatures(srcRef string, dstRepo string, allowPartialSignatures bool) error
 	// ListTags returns all tags for the given image repository reference.
 	ListTags(repo string) ([]string, error)
 	// Digest returns the manifest digest for ref (a full "host/repo:tag"
@@ -104,7 +109,7 @@ func (t *cRegistry) CopyWithTags(srcRef string, dstRepo string, tags []string) e
 // CopySignatures copies the cosign signature for srcRef's digest (and, if
 // srcRef is a multiarch index, for each child manifest digest too) from
 // srcRef's repository to dstRepo.
-func (t *cRegistry) CopySignatures(srcRef string, dstRepo string) error {
+func (t *cRegistry) CopySignatures(srcRef string, dstRepo string, allowPartialSignatures bool) error {
 	src, err := name.ParseReference(srcRef, t.nameOpts()...)
 	if err != nil {
 		return fmt.Errorf("failed to parse source ref %s: %w", srcRef, err)
@@ -115,7 +120,11 @@ func (t *cRegistry) CopySignatures(srcRef string, dstRepo string) error {
 	}
 
 	if err := t.copySignature(src, desc.Digest, dstRepo); err != nil {
-		return fmt.Errorf("failed to copy signature for %s: %w", srcRef, err)
+		if allowPartialSignatures && errors.Is(err, ErrSignatureNotFound) {
+			log.Printf("no signature found for %s, skipping copy", srcRef)
+		} else {
+			return fmt.Errorf("failed to copy signature for %s: %w", srcRef, err)
+		}
 	}
 
 	if desc.MediaType.IsIndex() {
@@ -129,6 +138,10 @@ func (t *cRegistry) CopySignatures(srcRef string, dstRepo string) error {
 		}
 		for _, m := range idxManifest.Manifests {
 			if err := t.copySignature(src, m.Digest, dstRepo); err != nil {
+				if allowPartialSignatures && errors.Is(err, ErrSignatureNotFound) {
+					log.Printf("no signature found for child manifest %s, skipping copy (%s)", m.Digest, srcRef)
+					continue
+				}
 				return fmt.Errorf("failed to copy signature for %s (child %s): %w", srcRef, m.Digest, err)
 			}
 		}
@@ -146,8 +159,7 @@ func (t *cRegistry) copySignature(src name.Reference, digest v1.Hash, dstRepo st
 	if err != nil {
 		var terr *transport.Error
 		if errors.As(err, &terr) && terr.StatusCode == http.StatusNotFound {
-			log.Printf("no signature found for %s, skipping copy (image may be unsigned or an unsigned child manifest)", srcSigRef)
-			return nil
+			return ErrSignatureNotFound
 		}
 		return fmt.Errorf("failed to get signature %s: %w", srcSigRef, err)
 	}

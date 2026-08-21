@@ -29,7 +29,7 @@ func overrideRepoPrefix(override, originalRepo string) string {
 	return strings.TrimSuffix(override, "/") + "/" + name
 }
 
-func PublishImages(images []ReleaseImage, commit, latestMarker, registryOverride string, force, dryRun bool, connect RegistryConnector) ([]ImagesPublishResult, error) {
+func PublishImages(images []ReleaseImage, commit, latestMarker, registryOverride string, force, dryRun bool, allowPartialSignatures bool, connect RegistryConnector) ([]ImagesPublishResult, error) {
 	if commit == "" {
 		return nil, errors.New("commit is required")
 	}
@@ -82,12 +82,13 @@ func PublishImages(images []ReleaseImage, commit, latestMarker, registryOverride
 	results := make([]ImagesPublishResult, 0, len(images))
 	for _, p := range prep {
 		result, err := Publish(PublishInputs{
-			StagingImage: p.img.StagingRepo,
-			Commit:       commit,
-			ProdRepo:     p.prodPath,
-			LatestMarker: latestMarker,
-			Force:        true,
-			DryRun:       dryRun,
+			StagingImage:           p.img.StagingRepo,
+			Commit:                 commit,
+			ProdRepo:               p.prodPath,
+			LatestMarker:           latestMarker,
+			Force:                  true,
+			DryRun:                 dryRun,
+			AllowPartialSignatures: allowPartialSignatures,
 		}, p.host, p.reg)
 		if err != nil {
 			return nil, fmt.Errorf("publish %s (%s): %w", p.img.Name, p.img.StagingRepo, err)
