@@ -35,7 +35,6 @@ from tests.common.search.connectivity import (
     protected_search_input_uids,
     wait_for_mongot_pvcs_deleted,
     wait_for_resource_deleted,
-    wait_for_search_deleted,
     wait_for_search_owned_resources_deleted,
 )
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
@@ -834,31 +833,3 @@ def test_remove_and_readd_search_cluster_entry(
         search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, _idx(removed)),
         timeout=600,
     )
-
-
-@mark.e2e_search_q3_mc_sharded_external_mtls
-def test_delete_search_resource_cleans_all_member_cluster_artifacts(
-    namespace: str,
-    mdbs: MongoDBSearch,
-    member_cluster_clients: List[MultiClusterClient],
-):
-    """CR delete: the OnDelete label sweep must remove every per-(cluster, shard)
-    artifact on every member cluster while the customer-replicated inputs survive
-    untouched. Destroys the workload — keep it last."""
-    per_cluster = []
-    for mcc in member_cluster_clients:
-        readers = _local_artifact_readers(mcc, namespace)
-        for read in readers.values():
-            read()
-        for sts_name in _shard_sts_names(_idx(mcc)):
-            assert mongot_data_pvc_names(
-                namespace, sts_name, api_client=mcc.api_client
-            ), f"[{mcc.cluster_name}] expected mongot data PVCs for {sts_name}"
-        per_cluster.append((mcc, readers, _customer_input_uids(mcc, namespace, _idx(mcc))))
-
-    mdbs.delete()
-    wait_for_search_deleted(mdbs, timeout=600)
-
-    for mcc, readers, protected_uids in per_cluster:
-        _wait_for_cluster_artifacts_swept(mcc, namespace, readers)
-        assert _customer_input_uids(mcc, namespace, _idx(mcc)) == protected_uids

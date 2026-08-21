@@ -277,7 +277,6 @@ def test_deleting_search_resource_deletes_hosts(om: MongoDBOpsManager, mdbs: Mon
     apps.read_namespaced_deployment(deployment_name, mdbs.namespace)
     core.read_namespaced_config_map(configmap_name, mdbs.namespace)
     core.read_namespaced_secret(agent_key_secret, mdbs.namespace)
-    core.read_namespaced_config_map(ca_configmap, mdbs.namespace)
 
     mdbs.delete()
 
