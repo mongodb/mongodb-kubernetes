@@ -356,6 +356,8 @@ class MongoDB(CustomObject, MongoDBCommon):
 
         if self.is_tls_enabled():
             params["ssl"] = "true"
+        else:
+            params["ssl"] = "false"
 
         query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)
