@@ -272,6 +272,11 @@ func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *Clust
 	return b
 }
 
+func (b *ClusterBuilder) SetExternalMembers(members []mdb.ExternalMember) *ClusterBuilder {
+	b.Spec.ExternalMembers = members
+	return b
+}
+
 func (b *ClusterBuilder) SetExternalAccessDomain(externalDomains ClusterDomains) *ClusterBuilder {
 	if b.Spec.IsMultiCluster() {
 		for i := range b.Spec.ConfigSrvSpec.ClusterSpecList {

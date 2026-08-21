@@ -1802,6 +1802,22 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return err
 	}
 
+	// A resource that still declares externalMembers is mid-migration from VMs: the sharded cluster in
+	// Ops Manager is partly made of processes the operator does not own. Removing it from the
+	// automation config, or deregistering its hosts, would tear down the still-running VM deployment.
+	// Deleting the CR is therefore a rollback of the migration: leave OM state alone and only clear
+	// the project's feature controls, since the project is no longer operator-managed.
+	if len(sc.Spec.GetExternalMembers()) > 0 {
+		log.Infow("Resource has external members, skipping Ops Manager cleanup on deletion",
+			"externalMembers", len(sc.Spec.GetExternalMembers()))
+		log.Infow("Clear feature control for group", "groupID", conn.GroupID())
+		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		return nil
+	}
+
 	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
 	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
 	preCleanupDeployment, preCleanupReadErr := conn.ReadDeployment()

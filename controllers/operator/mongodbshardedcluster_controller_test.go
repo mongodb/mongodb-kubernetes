@@ -525,6 +525,61 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 		reflect.ValueOf(mockedOmConnection.GetHosts), reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
+// TestDeleteShardedClusterWithExternalMembers verifies that deleting a hybrid (mid-migration)
+// sharded cluster leaves the Ops Manager automation config and monitored hosts intact, so the
+// still-running VM deployment survives. Only feature controls are cleared.
+func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+
+	reconciler, _, clusterClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	// Reconcile first without external members so that Ops Manager ends up holding a real sharded
+	// cluster with monitored hosts, then mark the resource hybrid. Reconciling with external members
+	// already set would require seeding the mocked automation config with matching external
+	// processes and TLS settings (see checkExternalMembersDrift / validateACForMigration), none of
+	// which the deletion path reads: OnDelete only looks at spec.externalMembers.
+	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "ext-cfg-0", Hostname: "ext-cfg-0:27017", Type: "mongod", ReplicaSetName: test.SCBuilderDefaultName + "-config"},
+		{ProcessName: "ext-mongos-0", Hostname: "ext-mongos-0:27017", Type: "mongos"},
+	}
+
+	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	hostsBefore, err := mockedOmConnection.GetHosts()
+	require.NoError(t, err)
+	require.NotEmpty(t, hostsBefore.Results, "precondition: the sharded cluster is monitored in OM")
+
+	mockedOmConnection.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
+
+	// The sharded cluster and its processes must still be in the automation config.
+	d, err := mockedOmConnection.ReadDeployment()
+	require.NoError(t, err)
+	assert.NotEmpty(t, d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName()),
+		"sharded cluster processes must stay in the automation config")
+
+	// Monitoring must be untouched.
+	hostsAfter, err := mockedOmConnection.GetHosts()
+	require.NoError(t, err)
+	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
+
+	// None of the destructive cleanup operations may have happened.
+	mockedOmConnection.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(mockedOmConnection.ReadUpdateDeployment),
+		reflect.ValueOf(mockedOmConnection.RemoveHost))
+
+	// Feature controls must have been cleared.
+	cf, err := mockedOmConnection.GetControlledFeature()
+	require.NoError(t, err)
+	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
+	assert.NotNil(t, cf.Policies)
+	assert.Empty(t, cf.Policies)
+}
+
 func getEmptyDeploymentOptions() deploymentOptions {
 	return deploymentOptions{
 		podEnvVars:         &env.PodEnvVars{},
