@@ -24,11 +24,7 @@ from tests.common.search.connectivity import (
 )
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
-from tests.common.search.search_resource_names import (
-    lb_deployment_name,
-    mongot_statefulset_name,
-    proxy_service_name,
-)
+from tests.common.search.search_resource_names import lb_deployment_name, mongot_statefulset_name, proxy_service_name
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, install_official_operator, log_deployments_info
 from tests.constants import MCK_HELM_CHART, OFFICIAL_OPERATOR_IMAGE_NAME, OPERATOR_NAME

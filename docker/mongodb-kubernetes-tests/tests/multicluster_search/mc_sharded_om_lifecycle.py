@@ -26,7 +26,7 @@ the customer unwires them — spec keys via the operator, routing keys via the A
 
 import json
 from copy import deepcopy
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List
 
 import kubernetes
 import pymongo.errors
@@ -288,9 +288,7 @@ def _shard_sts_names(cluster_index: int, shard_names: List[str]) -> List[str]:
     ]
 
 
-def _shard_artifact_readers(
-    mcc: MultiClusterClient, namespace: str, shard_name: str
-) -> Dict[str, Callable[[], object]]:
+def _shard_artifact_readers(mcc: MultiClusterClient, namespace: str, shard_name: str) -> Dict[str, Callable[[], Any]]:
     ci = _idx(mcc)
     core = mcc.core_v1_api()
     sts = search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name, ci)
@@ -309,13 +307,13 @@ def _shard_artifact_readers(
 
 def _local_artifact_readers(
     mcc: MultiClusterClient, namespace: str, shard_names: List[str]
-) -> Dict[str, Callable[[], object]]:
+) -> Dict[str, Callable[[], Any]]:
     """Direct readers for the concrete (kind, name) identities of one cluster's Search
     artifact set: per-(cluster, shard) mongot resources plus the cluster-level proxy
     Service and Envoy Deployment/ConfigMap."""
     ci = _idx(mcc)
     apps = mcc.apps_v1_api()
-    readers: Dict[str, Callable[[], object]] = {}
+    readers: Dict[str, Callable[[], Any]] = {}
     for shard_name in shard_names:
         readers.update(_shard_artifact_readers(mcc, namespace, shard_name))
     cluster_proxy = search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, ci)
@@ -327,7 +325,7 @@ def _local_artifact_readers(
     return readers
 
 
-def _reader_uids(readers: Dict[str, Callable[[], object]]) -> Dict[str, str]:
+def _reader_uids(readers: Dict[str, Callable[[], Any]]) -> Dict[str, str]:
     """UIDs of every captured artifact; reading them doubles as a presence guard."""
     return {what: read().metadata.uid for what, read in readers.items()}
 
@@ -359,7 +357,7 @@ def _customer_input_uids(mcc: MultiClusterClient, namespace: str, cluster_index:
 
 
 def _wait_for_cluster_artifacts_swept(
-    mcc: MultiClusterClient, namespace: str, readers: Dict[str, Callable[[], object]], shard_names: List[str]
+    mcc: MultiClusterClient, namespace: str, readers: Dict[str, Callable[[], Any]], shard_names: List[str]
 ) -> None:
     """Identity 404-polls for every captured artifact, then PVC reap, then the
     label-scoped emptiness backstop for labeled orphans outside the inventory."""
@@ -997,7 +995,7 @@ def test_remove_shard_lifecycle(
     removed_shard = _shard_names(INITIAL_SHARD_COUNT)[-1]
 
     live_uids: Dict[str, Dict[str, str]] = {}
-    removed_readers: Dict[str, Dict[str, Callable[[], object]]] = {}
+    removed_readers: Dict[str, Dict[str, Callable[[], Any]]] = {}
     for mcc in member_cluster_clients:
         live_uids[mcc.cluster_name] = _reader_uids(_local_artifact_readers(mcc, namespace, live_shards))
         readers = _shard_artifact_readers(mcc, namespace, removed_shard)
