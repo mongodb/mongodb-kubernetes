@@ -183,6 +183,12 @@ func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitec
 	}
 }
 
+func WithAppDBTLSCAConfigMapName(name string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBTlsCAConfigMapName = name
+	}
+}
+
 // updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
 func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Context, centralClusterSecretClient secrets.SecretClient, memberCluster multicluster.MemberCluster, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
 	// Return immediately if no Certificate is provided
@@ -276,31 +282,17 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 	return omSts, nil
 }
 
-// appDBTlsCAConfigMapName returns the AppDB CA ConfigMap name for internal AppDB mode,
-// or empty string when externalApplicationDatabaseRef is set (Spec.AppDB is nil).
-func appDBTlsCAConfigMapName(opsManager *omv1.MongoDBOpsManager) string {
-	// TODO(CLOUDP-TBD): AppDBTlsCAConfigMapName is computed from the internal AppDB spec
-	// even in external-AppDB mode, so OM/BackupDaemon won't trust the external CR's actual
-	// CA. Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not
-	// fixed here.
-	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
-		return ""
-	}
-	return opsManager.Spec.AppDB.GetCAConfigMapName()
-}
-
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
-		OwnerName:               opsManager.Name,
-		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
-		AppDBTlsCAConfigMapName: appDBTlsCAConfigMapName(opsManager),
-		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
-		Namespace:               opsManager.Namespace,
-		Labels:                  opsManager.Labels,
-		StsLabels:               opsManager.GetOwnerLabels(),
+		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
+		OwnerName:           opsManager.Name,
+		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
+		EnvVars:             opsManagerConfigurationToEnvVars(opsManager),
+		Namespace:           opsManager.Namespace,
+		Labels:              opsManager.Labels,
+		StsLabels:           opsManager.GetOwnerLabels(),
 	}
 }
 

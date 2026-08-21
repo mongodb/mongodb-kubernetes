@@ -437,7 +437,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return result, err
 	}
 
-	appDBConnectionString, err := appDbReconciler.BuildAppDBConnectionURL(ctx, opsManager, log)
+	appDBConfig, err := appDbReconciler.GetAppDBConfig(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
@@ -447,17 +447,11 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
 
-	for _, memberCluster := range opsManagerReconcilerHelper.getHealthyMemberClusters() {
-		if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, opsManager, appDBConnectionString, memberCluster, log); err != nil {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)), log, opsManagerExtraStatusParams)
-		}
-	}
-
 	initOpsManagerImage := images.ContainerImage(r.imageUrls, util.InitOpsManagerImageUrl, r.initOpsManagerImageVersion)
 	opsManagerImage := images.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
 
 	// 2. Reconcile Ops Manager
-	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConnectionString, initOpsManagerImage, opsManagerImage, log)
+	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log)
 	if !status.IsOK() {
 		return r.updateStatus(ctx, opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
 	}
@@ -470,7 +464,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// 3. Reconcile Backup Daemon
-	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConnectionString, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
+	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConfig, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
 		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
@@ -554,11 +548,17 @@ func createOrUpdateSecretIfNotFound(ctx context.Context, secretGetUpdaterCreator
 	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, appDBConnectionString, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
+func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, appDBConfig *AppDBConfig, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	var genKeySecretMap map[string][]byte
 	var err error
 	if genKeySecretMap, err = r.ensureGenKeyInOperatorCluster(ctx, opsManager, log); err != nil {
 		return workflow.Failed(xerrors.Errorf("error in ensureGenKeyInOperatorCluster: %w", err)), nil
+	}
+
+	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
+		if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, opsManager, appDBConfig.ConnectionString, memberCluster, log); err != nil {
+			return workflow.Failed(xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)), nil
+		}
 	}
 
 	if err := r.replicateGenKeyInMemberClusters(ctx, reconcilerHelper, genKeySecretMap); err != nil {
@@ -569,7 +569,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 		return workflow.Failed(xerrors.Errorf("error in replicateTLSCAInMemberClusters: %w", err)), nil
 	}
 
-	if err := r.replicateAppDBTLSCAInMemberClusters(ctx, reconcilerHelper); err != nil {
+	if err := r.replicateAppDBTLSCAInMemberClusters(ctx, reconcilerHelper, appDBConfig); err != nil {
 		return workflow.Failed(xerrors.Errorf("error in replicateAppDBTLSCAInMemberClusters: %w", err)), nil
 	}
 
@@ -588,7 +588,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 	// Prepare Ops Manager StatefulSets in parallel in all member clusters
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
-		mutatedSts, err := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
+		mutatedSts, err := r.createOpsManagerStatefulsetInMemberCluster(ctx, reconcilerHelper, appDBConfig, memberCluster, initOpsManagerImage, opsManagerImage, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("error creating Ops Manager statefulset in member cluster %s: %w", memberCluster.Name, err)), nil
 		}
@@ -706,7 +706,7 @@ func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, rec
 	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConfig *AppDBConfig, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
 
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
@@ -734,7 +734,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
 		// Prepare Backup Daemon StatefulSet (create and wait)
-		mutatedSts, err := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConnectionString, memberCluster, initOpsManagerImage, opsManagerImage, log)
+		mutatedSts, err := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConfig, memberCluster, initOpsManagerImage, opsManagerImage, log)
 		if err != nil {
 			// Check if it is a k8s error or a custom one
 			var statefulSetIsRecreatingError create.StatefulSetIsRecreating
@@ -751,7 +751,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 	}
 
 	// Configure Backup using API
-	if status := r.prepareBackupInOpsManager(ctx, reconcilerHelper, opsManager, omAdmin, appDBConnectionString, log); !status.IsOK() {
+	if status := r.prepareBackupInOpsManager(ctx, reconcilerHelper, opsManager, omAdmin, appDBConfig, log); !status.IsOK() {
 		return status
 	}
 
@@ -820,10 +820,10 @@ func hashConnectionString(connectionString string) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
-func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConfig *AppDBConfig, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	opsManager := reconcilerHelper.opsManager
 
-	r.ensureConfiguration(reconcilerHelper, log)
+	r.ensureConfiguration(reconcilerHelper, appDBConfig, log)
 
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
@@ -839,13 +839,14 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	sts, err := construct.OpsManagerStatefulSet(ctx, r.SecretClient, opsManager, memberCluster, log,
 		construct.WithInitOpsManagerImage(initOpsManagerImage),
 		construct.WithOpsManagerImage(opsManagerImage),
-		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
+		construct.WithConnectionStringHash(hashConnectionString(appDBConfig.ConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
 		construct.WithKmipConfig(ctx, opsManager, r.client, log),
 		construct.WithStsOverride(clusterSpecItem.GetStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.OpsManagerMembersForMemberCluster(memberCluster)),
 		construct.WithDebugPort(debugPort),
 		construct.WithOMDefaultArchitecture(r.defaultArchitecture),
+		construct.WithAppDBTLSCAConfigMapName(appDBConfig.CAConfigMapName),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("error building OpsManager stateful set: %w", err)
@@ -917,20 +918,16 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified.
-func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) {
+func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerReconcilerHelper, appDBConfig *AppDBConfig, log *zap.SugaredLogger) {
 	// update the central URL
 	setConfigProperty(reconcilerHelper.opsManager, util.MmsCentralUrlPropKey, reconcilerHelper.opsManager.CentralURL(), log)
 
-	// TODO(CLOUDP-TBD): reflects internal AppDB's TLS setting even in external-AppDB mode —
-	// same deferred TLS/CA parity gap as opsmanager_construction.go's AppDBTlsCAConfigMapName.
-	// Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not fixed here.
-	if reconcilerHelper.opsManager.Spec.ExternalApplicationDatabaseRef == nil {
-		if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
-			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
-		}
-		if reconcilerHelper.opsManager.Spec.AppDB.GetCAConfigMapName() != "" {
-			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
-		}
+	if appDBConfig.IsTLSEnabled {
+		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
+	}
+
+	if appDBConfig.CAConfigMapName != "" {
+		setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoCA, omv1.GetAppDBCaPemPath(), log)
 	}
 
 	// override the versions directory (defaults to "/opt/mongodb/mms/mongodb-releases/")
@@ -948,12 +945,12 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 // Note, that the idea of creating two statefulsets for Ops Manager and Backup Daemon in parallel hasn't worked out
 // as the daemon in this case just hangs silently (in practice it's ok to start it in ~1 min after start of OM though
 // we will just start them sequentially)
-func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConnectionString string, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
-	if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, reconcilerHelper.opsManager, appDBConnectionString, memberCluster, log); err != nil {
+func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, appDBConfig *AppDBConfig, memberCluster multicluster.MemberCluster, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	if err := r.ensureAppDBConnectionStringInMemberCluster(ctx, reconcilerHelper.opsManager, appDBConfig.ConnectionString, memberCluster, log); err != nil {
 		return nil, xerrors.Errorf("error ensuring AppDB connection string in cluster %s: %w", memberCluster.Name, err)
 	}
 
-	r.ensureConfiguration(reconcilerHelper, log)
+	r.ensureConfiguration(reconcilerHelper, appDBConfig, log)
 
 	var vaultConfig vault.VaultConfiguration
 	if r.VaultClient != nil {
@@ -964,12 +961,13 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 	sts, err := construct.BackupDaemonStatefulSet(ctx, r.SecretClient, reconcilerHelper.opsManager, memberCluster, log,
 		construct.WithInitOpsManagerImage(initOpsManagerImage),
 		construct.WithOpsManagerImage(opsManagerImage),
-		construct.WithConnectionStringHash(hashConnectionString(appDBConnectionString)),
+		construct.WithConnectionStringHash(hashConnectionString(appDBConfig.ConnectionString)),
 		construct.WithVaultConfig(vaultConfig),
 		construct.WithKmipConfig(ctx, reconcilerHelper.opsManager, r.client, log),
 		construct.WithStsOverride(clusterSpecItem.GetBackupStatefulSetSpecOverride()),
 		construct.WithReplicas(reconcilerHelper.BackupDaemonMembersForMemberCluster(memberCluster)),
 		construct.WithOMDefaultArchitecture(r.defaultArchitecture),
+		construct.WithAppDBTLSCAConfigMapName(appDBConfig.CAConfigMapName),
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("error building stateful set: %w", err)
@@ -1245,12 +1243,12 @@ func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Cont
 	return nil
 }
 
-func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
-	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.Spec.GetAppDbCA() == "" {
+func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, appDBConfig *AppDBConfig) error {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || appDBConfig.CAConfigMapName == "" {
 		return nil
 	}
 
-	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.GetAppDbCA())
+	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, appDBConfig.CAConfigMapName)
 }
 
 func (r *OpsManagerReconciler) replicateKMIPCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
@@ -1429,7 +1427,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
-func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConfig *AppDBConfig, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -1470,10 +1468,10 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, re
 	status := r.ensureOplogStoresInOpsManager(ctx, opsManager, omAdmin, log)
 
 	// 3. S3 Oplog Configs
-	status = status.Merge(r.ensureS3OplogStoresInOpsManager(ctx, opsManager, omAdmin, appDBConnectionString, log))
+	status = status.Merge(r.ensureS3OplogStoresInOpsManager(ctx, opsManager, omAdmin, appDBConfig, log))
 
 	// 4. S3 Configs
-	status = status.Merge(r.ensureS3ConfigurationInOpsManager(ctx, opsManager, omAdmin, appDBConnectionString, log))
+	status = status.Merge(r.ensureS3ConfigurationInOpsManager(ctx, opsManager, omAdmin, appDBConfig, log))
 
 	// 5. Block store configs
 	status = status.Merge(r.ensureBlockStoresInOpsManager(ctx, opsManager, omAdmin, log))
@@ -1551,7 +1549,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, s3OplogAdmin api.S3OplogStoreAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, s3OplogAdmin api.S3OplogStoreAdmin, appDBConfig *AppDBConfig, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -1565,7 +1563,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 	s3OperatorOplogConfigs := opsManager.Spec.Backup.S3OplogStoreConfigs
 	configsToCreate := identifiable.SetDifferenceGeneric(s3OperatorOplogConfigs, opsManagerS3OpLogConfigs)
 	for _, v := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(ctx, opsManager, v.(omv1.S3Config), true, appDBConnectionString)
+		omConfig, status := r.buildOMS3Config(ctx, opsManager, v.(omv1.S3Config), true, appDBConfig)
 		if !status.IsOK() {
 			return status
 		}
@@ -1581,7 +1579,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
 		operatorConfig := v[1].(omv1.S3Config)
-		operatorView, status := r.buildOMS3Config(ctx, opsManager, operatorConfig, true, appDBConnectionString)
+		operatorView, status := r.buildOMS3Config(ctx, opsManager, operatorConfig, true, appDBConfig)
 		if !status.IsOK() {
 			return status
 		}
@@ -1670,7 +1668,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.S3StoreBlockStoreAdmin, appDBConnectionString string, log *zap.SugaredLogger) workflow.Status {
+func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.S3StoreBlockStoreAdmin, appDBConfig *AppDBConfig, log *zap.SugaredLogger) workflow.Status {
 	if !opsManager.Spec.Backup.Enabled {
 		return workflow.OK()
 	}
@@ -1683,7 +1681,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 	operatorS3Configs := opsManager.Spec.Backup.S3Configs
 	configsToCreate := identifiable.SetDifferenceGeneric(operatorS3Configs, opsManagerS3Configs)
 	for _, config := range configsToCreate {
-		omConfig, status := r.buildOMS3Config(ctx, opsManager, config.(omv1.S3Config), false, appDBConnectionString)
+		omConfig, status := r.buildOMS3Config(ctx, opsManager, config.(omv1.S3Config), false, appDBConfig)
 		if !status.IsOK() {
 			return status
 		}
@@ -1700,7 +1698,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 	for _, v := range configsToUpdate {
 		omConfig := v[0].(backup.S3Config)
 		operatorConfig := v[1].(omv1.S3Config)
-		operatorView, status := r.buildOMS3Config(ctx, opsManager, operatorConfig, false, appDBConnectionString)
+		operatorView, status := r.buildOMS3Config(ctx, opsManager, operatorConfig, false, appDBConfig)
 		if !status.IsOK() {
 			return status
 		}
@@ -1788,7 +1786,7 @@ func shouldUseAppDb(config omv1.S3Config) bool {
 }
 
 // buildAppDbOMS3Config creates a backup.S3Config which is configured to use The AppDb.
-func (r *OpsManagerReconciler) buildAppDbOMS3Config(ctx context.Context, om *omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, appDBConnectionString string) (backup.S3Config, workflow.Status) {
+func (r *OpsManagerReconciler) buildAppDbOMS3Config(ctx context.Context, om *omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, connectionString string, caConfigMapName string) (backup.S3Config, workflow.Status) {
 	var s3Creds *backup.S3Credentials
 
 	if !config.IRSAEnabled {
@@ -1804,17 +1802,17 @@ func (r *OpsManagerReconciler) buildAppDbOMS3Config(ctx context.Context, om *omv
 		Name:     config.S3BucketName,
 	}
 
-	customCAOpts, err := r.readCustomCAFilePathsAndContents(ctx, om, isOpLog)
+	customCAOpts, err := r.readCustomCAFilePathsAndContents(ctx, om, caConfigMapName, isOpLog)
 	if err != nil {
 		return backup.S3Config{}, workflow.Failed(xerrors.New(err.Error()))
 	}
 
-	return backup.NewS3Config(om, config, appDBConnectionString, customCAOpts, bucket, s3Creds), workflow.OK()
+	return backup.NewS3Config(om, config, connectionString, customCAOpts, bucket, s3Creds), workflow.OK()
 }
 
 // buildMongoDbOMS3Config creates a backup.S3Config which is configured to use a referenced
 // MongoDB resource.
-func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsManager *omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool) (backup.S3Config, workflow.Status) {
+func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsManager *omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, caConfigMapName string) (backup.S3Config, workflow.Status) {
 	mongodb, status := r.getMongoDbForS3Config(ctx, opsManager, config)
 	if !status.IsOK() {
 		return backup.S3Config{}, status
@@ -1846,7 +1844,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsMa
 		Name:     config.S3BucketName,
 	}
 
-	customCAOpts, err := r.readCustomCAFilePathsAndContents(ctx, opsManager, isOpLog)
+	customCAOpts, err := r.readCustomCAFilePathsAndContents(ctx, opsManager, caConfigMapName, isOpLog)
 	if err != nil {
 		return backup.S3Config{}, workflow.Failed(err)
 	}
@@ -1856,7 +1854,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsMa
 
 // readCustomCAFilePathsAndContents returns the filepath and contents of the custom CA which is used to configure
 // the S3Store.
-func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(ctx context.Context, opsManager *omv1.MongoDBOpsManager, isOpLog bool) ([]backup.S3CustomCertificate, error) {
+func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(ctx context.Context, opsManager *omv1.MongoDBOpsManager, caConfigMapName string, isOpLog bool) ([]backup.S3CustomCertificate, error) {
 	var customCertificates []backup.S3CustomCertificate
 	var err error
 
@@ -1870,8 +1868,8 @@ func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(ctx context.Cont
 		return customCertificates, err
 	}
 
-	if opsManager.Spec.GetAppDbCA() != "" {
-		cmContents, err := configmap.ReadKey(ctx, r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, opsManager.Spec.GetAppDbCA()))
+	if caConfigMapName != "" {
+		cmContents, err := configmap.ReadKey(ctx, r.client, "ca-pem", kube.ObjectKey(opsManager.Namespace, caConfigMapName))
 		if err != nil {
 			return []backup.S3CustomCertificate{}, xerrors.New(err.Error())
 		}
@@ -1906,11 +1904,11 @@ func getCAs(ctx context.Context, s3Config []omv1.S3Config, ns string, client sec
 
 // buildOMS3Config builds the OM API S3 config from the Operator OM CR configuration. This involves some logic to
 // get the mongo URI, which points to either the external resource or to the AppDB
-func (r *OpsManagerReconciler) buildOMS3Config(ctx context.Context, opsManager *omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, appDBConnectionString string) (backup.S3Config, workflow.Status) {
+func (r *OpsManagerReconciler) buildOMS3Config(ctx context.Context, opsManager *omv1.MongoDBOpsManager, config omv1.S3Config, isOpLog bool, appDBConfig *AppDBConfig) (backup.S3Config, workflow.Status) {
 	if shouldUseAppDb(config) {
-		return r.buildAppDbOMS3Config(ctx, opsManager, config, isOpLog, appDBConnectionString)
+		return r.buildAppDbOMS3Config(ctx, opsManager, config, isOpLog, appDBConfig.ConnectionString, appDBConfig.CAConfigMapName)
 	}
-	return r.buildMongoDbOMS3Config(ctx, opsManager, config, isOpLog)
+	return r.buildMongoDbOMS3Config(ctx, opsManager, config, isOpLog, appDBConfig.CAConfigMapName)
 }
 
 // getMongoDbForS3Config returns the referenced MongoDB resource which should be used when configuring the backup config.

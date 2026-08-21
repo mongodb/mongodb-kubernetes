@@ -311,18 +311,6 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	return ""
 }
 
-func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
-	if ms.ExternalApplicationDatabaseRef != nil {
-		return ""
-	}
-
-	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
-		return ms.AppDB.Security.TLSConfig.CA
-	}
-
-	return ""
-}
-
 func (ms *MongoDBOpsManagerSpec) IsMultiCluster() bool {
 	return ms.Topology == ClusterTopologyMultiCluster
 }
