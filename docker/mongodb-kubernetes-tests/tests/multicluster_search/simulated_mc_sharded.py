@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 from copy import deepcopy
-from typing import Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import kubernetes
 import pymongo.errors
@@ -824,14 +824,14 @@ def test_remove_own_cluster_entry_sweeps_local_resources(
 
     state_cm_name = search_resource_names.search_state_configmap_name(MDBS_RESOURCE_NAME)
 
-    def local_artifact_readers(mcc: MultiClusterClient) -> Dict[str, Callable[[], object]]:
+    def local_artifact_readers(mcc: MultiClusterClient) -> Dict[str, Callable[[], Any]]:
         """Direct readers for the concrete (kind, name) identities of one cluster's
         Search artifact set: per-shard mongot resources plus the cluster-level
         proxy Service, Envoy Deployment/ConfigMap, and the state ConfigMap."""
         ci = _idx(mcc)
         apps = mcc.apps_v1_api()
         core = mcc.core_v1_api()
-        readers: Dict[str, Callable[[], object]] = {}
+        readers: Dict[str, Callable[[], Any]] = {}
         for shard_idx in range(SHARD_COUNT):
             shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
             sts = search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name, ci)

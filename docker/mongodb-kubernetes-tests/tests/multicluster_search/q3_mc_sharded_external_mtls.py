@@ -6,7 +6,7 @@ proxy Service (for mongos) and an Envoy Deployment.
 """
 
 from copy import deepcopy
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List
 
 import kubernetes
 import pymongo.errors
@@ -678,14 +678,14 @@ def _shard_sts_names(cluster_index: int) -> List[str]:
     ]
 
 
-def _local_artifact_readers(mcc: MultiClusterClient, namespace: str) -> Dict[str, Callable[[], object]]:
+def _local_artifact_readers(mcc: MultiClusterClient, namespace: str) -> Dict[str, Callable[[], Any]]:
     """Direct readers for the concrete (kind, name) identities of one cluster's Search
     artifact set: per-(cluster, shard) mongot resources plus the cluster-level proxy
     Service and Envoy Deployment/ConfigMap."""
     ci = _idx(mcc)
     apps = mcc.apps_v1_api()
     core = mcc.core_v1_api()
-    readers: Dict[str, Callable[[], object]] = {}
+    readers: Dict[str, Callable[[], Any]] = {}
     for shard_idx in range(SHARD_COUNT):
         shard_name = f"{MDB_RESOURCE_NAME}-{shard_idx}"
         sts = search_resource_names.shard_statefulset_name(MDBS_RESOURCE_NAME, shard_name, ci)
@@ -730,7 +730,7 @@ def _customer_input_uids(mcc: MultiClusterClient, namespace: str, cluster_index:
 
 
 def _wait_for_cluster_artifacts_swept(
-    mcc: MultiClusterClient, namespace: str, readers: Dict[str, Callable[[], object]]
+    mcc: MultiClusterClient, namespace: str, readers: Dict[str, Callable[[], Any]]
 ) -> None:
     """Identity 404-polls for every captured artifact, then PVC reap, then the
     label-scoped emptiness backstop for labeled orphans outside the inventory."""
