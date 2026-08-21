@@ -58,6 +58,13 @@ type DeploymentUsageSnapshotProperties struct {
 	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used: None, Embedded, Referenced
 	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
 	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
+	MigrationPhase           string   `json:"migrationPhase,omitempty"`       // Validating, Extending, InProgress, Pruning, MigrationComplete
+	ExternalMembersCount     *int     `json:"externalMembersCount,omitempty"` // spec.externalMembers still present at snapshot time
+	// MigrationStartedAt and MigrationCompletedAt are exact transition instants, never both on the
+	// same snapshot. Migration duration is derived by aggregating a deploymentUID's snapshots rather
+	// than reported directly: see populateMigrationFields.
+	MigrationStartedAt   string `json:"migrationStartedAt,omitempty"`
+	MigrationCompletedAt string `json:"migrationCompletedAt,omitempty"`
 }
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties
