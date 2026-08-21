@@ -41,6 +41,18 @@ const (
 // arguments present on the mongod config level. AdditionalMongodConfig
 // strips these to isolate user-supplied config. When a new
 // infrastructure-managed field is introduced, add its path here.
+//
+// MongoDB Search setParameters (mongotHost, searchIndexManagementHostAndPort,
+// searchTLSMode, useGrpcForSearch, skipAuthenticationToMongot,
+// skipAuthenticationToSearchIndexManagementServer) are deliberately NOT listed. They were
+// stripped originally on the assumption that the search controller always rewrites them from
+// the MongoDBSearch CR, but during a VM migration the MongoDBSearch usually still targets the
+// VM mongods through an external source, so applySearchOverrides returns early and nothing in
+// Kubernetes writes them. Ops Manager was expected to propagate them onto the new processes
+// and does not. The generated CR is therefore their carrier: they are extracted like any other
+// user setParameter. When a MongoDBSearch does target the migrated resource, the controller
+// overwrites the whole setParameter subtree, so the CR-side values are superseded rather than
+// in conflict.
 var infrastructureFieldPaths = [][]string{
 	{"systemLog"},
 	{"storage", "dbPath"},

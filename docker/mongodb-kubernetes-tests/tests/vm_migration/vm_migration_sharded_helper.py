@@ -129,6 +129,34 @@ def deploy_vm_sharded_mongos_service(namespace: str) -> dict:
     return service_body
 
 
+def _set_shard_member_configs(resource_doc: dict, member_config: list[dict]) -> None:
+    """Give every shard a shardOverride carrying member_config, preserving whatever the generated
+    CR already put in that override.
+
+    The merge matters for a heterogeneous source: migrate-to-mck leaves spec.shard absent and
+    states each shard's additionalMongodConfig in its own shardOverride, so overwriting the list
+    would discard the only copy of that config (sharded_cluster_generator.go, buildShardOverrides).
+    Shards the generator skipped -- those whose config could not be determined -- simply get an
+    entry with member_config alone.
+
+    buildShardOverrides emits one shardNames element per entry, so keying by shard name loses
+    nothing here.
+    """
+    generated = {name: o for o in resource_doc["spec"].get("shardOverrides", []) for name in o["shardNames"]}
+    resource_name_value = resource_doc["metadata"]["name"]
+    overrides = []
+    for shard_index in range(resource_doc["spec"]["shardCount"]):
+        shard_name = f"{resource_name_value}-{shard_index}"
+        overrides.append(
+            {
+                **generated.get(shard_name, {}),
+                "shardNames": [shard_name],
+                "memberConfig": member_config,
+            }
+        )
+    resource_doc["spec"]["shardOverrides"] = overrides
+
+
 def apply_generated_sharded_cluster_resource(
     namespace: str,
     generated_cr_yaml: str,
@@ -140,7 +168,9 @@ def apply_generated_sharded_cluster_resource(
     incremental: bool = False,
 ) -> MongoDB:
     """Apply the generated sharded cluster CR. The config server K8s members get their votes from
-    top-level memberConfig and each shard gets its own shardOverride, both non voting to start.
+    top-level memberConfig and each shard gets its votes from a per-shard shardOverride, both non
+    voting to start. The per-shard entries augment whatever shardOverrides the generated CR already
+    carried rather than replacing them -- see _set_shard_member_configs.
 
     When incremental=True, all K8s counts start at 0 and grow one member at a time via
     extend_and_prune_sharded_* operations."""
@@ -164,11 +194,7 @@ def apply_generated_sharded_cluster_resource(
         resource_doc["spec"]["mongodsPerShardCount"] = 0
         resource_doc["spec"]["mongosCount"] = 0
         resource_doc["spec"]["memberConfig"] = []
-        resource_name_value = resource_doc["metadata"]["name"]
-        resource_doc["spec"]["shardOverrides"] = [
-            {"shardNames": [f"{resource_name_value}-{shard_index}"], "memberConfig": []}
-            for shard_index in range(resource_doc["spec"]["shardCount"])
-        ]
+        _set_shard_member_configs(resource_doc, [])
     else:
         # The generated CR carries all Kubernetes node counts at 0, mirroring the replica set Members
         # field, so the customer sets the target Kubernetes counts here. The VM nodes stay in
@@ -179,14 +205,7 @@ def apply_generated_sharded_cluster_resource(
         # Shard K8s members default to voting, which would already put a shard over the limit once its
         # VM members are counted. A per-shard override pins them non voting and keeps shard votes
         # independent of the config server for the voting limit test.
-        resource_name_value = resource_doc["metadata"]["name"]
-        resource_doc["spec"]["shardOverrides"] = [
-            {
-                "shardNames": [f"{resource_name_value}-{shard_index}"],
-                "memberConfig": [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_SHARD)],
-            }
-            for shard_index in range(resource_doc["spec"]["shardCount"])
-        ]
+        _set_shard_member_configs(resource_doc, [{"votes": 0, "priority": "0"} for _ in range(MIN_K8S_SHARD)])
 
         config_members = [
             m for m in resource_doc["spec"].get("externalMembers", []) if m.get("replicaSetName") == config_rs_name
