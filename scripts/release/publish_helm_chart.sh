@@ -8,4 +8,13 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
-scripts/dev/run_python.sh scripts/release/publish_helm_chart.py --build-scenario "${BUILD_SCENARIO}" --version "${OPERATOR_VERSION}"
+registry_override=""
+if [[ "${IS_DRYRUN:-false}" == "true" ]]; then
+  if [[ -z "${dryrun_registry_override:-}" ]]; then
+    echo "ERROR: IS_DRYRUN=true but dryrun_registry_override is unset" >&2
+    exit 1
+  fi
+  registry_override="${dryrun_registry_override}"
+fi
+
+scripts/dev/run_python.sh scripts/release/publish_helm_chart.py --build-scenario "${BUILD_SCENARIO}" --version "${OPERATOR_VERSION}" --registry-override "${registry_override}"

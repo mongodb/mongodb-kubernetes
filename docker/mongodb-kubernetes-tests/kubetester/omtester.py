@@ -28,14 +28,6 @@ skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in 
 logger = test_logger.get_test_logger(__name__)
 
 
-def strip_mongodb_uri_credentials(uri: str) -> str:
-    """Removes the userinfo part of a mongodb connection string so that URIs can be compared
-    regardless of whether Ops Manager masked the credentials in its response."""
-    scheme, separator, rest = uri.partition("://")
-    hosts_and_options = rest.partition("@")[2] or rest
-    return scheme + separator + hosts_and_options
-
-
 class BackupStatus(str, Enum):
     """Enum for backup statuses in Ops Manager. Note that 'str' is inherited to fix json serialization issues"""
 
@@ -304,6 +296,34 @@ class OMTester(object):
         assert daemon_config["assignmentEnabled"]
         assert daemon_config["configured"]
 
+    @staticmethod
+    def _strip_uri_user_info(uri: str) -> str:
+        """Removes the user:password@ portion from a MongoDB URI.
+
+        Since https://jira.mongodb.org/browse/CLOUDP-417375 (OM 8.0.26+), the admin backup endpoints
+        redact credentials in the uri field (REDACTED:REDACTED@...), so tests must compare URIs
+        without the user info.
+        """
+        parsed = urllib.parse.urlsplit(uri)
+        # urlsplit only parses a single host; MongoDB URIs may list several, so strip user info
+        # from the netloc directly instead of rebuilding from hostname/port.
+        netloc = parsed.netloc
+        if "@" in netloc:
+            netloc = netloc.rsplit("@", 1)[1]
+            return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
+        return uri
+
+    @staticmethod
+    def _is_masked_credential(value) -> bool:
+        """True when OM masked a credential field instead of returning it.
+
+        Since https://jira.mongodb.org/browse/CLOUDP-417375 (OM 8.0.26+), the admin backup
+        endpoints redact secret fields: uri user info becomes REDACTED:REDACTED@ and the
+        S3 keys come back masked (awsAccessKey keeps only the last chars, e.g.
+        'AKIA********XLHG'; awsSecretKey is fully masked).
+        """
+        return isinstance(value, str) and ("REDACTED" in value or "****" in value)
+
     def _assert_stores(self, expected_stores: List[Dict], endpoint: str, store_type: str):
         response = self.om_request("get", endpoint)
         assert response.status_code == requests.status_codes.codes.OK
@@ -317,13 +337,16 @@ class OMTester(object):
             assert store_id in existing_stores, f"existing {store_type} store with id {store_id} not found"
             existing = existing_stores[store_id]
             for key in expected:
-                # Ops Manager 9.0 masks the credentials in the uri returned by the admin backup
-                # endpoints (mongodb://REDACTED:REDACTED@...), so only compare hosts and options.
-                # Older versions return the credentials verbatim.
+                expected_value = expected[key]
+                existing_value = existing[key]
                 if key == "uri":
-                    assert strip_mongodb_uri_credentials(expected[key]) == strip_mongodb_uri_credentials(existing[key])
-                else:
-                    assert expected[key] == existing[key]
+                    expected_value = self._strip_uri_user_info(expected_value)
+                    existing_value = self._strip_uri_user_info(existing_value)
+                elif self._is_masked_credential(existing_value):
+                    # OM redacts credential fields in API responses (CLOUDP-417375); the
+                    # expected value carries the real secret, so only presence is asserted.
+                    continue
+                assert expected_value == existing_value
 
     def assert_oplog_stores(self, expected_oplog_stores: List):
         """verifies that the list of oplog store configs in OM is equal to the expected one"""

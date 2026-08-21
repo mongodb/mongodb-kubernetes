@@ -36,7 +36,7 @@ variables:
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.25 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.26 # The order/index is important, since these are anchors. Please do not change
 
   - &ops_manager_90_latest 9.0.0-rc2 # The order/index is important, since these are anchors. Please do not change
 
@@ -335,7 +335,9 @@ git_tag_aliases:
     task: ".*"
   # New process: publishes the already-promoted images for the given commit
   # without rebuilding or retesting. See .evergreen-release-publish.yml.
-  - git_tag: "^new-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+  # The optional "test-" infix marks a dry run: targets an override registry
+  # instead of the real production one, still gated on the same tasks.
+  - git_tag: "^new-(test-)?(\\d+\\.)?(\\d+\\.)?(\\d+)$"
     variant_tags: [ "release-publish" ]
     task: ".*"
 
@@ -388,6 +390,8 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: setup_docker_sbom
+      - func: assume_devprod_platforms_ecr_role
+      - func: write_devprod_platforms_ecr_aws_profile
       - command: subprocess.exec
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes

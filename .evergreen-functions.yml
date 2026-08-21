@@ -608,6 +608,8 @@ functions:
   publish_helm_chart:
     - command: subprocess.exec
       params:
+        include_expansions_in_env:
+          - dryrun_registry_override
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
 
