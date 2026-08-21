@@ -945,6 +945,254 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 			},
 		},
+		"external appdb test": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Backup: &mdbv1.Backup{
+								Mode: "enabled",
+							},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdb-backup-none-uid",
+						Name:      "om-ext-appdb-backup-none-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+							Name: "om-ext-appdb-backup-none-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-backup-none-uid",
+						Name:      "om-ext-appdb-backup-none",
+						Namespace: "test-ns",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+								ExternalDomain: ptr.To("some.custom.domain"),
+							},
+							Backup: &mdbv1.Backup{
+								Mode: "disabled",
+							},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdb-backup-uniform-uid",
+						Name:      "om-ext-appdb-backup-uniform-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+							Name: "om-ext-appdb-backup-uniform-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-backup-uniform-uid",
+						Name:      "om-ext-appdb-backup-uniform",
+						Namespace: "test-ns",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Backup: &mdbv1.Backup{
+								Mode: "enabled",
+							},
+						},
+						ClusterSpecList: []mdbv1.ClusterSpecItem{
+							{ClusterName: "cluster1", Members: 3},
+							{ClusterName: "cluster2", Members: 3},
+							{ClusterName: "cluster3", Members: 3},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdbm-clusters-uid",
+						Name:      "om-ext-appdb-mdbm-clusters-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+							Name: "om-ext-appdb-mdbm-clusters-db",
+							Kind: "MongoDBMultiCluster",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-mdbm-clusters-uid",
+						Name:      "om-ext-appdb-mdbm-clusters",
+						Namespace: "test-ns",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+								ExternalDomain: ptr.To("some.default.domain"),
+							},
+							Backup: &mdbv1.Backup{
+								Mode: "terminated",
+							},
+						},
+						ClusterSpecList: []mdbv1.ClusterSpecItem{
+							{ClusterName: "cluster1", Members: 3, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster1.domain")}},
+							{ClusterName: "cluster2", Members: 3, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster2.domain")}},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdbm-mixed-terminated-uid",
+						Name:      "om-ext-appdb-mdbm-mixed-terminated-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+							Name: "om-ext-appdb-mdbm-mixed-terminated-db",
+							Kind: "MongoDBMultiCluster",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-mdbm-mixed-terminated-uid",
+						Name:      "om-ext-appdb-mdbm-mixed-terminated",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+							Name: "non-existent-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-not-found-uid",
+						Name:      "om-ext-appdb-not-found",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "ext-appdb-mdb-backup-none-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+				},
+				{
+					"deploymentUID":            "ext-appdb-mdb-backup-uniform-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainUniform,
+					"customRoles":              CustomRoleNone,
+				},
+				{
+					"deploymentUID":            "ext-appdb-mdbm-clusters-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(3),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-backup-none-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
+					"appDBBackupMode":          "enabled",
+					"externalDomains":          ExternalDomainNone,
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-backup-uniform-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
+					"appDBBackupMode":          "disabled",
+					"externalDomains":          ExternalDomainUniform,
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-mdbm-clusters-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDBMultiCluster",
+					"appDBBackupMode":          "enabled",
+					"externalDomains":          ExternalDomainNone,
+					"appDBClusters":            float64(3),
+				},
+				{
+					"deploymentUID":            "ext-appdb-mdbm-mixed-terminated-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(2),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-mdbm-mixed-terminated-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDBMultiCluster",
+					"appDBBackupMode":          "terminated",
+					"externalDomains":          ExternalDomainMixed,
+					"appDBClusters":            float64(2),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-not-found-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
+				},
+			},
+		},
 		"custom roles test": {
 			objects: []client.Object{
 				&mdbv1.MongoDB{
