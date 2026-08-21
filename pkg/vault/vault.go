@@ -213,6 +213,9 @@ func (v *VaultClient) Login() error {
 }
 
 func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
+	if err := validateSecretPath(path); err != nil {
+		return err
+	}
 	if err := v.Login(); err != nil {
 		return xerrors.Errorf("unable to log in: %w", err)
 	}
@@ -238,6 +241,9 @@ func (v *VaultClient) ReadSecretVersion(path string) (int, error) {
 }
 
 func (v *VaultClient) ReadSecret(path string) (*api.Secret, error) {
+	if err := validateSecretPath(path); err != nil {
+		return nil, err
+	}
 	if err := v.Login(); err != nil {
 		return nil, xerrors.Errorf("unable to log in: %w", err)
 	}
@@ -494,6 +500,18 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 	}
 
 	return annotations
+}
+
+// GetSecretAnnotationForSecret builds the Vault metadata path for the given
+// namespace/name under basePath and returns its version annotation. The name
+// may come from a CR field, so the path is built through SecretPath; an
+// invalid name yields no annotation rather than a traversing read.
+func (v *VaultClient) GetSecretAnnotationForSecret(basePath, namespace, name string) map[string]string {
+	path, err := SecretPath(basePath, namespace, name)
+	if err != nil {
+		return map[string]string{}
+	}
+	return v.GetSecretAnnotation(path)
 }
 
 func (v *VaultClient) GetSecretAnnotation(path string) map[string]string {

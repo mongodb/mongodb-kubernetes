@@ -974,11 +974,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		secrets := sc.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
 		for _, s := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", r.commonController.VaultClient.DatabaseSecretMetadataPath(), sc.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.commonController.VaultClient.GetSecretAnnotation(path))
+			vaultMap = merge.StringToStringMap(vaultMap, r.commonController.VaultClient.GetSecretAnnotationForSecret(r.commonController.VaultClient.DatabaseSecretMetadataPath(), sc.Namespace, s))
 		}
-		path := fmt.Sprintf("%s/%s/%s", r.commonController.VaultClient.OperatorScretMetadataPath(), sc.Namespace, sc.Spec.Credentials)
-		vaultMap = merge.StringToStringMap(vaultMap, r.commonController.VaultClient.GetSecretAnnotation(path))
+		vaultMap = merge.StringToStringMap(vaultMap, r.commonController.VaultClient.GetSecretAnnotationForSecret(r.commonController.VaultClient.OperatorScretMetadataPath(), sc.Namespace, sc.Spec.Credentials))
 		for k, val := range vaultMap {
 			annotationsToAdd[k] = val
 		}

@@ -197,7 +197,11 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Cont
 
 	if vault.IsVaultSecretBackend() {
 		opsManagerSecretPath = centralClusterSecretClient.VaultClient.OpsManagerSecretPath()
-		secretData, err = centralClusterSecretClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName))
+		secretPath, err := vault.SecretPath(opsManagerSecretPath, opts.Namespace, opts.HTTPSCertSecretName)
+		if err != nil {
+			return err
+		}
+		secretData, err = centralClusterSecretClient.VaultClient.ReadSecretBytes(secretPath)
 		if err != nil {
 			return err
 		}

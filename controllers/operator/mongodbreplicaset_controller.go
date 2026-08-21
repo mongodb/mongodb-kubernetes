@@ -150,14 +150,12 @@ func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	secrets := r.resource.GetSecretsMountedIntoDBPod()
 
 	for _, s := range secrets {
-		path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.DatabaseSecretMetadataPath(),
-			r.resource.Namespace, s)
-		vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
+		vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotationForSecret(
+			r.reconciler.VaultClient.DatabaseSecretMetadataPath(), r.resource.Namespace, s))
 	}
 
-	path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.OperatorScretMetadataPath(),
-		r.resource.Namespace, r.resource.Spec.Credentials)
-	vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotation(path))
+	vaultMap = merge.StringToStringMap(vaultMap, r.reconciler.VaultClient.GetSecretAnnotationForSecret(
+		r.reconciler.VaultClient.OperatorScretMetadataPath(), r.resource.Namespace, r.resource.Spec.Credentials))
 
 	return vaultMap
 }
