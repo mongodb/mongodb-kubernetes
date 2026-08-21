@@ -35,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -65,7 +66,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
-	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 3)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 4)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
@@ -236,7 +237,7 @@ func TestHorizonVerificationCount(t *testing.T) {
 //	ctx := context.Background()
 //	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
 //
-//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 //
 //	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 //	set := &appsv1.StatefulSet{}
@@ -432,6 +433,57 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 				reflect.ValueOf(mockedOmConn.GetHosts), reflect.ValueOf(mockedOmConn.RemoveHost))
 		})
 	}
+}
+
+// TestDeleteReplicaSetWithExternalMembers verifies that deleting a hybrid (mid-migration)
+// replica set leaves the Ops Manager automation config and monitored hosts intact, so the
+// still-running VM deployment survives. Only feature controls are cleared.
+func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	// Reconcile first without external members so that Ops Manager ends up holding a real replica
+	// set with monitored hosts, then mark the resource hybrid. Reconciling with external members
+	// already set would require seeding the mocked automation config with matching external
+	// processes and TLS settings (see checkExternalMembersDrift / validateACForMigration), none of
+	// which the deletion path reads: OnDelete only looks at spec.externalMembers.
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	rs.Spec.ExternalMembers = fourExternalMembers()
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	hostsBefore, err := mockedOmConn.GetHosts()
+	require.NoError(t, err)
+	require.NotEmpty(t, hostsBefore.Results, "precondition: the replica set is monitored in OM")
+
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+
+	// The replica set and its processes must still be in the automation config.
+	d, err := mockedOmConn.ReadDeployment()
+	require.NoError(t, err)
+	assert.NotEmpty(t, d.GetReplicaSets(), "replica set must stay in the automation config")
+	assert.NotEmpty(t, d.GetProcessNames(om.ReplicaSet{}, rs.Name), "processes must stay in the automation config")
+
+	// Monitoring must be untouched.
+	hostsAfter, err := mockedOmConn.GetHosts()
+	require.NoError(t, err)
+	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
+
+	// None of the destructive cleanup operations may have happened.
+	mockedOmConn.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment),
+		reflect.ValueOf(mockedOmConn.RemoveHost))
+
+	// Feature controls must have been cleared.
+	cf, err := mockedOmConn.GetControlledFeature()
+	require.NoError(t, err)
+	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
+	assert.NotNil(t, cf.Policies)
+	assert.Empty(t, cf.Policies)
 }
 
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
@@ -1411,6 +1463,11 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	return b
 }
 
+func (b *ReplicaSetBuilder) SetExternalMembers(members []mdbv1.ExternalMember) *ReplicaSetBuilder {
+	b.Spec.ExternalMembers = members
+	return b
+}
+
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()
@@ -1655,4 +1712,51 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(newPinnedSearch()).Build()
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
+}
+
+func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().
+		SetName("rs").
+		SetNamespace(mock.TestNamespace).
+		SetMembers(1).
+		SetReplicaSetNameOverride("conn-str-rs").
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod", ReplicaSetName: "conn-str-rs"},
+	}
+
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		mocked := conn.(*om.MockedOmConnection)
+		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
+		vmProcess := om.NewMongodProcess(
+			"vm-0", "vm-0.example.com", "fake-image", false,
+			&mdbv1.AdditionalMongodConfig{}, spec, "", nil, "", architectures.NonStatic,
+		)
+		d := om.NewDeployment()
+		d.MergeReplicaSet(buildRsByProcessesHelper("conn-str-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
+		_, _ = mocked.UpdateDeployment(d)
+	})
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx,
+		kube.ObjectKey(rs.Namespace, "rs"+connectionstringsecret.SecretNameSuffix),
+		secret))
+
+	std := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, std, "rs-0.rs-svc.")
+	assert.Contains(t, std, "vm-0.example.com:27017")
+	assert.Contains(t, std, "replicaSet=conn-str-rs")
+	// Credential-less secret.
+	assert.NotContains(t, std, "@")
+	_, hasUsername := secret.Data["username"]
+	assert.False(t, hasUsername)
+
+	srv := string(secret.Data["connectionString.standardSrv"])
+	assert.NotEmpty(t, srv)
+
+	require.Len(t, secret.OwnerReferences, 1)
 }
