@@ -236,6 +236,13 @@ buildvariants:
     allowed_requesters: [ "patch" ]
     run_on:
       - ubuntu2404-small
+    depends_on:
+      # The task group setup downloads the kubectl-mongodb plugin artifact
+      # uploaded under this patch's version ID. Without this dependency a
+      # manual patch races the build and 404s (the private variant gets it
+      # via base_om8_dependency).
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
     tasks:
       - name: gke_code_snippets_task_group
 

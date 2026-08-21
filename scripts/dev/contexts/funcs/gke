@@ -26,12 +26,20 @@ normalize_identifier() {
     echo -n "${str}"
 }
 
-# for prerelease tag builds we have:
-# version_id=mongodb_kubernetes_1.4.0_68c913f767d52d00076a2698-9041 (len=54)
-# k8s cluster name prefix: k8s-mdb-0- (len=10)
-# random suffix: -1234 (len=5)
-# K8S_CLUSTER_PREFIX must be shorter than 25 to make the final
-# gke identifier shorter than 40 characters.
+# Fixed-width run identity (a dash followed by 18 lowercase hexadecimal
+# characters) used for resource naming and debugging. The periodic GCP reaper
+# is age-only and does not parse this suffix; keep it for human traceability.
 create_k8s_cluster_suffix() {
-  echo -n "$(normalize_identifier "${K8S_CLUSTER_SUFFIX:-"-${version_id}-${RANDOM}"}" 25)"
+  local seed
+  if [[ "${K8S_CLUSTER_SUFFIX:-}" =~ ^-[0-9a-f]{18}$ ]]; then
+    printf '%s' "${K8S_CLUSTER_SUFFIX}"
+    return 0
+  elif [[ -n "${K8S_CLUSTER_SUFFIX:-}" ]]; then
+    seed=${K8S_CLUSTER_SUFFIX}
+  elif [[ -n "${EVR_TASK_ID:-}" ]]; then
+    seed=${EVR_TASK_ID}
+  else
+    seed="${version_id:-unknown}-${RANDOM}"
+  fi
+  printf -- '-%.18s' "$(printf '%s' "${seed}" | git hash-object --stdin)"
 }
