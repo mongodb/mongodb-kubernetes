@@ -2250,8 +2250,15 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 
 func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	name := m.Name
+	// Both connection strings are built from the mongos tier for a sharded cluster, so the external
+	// domain must be resolved from spec.mongos.externalAccess too, not only from the top-level field.
+	// EffectiveExternalDomain still falls back to spec.externalAccess for the mongos tier. The member
+	// cluster is left empty on purpose: a connection string is cluster-agnostic, so per-cluster
+	// clusterSpecList domains are not honoured here.
+	externalDomain := m.Spec.GetExternalDomain()
 	if m.Spec.ResourceType == ShardedCluster {
 		name = m.MongosRsName()
+		externalDomain = m.Spec.EffectiveExternalDomain(m.Spec.MongosSpec, TierMongos, "")
 	} else if m.Spec.ResourceType == ReplicaSet {
 		name = m.GetReplicaSetName()
 	}
@@ -2267,7 +2274,7 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 		SetVersion(m.Spec.GetMongoDBVersion()).
 		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
 		SetClusterDomain(m.Spec.GetClusterDomain()).
-		SetExternalDomain(m.Spec.GetExternalDomain()).
+		SetExternalDomain(externalDomain).
 		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetConnectionParams(connectionParams).
@@ -2317,4 +2324,53 @@ func (m ClusterSpecList) IsExternalDomainSpecifiedInClusterSpecList() bool {
 	}
 
 	return false
+}
+
+// ShardedClusterTier identifies one tier of a sharded cluster. It lets external-access resolution be
+// shared by the sharded controller and the construct package while keeping this package free of any
+// dependency on construct's StsType.
+type ShardedClusterTier string
+
+const (
+	TierConfigSrv ShardedClusterTier = "configSrv"
+	TierMongos    ShardedClusterTier = "mongos"
+	TierShard     ShardedClusterTier = "shard"
+)
+
+// EffectiveExternalAccessConfiguration returns the external access configuration in force for one
+// tier of a sharded cluster in one member cluster, in precedence order:
+//
+//  1. spec.<tier>.clusterSpecList[i].externalAccess  — per member cluster, multi-cluster
+//  2. spec.<tier>.externalAccess                     — per-tier, either topology
+//  3. spec.externalAccess                            — top level: mongos in single-cluster, any tier in multi-cluster
+//  4. nil
+//
+// Step 3 reproduces the behaviour that predates the per-tier field exactly. In single-cluster only
+// mongos honours the top-level field, which is why config servers and shards were never externally
+// addressable there: see GetShardClusterSpecList and GetConfigSrvClusterSpecList, which synthesize a
+// single-cluster list and drop ExternalAccessConfiguration, while GetMongosClusterSpecList keeps it.
+func (m *MongoDbSpec) EffectiveExternalAccessConfiguration(component *ShardedClusterComponentSpec, tier ShardedClusterTier, memberClusterName string) *ExternalAccessConfiguration {
+	if component != nil {
+		if cfg := component.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberClusterName); cfg != nil {
+			return cfg
+		}
+		if component.ExternalAccessConfiguration != nil {
+			return component.ExternalAccessConfiguration
+		}
+	}
+
+	if m.IsMultiCluster() || tier == TierMongos {
+		return m.ExternalAccessConfiguration
+	}
+
+	return nil
+}
+
+// EffectiveExternalDomain is the external domain of EffectiveExternalAccessConfiguration, or nil.
+func (m *MongoDbSpec) EffectiveExternalDomain(component *ShardedClusterComponentSpec, tier ShardedClusterTier, memberClusterName string) *string {
+	if cfg := m.EffectiveExternalAccessConfiguration(component, tier, memberClusterName); cfg != nil {
+		return cfg.ExternalDomain
+	}
+
+	return nil
 }

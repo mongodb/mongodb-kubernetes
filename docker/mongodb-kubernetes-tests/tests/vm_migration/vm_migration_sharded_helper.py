@@ -20,6 +20,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     MIGRATION_DRY_RUN_ANNOTATION,
     _deploy_vm_statefulset_from_fixture,
     assert_migration_tool_version_annotation,
+    cluster_connection_string_secret_name,
     generated_mongodb_doc,
 )
 from tests.vm_migration.vm_migration_dry_run import (
@@ -205,19 +206,17 @@ def apply_generated_sharded_cluster_resource(
 def sharded_connection_string_tester(
     mdb_migration: MongoDB, use_ssl: bool = False, ca_path: str | None = None
 ) -> MongoTester:
-    """Return a MongoTester seeded from the operator-managed <name>-connection-string secret.
+    """Return a MongoTester seeded from the operator-managed <name>-cluster-connection-string secret.
 
     Unlike mdb_migration.tester() (which builds K8s mongos FQDNs from spec.mongosCount and therefore
     targets nothing while mongosCount == 0), the standard connection string lists the CURRENT active
     mongos routers: the external VM mongos early in migration and the K8s mongos once they exist.
     """
     try_load(mdb_migration)
-    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
+    secret_name = cluster_connection_string_secret_name(mdb_migration)
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, secret_name)
     conn_str = secret.get("connectionString.standard", "")
-    assert conn_str, (
-        f"connection-string secret {mdb_migration.name}-connection-string has no "
-        f"'connectionString.standard' value yet"
-    )
+    assert conn_str, f"connection-string secret {secret_name} has no 'connectionString.standard' value yet"
     return MongoTester(conn_str, use_ssl, ca_path)
 
 
@@ -362,13 +361,121 @@ def extend_and_prune_sharded_mongos(
         sharded_connection_string_tester(mdb_migration).assert_connectivity()
 
 
-def assert_connection_string_after_full_sharded_migration(mdb_migration: MongoDB, ca_path: str | None = None) -> None:
+def external_domain_of_tier(mdb_migration: MongoDB, tier: str) -> Optional[str]:
+    """External domain in force for one tier, mirroring the operator's resolution order.
+
+    Per-tier spec.<tier>.externalAccess first, then top-level spec.externalAccess. The operator's
+    MongoDbSpec.EffectiveExternalAccessConfiguration only falls back to the top level for mongos in
+    single-cluster, but reading it for every tier here is harmless: these tests set the per-tier field
+    on all three tiers, so the fallback is never reached for configSrv or shard.
+    """
+    spec = mdb_migration["spec"]
+    per_tier = spec.get(tier, {}).get("externalAccess", {}).get("externalDomain")
+    if per_tier:
+        return per_tier
+    return spec.get("externalAccess", {}).get("externalDomain")
+
+
+def k8s_mongos_hostnames(mdb_migration: MongoDB) -> list[str]:
+    """Hostnames and ports the operator publishes for the Kubernetes-hosted mongos members."""
+    external_domain = external_domain_of_tier(mdb_migration, "mongos")
+    mongos_count = mdb_migration["spec"]["mongosCount"]
+
+    if external_domain:
+        return [f"{mdb_migration.name}-mongos-{i}.{external_domain}:27017" for i in range(mongos_count)]
+
+    service_name = f"{mdb_migration.name}-svc"
+    return [
+        f"{mdb_migration.name}-mongos-{i}.{service_name}.{mdb_migration.namespace}.svc.cluster.local:27017"
+        for i in range(mongos_count)
+    ]
+
+
+def k8s_tier_hostnames(mdb_migration: MongoDB, tier: str, shard_idx: int = 0) -> list[str]:
+    """Hostnames (no port) the operator publishes for one tier's Kubernetes-hosted members.
+
+    StatefulSet name prefixes follow the sharded controller: <name>-config for config servers,
+    <name>-<shardIdx> for shards, <name>-mongos for mongos. shard_idx selects which shard's
+    replica set is addressed; it is ignored for the configSrv and mongos tiers.
+    """
+    external_domain = external_domain_of_tier(mdb_migration, tier)
+    spec = mdb_migration["spec"]
+
+    if tier == "configSrv":
+        prefix, count = f"{mdb_migration.name}-config", spec["configServerCount"]
+    elif tier == "mongos":
+        prefix, count = f"{mdb_migration.name}-mongos", spec["mongosCount"]
+    else:
+        prefix, count = f"{mdb_migration.name}-{shard_idx}", spec["mongodsPerShardCount"]
+
+    if external_domain:
+        return [f"{prefix}-{i}.{external_domain}" for i in range(count)]
+
+    service_suffix = f"{mdb_migration.namespace}.svc.cluster.local"
+    internal_service = {"configSrv": "-cs", "mongos": "-svc", "shard": "-sh"}[tier]
+    return [f"{prefix}-{i}.{mdb_migration.name}{internal_service}.{service_suffix}" for i in range(count)]
+
+
+def external_mongos_tester(mdb_migration: MongoDB) -> MongoTester:
+    """MongoTester connecting to mongos through the external domain rather than internal service DNS.
+
+    Connecting through internal DNS here would prove nothing: internal DNS still resolves in the test
+    cluster, so such a test would pass even if externalAccess were misconfigured.
+    """
+    hosts = ",".join(k8s_mongos_hostnames(mdb_migration))
+    return MongoTester(f"mongodb://{hosts}/", use_ssl=False)
+
+
+def sharded_migration_connection_strings(mdb_migration: MongoDB) -> tuple[str, str]:
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, cluster_connection_string_secret_name(mdb_migration))
+    return secret.get("connectionString.standard", ""), secret.get("connectionString.standardSrv", "")
+
+
+def assert_sharded_connection_string_uses_external_domain(mdb_migration: MongoDB, fully_migrated: bool = False) -> None:
+    """Both connection strings address the Kubernetes mongos members through the external domain.
+
+    For a sharded cluster both strings are built from the mongos tier: BuildConnectionString uses
+    MongosRsName() and Spec.Replicas() returns MongosCount. Before pruning, the VM members' internal
+    hostnames are legitimately still present in the standard string, so the "no internal hostnames"
+    check only applies once fully migrated.
+    """
+    external_domain = external_domain_of_tier(mdb_migration, "mongos")
+    assert external_domain, "resource has no mongos externalAccess.externalDomain configured"
+
+    conn_str, conn_srv = sharded_migration_connection_strings(mdb_migration)
+
+    for hostname in k8s_mongos_hostnames(mdb_migration):
+        assert hostname in conn_str, f"external mongos hostname {hostname!r} missing from standard connection string"
+
+    assert (
+        f"mongodb+srv://{external_domain}/" in conn_srv
+    ), f"SRV connection string must use the external domain, got: {conn_srv}"
+    assert (
+        ".svc.cluster.local" not in conn_srv
+    ), f"SRV connection string must not contain an internal service FQDN, got: {conn_srv}"
+
+    if fully_migrated:
+        assert (
+            ".svc.cluster.local" not in conn_str
+        ), f"standard connection string must not contain internal hostnames, got: {conn_str}"
+
+
+def assert_connection_string_after_full_sharded_migration(
+    mdb_migration: MongoDB, ca_path: str | None = None, external: bool = False
+) -> None:
     """After all external members are pruned, assert the sharded cluster is reachable.
 
     Pass ca_path for TLS-enforced clusters so the connectivity check uses a TLS client;
     without it a plaintext client can never connect and assert_connectivity times out.
+    Pass external=True when the resource is addressed through an external domain: mdb_migration.tester()
+    builds an internal URI, which would pass even if externalAccess were broken.
     """
     assert not mdb_migration["spec"].get("externalMembers"), "expected all external members to be pruned by now"
+
+    if external:
+        external_mongos_tester(mdb_migration).assert_connectivity()
+        return
+
     mdb_migration.tester(use_ssl=ca_path is not None, ca_path=ca_path).assert_connectivity()
 
 
@@ -622,17 +729,7 @@ def build_sharded_cluster_ac(
             "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
             "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
             "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
-            "usersWanted": [
-                {
-                    "user": x509_agent_subject_dn,
-                    "db": "$external",
-                    "roles": [{"role": "root", "db": "admin"}],
-                    "mechanisms": [],
-                    "scramSha256Creds": None,
-                    "scramSha1Creds": None,
-                    "authenticationRestrictions": [],
-                }
-            ],
+            "usersWanted": [],
             "usersDeleted": [],
         }
 
