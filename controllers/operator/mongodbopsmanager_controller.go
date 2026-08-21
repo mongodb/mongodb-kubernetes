@@ -972,7 +972,7 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
 	// That means we need to remove first, which SetupCommonWatchers does, then register additional watches
 	appDBReplicaSet := opsManager.Spec.AppDB
-	r.SetupCommonWatchers(&appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
+	r.SetupCommonWatchers(appDBReplicaSet, nil, nil, appDBReplicaSet.GetName())
 
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})

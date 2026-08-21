@@ -229,6 +229,7 @@ type MongoDBMultiStatus struct {
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="self.role == \"\"",message="spec.role is not supported on MongoDBMultiCluster"
 type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
