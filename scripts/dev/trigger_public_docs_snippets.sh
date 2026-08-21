@@ -3,6 +3,7 @@
 # Triggers the public docs-snippet refresh after retag_new_release confirms a release is public.
 # Master only (backports don't change snippet content); checked via ${revision} vs origin/master
 # rather than branch_name, since a tag/workflow_dispatch build's branch_name isn't reliable here.
+# Auto-triggers snippet generation + docs PR creation (update_docs_repo variant).
 # Manual fallback for backports:
 #   evergreen patch -p mongodb-kubernetes -v public_kind_code_snippets -v public_gke_code_snippets -t all -f -y -u --browse
 
@@ -23,6 +24,7 @@ evergreen patch \
   -p mongodb-kubernetes \
   -v public_kind_code_snippets \
   -v public_gke_code_snippets \
+  -v update_docs_repo \
   -t all \
   -d "public docs snippets refresh for ${RELEASE_VERSION}" \
   -f -y -u
