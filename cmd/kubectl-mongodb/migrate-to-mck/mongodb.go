@@ -89,13 +89,13 @@ USAGE
 EXAMPLES
 
   Interactive:
-    kubectl mongodb migrate mongodb \
+    kubectl mongodb migrate-to-mck mongodb \
       --config-map-name my-project \
       --secret-name my-credentials \
       --namespace mongodb
 
   Non-interactive:
-    kubectl mongodb migrate mongodb \
+    kubectl mongodb migrate-to-mck mongodb \
       --config-map-name my-project \
       --secret-name my-credentials \
       --namespace mongodb \

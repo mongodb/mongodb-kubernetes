@@ -39,6 +39,7 @@ var (
 func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process, projectConfigs *ProjectConfigs) ([]ValidationResult, *om.Process) {
 	var results []ValidationResult
 
+	results = append(results, validateNoStandalones(ac.Deployment)...)
 	results = append(results, validateOneDeploymentPerProject(ac.Deployment)...)
 	results = append(results, validateReplicaSetsExist(ac.Deployment)...)
 	results = append(results, validateEmbeddedConfigServer(ac.Deployment)...)
@@ -170,6 +171,24 @@ func validateEmbeddedConfigServer(d om.Deployment) []ValidationResult {
 		}
 	}
 	return results
+}
+
+// validateNoStandalones rejects standalone mongod processes, i.e. mongods that are not part of any
+// replica set.
+func validateNoStandalones(d om.Deployment) []ValidationResult {
+	var standalones []string
+	for _, proc := range d.GetProcesses() {
+		if proc.ProcessType() == om.ProcessTypeMongod && proc.ReplicaSetName() == "" {
+			standalones = append(standalones, proc.Name())
+		}
+	}
+	if len(standalones) == 0 {
+		return nil
+	}
+	return []ValidationResult{{
+		Severity: SeverityError,
+		Message:  fmt.Sprintf("The project contains standalone processes %v. Only replica set and sharded cluster deployments can be migrated. Remove or convert the standalones before migrating.", standalones),
+	}}
 }
 
 func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
