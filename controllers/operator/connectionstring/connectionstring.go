@@ -18,7 +18,7 @@ import (
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password string, scheme Scheme, connectionParams map[string]string) string
+	BuildConnectionString(userName, password, connectionStringDatabase string, scheme Scheme, connectionParams map[string]string) string
 }
 
 // Scheme states the connection string format.
@@ -49,6 +49,8 @@ type builder struct {
 	isTLSEnabled        bool
 
 	hostnames []string
+	// connectionStringDatabase is the database placed in the URI path
+	connectionStringDatabase string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -124,6 +126,11 @@ func (b *builder) SetHostnames(hostnames []string) *builder {
 	return b
 }
 
+func (b *builder) SetConnectionStringDatabase(connectionStringDatabase string) *builder {
+	b.connectionStringDatabase = connectionStringDatabase
+	return b
+}
+
 func (b *builder) SetScheme(scheme Scheme) *builder {
 	b.scheme = scheme
 	return b
@@ -191,7 +198,7 @@ func (b *builder) Build() string {
 	for k := range connectionParams {
 		keys = append(keys, k)
 	}
-	uri += "/?"
+	uri += "/" + stringutil.EncodeUserinfoComponent(b.connectionStringDatabase) + "?"
 
 	// sorting parameters to make a url stable
 	sort.Strings(keys)
