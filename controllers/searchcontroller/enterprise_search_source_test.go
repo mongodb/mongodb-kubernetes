@@ -390,24 +390,15 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 func TestShardedInternalSearchSource_Validate(t *testing.T) {
 	cases := []struct {
 		name           string
-		topology       string
 		externalDomain *string
 		expectError    bool
 	}{
 		{
 			name:        "SingleCluster without externalDomain",
-			topology:    mdbv1.ClusterTopologySingleCluster,
 			expectError: false,
 		},
 		{
 			name:           "SingleCluster with externalDomain",
-			topology:       mdbv1.ClusterTopologySingleCluster,
-			externalDomain: ptr.To("example.com"),
-			expectError:    true,
-		},
-		{
-			name:           "MultiCluster with externalDomain also rejected",
-			topology:       mdbv1.ClusterTopologyMultiCluster,
 			externalDomain: ptr.To("example.com"),
 			expectError:    true,
 		},
@@ -416,7 +407,6 @@ func TestShardedInternalSearchSource_Validate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			mdb := newShardedClusterMongoDB("test-sharded", "test-ns", 2, "8.2.0")
-			mdb.Spec.Topology = c.topology
 			if c.externalDomain != nil {
 				mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: c.externalDomain}
 			}
