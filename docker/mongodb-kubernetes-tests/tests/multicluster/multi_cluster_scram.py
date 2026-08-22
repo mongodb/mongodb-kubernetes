@@ -154,6 +154,10 @@ def test_connection_string_secret_was_created(
         assert "password" in secret_data
         assert "connectionString.standard" in secret_data
         assert "connectionString.standardSrv" in secret_data
+        assert f"authSource={USER_DATABASE}" in secret_data["connectionString.standard"]
+        assert f"authSource={USER_DATABASE}" in secret_data["connectionString.standardSrv"]
+        assert "ssl=false" in secret_data["connectionString.standardSrv"]
+        assert "ssl=false" in secret_data["connectionString.standard"]
 
 
 @pytest.mark.e2e_multi_cluster_scram
