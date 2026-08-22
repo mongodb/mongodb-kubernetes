@@ -547,6 +547,31 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 		string(secret.Data["connectionString.standardSrv"]))
 }
 
+func TestConnectionStringSecret_ExternalUser_OnScramAndX509Resource_HasNoAuthMechanism(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().EnableX509().SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	for _, key := range []string{"connectionString.standard", "connectionString.standardSrv"} {
+		cs := string(secret.Data[key])
+		assert.Contains(t, cs, "authSource=$external", "authSource should be $external (%s)", key)
+		assert.NotContains(t, cs, "authMechanism", "no authMechanism must be set for an external user (%s)", key)
+		assert.NotContains(t, cs, "@", "no credentials must appear in the URI for an external user (%s)", key)
+	}
+
+	assert.NotContains(t, secret.Data, "password", "password key must be omitted for an external user")
+}
+
 func TestConnectionStringSecret_ScramSHA1_UsesSpecDb_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase("mydb").Build()
