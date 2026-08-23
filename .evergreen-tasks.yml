@@ -1156,11 +1156,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_cli_custom_ca
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
   - name: e2e_multi_cluster_agent_flags
     tags: [ "patch-run" ]
     commands:

@@ -33,8 +33,9 @@ func init() {
 var RecoverCmd = &cobra.Command{
 	Use:   "recover",
 	Short: "Recover the multicluster environment for MongoDB resources after a dataplane failure",
-	Long: `'recover' re-configures a failed multicluster environment to a enable the shuffling of dataplane
-resources to a new healthy topology. Any --member-cluster-ca values passed to 'setup' must be passed here too.
+	Long: `'recover' re-configures a failed multicluster environment to enable the shuffling of dataplane
+resources to a new healthy topology. Re-pass --member-cluster-ca for each cluster still listed in
+--member-clusters that needs one; a cluster left out reverts to its ServiceAccount token secret CA.
 
 Example:
 

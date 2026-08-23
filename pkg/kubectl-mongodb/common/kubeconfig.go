@@ -2,6 +2,7 @@ package common
 
 import (
 	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"slices"
@@ -69,6 +70,14 @@ func ParseMemberClusterCAs(entries []string, memberClusters []string) (map[strin
 		caPEM, err := os.ReadFile(path)
 		if err != nil {
 			return nil, xerrors.Errorf("failed reading CA file '%s' for cluster '%s': %w", path, clusterName, err)
+		}
+
+		// this file is copied verbatim into a Secret, and a bundle exported from a TLS terminator
+		// can carry the server key right next to its certificate
+		for block, rest := pem.Decode(caPEM); block != nil; block, rest = pem.Decode(rest) {
+			if strings.HasSuffix(block.Type, "PRIVATE KEY") {
+				return nil, xerrors.Errorf("failed parsing CA file '%s' for cluster '%s': found a private key (%s block), pass certificates only", path, clusterName, block.Type)
+			}
 		}
 
 		// the Operator builds its cert pool from this value alone, so reject a bundle it cannot use

@@ -330,6 +330,83 @@ func TestCreateKubeConfig_UsesCustomCA_WhenProvided(t *testing.T) {
 	}
 }
 
+func TestReadExistingKubeConfigCAs(t *testing.T) {
+	ctx := context.Background()
+	flags := testFlags(t, false)
+
+	t.Run("NoKubeConfigSecretYet", func(t *testing.T) {
+		cas, err := readExistingKubeConfigCAs(ctx, fake.NewSimpleClientset(), flags)
+		require.NoError(t, err)
+		assert.Empty(t, cas)
+	})
+
+	t.Run("CAsAreDecodedPerMemberCluster", func(t *testing.T) {
+		kubeConfigBytes, err := yaml.Marshal(KubeConfigFile{Clusters: []KubeConfigClusterItem{
+			{Name: flags.MemberClusters[0], Cluster: KubeConfigCluster{CertificateAuthorityData: []byte("custom-ca")}},
+		}})
+		require.NoError(t, err)
+
+		clientset := fake.NewSimpleClientset(&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: KubeConfigSecretName, Namespace: flags.CentralClusterNamespace},
+			Data:       map[string][]byte{KubeConfigSecretKey: kubeConfigBytes},
+		})
+
+		cas, err := readExistingKubeConfigCAs(ctx, clientset, flags)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]byte{flags.MemberClusters[0]: []byte("custom-ca")}, cas)
+	})
+}
+
+func TestReplacedCustomCAWarnings(t *testing.T) {
+	overriddenCluster := "member-cluster-0"
+	serviceAccountTokens := map[string]corev1.Secret{}
+	for _, clusterName := range []string{"member-cluster-0", "member-cluster-1", "member-cluster-2"} {
+		serviceAccountTokens[clusterName] = corev1.Secret{Data: map[string][]byte{"ca.crt": []byte("sa-ca-" + clusterName)}}
+	}
+
+	tests := map[string]struct {
+		existingCAs      map[string][]byte
+		memberClusterCAs map[string][]byte
+		expectedWarnings int
+	}{
+		"NoExistingKubeConfig": {
+			existingCAs: nil,
+		},
+		"ExistingCAComesFromTheServiceAccountTokenSecret": {
+			existingCAs: map[string][]byte{overriddenCluster: []byte("sa-ca-" + overriddenCluster)},
+		},
+		"MemberClusterIsNotInTheExistingKubeConfigYet": {
+			existingCAs: map[string][]byte{"member-cluster-9": []byte("custom-ca")},
+		},
+		"ExistingKubeConfigHasNoCAForTheMemberCluster": {
+			existingCAs: map[string][]byte{overriddenCluster: nil},
+		},
+		"ExistingCAWouldBeReplaced": {
+			existingCAs:      map[string][]byte{overriddenCluster: []byte("custom-ca")},
+			expectedWarnings: 1,
+		},
+		"ExistingCAIsKeptByPassingTheFlagAgain": {
+			existingCAs:      map[string][]byte{overriddenCluster: []byte("custom-ca")},
+			memberClusterCAs: map[string][]byte{overriddenCluster: []byte("custom-ca")},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			flags := testFlags(t, false)
+			flags.MemberClusterCAs = tc.memberClusterCAs
+
+			warnings := replacedCustomCAWarnings(tc.existingCAs, serviceAccountTokens, flags)
+
+			require.Len(t, warnings, tc.expectedWarnings)
+			if tc.expectedWarnings > 0 {
+				assert.Contains(t, warnings[0], overriddenCluster)
+				assert.Contains(t, warnings[0], "--member-cluster-ca")
+			}
+		})
+	}
+}
+
 func TestParseMemberClusterCAs(t *testing.T) {
 	memberClusters := []string{"member-cluster-0", "member-cluster-1"}
 
@@ -339,6 +416,9 @@ func TestParseMemberClusterCAs(t *testing.T) {
 	ca0Path := writeTestFile(t, dir, "ca-0.pem", ca0)
 	ca1Path := writeTestFile(t, dir, "ca-1.pem", ca1)
 	notAPemPath := writeTestFile(t, dir, "not-a-cert.pem", []byte("this is not a certificate"))
+	privateKey := generateTestPrivateKeyPEM(t)
+	caAndKeyPath := writeTestFile(t, dir, "ca-and-key.pem", append(append([]byte{}, ca0...), privateKey...))
+	keyOnlyPath := writeTestFile(t, dir, "key-only.pem", privateKey)
 
 	tests := []struct {
 		name          string
@@ -401,6 +481,16 @@ func TestParseMemberClusterCAs(t *testing.T) {
 			entries:       []string{"member-cluster-0=" + notAPemPath},
 			expectedError: "no PEM encoded certificate found",
 		},
+		{
+			name:          "the file holds a certificate and its private key",
+			entries:       []string{"member-cluster-0=" + caAndKeyPath},
+			expectedError: "found a private key (EC PRIVATE KEY block)",
+		},
+		{
+			name:          "the file holds only a private key",
+			entries:       []string{"member-cluster-0=" + keyOnlyPath},
+			expectedError: "found a private key (EC PRIVATE KEY block)",
+		},
 	}
 
 	for _, tt := range tests {
@@ -418,39 +508,6 @@ func TestParseMemberClusterCAs(t *testing.T) {
 			assert.Equal(t, tt.expected, cas)
 		})
 	}
-}
-
-// generateTestCAPEM returns a self signed, PEM encoded CA certificate. It is generated rather than
-// hardcoded so the fixture is always accepted by x509.CertPool.AppendCertsFromPEM, which is what
-// both ParseMemberClusterCAs and the Operator's member cluster health checker rely on.
-func generateTestCAPEM(t *testing.T, commonName string) []byte {
-	t.Helper()
-
-	key, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
-	require.NoError(t, err)
-
-	template := x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: commonName},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour * 24),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-	}
-
-	der, err := x509.CreateCertificate(cryptorand.Reader, &template, &template, &key.PublicKey, key)
-	require.NoError(t, err)
-
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-}
-
-func writeTestFile(t *testing.T, dir, name string, contents []byte) string {
-	t.Helper()
-
-	path := filepath.Join(dir, name)
-	require.NoError(t, os.WriteFile(path, contents, 0o600))
-	return path
 }
 
 func TestKubeConfigSecret_IsCreated_InCentralCluster(t *testing.T) {
@@ -1078,4 +1135,51 @@ func readKubeConfig(ctx context.Context, client KubeClient, namespace string) (K
 	}
 
 	return result, nil
+}
+
+// generateTestCAPEM returns a self signed, PEM encoded CA certificate. It is generated rather than
+// hardcoded so the fixture is always accepted by x509.CertPool.AppendCertsFromPEM, which is what
+// both ParseMemberClusterCAs and the Operator's member cluster health checker rely on.
+func generateTestCAPEM(t *testing.T, commonName string) []byte {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour * 24),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(cryptorand.Reader, &template, &template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// generateTestPrivateKeyPEM returns a PEM encoded EC private key, standing in for the server key a
+// TLS terminator keeps alongside its certificate in a single bundle file.
+func generateTestPrivateKeyPEM(t *testing.T) []byte {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+	require.NoError(t, err)
+
+	der, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+
+	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+}
+
+func writeTestFile(t *testing.T, dir, name string, contents []byte) string {
+	t.Helper()
+
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, contents, 0o600))
+	return path
 }

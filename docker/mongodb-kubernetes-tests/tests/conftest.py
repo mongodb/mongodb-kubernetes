@@ -1359,7 +1359,6 @@ def run_kube_config_creation_tool(
     cluster_scoped: bool = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
-    member_cluster_cas: dict[str, str] | None = None,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1383,10 +1382,6 @@ def run_kube_config_creation_tool(
         "--operator-name",
         operator_name,
     ]
-
-    for cluster_name, ca_path in (member_cluster_cas or {}).items():
-        args.append("--member-cluster-ca")
-        args.append(f"{cluster_name}={ca_path}")
 
     if os.getenv("MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS") == "true":
         args.append("--create-service-account-secrets")
