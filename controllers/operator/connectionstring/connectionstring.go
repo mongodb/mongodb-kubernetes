@@ -169,6 +169,8 @@ func (b *builder) Build() string {
 	}
 	if b.isTLSEnabled {
 		connectionParams["ssl"] = "true"
+	} else {
+		connectionParams["ssl"] = "false"
 	}
 
 	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)

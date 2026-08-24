@@ -13,6 +13,7 @@ from kubetester import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import assert_connection_string_with_mongosh, connection_string_without_query_param
 from kubetester.phase import Phase
 from pytest import fixture, mark
 
@@ -195,6 +196,8 @@ def test_credentials_secret_is_created(replica_set: MongoDB, standard_secret: Di
     # authSource in the connection string must match the user's spec.db
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in standard_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -216,16 +219,34 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
     # authSource in the connection string must match the user's spec.db (non-admin database)
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standard"], tls=False)
+    conn = standard_secret["connectionString.standard"]
+    replica_set.assert_connectivity_from_connection_string(conn, tls=False)
+    # mongosh uses the secret URI as-is, like a customer would — no separate TLS/auth kwargs.
+    assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standardSrv"], tls=False)
+    conn = standard_secret["connectionString.standardSrv"]
+    replica_set.assert_connectivity_from_connection_string(conn, tls=False)
+
+    # mongodb+srv defaults to TLS unless ssl=false is present in the generated secret.
+    assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
+
+    # Prove ssl=false is required: without it, mongosh assumes TLS and cannot reach a non-TLS cluster.
+    conn_without_ssl_false = connection_string_without_query_param(conn, "ssl")
+    assert "ssl=false" not in conn_without_ssl_false
+    assert_connection_string_with_mongosh(
+        conn_without_ssl_false,
+        expect_success=False,
+        eval_script="db.runCommand({ping: 1})",
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -266,6 +287,8 @@ def test_space_password_credentials_secret_is_created(space_password_standard_se
     assert "connectionString.standardSrv" in space_password_standard_secret
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in space_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in space_password_standard_secret["connectionString.standard"]
     # space must be encoded as %20, not + — check only the userinfo segment to avoid false positives
     for key in ("connectionString.standard", "connectionString.standardSrv"):
         conn = space_password_standard_secret[key]
@@ -313,6 +336,8 @@ def test_plus_password_credentials_secret_is_created(plus_password_standard_secr
     assert "connectionString.standardSrv" in plus_password_standard_secret
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in plus_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in plus_password_standard_secret["connectionString.standard"]
     # literal + in password must be percent-encoded as %2B in userinfo so that pymongo's
     # unquote_plus does not decode it as a space character
     for key in ("connectionString.standard", "connectionString.standardSrv"):
@@ -346,6 +371,16 @@ def test_update_user_with_connection_string_secret(scram_user: MongoDBUser):
     scram_user.update()
 
     scram_user.assert_reaches_phase(Phase.Updated)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_connection_string_secret_is_created(connection_string_secret: Dict[str, str]):
+    assert "connectionString.standard" in connection_string_secret
+    assert "connectionString.standardSrv" in connection_string_secret
+    assert f"authSource={USER_DATABASE}" in connection_string_secret["connectionString.standard"]
+    assert f"authSource={USER_DATABASE}" in connection_string_secret["connectionString.standardSrv"]
+    assert "ssl=false" in connection_string_secret["connectionString.standardSrv"]
+    assert "ssl=false" in connection_string_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
