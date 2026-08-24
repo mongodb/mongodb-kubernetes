@@ -137,7 +137,7 @@ func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(
 		return "", xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
 	}
 
-	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, connectionstring.SchemeMongoDB, nil), nil
+	return refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"}), nil
 }
 
 type externalAppDBRefObject struct {
