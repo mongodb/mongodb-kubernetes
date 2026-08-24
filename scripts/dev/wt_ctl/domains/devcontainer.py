@@ -15,13 +15,26 @@ _TMUX_LOAD_CMD = "exec tmuxp load -y /mck-tooling/.devcontainer/tmuxp/mck.yaml"
 
 
 def compose_env(worktree_root: Path) -> dict:
-    """Pin the compose project name per worktree.
+    """Env overrides for every devcontainer-CLI call on this worktree.
 
-    The devcontainer CLI derives it from the config's directory when
-    COMPOSE_PROJECT_NAME is unset — which is ``devcontainer`` for every
-    worktree once the config is rendered under ``.generated/devcontainer``,
-    so all stacks would collide on one project."""
-    return {"COMPOSE_PROJECT_NAME": project_name_for(worktree_root)}
+    * ``COMPOSE_PROJECT_NAME`` — the CLI derives it from the config's
+      directory when unset, which is ``devcontainer`` for every worktree
+      once the config is rendered under ``.generated/devcontainer``, so all
+      stacks would collide on one project.
+    * ``MCK_DEVC_*`` — re-asserted from THIS worktree's ``.env``. The wt-ctl
+      shim sources the invoking checkout's context, and process env beats
+      the project-directory ``.env`` in compose interpolation, so without
+      this a stack created from another checkout gets that checkout's
+      subnet ("Pool overlaps with other one on this address space").
+    """
+    env = {"COMPOSE_PROJECT_NAME": project_name_for(worktree_root)}
+    env_file = devc_dir(worktree_root) / ".env"
+    if env_file.is_file():
+        for line in env_file.read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key.startswith("MCK_DEVC_"):
+                env[key] = value.strip().strip('"')
+    return env
 
 
 def _config_args(worktree_root: Path) -> list[str]:
