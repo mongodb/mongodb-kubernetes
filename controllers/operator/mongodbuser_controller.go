@@ -285,17 +285,22 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
+	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
 
-	memberClusterSecret := secret.Builder().
+	secretBuilder := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
 		SetField("connectionString.standard", mongoAuthUserURI).
 		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
-		SetField("username", user.Spec.Username).
-		SetField("password", password).
-		Build()
+		SetField("username", user.Spec.Username)
+
+	// External users have no password, so the key is left out rather than written empty.
+	if user.Spec.Database != authentication.ExternalDB {
+		secretBuilder.SetField("password", password)
+	}
+
+	memberClusterSecret := secretBuilder.Build()
 
 	for _, c := range r.memberClusterSecretClientsMap {
 		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)

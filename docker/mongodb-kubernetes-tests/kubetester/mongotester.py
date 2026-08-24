@@ -4,9 +4,11 @@ import logging
 import os
 import random
 import string
+import subprocess
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pymongo
 from kubetester import kubetester
@@ -134,6 +136,54 @@ def _wait_for_mongodbuser_reconciliation() -> None:
             logging.warning(f"Failed to list MongoDBUser resources: {e} - proceeding without reconciliation wait")
     except Exception as e:
         logging.warning(f"Error while waiting for MongoDBUser reconciliation: {e} - proceeding with authentication")
+
+
+def connection_string_without_query_param(connection_string: str, param: str) -> str:
+    parts = urlsplit(connection_string)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != param]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def connection_string_with_patched_path(connection_string: str, database: str) -> str:
+    """Return a copy of the connection string with the URI path set to /{database} (or / if empty)."""
+    parts = urlsplit(connection_string)
+    path = f"/{database}" if database else "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
+def _run_mongosh(connection_string: str, eval_script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["mongosh", connection_string, "--quiet", "--norc", "--eval", eval_script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def assert_connection_string_with_mongosh(
+    connection_string: str,
+    *,
+    expect_success: bool,
+    eval_script: str = "db.myCol.insertOne({})",
+) -> None:
+    """
+    Run mongosh with the connection string as-is and check whether the eval succeeds.
+    """
+    try:
+        result = _run_mongosh(connection_string, eval_script)
+    except subprocess.TimeoutExpired as e:
+        fail(f"Timed out connecting with mongosh using the connection string: {e}")
+
+    if expect_success:
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            fail(f"Expected mongosh to succeed with the connection string, but failed: {detail}")
+        return
+
+    if result.returncode != 0:
+        return
+    fail("Expected mongosh to fail with the connection string")
 
 
 class MongoTester:
