@@ -814,6 +814,36 @@ func TestPlanStateLossFailClosed(t *testing.T) {
 	})
 }
 
+// TestPlanOrphanedACMembers pins backlog T11: members living in the AC at an index no spec
+// cluster claims (their directive deleted AND their cluster removed from the spec) fence every
+// AC write — never a one-write mass drop.
+func TestPlanOrphanedACMembers(t *testing.T) {
+	orphanedWorld := func() *snapshotBuilder {
+		b := converged(2, 2, 2)
+		b.s.Targets = b.s.Targets[:2]
+		delete(b.s.Directives, clusters[2])
+		return b
+	}
+
+	t.Run("A converged-looking world reads Pending, not Running", func(t *testing.T) {
+		decision := plan(orphanedWorld().build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "no spec cluster claims")
+	})
+
+	t.Run("A pending AC write is held", func(t *testing.T) {
+		// another cluster's scale-up is ready for its AC write; publishing spec-cluster counts
+		// would drop the orphans, so the write waits behind the guard
+		b := orphanedWorld()
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		decision := plan(b.build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "no spec cluster claims")
+	})
+}
+
 func TestPlanACUnreadable(t *testing.T) {
 	b := converged(2, 2, 2)
 	b.s.AC = acView{Read: false}

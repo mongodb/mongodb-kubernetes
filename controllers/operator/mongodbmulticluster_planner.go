@@ -148,6 +148,9 @@ func plan(s plannerSnapshot) planDecision {
 	if d, ok := advancement(s); ok {
 		return d
 	}
+	if d, ok := orphanedACMembers(s); ok {
+		return d
+	}
 	if payload, ok := acWriteNeeded(s); ok {
 		return planDecision{Kind: decisionWriteAC, AC: &payload, Reason: "publishing the automation config membership"}
 	}
@@ -657,6 +660,35 @@ func remainingProcessesConverged(s plannerSnapshot, allocations map[string]int) 
 		}
 	}
 	return true
+}
+
+// orphanedACMembers holds every AC write while the automation config carries members at an
+// index no spec cluster claims (a directive deleted AND its cluster removed from the spec —
+// the removal guard needs a directive to see the removal, and every payload covers spec
+// clusters only, so publishing would mass-drop the orphans in one write). Directive writes
+// stay allowed — only the AC is fenced; an orphaned index also turns a would-be Noop into
+// Pending, which is honest: this world is not converged.
+func orphanedACMembers(s plannerSnapshot) (planDecision, bool) {
+	if !s.AC.Read {
+		return planDecision{}, false
+	}
+	claimed := make(map[int]struct{}, len(s.Targets))
+	for _, t := range s.Targets {
+		claimed[allocatedIndex(s, t.ClusterName)] = struct{}{}
+	}
+	indexes := make([]int, 0, len(s.AC.MemberCountsByIndex))
+	for index := range s.AC.MemberCountsByIndex {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	for _, index := range indexes {
+		if count := s.AC.MemberCountsByIndex[index]; count > 0 {
+			if _, ok := claimed[index]; !ok {
+				return planDecision{Kind: decisionNotProgressing, Reason: fmt.Sprintf("the automation config carries %d members at index %d that no spec cluster claims; refusing to publish membership that would drop them", count, index)}, true
+			}
+		}
+	}
+	return planDecision{}, false
 }
 
 // acWriteNeeded publishes membership. Scale-up (and first deploy): once every cluster granted
