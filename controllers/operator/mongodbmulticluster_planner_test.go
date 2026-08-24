@@ -593,6 +593,227 @@ func TestPlanSpecSkew(t *testing.T) {
 	assert.Contains(t, decision.Reason, "spec skew")
 }
 
+// TestPlanStateLossSeedsFromAC pins the seed rule (Failure 7, robustness backlog T1-T3): state
+// loss may cost discipline, never capacity — missing coordination state is seeded from the AC
+// count at the cluster's index, never from granted()'s zero value, exactly as the legacy
+// scaler's fallback is the spec.
+func TestPlanStateLossSeedsFromAC(t *testing.T) {
+	t.Run("T1: directive deleted while another cluster is mid-scale-up", func(t *testing.T) {
+		// cluster 0 is granted +1 with agents registered (its AC write is due); cluster 1's
+		// directive is deleted. The lost directive is recreated at the AC count BEFORE any AC
+		// write — its live members are never published at 0
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		delete(b.s.Directives, clusters[1])
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[1], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("T1 variant: unreachable directive during a peer's scale-up is published at the AC count", func(t *testing.T) {
+		// an unreachable view also reads Exists=false, so the seed must cover it too: a mere
+		// network partition during a peer's AC write must not publish the partitioned cluster at 0
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		b.withGrantedDirective(clusters[0], 3)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+		b.s.Directives[clusters[1]] = directiveView{Unreachable: true}
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteAC, decision.Kind, decision.Reason)
+		assert.Equal(t, &acPayload{LeadershipTerm: testPlanTerm, MemberCounts: map[string]int{clusters[0]: 3, clusters[1]: 2, clusters[2]: 2}}, decision.AC)
+	})
+
+	t.Run("T2: directive deleted in steady state (N=3) is recreated at the AC count", func(t *testing.T) {
+		// the allocation map is still ack-satisfied on the two survivors, so nothing recreates
+		// the directive today — a permanent management freeze; recognition must recreate it
+		b := converged(2, 2, 2)
+		delete(b.s.Directives, clusters[1])
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[1], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+		assert.Equal(t, map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}, decision.DirectiveSpec.IndexAllocations)
+	})
+
+	t.Run("T3: N=2 recreation via the allocation push seeds at the AC count, never 0", func(t *testing.T) {
+		// with two clusters the ack threshold DOES recreate the lost directive — the seed decides
+		// whether that is recognition of existing capacity or a scale-to-0 instruction
+		b := converged(2, 2)
+		delete(b.s.Directives, clusters[1])
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[1], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("T4: directive lost mid-scale-up reseeds at the AC count", func(t *testing.T) {
+		// the grant was 3, the AC still 2: only the never-voting extra pod is cut by the reseed;
+		// the ladder then re-advances toward the spec
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 3
+		delete(b.s.Directives, clusters[0])
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("T5: directive lost mid-scale-down reseeds at the down-ladder's own next value", func(t *testing.T) {
+		// the AC already dropped to 2, the shrink grant was pending when the directive was lost:
+		// the seed equals what the down ladder would have granted — the shrink completes as if
+		// never interrupted
+		b := converged(3, 2, 2).withAC(2, 2, 2).withConvergedOMFacts(2, 2, 2)
+		b.s.Targets[0].Members = 2
+		delete(b.s.Directives, clusters[0])
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("T7: a directive below the AC count is re-granted at it, spec at the AC count", func(t *testing.T) {
+		// the wedge state (pre-existing damage, manual meddling): recognition of existing
+		// capacity, then the normal ladder runs toward spec
+		b := converged(2, 2, 2)
+		b.editDirective(clusters[0], func(d *directiveView) { d.Spec.MemberCount = 1 })
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+		assert.Contains(t, decision.Reason, "recognizing existing capacity")
+	})
+
+	t.Run("T7: the wedge re-grants at the AC count even when the spec wants less", func(t *testing.T) {
+		// the shrink to the spec then happens through the AC-first down ladder, never through a
+		// raw low grant against live members
+		b := converged(2, 2, 2)
+		b.s.Targets[0].Members = 1
+		b.editDirective(clusters[0], func(d *directiveView) { d.Spec.MemberCount = 1 })
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount)
+	})
+
+	t.Run("T13: recognition changes nothing physical — the paused ladder resumes after the re-ack", func(t *testing.T) {
+		// beat 1 is T1's world: the deletion pauses the concurrent scale-up for exactly the
+		// recognition write
+		midLadder := func() *snapshotBuilder {
+			b := converged(2, 2, 2)
+			b.s.Targets[0].Members = 3
+			b.withGrantedDirective(clusters[0], 3)
+			b.editDirective(clusters[0], func(d *directiveView) { d.Status.InGoalState = false })
+			return b
+		}
+		beat1 := midLadder()
+		delete(beat1.s.Directives, clusters[1])
+		recreation := plan(beat1.build())
+		require.Equal(t, decisionWriteDirective, recreation.Kind, recreation.Reason)
+		require.Equal(t, clusters[1], recreation.TargetCluster)
+
+		// beat 2: the recreated directive is echoed by its member (a fully current directive at
+		// the recreation's count), and the paused AC write proceeds carrying the recreated
+		// cluster at its unchanged count — membership only ever changes through the AC
+		beat2 := midLadder().withGrantedDirective(clusters[1], recreation.DirectiveSpec.MemberCount)
+		decision := plan(beat2.build())
+		require.Equal(t, decisionWriteAC, decision.Kind, decision.Reason)
+		assert.Equal(t, &acPayload{LeadershipTerm: testPlanTerm, MemberCounts: map[string]int{clusters[0]: 3, clusters[1]: 2, clusters[2]: 2}}, decision.AC)
+	})
+}
+
+// TestPlanStateLossFailClosed pins the seed rule's companion gates (backlog T6, T8, T12): when
+// the observed world cannot be read — or contradicts every guess — the planner freezes with a
+// pointed message instead of seeding a 0 or minting a colliding identity.
+func TestPlanStateLossFailClosed(t *testing.T) {
+	t.Run("T6: no directive is minted while the AC is unreadable", func(t *testing.T) {
+		// acCount reads 0 when the AC is unread — the 0-seed must not return through that door
+		b := newSnapshot(2, 2, 2)
+		b.s.AC = acView{Read: false}
+		decision := plan(b.build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "unreadable")
+	})
+
+	t.Run("T6: no directive is created for a visible allocation while the AC is unreadable", func(t *testing.T) {
+		// creation without minting (N=2, the surviving copy carries the map): the seed count is
+		// unknown, so the push holds rather than creating at 0
+		b := converged(2, 2)
+		delete(b.s.Directives, clusters[1])
+		b.s.AC = acView{Read: false}
+		decision := plan(b.build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "seed member count is unknown")
+	})
+
+	t.Run("T8: total state loss over a live AC refuses to mint colliding identities", func(t *testing.T) {
+		// no surviving map copy: a mint on a guessed (spec-order) index would collide with the
+		// members the AC already carries there — freeze and name the runbook, zero writes
+		b := converged(2, 2, 2)
+		b.s.Directives = map[string]directiveView{}
+		decision := plan(b.build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "refusing to mint")
+		assert.Contains(t, decision.Reason, "majority-loss runbook")
+	})
+
+	t.Run("T12: a both-ways spec edit against the live AC is refused with one directive lost", func(t *testing.T) {
+		// the surviving maps make the lost cluster's index known, so its seeded granted count
+		// stands in for the lost state and blockScalingBothWays still fail-closes on real capacity
+		b := converged(2, 2, 2)
+		delete(b.s.Directives, clusters[1])
+		b.s.Targets[0].Members = 3
+		b.s.Targets[1].Members = 1
+		decision := plan(b.build())
+		require.Equal(t, decisionInvalidSpec, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "scale up and scale down")
+	})
+
+	t.Run("T12: a both-ways spec edit under TOTAL loss fail-closes behind the runbook refusal", func(t *testing.T) {
+		// with no surviving map every index is a guess, so the planner withholds spec judgment
+		// entirely: the mint-collision refusal freezes the world and names the runbook instead
+		// of blaming a spec it cannot honestly evaluate
+		b := converged(2, 2, 2)
+		b.s.Directives = map[string]directiveView{}
+		b.s.Targets[0].Members = 3
+		b.s.Targets[1].Members = 1
+		decision := plan(b.build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "majority-loss runbook")
+	})
+
+	t.Run("Total loss with a reordered spec still names the runbook, never a guessed judgment", func(t *testing.T) {
+		// historically cluster 0 held index 1 (3 members) and cluster 1 held index 0 (2 members);
+		// the spec — valid and untouched — lists them in the opposite order of their indexes. A
+		// spec-position seed would read the peer's count and misjudge this as scaling both ways
+		b := newSnapshot(3, 2).withAC(2, 3)
+		decision := plan(b.build())
+		require.Equal(t, decisionNotProgressing, decision.Kind, decision.Reason)
+		assert.Contains(t, decision.Reason, "majority-loss runbook")
+	})
+
+	t.Run("A map push never re-publishes a below-AC grant: the wedge is floored at the AC count", func(t *testing.T) {
+		// cluster 0's directive is damaged twice over — granted below the AC AND its own
+		// allocation entry lost from two copies — so the allocation push (which runs before
+		// recognition) rewrites it; the push must carry the AC count, not the damaged grant
+		b := converged(2, 2, 2)
+		b.editDirective(clusters[0], func(d *directiveView) {
+			d.Spec.MemberCount = 1
+			d.Spec.IndexAllocations = map[string]int{clusters[1]: 1, clusters[2]: 2}
+		})
+		b.editDirective(clusters[1], func(d *directiveView) {
+			d.Spec.IndexAllocations = map[string]int{clusters[1]: 1, clusters[2]: 2}
+		})
+		decision := plan(b.build())
+		require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+		assert.Equal(t, clusters[0], decision.TargetCluster)
+		assert.Equal(t, 2, decision.DirectiveSpec.MemberCount, "the damaged grant is never re-published")
+		assert.Equal(t, map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}, decision.DirectiveSpec.IndexAllocations)
+	})
+}
+
 func TestPlanACUnreadable(t *testing.T) {
 	b := converged(2, 2, 2)
 	b.s.AC = acView{Read: false}

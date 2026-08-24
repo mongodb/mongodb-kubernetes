@@ -142,6 +142,9 @@ func plan(s plannerSnapshot) planDecision {
 	if d, ok := allocation(s); ok {
 		return d
 	}
+	if d, ok := recognition(s); ok {
+		return d
+	}
 	if d, ok := advancement(s); ok {
 		return d
 	}
@@ -234,9 +237,21 @@ func grantedMemberClusters(s plannerSnapshot) []multicluster.MemberCluster {
 	return members
 }
 
+// granted is what the leader last instructed — and, for a cluster whose directive is absent,
+// what the observed world proves was instructed: the AC count at its index. The seed rule
+// (Failure 7): state loss may cost discipline, never capacity — absent coordination state must
+// never read as an instruction to scale to 0. The seed only follows a KNOWN index: under total
+// map loss allocatedIndex would guess the spec position, and a reordered spec would read
+// another cluster's count — no seed is better than a guessed one (the mint-collision refusal
+// owns that world and names the runbook).
 func granted(s plannerSnapshot, clusterName string) int {
 	if d, ok := s.Directives[clusterName]; ok && d.Exists {
 		return d.Spec.MemberCount
+	}
+	if s.AC.Read {
+		if index, ok := visibleAllocations(s)[clusterName]; ok {
+			return s.AC.MemberCountsByIndex[index]
+		}
 	}
 	return 0
 }
@@ -347,6 +362,7 @@ func allocation(s plannerSnapshot) (planDecision, bool) {
 			mintNeeded = true
 		}
 	}
+	desired := desiredAllocations(s)
 	// minting while a copy is unreachable risks a sub-quorum ghost on the copy we cannot see;
 	// pushing an already-visible map is still allowed
 	if mintNeeded {
@@ -355,9 +371,22 @@ func allocation(s plannerSnapshot) (planDecision, bool) {
 				return planDecision{Kind: decisionNotProgressing, Reason: fmt.Sprintf("cannot allocate cluster indexes while cluster %s is unreachable", name)}, true
 			}
 		}
+		// a mint must also be checked against the automation config: an index the AC already
+		// carries members at belongs to a lost allocation map, and minting over it would create
+		// colliding process identities — refuse and name the recovery instead
+		if !s.AC.Read {
+			return planDecision{Kind: decisionNotProgressing, Reason: "cannot mint cluster indexes while the automation config is unreadable"}, true
+		}
+		for _, t := range s.Targets {
+			if _, ok := visible[t.ClusterName]; ok {
+				continue
+			}
+			if count := s.AC.MemberCountsByIndex[desired[t.ClusterName]]; count > 0 {
+				return planDecision{Kind: decisionNotProgressing, Reason: fmt.Sprintf("refusing to mint index %d for cluster %s: the automation config already carries %d members at that index and no surviving directive claims it; recover by writing one directive carrying the recovered index allocations (majority-loss runbook)", desired[t.ClusterName], t.ClusterName, count)}, true
+			}
+		}
 	}
 
-	desired := desiredAllocations(s)
 	ackThreshold := min(2, len(s.Targets))
 	for _, t := range s.Targets {
 		index := desired[t.ClusterName]
@@ -373,8 +402,11 @@ func allocation(s plannerSnapshot) (planDecision, bool) {
 			continue
 		}
 		// push the map to the first spec cluster (by allocated index) whose readable directive
-		// is missing or disagreeing with the entry; a brand-new cluster's directive is created
-		// here at MemberCount 0 — advancement raises the count later
+		// is missing or disagreeing with the entry; a created directive is seeded at granted() —
+		// 0 for a brand-new cluster (advancement raises the count later), the AC count for a
+		// cluster whose directive was lost over live members (the seed rule). Known window: a
+		// grant lost mid-FIRST-deploy (AC still empty) reseeds at 0 and the parallel first-deploy
+		// advancement re-raises it — accepted, no members exist in the AC to protect
 		for _, target := range targetsByAllocatedIndex(s, desired) {
 			d := s.Directives[target.ClusterName]
 			if d.Unreachable {
@@ -384,7 +416,19 @@ func allocation(s plannerSnapshot) (planDecision, bool) {
 			if d.Exists && ok && stored == index {
 				continue
 			}
-			spec := desiredDirectiveSpec(s, target.ClusterName, granted(s, target.ClusterName), desired)
+			// creating a directive needs the seed count, and the seed is the AC count — an
+			// unreadable AC means an unknown seed, never a 0
+			if !d.Exists && !s.AC.Read {
+				return planDecision{Kind: decisionNotProgressing, Reason: fmt.Sprintf("cannot create the directive on cluster %s while the automation config is unreadable: the seed member count is unknown", target.ClusterName)}, true
+			}
+			// the push must never re-publish a damaged below-AC grant (the wedge) while carrying
+			// a map change: floor the count at the AC count at the cluster's desired index —
+			// during the normal ladders granted >= acCount, so this is a no-op
+			count := granted(s, target.ClusterName)
+			if acAtIndex := s.AC.MemberCountsByIndex[desired[target.ClusterName]]; s.AC.Read && acAtIndex > count {
+				count = acAtIndex
+			}
+			spec := desiredDirectiveSpec(s, target.ClusterName, count, desired)
 			return planDecision{
 				Kind:          decisionWriteDirective,
 				TargetCluster: target.ClusterName,
@@ -393,6 +437,39 @@ func allocation(s plannerSnapshot) (planDecision, bool) {
 			}, true
 		}
 		return planDecision{Kind: decisionNotProgressing, Reason: fmt.Sprintf("the index allocation for cluster %s is on %d/%d reachable copies and no reachable directive can take it", t.ClusterName, acks, ackThreshold)}, true
+	}
+	return planDecision{}, false
+}
+
+// recognition re-grants coordination state the observed world proves existed: a spec cluster
+// whose directive is missing — or granted below — the AC count at its index is re-granted AT
+// the AC count (the seed rule). Recognition of existing capacity, not a rollout step: it
+// changes nothing physical, so it is safe while another cluster is mid-ladder and safe in
+// parallel. granted < acCount can only mean damage — scale-up keeps the grant ahead of the AC
+// and scale-down keeps the AC at or below the grant — so a mid-scale-down loss reseeds at the
+// down-ladder's own next value and the shrink completes as if never interrupted.
+func recognition(s plannerSnapshot) (planDecision, bool) {
+	if !s.AC.Read {
+		return planDecision{}, false // cannot read what exists; notProgressing reports it
+	}
+	allocations := desiredAllocations(s)
+	for _, t := range targetsByAllocatedIndex(s, allocations) {
+		d := s.Directives[t.ClusterName]
+		if d.Unreachable {
+			continue
+		}
+		ac := acCount(s, t.ClusterName)
+		if ac == 0 {
+			continue
+		}
+		if !d.Exists || d.Spec.MemberCount < ac {
+			return planDecision{
+				Kind:          decisionWriteDirective,
+				TargetCluster: t.ClusterName,
+				DirectiveSpec: desiredDirectiveSpec(s, t.ClusterName, ac, allocations),
+				Reason:        fmt.Sprintf("recognizing existing capacity: re-granting cluster %s at the automation config count %d", t.ClusterName, ac),
+			}, true
+		}
 	}
 	return planDecision{}, false
 }
