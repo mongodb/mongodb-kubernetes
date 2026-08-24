@@ -17,6 +17,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiEquality "k8s.io/apimachinery/pkg/api/equality"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -162,6 +163,52 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	}
 
 	return workflow.OK()
+}
+
+// preserveExistingVolumeClaimTemplateMetadata copies metadata.labels and metadata.annotations
+// from the live StatefulSet's volumeClaimTemplates onto the desired ones, matching by claim name.
+//
+// spec.volumeClaimTemplates is immutable in Kubernetes, so any divergence - adding, changing or
+// removing a label - makes the whole StatefulSet update fail with
+// "Forbidden: updates to statefulset spec for fields other than ...". Older operator versions
+// propagated the resource's metadata.labels onto these templates, so we must keep whatever is
+// already there verbatim instead of trying to converge it (CLOUDP-208587).
+//
+// Divergences are logged and dropped rather than failing the reconcile.
+func preserveExistingVolumeClaimTemplateMetadata(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	existingStatefulSet, err := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+	if err != nil {
+		// First reconciliation, the desired volume claim templates are used as they are.
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, existingClaim := range existingStatefulSet.Spec.VolumeClaimTemplates {
+		for i := range desiredSts.Spec.VolumeClaimTemplates {
+			desiredClaim := &desiredSts.Spec.VolumeClaimTemplates[i]
+			if desiredClaim.Name != existingClaim.Name {
+				continue
+			}
+
+			if !apiEquality.Semantic.DeepEqual(desiredClaim.Labels, existingClaim.Labels) {
+				log.Warnf("Keeping the existing labels %v of the volume claim template %s of statefulset %s; "+
+					"spec.volumeClaimTemplates is immutable, so the desired labels %v cannot be applied to an existing statefulset",
+					existingClaim.Labels, existingClaim.Name, desiredSts.Name, desiredClaim.Labels)
+			}
+			if !apiEquality.Semantic.DeepEqual(desiredClaim.Annotations, existingClaim.Annotations) {
+				log.Warnf("Keeping the existing annotations %v of the volume claim template %s of statefulset %s; "+
+					"spec.volumeClaimTemplates is immutable, so the desired annotations %v cannot be applied to an existing statefulset",
+					existingClaim.Annotations, existingClaim.Name, desiredSts.Name, desiredClaim.Annotations)
+			}
+
+			desiredClaim.Labels = existingClaim.Labels
+			desiredClaim.Annotations = existingClaim.Annotations
+		}
+	}
+
+	return nil
 }
 
 func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {
@@ -355,6 +402,10 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, name
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
 func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	if err := preserveExistingVolumeClaimTemplateMetadata(ctx, client, &sts, log); err != nil {
+		return nil, err
+	}
+
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return nil, err
@@ -384,6 +435,10 @@ func (s StatefulSetIsRecreating) Error() string {
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
 func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	if err := preserveExistingVolumeClaimTemplateMetadata(ctx, client, &sts, log); err != nil {
+		return nil, err
+	}
+
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		// Check if it is a k8s error or a custom one

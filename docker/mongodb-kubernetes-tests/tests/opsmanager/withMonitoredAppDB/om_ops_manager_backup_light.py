@@ -213,6 +213,49 @@ class TestOpsManagerCreation:
             )
 
 
+def check_sts_labels(sts, labels: Dict[str, str]):
+    sts_labels = sts.metadata.labels
+
+    for k in labels:
+        assert k in sts_labels and sts_labels[k] == labels[k]
+
+
+def sts_has_labels(sts, labels: Dict[str, str]) -> bool:
+    sts_labels = sts.metadata.labels or {}
+
+    return all(sts_labels.get(k) == v for k, v in labels.items())
+
+
+@mark.e2e_om_ops_manager_backup_light
+def test_adding_labels_does_not_break_reconciliation(ops_manager: MongoDBOpsManager):
+    """Adding a label to the resource - what Helm does with app.kubernetes.io/managed-by - used to leave
+    AppDB and the backup daemon in Failed state forever, because the operator tried to update the
+    immutable volumeClaimTemplates (CLOUDP-208587).
+
+    The labels are only added, never changed, so that the assertions on the original labels further
+    down this file keep holding.
+    """
+    new_labels = {"label3": "val3"}
+
+    ops_manager.load()
+    ops_manager["metadata"]["labels"].update(new_labels)
+    ops_manager.update()
+
+    # A label change does not move the resource out of Running, so waiting on a phase transition would
+    # race with the reconciliation. Wait for the labels to land on the statefulsets instead - that is
+    # the update which used to be rejected by Kubernetes.
+    wait_until(
+        lambda: sts_has_labels(ops_manager.read_statefulset(), new_labels)
+        and sts_has_labels(ops_manager.read_appdb_statefulset(), new_labels)
+        and sts_has_labels(ops_manager.read_backup_statefulset(), new_labels),
+        timeout=600,
+        sleep_time=5,
+    )
+
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+
+
 @mark.e2e_om_ops_manager_backup_light
 def test_backup_statefulset_remains_after_disabling_backup(
     ops_manager: MongoDBOpsManager,
@@ -227,13 +270,6 @@ def test_backup_statefulset_remains_after_disabling_backup(
     ops_manager.read_backup_statefulset()
 
 
-def check_sts_labels(sts, labels: Dict[str, str]):
-    sts_labels = sts.metadata.labels
-
-    for k in labels:
-        assert k in sts_labels and sts_labels[k] == labels[k]
-
-
 @mark.e2e_om_ops_manager_backup_light
 def test_labels_on_om_and_backup_daemon_and_appdb_sts(ops_manager: MongoDBOpsManager, namespace: str):
     labels = {"label1": "val1", "label2": "val2"}
@@ -243,22 +279,29 @@ def test_labels_on_om_and_backup_daemon_and_appdb_sts(ops_manager: MongoDBOpsMan
     check_sts_labels(ops_manager.read_appdb_statefulset(), labels)
 
 
-def check_pvc_labels(pvc_name: str, labels: Dict[str, str], namespace: str, api_client: kubernetes.client.ApiClient):
+def check_pvc_labels_absent(
+    pvc_name: str, labels: Dict[str, str], namespace: str, api_client: kubernetes.client.ApiClient
+):
     pvc = client.CoreV1Api(api_client=api_client).read_namespaced_persistent_volume_claim(pvc_name, namespace)
-    pvc_labels = pvc.metadata.labels
+    pvc_labels = pvc.metadata.labels or {}
 
     for k in labels:
-        assert k in pvc_labels and pvc_labels[k] == labels[k]
+        assert k not in pvc_labels
 
 
 @mark.e2e_om_ops_manager_backup_light
-def test_labels_on_backup_daemon_and_appdb_pvc(ops_manager: MongoDBOpsManager, namespace: str):
+def test_labels_not_on_backup_daemon_and_appdb_pvc(ops_manager: MongoDBOpsManager, namespace: str):
+    """spec.volumeClaimTemplates is immutable, so the resource labels are deliberately not propagated
+    to the PVCs - doing so used to wedge the StatefulSet on every label change (CLOUDP-208587).
+    Use the statefulSet overrides to label PVCs instead."""
     labels = {"label1": "val1", "label2": "val2"}
 
     appdb_pvc_name = "data-{}-0".format(ops_manager.read_appdb_statefulset().metadata.name)
 
     member_cluster_name = ops_manager.pick_one_appdb_member_cluster_name()
-    check_pvc_labels(appdb_pvc_name, labels, namespace, api_client=get_member_cluster_api_client(member_cluster_name))
+    check_pvc_labels_absent(
+        appdb_pvc_name, labels, namespace, api_client=get_member_cluster_api_client(member_cluster_name)
+    )
     backupdaemon_pvc_name = "head-{}-0".format(ops_manager.read_backup_statefulset().metadata.name)
 
-    check_pvc_labels(backupdaemon_pvc_name, labels, namespace, api_client=get_central_cluster_client())
+    check_pvc_labels_absent(backupdaemon_pvc_name, labels, namespace, api_client=get_central_cluster_client())

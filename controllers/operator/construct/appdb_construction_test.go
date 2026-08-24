@@ -392,3 +392,45 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
 	})
 }
+
+// TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates asserts that the Ops Manager
+// resource labels reach the AppDB StatefulSet metadata but not its volume claim templates, which are
+// immutable and would wedge the StatefulSet on every label change (CLOUDP-208587).
+func TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates(t *testing.T) {
+	labels := map[string]string{"label1": "val1"}
+
+	buildStatefulSet := func(t *testing.T, om *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+		om.Labels = labels
+		scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		return sts
+	}
+
+	assertNoClaimLabels := func(t *testing.T, sts appsv1.StatefulSet, expectedClaims int) {
+		assert.Equal(t, "val1", sts.Labels["label1"], "the statefulset metadata is mutable and still gets the labels")
+		require.Len(t, sts.Spec.VolumeClaimTemplates, expectedClaims)
+		for _, claim := range sts.Spec.VolumeClaimTemplates {
+			assert.Empty(t, claim.Labels, "volume claim template %s must not carry the resource labels", claim.Name)
+		}
+	}
+
+	t.Run("single volume", func(t *testing.T) {
+		sts := buildStatefulSet(t, omv1.NewOpsManagerBuilderDefault().Build())
+		assertNoClaimLabels(t, sts, 1)
+	})
+
+	t.Run("separate data, logs and journal volumes", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().SetAppDbPodSpec(mdbv1.MongoDbPodSpec{
+			Persistence: &v1.Persistence{
+				MultipleConfig: &v1.MultiplePersistenceConfig{
+					Data:    &v1.PersistenceConfig{Storage: "1G"},
+					Logs:    &v1.PersistenceConfig{Storage: "1G"},
+					Journal: &v1.PersistenceConfig{Storage: "1G"},
+				},
+			},
+		}).Build()
+		sts := buildStatefulSet(t, om)
+		assertNoClaimLabels(t, sts, 3)
+	})
+}

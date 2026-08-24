@@ -32,6 +32,16 @@ func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolu
 	oldSpec := existing.Spec
 	newSpec := desired.Spec
 
+	// The whole volumeClaimTemplates field is immutable, metadata included, so a label or
+	// annotation change is rejected by the API server just like a spec change (CLOUDP-208587).
+	if !gocmp.Equal(existing.Labels, desired.Labels, cmpopts.EquateEmpty()) {
+		return false
+	}
+
+	if !gocmp.Equal(existing.Annotations, desired.Annotations, cmpopts.EquateEmpty()) {
+		return false
+	}
+
 	if !gocmp.Equal(oldSpec.AccessModes, newSpec.AccessModes, cmpopts.EquateEmpty()) {
 		return false
 	}
