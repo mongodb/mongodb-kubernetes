@@ -17,7 +17,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiEquality "k8s.io/apimachinery/pkg/api/equality"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -167,14 +166,12 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 
 // preserveExistingVolumeClaimTemplateMetadata copies metadata.labels and metadata.annotations
 // from the live StatefulSet's volumeClaimTemplates onto the desired ones, matching by claim name.
-//
+
 // spec.volumeClaimTemplates is immutable in Kubernetes, so any divergence - adding, changing or
-// removing a label - makes the whole StatefulSet update fail with
-// "Forbidden: updates to statefulset spec for fields other than ...". Older operator versions
-// propagated the resource's metadata.labels onto these templates, so we must keep whatever is
-// already there verbatim instead of trying to converge it (CLOUDP-208587).
+// removing a label - makes the whole StatefulSet update fail (CLOUDP-208587).
 //
-// Divergences are logged and dropped rather than failing the reconcile.
+// Divergences are dropped rather than failing the reconcile, and reported when a statefulSet
+// override explicitly asks for metadata which cannot be applied.
 func preserveExistingVolumeClaimTemplateMetadata(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, log *zap.SugaredLogger) error {
 	existingStatefulSet, err := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 	if err != nil {
@@ -192,16 +189,7 @@ func preserveExistingVolumeClaimTemplateMetadata(ctx context.Context, memberClie
 				continue
 			}
 
-			if !apiEquality.Semantic.DeepEqual(desiredClaim.Labels, existingClaim.Labels) {
-				log.Warnf("Keeping the existing labels %v of the volume claim template %s of statefulset %s; "+
-					"spec.volumeClaimTemplates is immutable, so the desired labels %v cannot be applied to an existing statefulset",
-					existingClaim.Labels, existingClaim.Name, desiredSts.Name, desiredClaim.Labels)
-			}
-			if !apiEquality.Semantic.DeepEqual(desiredClaim.Annotations, existingClaim.Annotations) {
-				log.Warnf("Keeping the existing annotations %v of the volume claim template %s of statefulset %s; "+
-					"spec.volumeClaimTemplates is immutable, so the desired annotations %v cannot be applied to an existing statefulset",
-					existingClaim.Annotations, existingClaim.Name, desiredSts.Name, desiredClaim.Annotations)
-			}
+			warnAboutIgnoredVolumeClaimTemplateMetadata(desiredSts.Name, *desiredClaim, existingClaim, log)
 
 			desiredClaim.Labels = existingClaim.Labels
 			desiredClaim.Annotations = existingClaim.Annotations
@@ -209,6 +197,35 @@ func preserveExistingVolumeClaimTemplateMetadata(ctx context.Context, memberClie
 	}
 
 	return nil
+}
+
+// warnAboutIgnoredVolumeClaimTemplateMetadata reports the labels and annotations which a statefulSet
+// override asks for but which cannot be applied to an already existing volume claim template.
+func warnAboutIgnoredVolumeClaimTemplateMetadata(stsName string, desiredClaim, existingClaim corev1.PersistentVolumeClaim, log *zap.SugaredLogger) {
+	if droppedLabels := droppedMetadataEntries(desiredClaim.Labels, existingClaim.Labels); len(droppedLabels) > 0 {
+		log.Warnf("Not applying the labels %v to the volume claim template %s of statefulset %s: spec.volumeClaimTemplates "+
+			"is immutable, so the existing labels %v are kept instead", droppedLabels, existingClaim.Name, stsName, existingClaim.Labels)
+	}
+
+	if droppedAnnotations := droppedMetadataEntries(desiredClaim.Annotations, existingClaim.Annotations); len(droppedAnnotations) > 0 {
+		log.Warnf("Not applying the annotations %v to the volume claim template %s of statefulset %s: spec.volumeClaimTemplates "+
+			"is immutable, so the existing annotations %v are kept instead", droppedAnnotations, existingClaim.Name, stsName, existingClaim.Annotations)
+	}
+}
+
+// droppedMetadataEntries returns the desired metadata entries which an update would have to change.
+//
+// Entries only present in the existing map are deliberately left out in order to not trigger a warning
+// on every single reconciliation.
+func droppedMetadataEntries(desired, existing map[string]string) map[string]string {
+	dropped := map[string]string{}
+	for key, desiredValue := range desired {
+		if existingValue, ok := existing[key]; !ok || existingValue != desiredValue {
+			dropped[key] = desiredValue
+		}
+	}
+
+	return dropped
 }
 
 func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {

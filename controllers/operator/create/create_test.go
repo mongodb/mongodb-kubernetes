@@ -1662,3 +1662,38 @@ func TestPreserveExistingVolumeClaimTemplateMetadata(t *testing.T) {
 		assert.Equal(t, map[string]string{"label1": "val1"}, desiredSts.Spec.VolumeClaimTemplates[0].Labels)
 	})
 }
+
+func TestDroppedMetadataEntries(t *testing.T) {
+	tests := map[string]struct {
+		desired  map[string]string
+		existing map[string]string
+		expected map[string]string
+	}{
+		"labels propagated by an older operator version are not reported": {
+			desired:  nil,
+			existing: map[string]string{"label1": "val1"},
+			expected: map[string]string{},
+		},
+		"already applied entries are not reported": {
+			desired:  map[string]string{"label1": "val1"},
+			existing: map[string]string{"label1": "val1"},
+			expected: map[string]string{},
+		},
+		"entries dropped from an override are not reported": {
+			desired:  map[string]string{"label1": "val1"},
+			existing: map[string]string{"label1": "val1", "label2": "val2"},
+			expected: map[string]string{},
+		},
+		"added and changed entries are reported": {
+			desired:  map[string]string{"label1": "changed", "label2": "val2"},
+			existing: map[string]string{"label1": "val1"},
+			expected: map[string]string{"label1": "changed", "label2": "val2"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, droppedMetadataEntries(tc.desired, tc.existing))
+		})
+	}
+}
