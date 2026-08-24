@@ -123,6 +123,11 @@ else
     # here (not from root-context) so worktrees WITHOUT the tooling get them
     # too. No-op outside a wt-ctl worktree.
     base_command+=" && source ${site_contexts_dir}/root-devc-context"
+    # Re-assert site-owned keys: a worktree on a branch that predates the
+    # context split still sets KUBECONFIG et al from its own root-context,
+    # which would win over the site's file-presence detection. User overrides
+    # below still take precedence.
+    base_command+=" && source ${site_contexts_dir}/site-context"
     if [ -n "${additional_override}" ]; then
         echo "Using additional override file: ${additional_override_file}."
         base_command+=" && source ${additional_override_file}"
