@@ -24,7 +24,9 @@
         "ghcr.io/devcontainers-extra/features/uv:1": {},
         "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
             "version": "latest",
-            "helm": "latest",
+            // Pinned to CI's HELM_VERSION (root-context). Helm 4 defaults to
+            // server-side apply, which rejects charts CI installs fine.
+            "helm": "3.19.4",
             "minikube": "none"
         },
         // Installs the helm-unittest plugin; depends on kubectl-helm-minikube for helm.
