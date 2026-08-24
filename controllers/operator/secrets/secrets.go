@@ -3,7 +3,6 @@ package secrets
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -28,8 +27,11 @@ type SecretClient struct {
 	KubeClient  kubernetesClient.KubernetesSecretClient
 }
 
-func namespacedNameToVaultPath(nsName types.NamespacedName, basePath string) string {
-	return fmt.Sprintf("%s/%s/%s", basePath, nsName.Namespace, nsName.Name)
+// namespacedNameToVaultPath builds the Vault path for a secret. The name may
+// originate from a user-supplied CR field, so it is validated rather than
+// concatenated verbatim.
+func namespacedNameToVaultPath(nsName types.NamespacedName, basePath string) (string, error) {
+	return vault.SecretPath(basePath, nsName.Namespace, nsName.Name)
 }
 
 func secretNamespacedName(s corev1.Secret) types.NamespacedName {
@@ -54,8 +56,10 @@ func (r SecretClient) ReadSecretKey(ctx context.Context, secretName types.Namesp
 func (r SecretClient) ReadSecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error) {
 	secrets := make(map[string]string)
 	if vault.IsVaultSecretBackend() {
-		var err error
-		secretPath := namespacedNameToVaultPath(secretName, basePath)
+		secretPath, err := namespacedNameToVaultPath(secretName, basePath)
+		if err != nil {
+			return nil, err
+		}
 		secrets, err = r.VaultClient.ReadSecretString(secretPath)
 		if err != nil {
 			return nil, err
@@ -76,7 +80,10 @@ func (r SecretClient) ReadBinarySecret(ctx context.Context, secretName types.Nam
 	var secrets map[string][]byte
 	var err error
 	if vault.IsVaultSecretBackend() {
-		secretPath := namespacedNameToVaultPath(secretName, basePath)
+		secretPath, err := namespacedNameToVaultPath(secretName, basePath)
+		if err != nil {
+			return nil, err
+		}
 		secrets, err = r.VaultClient.ReadSecretBytes(secretPath)
 		if err != nil {
 			return nil, err
@@ -93,7 +100,10 @@ func (r SecretClient) ReadBinarySecret(ctx context.Context, secretName types.Nam
 // PutSecret copies secret.Data into vault. Note: we don't rely on secret.StringData since our builder does not use the field.
 func (r SecretClient) PutSecret(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
-		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
+		secretPath, err := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
+		if err != nil {
+			return err
+		}
 		secretData := map[string]interface{}{}
 		for k, v := range s.Data {
 			secretData[k] = string(v)
@@ -110,7 +120,10 @@ func (r SecretClient) PutSecret(ctx context.Context, s corev1.Secret, basePath s
 // PutBinarySecret copies secret.Data as base64 into vault.
 func (r SecretClient) PutBinarySecret(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
-		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
+		secretPath, err := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
+		if err != nil {
+			return err
+		}
 		secretData := map[string]interface{}{}
 		for k, v := range s.Data {
 			secretData[k] = base64.StdEncoding.EncodeToString(v)

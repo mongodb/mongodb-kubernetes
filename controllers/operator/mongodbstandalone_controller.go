@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -320,11 +319,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		secrets := s.GetSecretsMountedIntoDBPod()
 		vaultMap := make(map[string]string)
 		for _, secret := range secrets {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.DatabaseSecretMetadataPath(), s.Namespace, secret)
-			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotationForSecret(r.VaultClient.DatabaseSecretMetadataPath(), s.Namespace, secret))
 		}
-		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OperatorScretMetadataPath(), s.Namespace, s.Spec.Credentials)
-		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotationForSecret(r.VaultClient.OperatorScretMetadataPath(), s.Namespace, s.Spec.Credentials))
 		for k, val := range vaultMap {
 			annotationsToAdd[k] = val
 		}

@@ -887,7 +887,11 @@ func UpdatePrometheus(ctx context.Context, d *om.Deployment, conn om.Connection,
 	secretName := prometheus.PasswordSecretRef.Name
 	if vault.IsVaultSecretBackend() {
 		operatorSecretPath := sClient.VaultClient.OperatorSecretPath()
-		passwordString := fmt.Sprintf("%s/%s/%s", operatorSecretPath, namespace, secretName)
+		passwordString, err := vault.SecretPath(operatorSecretPath, namespace, secretName)
+		if err != nil {
+			log.Infof("Prometheus can't be enabled, %s", err)
+			return err
+		}
 		keyedPassword, err := sClient.VaultClient.ReadSecretString(passwordString)
 		if err != nil {
 			log.Infof("Prometheus can't be enabled, %s", err)

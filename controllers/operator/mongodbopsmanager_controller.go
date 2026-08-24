@@ -493,12 +493,10 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	if vault.IsVaultSecretBackend() {
 		vaultMap := make(map[string]string)
 		for _, s := range opsManager.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), appDBReplicaSet.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotationForSecret(r.VaultClient.OpsManagerSecretMetadataPath(), appDBReplicaSet.Namespace, s))
 		}
 		for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
-			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), appDBReplicaSet.Namespace, s)
-			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
+			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotationForSecret(r.VaultClient.AppDBSecretMetadataPath(), appDBReplicaSet.Namespace, s))
 		}
 
 		for k, val := range vaultMap {
