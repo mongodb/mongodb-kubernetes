@@ -416,9 +416,6 @@ func TestParseMemberClusterCAs(t *testing.T) {
 	ca0Path := writeTestFile(t, dir, "ca-0.pem", ca0)
 	ca1Path := writeTestFile(t, dir, "ca-1.pem", ca1)
 	notAPemPath := writeTestFile(t, dir, "not-a-cert.pem", []byte("this is not a certificate"))
-	privateKey := generateTestPrivateKeyPEM(t)
-	caAndKeyPath := writeTestFile(t, dir, "ca-and-key.pem", append(append([]byte{}, ca0...), privateKey...))
-	keyOnlyPath := writeTestFile(t, dir, "key-only.pem", privateKey)
 
 	tests := []struct {
 		name          string
@@ -442,34 +439,9 @@ func TestParseMemberClusterCAs(t *testing.T) {
 			expected: map[string][]byte{"member-cluster-0": ca0, "member-cluster-1": ca1},
 		},
 		{
-			name:     "surrounding whitespace is trimmed",
-			entries:  []string{" member-cluster-0 = " + ca0Path + " "},
-			expected: map[string][]byte{"member-cluster-0": ca0},
-		},
-		{
-			name:          "the separator is missing",
-			entries:       []string{ca0Path},
-			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
-		},
-		{
-			name:          "the cluster name is empty",
-			entries:       []string{"=" + ca0Path},
-			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
-		},
-		{
-			name:          "the path is empty",
-			entries:       []string{"member-cluster-0="},
-			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
-		},
-		{
-			name:          "the cluster is not a member cluster",
+			name:          "an entry that does not parse is rejected",
 			entries:       []string{"member-cluster-9=" + ca0Path},
-			expectedError: "member-cluster-ca refers to cluster 'member-cluster-9' which is not one of the member clusters",
-		},
-		{
-			name:          "the same cluster is given twice",
-			entries:       []string{"member-cluster-0=" + ca0Path, "member-cluster-0=" + ca1Path},
-			expectedError: "member-cluster-ca specified more than once for cluster 'member-cluster-0'",
+			expectedError: "not one of the member clusters",
 		},
 		{
 			name:          "the file does not exist",
@@ -477,19 +449,9 @@ func TestParseMemberClusterCAs(t *testing.T) {
 			expectedError: "failed reading CA file",
 		},
 		{
-			name:          "the file holds no PEM certificate",
+			name:          "the file does not hold a usable CA",
 			entries:       []string{"member-cluster-0=" + notAPemPath},
-			expectedError: "no PEM encoded certificate found",
-		},
-		{
-			name:          "the file holds a certificate and its private key",
-			entries:       []string{"member-cluster-0=" + caAndKeyPath},
-			expectedError: "found a private key (EC PRIVATE KEY block)",
-		},
-		{
-			name:          "the file holds only a private key",
-			entries:       []string{"member-cluster-0=" + keyOnlyPath},
-			expectedError: "found a private key (EC PRIVATE KEY block)",
+			expectedError: "for cluster 'member-cluster-0': no PEM encoded certificate found",
 		},
 	}
 
@@ -506,6 +468,133 @@ func TestParseMemberClusterCAs(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, cas)
+		})
+	}
+}
+
+func TestParseMemberClusterCAFlags(t *testing.T) {
+	memberClusters := []string{"member-cluster-0", "member-cluster-1"}
+
+	tests := []struct {
+		name          string
+		entries       []string
+		expected      map[string]string
+		expectedError string
+	}{
+		{
+			name:     "a single cluster",
+			entries:  []string{"member-cluster-0=/etc/ca-0.pem"},
+			expected: map[string]string{"member-cluster-0": "/etc/ca-0.pem"},
+		},
+		{
+			name:     "every cluster",
+			entries:  []string{"member-cluster-0=/etc/ca-0.pem", "member-cluster-1=/etc/ca-1.pem"},
+			expected: map[string]string{"member-cluster-0": "/etc/ca-0.pem", "member-cluster-1": "/etc/ca-1.pem"},
+		},
+		{
+			name:     "surrounding whitespace is trimmed",
+			entries:  []string{" member-cluster-0 = /etc/ca-0.pem "},
+			expected: map[string]string{"member-cluster-0": "/etc/ca-0.pem"},
+		},
+		{
+			name:          "the separator is missing",
+			entries:       []string{"/etc/ca-0.pem"},
+			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
+		},
+		{
+			name:          "the cluster name is empty",
+			entries:       []string{"=/etc/ca-0.pem"},
+			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
+		},
+		{
+			name:          "the path is empty",
+			entries:       []string{"member-cluster-0="},
+			expectedError: "expected format <member-cluster-name>=<path-to-pem-file>",
+		},
+		{
+			name:          "the cluster is not a member cluster",
+			entries:       []string{"member-cluster-9=/etc/ca-9.pem"},
+			expectedError: "member-cluster-ca refers to cluster 'member-cluster-9' which is not one of the member clusters",
+		},
+		{
+			name:          "the same cluster is given twice",
+			entries:       []string{"member-cluster-0=/etc/ca-0.pem", "member-cluster-0=/etc/ca-1.pem"},
+			expectedError: "member-cluster-ca specified more than once for cluster 'member-cluster-0'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caPaths, err := parseMemberClusterCAFlags(tt.entries, memberClusters)
+
+			if tt.expectedError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedError)
+				assert.Nil(t, caPaths, "No paths should be returned alongside an error.")
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, caPaths)
+		})
+	}
+}
+
+func TestValidateCAPEM(t *testing.T) {
+	ca := generateTestCAPEM(t, "ca-0")
+	privateKey := generateTestPrivateKeyPEM(t)
+
+	tests := []struct {
+		name          string
+		caPEM         []byte
+		expectedError string
+	}{
+		{
+			name:  "a single CA certificate",
+			caPEM: ca,
+		},
+		{
+			name:  "a chain of CA certificates",
+			caPEM: concatPEMs(ca, generateTestCAPEM(t, "ca-1")),
+		},
+		{
+			name:          "a CA certificate followed by its private key",
+			caPEM:         concatPEMs(ca, privateKey),
+			expectedError: "found a private key (EC PRIVATE KEY block), pass certificates only",
+		},
+		{
+			name:          "a private key followed by a CA certificate",
+			caPEM:         concatPEMs(privateKey, ca),
+			expectedError: "found a private key (EC PRIVATE KEY block), pass certificates only",
+		},
+		{
+			name:          "only a private key",
+			caPEM:         privateKey,
+			expectedError: "found a private key (EC PRIVATE KEY block), pass certificates only",
+		},
+		{
+			name:          "not a PEM encoded file",
+			caPEM:         []byte("this is not a certificate"),
+			expectedError: "no PEM encoded certificate found",
+		},
+		{
+			name:          "an empty file",
+			caPEM:         nil,
+			expectedError: "no PEM encoded certificate found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateCAPEM(tt.caPEM)
+
+			if tt.expectedError == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedError)
 		})
 	}
 }
@@ -1174,6 +1263,15 @@ func generateTestPrivateKeyPEM(t *testing.T) []byte {
 	require.NoError(t, err)
 
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+}
+
+// concatPEMs joins PEM blocks into the single bundle file a user would pass on the command line.
+func concatPEMs(pems ...[]byte) []byte {
+	var bundle []byte
+	for _, p := range pems {
+		bundle = append(bundle, p...)
+	}
+	return bundle
 }
 
 func writeTestFile(t *testing.T, dir, name string, contents []byte) string {
