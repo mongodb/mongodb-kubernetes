@@ -12,6 +12,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -140,6 +142,11 @@ func (w *decentralizedWorld) readDirective(ctx context.Context, t *testing.T, cl
 	directive := operatorv1.MongoDBDirective{}
 	require.NoError(t, w.clients[clusterName].Get(ctx, kube.ObjectKey(w.m.Namespace, w.m.Name), &directive))
 	return directive
+}
+
+func (w *decentralizedWorld) deleteDirective(ctx context.Context, t *testing.T, clusterName string) {
+	directive := w.readDirective(ctx, t, clusterName)
+	require.NoError(t, w.clients[clusterName].Delete(ctx, &directive))
 }
 
 func (w *decentralizedWorld) leaderPhase(ctx context.Context, t *testing.T) status.Phase {
@@ -364,6 +371,170 @@ func TestDecentralizedUnsupportedSpecRefused(t *testing.T) {
 	for _, clusterName := range clusters {
 		assert.Equal(t, baselineGrants[clusterName], w.readDirective(ctx, t, clusterName).Spec.MemberCount, "no directive advancement on a refused spec")
 	}
+}
+
+// TestDecentralizedDirectiveDeletionIsASafeReset pins the seed rule end to end (backlog T2):
+// a directive deleted in steady state is recreated at the AC count — recognition of existing
+// capacity — and the world returns to Noop with zero AC writes and zero StatefulSet movement.
+func TestDecentralizedDirectiveDeletionIsASafeReset(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+	baselineGrant := w.readDirective(ctx, t, clusters[1]).Spec.MemberCount
+	stsName := fmt.Sprintf("%s-1", m.Name)
+	stsBefore := appsv1.StatefulSet{}
+	require.NoError(t, w.clients[clusters[1]].Get(ctx, kube.ObjectKey(m.Namespace, stsName), &stsBefore))
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	mockedConn.CleanHistory()
+
+	w.deleteDirective(ctx, t, clusters[1])
+	history := w.driveToRunning(ctx, t, 30)
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	assert.Equal(t, baselineGrant, w.readDirective(ctx, t, clusters[1]).Spec.MemberCount, "recreated at the AC count, never 0")
+	assert.Equal(t, []map[int]int{baseline}, history, "the AC membership never moved")
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+	stsAfter := appsv1.StatefulSet{}
+	require.NoError(t, w.clients[clusters[1]].Get(ctx, kube.ObjectKey(m.Namespace, stsName), &stsAfter))
+	assert.Equal(t, *stsBefore.Spec.Replicas, *stsAfter.Spec.Replicas, "the StatefulSet never scaled")
+}
+
+// TestDecentralizedDirectiveLossDuringScaleUpNeverDropsPeers pins backlog T1 end to end: a
+// directive deleted while ANOTHER cluster is mid-scale-up never costs the deleted cluster's
+// live members — every AC write keeps carrying them, and the interrupted ladder completes.
+func TestDecentralizedDirectiveLossDuringScaleUpNeverDropsPeers(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+
+	w.applySpecEverywhere(ctx, t, func(m *mdbmulti.MongoDBMultiCluster) {
+		m.Spec.ClusterSpecList[0].Members++
+	})
+	w.reconcileAll(ctx, t) // cluster 0 is granted +1 and mid-ladder when the deletion hits
+	w.deleteDirective(ctx, t, clusters[1])
+	history := w.driveToRunning(ctx, t, 40)
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	for _, counts := range history {
+		assert.Equal(t, baseline[1], counts[1], "cluster 1's live members never leave the AC: %v", history)
+	}
+	finalCounts, ok := w.acCounts()
+	require.True(t, ok)
+	assert.Equal(t, map[int]int{0: baseline[0] + 1, 1: baseline[1], 2: baseline[2]}, finalCounts)
+}
+
+// TestDecentralizedAllocationMapRecoversFromOneSurvivor pins backlog T10: with two directives
+// lost, the full allocation map recovers from the single surviving copy — grants reseed at the
+// AC counts, indexes and StatefulSet names never change, and the AC is never touched.
+func TestDecentralizedAllocationMapRecoversFromOneSurvivor(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+	baselineGrants := map[string]int{}
+	for _, clusterName := range clusters {
+		baselineGrants[clusterName] = w.readDirective(ctx, t, clusterName).Spec.MemberCount
+	}
+	fullAllocations := map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	mockedConn.CleanHistory()
+
+	w.deleteDirective(ctx, t, clusters[1])
+	w.deleteDirective(ctx, t, clusters[2])
+	history := w.driveToRunning(ctx, t, 40)
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	for i, clusterName := range clusters {
+		directive := w.readDirective(ctx, t, clusterName)
+		assert.Equal(t, i, directive.Spec.ClusterIndex, "indexes never change on recovery")
+		assert.Equal(t, fullAllocations, directive.Spec.IndexAllocations, "the map rides every copy")
+		assert.Equal(t, baselineGrants[clusterName], directive.Spec.MemberCount)
+	}
+	assert.Equal(t, []map[int]int{baseline}, history, "the AC membership never moved")
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+	for i := 1; i < 3; i++ {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, w.clients[clusters[i]].Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-%d", m.Name, i)), &sts), "no renamed StatefulSets")
+	}
+}
+
+// TestDecentralizedTotalStateLossFreezesThenRunbookHeals pins backlog T8 + T9 end to end: with
+// every directive lost over a live AC the leader freezes naming the majority-loss runbook and
+// writes NOTHING; the runbook then writes ONE directive carrying the recovered map — its term
+// and spec hash are readable from the AC's stamped markers, the member count from the AC
+// itself — and the world self-heals without a single AC write.
+func TestDecentralizedTotalStateLossFreezesThenRunbookHeals(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+	baselineGrants := map[string]int{}
+	for _, clusterName := range clusters {
+		baselineGrants[clusterName] = w.readDirective(ctx, t, clusterName).Spec.MemberCount
+	}
+	projectID := w.readDirective(ctx, t, clusters[0]).Spec.ProjectID
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	mockedConn.CleanHistory()
+
+	for _, clusterName := range clusters {
+		w.deleteDirective(ctx, t, clusterName)
+	}
+	for i := 0; i < 3; i++ {
+		w.reconcileAll(ctx, t)
+	}
+
+	// frozen: Pending naming the runbook, zero writes of any kind
+	assert.Equal(t, status.PhasePending, w.leaderPhase(ctx, t))
+	crCopy := &mdbmulti.MongoDBMultiCluster{}
+	require.NoError(t, w.clients[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), crCopy))
+	assert.Contains(t, crCopy.Status.Message, "majority-loss runbook")
+	for _, clusterName := range clusters {
+		err := w.clients[clusterName].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &operatorv1.MongoDBDirective{})
+		assert.True(t, apiErrors.IsNotFound(err), "no directive may be guessed into existence on cluster %s", clusterName)
+	}
+	frozenCounts, ok := w.acCounts()
+	require.True(t, ok)
+	assert.Equal(t, baseline, frozenCounts)
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+
+	// the runbook: every field is recoverable from surviving state
+	deployment, err := mockedConn.ReadDeployment()
+	require.NoError(t, err)
+	term, ok := deployment.GetOperatorLeadershipTerm()
+	require.True(t, ok)
+	specHash, ok := deployment.GetOperatorSpecHash()
+	require.True(t, ok)
+	runbookDirective := &operatorv1.MongoDBDirective{
+		ObjectMeta: metav1.ObjectMeta{Name: m.Name, Namespace: m.Namespace},
+		Spec: operatorv1.MongoDBDirectiveSpec{
+			ClusterName:      clusters[0],
+			LeadershipTerm:   term,
+			TargetSpecHash:   specHash,
+			MemberCount:      baseline[0],
+			ClusterIndex:     0,
+			IndexAllocations: map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2},
+			ProjectID:        projectID,
+		},
+	}
+	require.NoError(t, w.clients[clusters[0]].Create(ctx, runbookDirective))
+	history := w.driveToRunning(ctx, t, 40)
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	for _, clusterName := range clusters {
+		assert.Equal(t, baselineGrants[clusterName], w.readDirective(ctx, t, clusterName).Spec.MemberCount)
+	}
+	assert.Equal(t, []map[int]int{baseline}, history, "the AC membership never moved")
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
 }
 
 func TestDecentralizedScalingBothWaysRefused(t *testing.T) {
