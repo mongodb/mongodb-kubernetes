@@ -12,8 +12,10 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 # The tooling checkout this script ships with — may differ from the worktree
 # at cwd (portable wt-ctl mode). Worktree-relative sourcing stays: the
 # worktree's set_env_context.sh works via the compat context.export.env.
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-tooling_root="$(cd "${script_dir}/../.." && pwd)"
+# Namespaced: sourcing the worktree's set_env_context.sh below clobbers plain
+# script_dir.
+evg_host_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+evg_host_tooling_root="$(cd "${evg_host_script_dir}/../.." && pwd)"
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
@@ -123,7 +125,7 @@ sync_tooling_overlay() {
     scripts/funcs/multicluster
     scripts/funcs/printing
   )
-  (cd "${tooling_root}" && rsync --archive --compress --human-readable --relative \
+  (cd "${evg_host_tooling_root}" && rsync --archive --compress --human-readable --relative \
     --exclude='__pycache__' \
     -e ssh \
     "${manifest[@]}" "${host_url}:/home/ubuntu/mongodb-kubernetes/")
@@ -181,7 +183,7 @@ get-kubeconfig() {
     echo "Skipping kubeconfig fetch (--no-fetch); using existing ${kubeconfig_path}"
   fi
 
-  "${script_dir}/wt-ctl" --quiet kubeconfig refresh
+  "${evg_host_script_dir}/wt-ctl" --quiet kubeconfig refresh
 }
 
 recreate-kind-clusters() {
