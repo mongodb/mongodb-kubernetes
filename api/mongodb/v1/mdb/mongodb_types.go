@@ -835,6 +835,10 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	return d.AdditionalMongodConfig
 }
 
+func (d *DbCommonSpec) GetRole() string {
+	return d.Role
+}
+
 func (s *Security) IsTLSEnabled() bool {
 	if s == nil {
 		return false
