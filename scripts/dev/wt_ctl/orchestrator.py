@@ -23,6 +23,7 @@ from typing import Callable, Iterable, Optional
 
 from . import orchestrator_state as ostate
 from .domains.compose import compose_base_dir, project_name_for
+from .domains.devcontainer import compose_env
 from .domains.network import DERIVED_ENV_KEYS, NetworkDomain, env_lines_for, stack_params
 from .errors import ExternalCommandFailed, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .paths import devc_dir, devc_env_dir, logs_dir, tooling_root
@@ -484,6 +485,7 @@ class CreateOrchestrator:
                 prefix="[build] ",
                 log_path=log_dir / "dc_build.log",
                 cwd=wt,
+                env=compose_env(wt),
             )
 
         # ---- dc_up --------------------------------------------------------
@@ -522,6 +524,7 @@ class CreateOrchestrator:
                 prefix="[up] ",
                 log_path=log_dir / "dc_up.log",
                 cwd=wt,
+                env=compose_env(wt),
             )
             # Linux local-kind: kind binds the apiserver to 127.0.0.1:<hostport>,
             # unreachable from the devc. Join devc + k8s-proxy to the `kind`
