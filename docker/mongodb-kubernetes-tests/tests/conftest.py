@@ -1352,11 +1352,11 @@ def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[s
 
 
 def run_kube_config_creation_tool(
-    member_clusters: List[str],
+    member_clusters: list[str],
     central_namespace: str,
     member_namespace: str,
-    member_cluster_names: List[str],
-    cluster_scoped: Optional[bool] = False,
+    member_cluster_names: list[str],
+    cluster_scoped: bool = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
 ):
