@@ -9,6 +9,40 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+func TestBuild_DatabaseInPath(t *testing.T) {
+	build := func(database string) string {
+		return Builder().
+			SetAuthenticationModes([]string{util.SCRAM}).
+			SetHostnames([]string{"host:27017"}).
+			SetUsername("user").
+			SetPassword("password").
+			SetConnectionStringDatabase(database).
+			Build()
+	}
+
+	t.Run("database appears in URI path", func(t *testing.T) {
+		cs := build("mydb")
+		assert.Contains(t, cs, "/mydb?")
+		assert.NotContains(t, cs, "/?")
+	})
+
+	t.Run("no database produces empty path segment", func(t *testing.T) {
+		cs := build("")
+		assert.Contains(t, cs, "/?")
+	})
+
+	t.Run("reserved URI characters in database are percent-encoded", func(t *testing.T) {
+		cs := build("my?db#name")
+		assert.Contains(t, cs, "/my%3Fdb%23name?")
+		assert.NotContains(t, cs, "/my?db#name?")
+	})
+
+	t.Run("space in database is percent-encoded", func(t *testing.T) {
+		cs := build("my db")
+		assert.Contains(t, cs, "/my%20db?")
+	})
+}
+
 func TestBuild_CredentialEncoding(t *testing.T) {
 	scram := func(username, password string) string {
 		b := Builder()

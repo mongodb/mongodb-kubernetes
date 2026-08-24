@@ -89,6 +89,11 @@ type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
 	Database string `json:"db"`
+	// ConnectionStringDatabase is an optional database name for the connection string URI path
+	// (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
+	// depends on the connecting client.
+	// +optional
+	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
 	// +optional
 	MongoDBResourceRef MongoDBResourceRef `json:"mongodbResourceRef"`
 	// +optional
