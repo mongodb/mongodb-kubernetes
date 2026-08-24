@@ -99,8 +99,15 @@ if command -v go >/dev/null 2>&1; then
 fi
 
 if command -v go >/dev/null 2>&1; then
-  GOROOT="$(go env GOROOT)"
-  export GOROOT
+  # `env -u GOROOT`: a legacy root-context may have pinned a stale GOROOT
+  # (EVG-host layout) that `go env` would echo back verbatim.
+  goroot="$(env -u GOROOT go env GOROOT 2>/dev/null)"
+  if [[ -n "${goroot}" && -d "${goroot}" ]]; then
+    export GOROOT="${goroot}"
+  else
+    unset GOROOT
+  fi
+  unset goroot
 fi
 
 # s390x-specific feature flags — use ${VAR:-default} so the caller can
