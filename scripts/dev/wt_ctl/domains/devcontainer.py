@@ -9,8 +9,19 @@ from typing import Optional
 from ..errors import ToolMissing
 from ..paths import devc_dir, logs_dir, tooling_root
 from ..runner import Runner
+from .compose import project_name_for
 
 _TMUX_LOAD_CMD = "exec tmuxp load -y /mck-tooling/.devcontainer/tmuxp/mck.yaml"
+
+
+def _compose_env(worktree_root: Path) -> dict:
+    """Pin the compose project name per worktree.
+
+    The devcontainer CLI derives it from the config's directory when
+    COMPOSE_PROJECT_NAME is unset — which is ``devcontainer`` for every
+    worktree once the config is rendered under ``.generated/devcontainer``,
+    so all stacks would collide on one project."""
+    return {"COMPOSE_PROJECT_NAME": project_name_for(worktree_root)}
 
 
 def _config_args(worktree_root: Path) -> list[str]:
@@ -43,7 +54,7 @@ class DevcontainerDomain:
         if no_cache:
             argv.append("--no-cache")
         log = logs_dir(worktree_root) / "build.log"
-        self.runner.run_streaming(argv, prefix="[build] ", log_path=log)
+        self.runner.run_streaming(argv, prefix="[build] ", log_path=log, env=_compose_env(worktree_root))
 
     def up(self, worktree_root: Path) -> None:
         if not self.runner.have("devcontainer"):
@@ -51,7 +62,7 @@ class DevcontainerDomain:
         self.ensure_rendered(worktree_root)
         argv = ["devcontainer", "up", "--workspace-folder", str(worktree_root), *_config_args(worktree_root)]
         log = logs_dir(worktree_root) / "up.log"
-        self.runner.run_streaming(argv, prefix="[up] ", log_path=log)
+        self.runner.run_streaming(argv, prefix="[up] ", log_path=log, env=_compose_env(worktree_root))
 
     # ------------------------------------------------------------------
     # attach (exec-replace; never returns)
@@ -62,7 +73,7 @@ class DevcontainerDomain:
         """
         if not self.runner.have("devcontainer"):
             raise ToolMissing("devcontainer", hint="install via 'npm i -g @devcontainers/cli'")
-        env: Optional[dict] = None
+        env: Optional[dict] = _compose_env(worktree_root)
         argv: list[str]
         if not args:
             argv = [
@@ -107,4 +118,4 @@ class DevcontainerDomain:
             *_config_args(worktree_root),
             *args,
         ]
-        return self.runner.run(argv, check=check)
+        return self.runner.run(argv, check=check, env=_compose_env(worktree_root))
