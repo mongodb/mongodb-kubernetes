@@ -14,6 +14,7 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -184,7 +185,8 @@ func (b *builder) Build() string {
 	if authSource != "" {
 		connectionParams["authSource"] = authSource
 	}
-	if authMechanism != "" {
+	// Omit authMechanism for $external users; the client supplies the mechanism at connect time.
+	if authMechanism != "" && b.connectionParams["authSource"] != constants.ExternalDB {
 		connectionParams["authMechanism"] = authMechanism
 	}
 
