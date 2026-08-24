@@ -31,6 +31,9 @@ type PublishInputs struct {
 	Force bool
 	// DryRun prints what would happen without copying any images.
 	DryRun bool
+	// AllowPartialSignatures, when true, ignores missing child manifest
+	// signatures during CopySignatures instead of failing.
+	AllowPartialSignatures bool
 }
 
 // PublishResult holds the resolved inputs and the tags that were (or would be) applied.
@@ -101,7 +104,7 @@ func Publish(inputs PublishInputs, host string, reg Registry) (PublishResult, er
 	if err := reg.CopyWithTags(srcRef, inputs.ProdRepo, []string{marker}); err != nil {
 		return PublishResult{}, fmt.Errorf("publish %s (%s): %w", srcRef, marker, err)
 	}
-	if err := reg.CopySignatures(srcRef, inputs.ProdRepo); err != nil {
+	if err := reg.CopySignatures(srcRef, inputs.ProdRepo, inputs.AllowPartialSignatures); err != nil {
 		return PublishResult{}, fmt.Errorf("publish %s (signatures): %w", srcRef, err)
 	}
 	return result, nil

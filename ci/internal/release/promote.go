@@ -41,6 +41,9 @@ type PromoteInputs struct {
 	// conflict is a hard error (image stomping protection).
 	Force  bool
 	DryRun bool
+	// AllowPartialSignatures, when true, ignores missing child manifest
+	// signatures during CopySignatures instead of failing.
+	AllowPartialSignatures bool
 }
 
 // PromoteResult holds the tags applied (or that would be applied), any
@@ -109,7 +112,7 @@ func Promote(inputs PromoteInputs, host string, reg Registry) (PromoteResult, er
 	if err := reg.CopyWithTags(inputs.Image, inputs.Repo, []string{latestTag}); err != nil {
 		return PromoteResult{}, fmt.Errorf("promote %s (latest): %w", inputs.Image, err)
 	}
-	if err := reg.CopySignatures(inputs.Image, inputs.Repo); err != nil {
+	if err := reg.CopySignatures(inputs.Image, inputs.Repo, inputs.AllowPartialSignatures); err != nil {
 		return PromoteResult{}, fmt.Errorf("promote %s (signatures): %w", inputs.Image, err)
 	}
 	return result, nil

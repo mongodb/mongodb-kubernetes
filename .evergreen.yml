@@ -1008,10 +1008,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_operator_upgrade_replica_set
-      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
-      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
-      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
-      # - e2e_operator_upgrade_search
+      - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -1035,10 +1032,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_operator_upgrade_replica_set
-      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
-      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
-      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
-      # - e2e_operator_upgrade_search
+      - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -1236,6 +1230,15 @@ task_groups:
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
+
+  # Multi-cluster MongoDBSearch tests that need a self-hosted Ops Manager:
+  # the metrics forwarder requires OM >= 8.0.25, so these cannot run on the
+  # cloud-qa multi-cluster variants.
+  - name: e2e_multi_cluster_om80_search_task_group
+    max_hosts: -1
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_search_mc_sharded_om_lifecycle
 
   # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
   # that is not in the mesh
@@ -1843,6 +1846,15 @@ buildvariants:
     <<: *base_om7_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
+
+  - name: e2e_multi_cluster_om80_search
+    display_name: e2e_multi_cluster_om80_search
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om8_dependency]
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: e2e_multi_cluster_om80_search_task_group
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
