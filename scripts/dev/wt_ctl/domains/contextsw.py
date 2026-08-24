@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from ..paths import tooling_root
 from ..runner import Runner
 
 
@@ -26,10 +27,16 @@ class ContextDomain:
             return None
 
     def switch(self, worktree_root: Path, ctx: str) -> None:
+        # Run the TOOLING's switch_context.sh against the target worktree
+        # (cwd + PROJECT_DIR): the worktree may not carry the devcontainer
+        # tooling, and the tooling version emits both the per-side files
+        # and the master-compat context.export.env.
+        script = tooling_root() / "scripts" / "dev" / "switch_context.sh"
         self.runner.run_streaming(
-            ["scripts/dev/switch_context.sh", ctx],
+            [str(script), ctx],
             prefix="[ctx] ",
             cwd=worktree_root,
+            env={"PROJECT_DIR": str(worktree_root)},
         )
 
     def list_available(self, repo_root: Path) -> list[str]:

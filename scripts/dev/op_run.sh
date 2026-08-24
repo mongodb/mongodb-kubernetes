@@ -35,7 +35,9 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 # Operator-specific overlay (.generated/context.operator.env) is loaded
 # by main.go's loadEnvFromLocalFileForDevelopment, not by this shell.
 # shellcheck disable=SC1091
-. scripts/dev/devenv
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Tooling-relative: the worktree at cwd may not carry devenv.
+. "${script_dir}/devenv"
 
 mkdir -p logs
 log_path="logs/operator-$(date +%Y%m%d-%H%M%S).log"
@@ -78,7 +80,7 @@ fi
 
 tmux kill-session -t mck-operator 2>/dev/null || true
 tmux new-session -d -s mck-operator \
-  "bash -lc 'cd \"$(pwd)\"; . scripts/dev/devenv; ${proxy_env} go run ./main.go ${operator_args} 2>&1 | tee ${log_path}'"
+  "bash -lc 'cd \"$(pwd)\"; . \"${script_dir}/devenv\"; ${proxy_env} go run ./main.go ${operator_args} 2>&1 | tee ${log_path}'"
 
 echo "Operator started in tmux session 'mck-operator'."
 echo "  log: ${log_path}  (symlinked as logs/operator.log)"

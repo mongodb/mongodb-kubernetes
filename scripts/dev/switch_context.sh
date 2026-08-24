@@ -6,20 +6,34 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 # script prepares environment variables relevant for the current context
 
-source scripts/funcs/errors
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+# shellcheck disable=SC1091
+source "${script_dir}/../funcs/errors"
 
 # Side detection: /.dockerenv exists only inside containers.
 # Used to pick which .generated/context.<side>.env file we write here,
 # and is the same rule used by scripts/dev/devenv at source time.
 side=$([[ -f /.dockerenv ]] && echo devc || echo host)
 
-script_name=$(readlink -f "${BASH_SOURCE[0]}")
-script_dir=$(dirname "${script_name}")
+# Target worktree vs tooling checkout: wt-ctl runs this script by absolute
+# path from the tooling checkout against worktrees that may carry none of the
+# devcontainer tooling. The TARGET is the git toplevel of the cwd; an
+# inherited PROJECT_DIR (every devenv shell exports one) is only a fallback
+# for non-git trees (the rsynced EVG-host copy has no .git). Everything
+# generated lands in the target's .generated/; the tooling-owned site files
+# (site-context, root-devc-context) are sourced from this script's own tree.
+worktree_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "${PROJECT_DIR:-$(pwd)}")"
+export PROJECT_DIR="${worktree_root}"
 
-destination_envs_dir="${script_dir}/../../.generated"
+destination_envs_dir="${worktree_root}/.generated"
 destination_envs_file="${destination_envs_dir}/context"
 
-contexts_dir="scripts/dev/contexts"
+# Variant + private context files belong to the target worktree (a master
+# checkout has all of them); the site files are tooling-owned.
+contexts_dir="${worktree_root}/scripts/dev/contexts"
+site_contexts_dir="${script_dir}/contexts"
 
 context="${1:-}"
 additional_override="${2:-}"
@@ -72,22 +86,20 @@ site_envs=$(env -i \
     PWD="${PWD}" \
     PATH="${PATH}" \
     HOME="${HOME}" \
+    PROJECT_DIR="${worktree_root}" \
     MCK_DEVC_NET_PREFIX="${MCK_DEVC_NET_PREFIX:-}" \
     K8S_FWD_PROXY="${K8S_FWD_PROXY:-}" \
     LOCAL_OPERATOR="${LOCAL_OPERATOR:-}" \
-    bash -c "source ${contexts_dir}/site-context && export -p")
+    bash -c "source ${site_contexts_dir}/site-context && export -p")
 
 if [ -n "${EVR_TASK_ID-}" ]; then
     # EVG-CI branch (step b): run the source chain in the current shell so
     # evergreen expansion env vars (BUILD_VARIANT, IS_PATCH, ...) reach
-    # site-context / root-context / evg-private-context. site-context infers
-    # PROJECT_DIR from its own script location when not pre-set; we pre-set
-    # it here to the EVG-runner repo root so workdir-derived defaults are
-    # canonical regardless of where the script was invoked from.
-    : "${PROJECT_DIR:=$(realpath "${script_dir}/../..")}"
-    export PROJECT_DIR
+    # site-context / root-context / evg-private-context. PROJECT_DIR is
+    # already resolved and exported above (worktree_root), so site-context's
+    # workdir-derived defaults are canonical regardless of invocation dir.
     # shellcheck disable=SC1091
-    source "${contexts_dir}/site-context"
+    source "${site_contexts_dir}/site-context"
     # shellcheck disable=SC1090
   source "${context_file}"
   # shellcheck disable=SC1090
@@ -98,7 +110,7 @@ else
     # Local-dev branch (step b): env -i clean capture, so context.env only
     # picks up what the chain explicitly exports (no inherited login-shell
     # cruft from the user's terminal).
-    base_command="source ${contexts_dir}/site-context"
+    base_command="source ${site_contexts_dir}/site-context"
     # Source order (first -> last; later steps win):
   #   1. local-defaults-context
   #   2. variant context file
@@ -107,6 +119,10 @@ else
   #   5. private-context-override  — optional; highest precedence
   base_command+=" && source ${local_development_default_file}"
     base_command+=" && source ${context_file}"
+    # Devcontainer / EVG-host worktree overrides are tooling-owned: chain them
+    # here (not from root-context) so worktrees WITHOUT the tooling get them
+    # too. No-op outside a wt-ctl worktree.
+    base_command+=" && source ${site_contexts_dir}/root-devc-context"
     if [ -n "${additional_override}" ]; then
         echo "Using additional override file: ${additional_override_file}."
         base_command+=" && source ${additional_override_file}"
@@ -120,6 +136,7 @@ else
         PWD="${PWD}" \
         PATH="${PATH}" \
         HOME="${HOME}" \
+        PROJECT_DIR="${worktree_root}" \
         MCK_DEVC_NET_PREFIX="${MCK_DEVC_NET_PREFIX:-}" \
         K8S_FWD_PROXY="${K8S_FWD_PROXY:-}" \
         LOCAL_OPERATOR="${LOCAL_OPERATOR:-}" \
@@ -205,17 +222,34 @@ site_destination="${destination_envs_dir}/context.${side}.env"
     echo "${site_envs}"
 } | write_atomic "${site_destination}"
 
-# Generate the operator overlay, stripping site-derived bytes
-# (KUBECONFIG and KUBE_CONFIG_PATH come from .generated/context.<side>.env).
-scripts/dev/print_operator_env.sh \
+# Generate the operator overlay. KUBECONFIG / KUBE_CONFIG_PATH stay in it for
+# master-compat: a worktree checked out from master runs master's main.go,
+# whose godotenv loader reads ONLY .generated/context.operator.env and needs
+# the kubeconfig paths there. The tooling repo's own main.go ignores these two
+# keys from this file and takes them from .generated/context.<side>.env, so
+# same-branch worktrees keep per-side correctness.
+"${script_dir}/print_operator_env.sh" \
     | LC_ALL=C sort | uniq \
-    | grep -Ev '^(KUBECONFIG|KUBE_CONFIG_PATH)=' \
     | write_atomic "${destination_envs_file}.operator.env"
 
-# This generator does not emit .export.env files; consumers load context.env +
-# context.<side>.env via scripts/dev/devenv (or set_env_context.sh). Remove any
-# such files so a stale copy can't be sourced by accident.
-rm -f "${destination_envs_file}.export.env" "${destination_envs_file}.operator.export.env"
+# Master-compat artifacts (deprecated): master code paths load
+# .generated/context.export.env (set_env_context.sh, the EVG YAMLs,
+# scripts/test/bash/run.sh, create_worktree.sh) and
+# .generated/context.operator.export.env. Emit both alongside the side files
+# so wt-ctl can drive worktrees that don't carry this tooling. The export.env
+# is the merged view (logical + THIS side's site bytes) — side-last-writer
+# wins, exactly master's semantics.
+{
+    echo -e "## This file is automatically generated by switch_context.sh\n## Do not edit it!"
+    echo -e "## DEPRECATED compat artifact — prefer context.env + context.<side>.env via scripts/dev/devenv\n"
+    {
+        echo "${logical_envs}"
+        echo "${site_envs}"
+    } | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | LC_ALL=C sort | uniq | sed 's/^/export /'
+} | write_atomic "${destination_envs_file}.export.env"
+
+awk 'NF && !/^#/ {print "export " $0}' "${destination_envs_file}.operator.env" \
+    | write_atomic "${destination_envs_file}.operator.export.env"
 
 echo -n "${context}" > "${destination_envs_dir}/.current_context"
 

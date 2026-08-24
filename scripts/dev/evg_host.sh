@@ -9,6 +9,12 @@ set -Eeou pipefail
 
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
+# The tooling checkout this script ships with — may differ from the worktree
+# at cwd (portable wt-ctl mode). Worktree-relative sourcing stays: the
+# worktree's set_env_context.sh works via the compat context.export.env.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tooling_root="$(cd "${script_dir}/../.." && pwd)"
+
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
@@ -85,6 +91,42 @@ sync() {
   --exclude-from=.gitignore \
   --exclude-from=.rsyncignore \
   ./ "${host_url}:/home/ubuntu/mongodb-kubernetes/"
+  sync_tooling_overlay
+}
+
+# Overlay the tooling's own scripts on top of the synced worktree so the
+# remote commands (switch_context.sh, devenv, recreate_kind_*, wt-ctl)
+# work even when the worktree's branch doesn't carry them. Idempotent and
+# a no-op diff when worktree == tooling checkout. Caveat: if the feature
+# branch modifies one of these files, the tooling's copy wins on the
+# remote host.
+sync_tooling_overlay() {
+  local manifest=(
+    scripts/dev/devenv
+    scripts/dev/wt-ctl
+    scripts/dev/wt_ctl
+    scripts/dev/switch_context.sh
+    scripts/dev/set_env_context.sh
+    scripts/dev/print_operator_env.sh
+    scripts/dev/contexts/site-context
+    scripts/dev/contexts/root-context
+    scripts/dev/contexts/root-devc-context
+    scripts/dev/recreate_kind_cluster.sh
+    scripts/dev/recreate_kind_clusters.sh
+    scripts/dev/setup_kind_cluster.sh
+    scripts/dev/prepare_local_e2e_run.sh
+    scripts/dev/e2e_run.sh
+    scripts/dev/op_run.sh
+    scripts/funcs/kind_network
+    scripts/funcs/errors
+    scripts/funcs/kubernetes
+    scripts/funcs/multicluster
+    scripts/funcs/printing
+  )
+  (cd "${tooling_root}" && rsync --archive --compress --human-readable --relative \
+    --exclude='__pycache__' \
+    -e ssh \
+    "${manifest[@]}" "${host_url}:/home/ubuntu/mongodb-kubernetes/")
 }
 
 remote-prepare-local-e2e-run() {
@@ -139,7 +181,7 @@ get-kubeconfig() {
     echo "Skipping kubeconfig fetch (--no-fetch); using existing ${kubeconfig_path}"
   fi
 
-  "${PROJECT_DIR}/scripts/dev/wt-ctl" --quiet kubeconfig refresh
+  "${script_dir}/wt-ctl" --quiet kubeconfig refresh
 }
 
 recreate-kind-clusters() {

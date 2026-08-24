@@ -6,9 +6,14 @@
 # no .generated EVG-host sentinels), so non-devc flows source it harmlessly.
 
 # Devcontainer worktrees: pull MCK_DEVC_* (network prefix + derived octets and
-# proxy port) from .devcontainer/.env when not already in env. The file only
-# exists in worktrees set up by wt-ctl; non-devc flows skip this whole block.
-if [[ -f "${PROJECT_DIR}/.devcontainer/.env" ]]; then
+# proxy port) from the per-worktree devcontainer env file when not already in
+# env. Canonical location is .generated/devcontainer/.env (wt-ctl renders it
+# there so worktrees without the tooling stay clean); .devcontainer/.env is
+# the legacy fallback. The file only exists in worktrees set up by wt-ctl;
+# non-devc flows skip this whole block.
+devc_env_file="${PROJECT_DIR}/.generated/devcontainer/.env"
+[[ -f "${devc_env_file}" ]] || devc_env_file="${PROJECT_DIR}/.devcontainer/.env"
+if [[ -f "${devc_env_file}" ]]; then
   while IFS= read -r devc_env_line; do
     case "${devc_env_line}" in
       MCK_DEVC_*=*)
@@ -16,9 +21,10 @@ if [[ -f "${PROJECT_DIR}/.devcontainer/.env" ]]; then
         [[ -z "${!devc_env_key:-}" ]] && export "${devc_env_line?}"
         ;;
     esac
-  done < "${PROJECT_DIR}/.devcontainer/.env"
+  done < "${devc_env_file}"
   unset devc_env_line devc_env_key
 fi
+unset devc_env_file
 
 # Per-worktree namespace suffix. Only applied when running parallel devc
 # stacks (MCK_DEVC_NET_PREFIX set) and not inside an evergreen task; keeps

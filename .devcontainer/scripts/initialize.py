@@ -71,8 +71,76 @@ def tmux_volumes():
     return entries
 
 
+def render_config(tooling_root, workspace_root, devc_dir):
+    """Render the per-worktree devcontainer config next to the compose
+    override:
+
+    * ``compose.yml`` — verbatim copy of the tooling's template (all host
+      paths in it are ``${MCK_WORKSPACE_DIR}`` / ``${MCK_TOOLING_DIR}``
+      variables resolved from the sibling ``.env``).
+    * ``devcontainer.json`` — tooling template with the compose-file pointers
+      rewritten to plain sibling names and initializeCommand to the tooling's
+      absolute path (lifecycle cwd = workspace folder, which may not carry
+      the tooling).
+    * ``.env`` — upsert MCK_WORKSPACE_DIR / MCK_TOOLING_DIR, preserving any
+      MCK_DEVC_NET_* lines wt-ctl's net_allocate appended; migrate the
+      MCK_DEVC_* block from a legacy ``.devcontainer/.env`` once.
+    """
+    src_devc = os.path.join(tooling_root, ".devcontainer")
+
+    shutil.copyfile(os.path.join(src_devc, "compose.yml"), os.path.join(devc_dir, "compose.yml"))
+
+    json_text = open(os.path.join(src_devc, "devcontainer.json")).read()
+    replacements = [
+        ('"../.generated/devcontainer/compose.yml"', '"compose.yml"'),
+        ('"../.generated/devcontainer/compose.generated.yml"', '"compose.generated.yml"'),
+        ('"../.generated/devcontainer/compose.user.yml"', '"compose.user.yml"'),
+        (
+            '"initializeCommand": "bash .devcontainer/scripts/initialize.sh"',
+            f'"initializeCommand": "bash {src_devc}/scripts/initialize.sh"',
+        ),
+    ]
+    for old, new in replacements:
+        if json_text.count(old) != 1:
+            raise SystemExit(f"devcontainer.json template drifted: expected exactly one {old!r}")
+        json_text = json_text.replace(old, new)
+    with open(os.path.join(devc_dir, "devcontainer.json"), "w") as f:
+        f.write(json_text)
+
+    env_path = os.path.join(devc_dir, ".env")
+    lines = []
+    if os.path.exists(env_path):
+        lines = [ln.rstrip("\n") for ln in open(env_path)]
+    managed = {
+        "MCK_WORKSPACE_DIR": workspace_root,
+        "MCK_TOOLING_DIR": tooling_root,
+    }
+    kept = [ln for ln in lines if ln.split("=", 1)[0] not in managed]
+    if not any(ln.startswith("MCK_DEVC_NET_PREFIX=") for ln in kept):
+        legacy = os.path.join(workspace_root, ".devcontainer", ".env")
+        if os.path.exists(legacy):
+            migrated = [
+                ln.rstrip("\n")
+                for ln in open(legacy)
+                if ln.startswith("MCK_DEVC_") and ln.split("=", 1)[0] not in managed
+            ]
+            if migrated:
+                kept += migrated
+                print(f"migrated MCK_DEVC_* block from legacy {legacy}")
+    rendered = [f"{k}={v}" for k, v in managed.items()] + kept
+    with open(env_path, "w") as f:
+        f.write("\n".join(ln for ln in rendered if ln.strip()) + "\n")
+    print(f"rendered devcontainer config in {devc_dir}")
+
+
 def main():
     override_file = os.environ["COMPOSE_OVERRIDE_FILE"]
+
+    render_config(
+        os.environ["TOOLING_ROOT"],
+        os.environ["WORKSPACE_ROOT"],
+        os.environ["DEVC_DIR"],
+    )
 
     environment = []
     volumes = []

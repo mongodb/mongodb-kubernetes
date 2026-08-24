@@ -7,7 +7,13 @@ x-k8s-proxy-config:
 
 services:
   devcontainer:
-    build: .
+    # Rendered copies of this file live in <worktree>/.generated/devcontainer/
+    # (written by .devcontainer/scripts/initialize.sh). All host paths are
+    # env-parametrized via that dir's .env: MCK_WORKSPACE_DIR is the target
+    # worktree (may carry NO devcontainer tooling), MCK_TOOLING_DIR is the
+    # checkout that carries .devcontainer/ + scripts/dev/wt_ctl.
+    build:
+      context: ${MCK_TOOLING_DIR:?rendered .env missing MCK_TOOLING_DIR — run wt-ctl / initialize.sh}/.devcontainer
 
     environment:
       K8S_FWD_PROXY: *proxy_address
@@ -29,8 +35,11 @@ services:
       EVERGREEN_TOKEN_FILE: /home/vscode/.kanopy/token-oidclogin.json
 
     volumes:
-      # Workspace
-      - ..:/workspace:cached
+      # Workspace: the target worktree, which may be a checkout WITHOUT the
+      # devcontainer tooling. The tooling checkout is mounted read-only at
+      # /mck-tooling; in same-branch mode both point at the same tree.
+      - ${MCK_WORKSPACE_DIR:?rendered .env missing MCK_WORKSPACE_DIR — run wt-ctl / initialize.sh}:/workspace:cached
+      - ${MCK_TOOLING_DIR}:/mck-tooling:ro
 
       # Unique per devcontainer instance to avoid conflicts
       - venv:/workspace/venv
@@ -98,7 +107,7 @@ services:
   # Create a SSH port-forwarding SOCKS proxy
   evg-host-proxy:
     build:
-      context: .
+      context: ${MCK_TOOLING_DIR}/.devcontainer
       dockerfile: autossh.Dockerfile
     environment:
       SSH_AUTH_SOCK: /ssh-agent/socket
@@ -106,9 +115,10 @@ services:
       - devcontainer
     restart: unless-stopped
     volumes:
-      # Auto-resolved EVG_HOST_ADDRESS lives in .generated/ (written by
-      # root-context whenever switch_context runs). Sidecar reads it directly.
-      - ../.generated:/generated:ro
+      # Auto-resolved EVG_HOST_ADDRESS lives in the worktree's .generated/
+      # (written by root-devc-context whenever switch_context runs). Sidecar
+      # reads it directly.
+      - ${MCK_WORKSPACE_DIR}/.generated:/generated:ro
       - ssh-auth-sock:/ssh-agent
       # Use ${HOME} (consistent with the other host mounts, and reliably
       # expanded by compose unlike a bare ~). initialize.sh touches this file

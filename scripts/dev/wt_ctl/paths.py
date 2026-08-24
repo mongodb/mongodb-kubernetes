@@ -113,3 +113,38 @@ def package_root() -> Path:
     to set PYTHONPATH).
     """
     return Path(__file__).resolve().parent
+
+
+def tooling_root() -> Path:
+    """Absolute path of the checkout that CARRIES this tooling (wt_ctl,
+    switch_context.sh, .devcontainer/...). Derived from this file's own
+    location — wt-ctl is invoked by absolute path from its checkout and
+    operates on the worktree found at cwd, which may be a checkout of a
+    branch that has none of the tooling files.
+    """
+    # wt_ctl/ -> dev/ -> scripts/ -> repo root
+    return package_root().parent.parent.parent
+
+
+def devc_dir(worktree_root: Path) -> Path:
+    """Per-worktree devcontainer render dir. Holds the rendered
+    devcontainer.json, compose.yml copy, compose.generated.yml,
+    compose.user.yml and the MCK_DEVC_* ``.env``. Lives under
+    ``.generated/`` so worktrees of branches without the tooling stay
+    clean (``.generated/`` is gitignored on master).
+    """
+    return worktree_root / ".generated" / "devcontainer"
+
+
+def legacy_devc_dir(worktree_root: Path) -> Path:
+    """Pre-portable location of the devcontainer env/override files
+    (``<worktree>/.devcontainer``). Read-only fallback for migration."""
+    return worktree_root / ".devcontainer"
+
+
+def devc_env_dir(worktree_root: Path) -> Path:
+    """Directory whose ``.env`` carries the MCK_DEVC_* block: the render
+    dir when it has one, else the legacy ``.devcontainer`` fallback."""
+    if (devc_dir(worktree_root) / ".env").is_file():
+        return devc_dir(worktree_root)
+    return legacy_devc_dir(worktree_root)

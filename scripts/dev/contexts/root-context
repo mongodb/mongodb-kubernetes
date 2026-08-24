@@ -12,10 +12,10 @@ export PROJECT_DIR
 
 source "${script_dir}/private-context"
 
-# Devcontainer / EVG-host worktree overrides (MCK_DEVC_* loading, per-worktree
-# namespace suffix, CLUSTER_NAME alignment, EVG-host address resolution).
-# No-op outside a wt-ctl worktree.
-source "${script_dir}/root-devc-context"
+# Devcontainer / EVG-host worktree overrides (root-devc-context) are chained
+# by switch_context.sh AFTER the variant context file, from the TOOLING's own
+# contexts dir — not sourced here. That way worktrees without the devcontainer
+# tooling (portable wt-ctl mode) get the overrides too.
 
 export IMAGE_TYPE=ubi
 export UBI_IMAGE_WITHOUT_SUFFIX=true

@@ -1,17 +1,23 @@
 #!/bin/bash
-# Runs on the host before the devcontainer starts (devcontainer.json initializeCommand).
+# Runs on the host before the devcontainer starts (devcontainer.json
+# initializeCommand; also wt-ctl's initialize_hook phase). cwd = the TARGET
+# worktree; this script's own location = the TOOLING checkout — they are
+# different trees when wt-ctl drives a worktree that carries no devcontainer
+# tooling. Renders the per-worktree devcontainer config into
+# <worktree>/.generated/devcontainer/ (gitignored on master, so portable
+# worktrees stay clean).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-export ENV_DIR="${SCRIPT_DIR}/../.envs"
-mkdir -p "${ENV_DIR}"
+TOOLING_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+WORKSPACE_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+DEVC_DIR="${WORKSPACE_ROOT}/.generated/devcontainer"
+export TOOLING_ROOT WORKSPACE_ROOT DEVC_DIR
 
-# Ensure the project-level .generated/ exists so the evg-host-proxy bind mount
-# resolves cleanly even before the first switch_context run.
-mkdir -p "${SCRIPT_DIR}/../../.generated"
+mkdir -p "${DEVC_DIR}"
 
-COMPOSE_OVERRIDE_FILE="${SCRIPT_DIR}/../compose.generated.yml"
+COMPOSE_OVERRIDE_FILE="${DEVC_DIR}/compose.generated.yml"
 export COMPOSE_OVERRIDE_FILE
 
 function create_if_not_exists() {
@@ -20,7 +26,14 @@ function create_if_not_exists() {
     [[ -f "$1" ]] || touch "$1"
 }
 create_if_not_exists "${COMPOSE_OVERRIDE_FILE}"
-create_if_not_exists "${SCRIPT_DIR}/../compose.user.yml"
+create_if_not_exists "${DEVC_DIR}/compose.user.yml"
+
+# Migrate a legacy .devcontainer/compose.user.yml (worktrees rendered before
+# the .generated/devcontainer move) once, while the new file is still empty.
+if [[ -s "${WORKSPACE_ROOT}/.devcontainer/compose.user.yml" && ! -s "${DEVC_DIR}/compose.user.yml" ]]; then
+    cp "${WORKSPACE_ROOT}/.devcontainer/compose.user.yml" "${DEVC_DIR}/compose.user.yml"
+    echo "migrated legacy .devcontainer/compose.user.yml -> ${DEVC_DIR}/compose.user.yml"
+fi
 
 # Ensure ~/.ssh/known_hosts exists as a FILE before the evg-host-proxy bind
 # mount resolves — otherwise Docker materializes it as a root-owned directory.

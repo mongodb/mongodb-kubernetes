@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..errors import WtCtlError
+from ..paths import devc_env_dir
 from ..runner import Runner
 from .kubeconfig import _suffix_kubeconfig_names
 
@@ -71,7 +72,7 @@ def _resolve_suffix_port(kubeconfig_path: Path) -> Optional[str]:
     """
     env_port = os.environ.get("MCK_DEVC_PROXY_PORT")
     worktree = kubeconfig_path.resolve().parent.parent
-    env_file = worktree / ".devcontainer" / ".env"
+    env_file = devc_env_dir(worktree) / ".env"
     if env_file.is_file():
         for line in env_file.read_text().splitlines():
             if line.startswith("MCK_DEVC_PROXY_PORT="):

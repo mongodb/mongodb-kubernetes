@@ -57,6 +57,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 worktree_root="$(pwd)"
+# Tooling-relative script location: the worktree at cwd may not carry
+# wt-ctl / switch_context.sh / evg_host.sh (portable wt-ctl mode).
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 worktree_basename="$(basename "${worktree_root}")"
 
 if [[ -n "${explicit_name}" ]]; then
@@ -73,7 +76,7 @@ echo "==> Spawning / resuming EVG host displayName='${evg_host_name}'"
 spawn_args=(--name "${evg_host_name}")
 [[ -n "${distro}" ]] && spawn_args+=(--distro "${distro}")
 [[ -n "${region}" ]] && spawn_args+=(--region "${region}")
-"${worktree_root}/scripts/dev/wt-ctl" --quiet evg spawn "${spawn_args[@]}"
+"${script_dir}/wt-ctl" --quiet evg spawn "${spawn_args[@]}"
 
 # 2. Pin the host into this worktree's .generated/ so root-context picks it up.
 mkdir -p "${worktree_root}/.generated"
@@ -94,11 +97,11 @@ else
   exit 1
 fi
 echo "==> Regenerating context files (context=${current_context})"
-make switch context="${current_context}"
+PROJECT_DIR="${worktree_root}" "${script_dir}/switch_context.sh" "${current_context}"
 
 # 4. Verify SSH connectivity through evg_host.sh.
 echo "==> Verifying SSH to ${evg_host_name} via evg_host.sh"
-if ! scripts/dev/evg_host.sh ssh -o ConnectTimeout=20 -o BatchMode=yes -- 'echo evg_host_ready'; then
+if ! "${script_dir}/evg_host.sh" ssh -o ConnectTimeout=20 -o BatchMode=yes -- 'echo evg_host_ready'; then
   echo "ERROR: SSH check via evg_host.sh failed for ${evg_host_name}." >&2
   exit 1
 fi
@@ -107,13 +110,13 @@ fi
 if [[ ${skip_recreate} -eq 1 ]]; then
   echo "==> --skip-recreate set; skipping kind cluster recreation"
   echo "==> Refreshing kubeconfig from existing host"
-  scripts/dev/evg_host.sh get-kubeconfig
+  "${script_dir}/evg_host.sh" get-kubeconfig
 elif [[ ${multi_cluster} -eq 1 ]]; then
   echo "==> Recreating all (multi) kind clusters on ${evg_host_name}"
-  scripts/dev/evg_host.sh recreate-kind-clusters
+  "${script_dir}/evg_host.sh" recreate-kind-clusters
 else
   echo "==> Recreating single kind cluster on ${evg_host_name}"
-  scripts/dev/evg_host.sh recreate-kind-cluster kind
+  "${script_dir}/evg_host.sh" recreate-kind-cluster kind
 fi
 
 echo "==> evg_prepare: done — host=${evg_host_name}"

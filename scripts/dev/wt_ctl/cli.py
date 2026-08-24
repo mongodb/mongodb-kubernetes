@@ -21,7 +21,7 @@ from .domains.worktree import WorktreeDomain
 from .errors import ExternalCommandFailed, NotInWorktree, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .header import emit_banner
 from .orchestrator import CreateInputs, CreateOrchestrator, DeleteInputs, DeleteOrchestrator
-from .paths import WorktreeRefs, logs_dir, resolve_worktree
+from .paths import WorktreeRefs, devc_env_dir, logs_dir, resolve_worktree
 from .runner import Runner
 from .state import GlobalStatus, KfpHostState, NetState, OrphanRegistration, WorktreeRow, WorktreeStatus
 
@@ -455,7 +455,7 @@ def cmd_status(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace) -> 
     git = wt_dom.git_state(refs.worktree_root)
     devc = cp_dom.project_state(refs.worktree_root)
 
-    devc_env = parse_devc_env(refs.worktree_root / ".devcontainer")
+    devc_env = parse_devc_env(devc_env_dir(refs.worktree_root))
     prefix_str = devc_env.get("MCK_DEVC_NET_PREFIX")
     prefix: Optional[int] = None
     if prefix_str and prefix_str.isdigit():

@@ -12,8 +12,15 @@ set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Load the worktree env (venv activation, bin/ on PATH) when it exists. A
+# fresh worktree — or one checked out from a branch without this tooling —
+# has no .generated env yet; wt_ctl itself is stdlib-only Python, so fall
+# back to bare python3 rather than refusing to run (wt-ctl create/switch are
+# exactly the verbs that bootstrap that env).
 # shellcheck source=set_env_context.sh
-source "${script_dir}/set_env_context.sh"
+if ! source "${script_dir}/set_env_context.sh" 2>/dev/null; then
+    echo "[wt-ctl] no generated context env in $(pwd); running without it" >&2
+fi
 
 export PYTHONPATH="${script_dir}${PYTHONPATH:+:${PYTHONPATH}}"
 exec python3 -m wt_ctl "$@"

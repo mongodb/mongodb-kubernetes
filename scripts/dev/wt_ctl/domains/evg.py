@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Iterator, Optional
 
 from ..errors import ExternalCommandFailed, ToolMissing, WtCtlError
+from ..paths import tooling_root
 from ..runner import Runner
 from ..state import EvgHostState
 
@@ -769,7 +770,7 @@ class EvgDomain:
         if env is None:
             return "(no EVG_HOST_NAME pinned; skipping)"
         argv = [
-            str(self.repo_root / "scripts/dev/evg_host.sh"),
+            str(tooling_root() / "scripts/dev/evg_host.sh"),
             "get-kubeconfig",
         ]
         if no_fetch:

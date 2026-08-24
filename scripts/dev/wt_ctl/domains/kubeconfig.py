@@ -420,7 +420,7 @@ class KubeconfigDomain:
             if not suffix_port:
                 raise WtCtlError(
                     "MCK_DEVC_PROXY_PORT must be set (`make switch` first to "
-                    "source .devcontainer/.env via root-context)"
+                    "source the devcontainer .env via root-devc-context)"
                 )
             host_proxy = f"http://127.0.0.1:{suffix_port}"
             emit(f"Patching {host_kc}: proxy={host_proxy} " f"context={cluster_name or '<inherited>'} (bare on disk)")

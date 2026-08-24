@@ -1,10 +1,17 @@
 {
     "name": "MCK",
+    // Compose files are RENDERED per-worktree into
+    // <worktree>/.generated/devcontainer/ by .devcontainer/scripts/initialize.sh
+    // (wt-ctl runs it; VS Code runs it via initializeCommand). This file is the
+    // template: wt-ctl copies it next to the rendered compose files with
+    // dockerComposeFile rewritten to plain sibling names and initializeCommand
+    // to the tooling's absolute path. Keeping the relative pointer here lets
+    // "Reopen in Container" keep working on the tooling checkout itself.
     "dockerComposeFile":
     [
-        "compose.yml",
-        "compose.generated.yml",
-        "compose.user.yml"
+        "../.generated/devcontainer/compose.yml",
+        "../.generated/devcontainer/compose.generated.yml",
+        "../.generated/devcontainer/compose.user.yml"
     ],
 
     "service": "devcontainer",
@@ -45,9 +52,13 @@
     },
 
     // --- Lifecycle Commands ---
+    // initializeCommand runs on the HOST with cwd = workspace folder; the
+    // rendered per-worktree copy replaces it with the tooling's absolute path.
+    // on-create/post-start run IN the container: /mck-tooling is the tooling
+    // checkout mount, present in both same-branch and portable modes.
     "initializeCommand": "bash .devcontainer/scripts/initialize.sh",
-    "onCreateCommand": "bash .devcontainer/scripts/on-create.sh",
-    "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
+    "onCreateCommand": "bash /mck-tooling/.devcontainer/scripts/on-create.sh",
+    "postStartCommand": "bash /mck-tooling/.devcontainer/scripts/post-start.sh",
 
     // Disable all auto port forwarding by default
     "otherPortsAttributes": {

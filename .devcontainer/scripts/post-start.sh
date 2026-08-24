@@ -95,7 +95,7 @@ fi
 # overwrite peer worktrees' entries on the shared launchd daemon.
 host_kubeconfig=/workspace/.generated/current.kubeconfig
 if [[ -s "${host_kubeconfig}" ]]; then
-  /workspace/scripts/dev/wt-ctl --quiet kfp register \
+  /mck-tooling/scripts/dev/wt-ctl --quiet kfp register \
     --url http://host.docker.internal:11616 \
     --kubeconfig "${host_kubeconfig}" \
     || echo "host kfp register failed (non-fatal); kubectl through proxy-url still works locally."

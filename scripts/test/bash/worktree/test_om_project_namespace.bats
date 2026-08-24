@@ -1,12 +1,14 @@
 #!/usr/bin/env bats
 #
 # Per-worktree OM project isolation against two real scripts:
-#   1. scripts/dev/contexts/root-context — appends `-${MCK_DEVC_NET_PREFIX}`
+#   1. scripts/dev/contexts/root-context + root-devc-context (chained by
+#      switch_context.sh; mirrored here) — appends `-${MCK_DEVC_NET_PREFIX}`
 #      to NAMESPACE (idempotent).
 #   2. scripts/dev/delete_om_projects.sh `filter_prefixed_projects` — must
 #      never delete a sibling worktree stack's OM projects.
 #
-# Tests mutate .devcontainer/.env and scripts/dev/contexts/private-context,
+# Tests mutate .generated/devcontainer/.env (+ legacy .devcontainer/.env)
+# and scripts/dev/contexts/private-context,
 # then restore in teardown(); backups live beside the originals on disk (not
 # in BATS_TEST_TMPDIR) so an aborted run stays recoverable.
 
@@ -40,9 +42,11 @@ setup() {
 export NAMESPACE="${KNOWN_NS}"
 EOF
 
-    # Snapshot .devcontainer/.env (some tests mutate it to verify the
-    # file-loading fallback). Same on-disk backup discipline as above.
-    DEVC_ENV_FILE="${PROJECT_DIR}/.devcontainer/.env"
+    # Snapshot the canonical devcontainer env file (some tests mutate it to
+    # verify the file-loading fallback) AND the legacy .devcontainer/.env
+    # (root-devc-context falls back to it — it must not leak into tests).
+    # Same on-disk backup discipline as above.
+    DEVC_ENV_FILE="${PROJECT_DIR}/.generated/devcontainer/.env"
     DEVC_ENV_BACKUP="${DEVC_ENV_FILE}.bats-bak"
     [[ -f "${DEVC_ENV_BACKUP}" ]] && mv -f "${DEVC_ENV_BACKUP}" "${DEVC_ENV_FILE}"
     if [[ -f "${DEVC_ENV_FILE}" ]]; then
@@ -51,6 +55,18 @@ EOF
     else
         DEVC_ENV_HAD_FILE=0
     fi
+    rm -f "${DEVC_ENV_FILE}"
+
+    LEGACY_ENV_FILE="${PROJECT_DIR}/.devcontainer/.env"
+    LEGACY_ENV_BACKUP="${LEGACY_ENV_FILE}.bats-bak"
+    [[ -f "${LEGACY_ENV_BACKUP}" ]] && mv -f "${LEGACY_ENV_BACKUP}" "${LEGACY_ENV_FILE}"
+    if [[ -f "${LEGACY_ENV_FILE}" ]]; then
+        cp -p "${LEGACY_ENV_FILE}" "${LEGACY_ENV_BACKUP}"
+        LEGACY_ENV_HAD_FILE=1
+    else
+        LEGACY_ENV_HAD_FILE=0
+    fi
+    rm -f "${LEGACY_ENV_FILE}"
 }
 
 teardown() {
@@ -64,18 +80,26 @@ teardown() {
     else
         rm -f "${DEVC_ENV_FILE}" "${DEVC_ENV_BACKUP}"
     fi
+    if [[ "${LEGACY_ENV_HAD_FILE}" == "1" ]]; then
+        mv -f "${LEGACY_ENV_BACKUP}" "${LEGACY_ENV_FILE}"
+    else
+        rm -f "${LEGACY_ENV_FILE}" "${LEGACY_ENV_BACKUP}"
+    fi
 }
 
-# Source root-context in a clean subshell with a controlled env, capture the
-# resulting NAMESPACE. Subshell isolation prevents the source from polluting
-# the bats process; redirecting stdout/stderr keeps EVG-host probing chatter
-# out of the captured value.
+# Source root-context + root-devc-context (the chain switch_context.sh
+# applies) in a clean subshell with a controlled env, capture the resulting
+# NAMESPACE. Subshell isolation prevents the source from polluting the bats
+# process; redirecting stdout/stderr keeps EVG-host probing chatter out of
+# the captured value.
 namespace_after_root_context() {
     bash -c '
         set -e
         cd "${PROJECT_DIR}"
         # shellcheck disable=SC1091
         source scripts/dev/contexts/root-context >/dev/null 2>&1
+        # shellcheck disable=SC1091
+        source scripts/dev/contexts/root-devc-context >/dev/null 2>&1
         printf "%s" "${NAMESPACE}"
     '
 }
@@ -101,9 +125,13 @@ namespace_after_root_context() {
         cd "${PROJECT_DIR}"
         # shellcheck disable=SC1091
         source scripts/dev/contexts/root-context >/dev/null 2>&1
+        # shellcheck disable=SC1091
+        source scripts/dev/contexts/root-devc-context >/dev/null 2>&1
         first="${NAMESPACE}"
         # shellcheck disable=SC1091
         source scripts/dev/contexts/root-context >/dev/null 2>&1
+        # shellcheck disable=SC1091
+        source scripts/dev/contexts/root-devc-context >/dev/null 2>&1
         printf "%s|%s" "${first}" "${NAMESPACE}"
     ')"
 
@@ -113,7 +141,7 @@ namespace_after_root_context() {
     [[ "${first}" == "${KNOWN_NS}-20" ]]
 }
 
-@test "root-context: no MCK_DEVC_NET_PREFIX in env or .devcontainer/.env -> NAMESPACE untouched" {
+@test "root-context: no MCK_DEVC_NET_PREFIX in env or devcontainer .env -> NAMESPACE untouched" {
     unset MCK_DEVC_NET_PREFIX
     rm -f "${DEVC_ENV_FILE}"
 
@@ -122,7 +150,7 @@ namespace_after_root_context() {
     [[ "${result}" == "${KNOWN_NS}" ]]
 }
 
-@test "root-context: loads MCK_DEVC_NET_PREFIX from .devcontainer/.env when not in env" {
+@test "root-context: loads MCK_DEVC_NET_PREFIX from .generated/devcontainer/.env when not in env" {
     unset MCK_DEVC_NET_PREFIX
     mkdir -p "$(dirname "${DEVC_ENV_FILE}")"
     echo "MCK_DEVC_NET_PREFIX=24" > "${DEVC_ENV_FILE}"
@@ -132,7 +160,18 @@ namespace_after_root_context() {
     [[ "${result}" == "${KNOWN_NS}-24" ]]
 }
 
-@test "root-context: env-set MCK_DEVC_NET_PREFIX wins over .devcontainer/.env" {
+@test "root-context: falls back to legacy .devcontainer/.env when canonical file is absent" {
+    unset MCK_DEVC_NET_PREFIX
+    rm -f "${DEVC_ENV_FILE}"
+    mkdir -p "$(dirname "${LEGACY_ENV_FILE}")"
+    echo "MCK_DEVC_NET_PREFIX=26" > "${LEGACY_ENV_FILE}"
+
+    result="$(namespace_after_root_context)"
+
+    [[ "${result}" == "${KNOWN_NS}-26" ]]
+}
+
+@test "root-context: env-set MCK_DEVC_NET_PREFIX wins over the devcontainer .env" {
     export MCK_DEVC_NET_PREFIX=18
     mkdir -p "$(dirname "${DEVC_ENV_FILE}")"
     echo "MCK_DEVC_NET_PREFIX=24" > "${DEVC_ENV_FILE}"

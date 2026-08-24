@@ -9,8 +9,14 @@
 
 set -euo pipefail
 
+# Tooling-relative: /workspace may be a worktree without the devcontainer
+# tooling; run the tooling's switch_context.sh (it targets the cwd worktree
+# and emits master-compat artifacts alongside the per-side files).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 context=root-context
 if [ -f "/workspace/.generated/.current_context" ]; then
     context=$(cat /workspace/.generated/.current_context)
 fi
-make switch context="${context}"
+cd /workspace
+"${SCRIPT_DIR}/../../../scripts/dev/switch_context.sh" "${context}"

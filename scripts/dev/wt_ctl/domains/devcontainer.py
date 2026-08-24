@@ -7,10 +7,18 @@ from pathlib import Path
 from typing import Optional
 
 from ..errors import ToolMissing
-from ..paths import logs_dir
+from ..paths import devc_dir, logs_dir, tooling_root
 from ..runner import Runner
 
-_TMUX_LOAD_CMD = "exec tmuxp load -y /workspace/.devcontainer/tmuxp/mck.yaml"
+_TMUX_LOAD_CMD = "exec tmuxp load -y /mck-tooling/.devcontainer/tmuxp/mck.yaml"
+
+
+def _config_args(worktree_root: Path) -> list[str]:
+    """Point the devcontainer CLI at the per-worktree RENDERED config
+    (``<wt>/.generated/devcontainer/devcontainer.json``) so worktrees
+    without the devcontainer tooling checked in still work. The compose
+    files referenced by that config live next to it."""
+    return ["--config", str(devc_dir(worktree_root) / "devcontainer.json")]
 
 
 class DevcontainerDomain:
@@ -20,10 +28,18 @@ class DevcontainerDomain:
     # ------------------------------------------------------------------
     # build / up
     # ------------------------------------------------------------------
+    def ensure_rendered(self, worktree_root: Path) -> None:
+        """Render the per-worktree devcontainer config if it isn't there
+        yet (idempotent; the orchestrator also runs this as a phase)."""
+        if not (devc_dir(worktree_root) / "devcontainer.json").is_file():
+            script = tooling_root() / ".devcontainer" / "scripts" / "initialize.sh"
+            self.runner.run(["bash", str(script)], cwd=worktree_root)
+
     def build(self, worktree_root: Path, *, no_cache: bool = False) -> None:
         if not self.runner.have("devcontainer"):
             raise ToolMissing("devcontainer", hint="install via 'npm i -g @devcontainers/cli'")
-        argv = ["devcontainer", "build", "--workspace-folder", str(worktree_root)]
+        self.ensure_rendered(worktree_root)
+        argv = ["devcontainer", "build", "--workspace-folder", str(worktree_root), *_config_args(worktree_root)]
         if no_cache:
             argv.append("--no-cache")
         log = logs_dir(worktree_root) / "build.log"
@@ -32,7 +48,8 @@ class DevcontainerDomain:
     def up(self, worktree_root: Path) -> None:
         if not self.runner.have("devcontainer"):
             raise ToolMissing("devcontainer", hint="install via 'npm i -g @devcontainers/cli'")
-        argv = ["devcontainer", "up", "--workspace-folder", str(worktree_root)]
+        self.ensure_rendered(worktree_root)
+        argv = ["devcontainer", "up", "--workspace-folder", str(worktree_root), *_config_args(worktree_root)]
         log = logs_dir(worktree_root) / "up.log"
         self.runner.run_streaming(argv, prefix="[up] ", log_path=log)
 
@@ -53,6 +70,7 @@ class DevcontainerDomain:
                 "exec",
                 "--workspace-folder",
                 str(worktree_root),
+                *_config_args(worktree_root),
                 "bash",
                 "-lc",
                 _TMUX_LOAD_CMD,
@@ -63,6 +81,7 @@ class DevcontainerDomain:
                 "exec",
                 "--workspace-folder",
                 str(worktree_root),
+                *_config_args(worktree_root),
                 "env",
                 "MCK_NO_TMUX=1",
                 *args,
@@ -85,6 +104,7 @@ class DevcontainerDomain:
             "exec",
             "--workspace-folder",
             str(worktree_root),
+            *_config_args(worktree_root),
             *args,
         ]
         return self.runner.run(argv, check=check)

@@ -22,10 +22,10 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from . import orchestrator_state as ostate
-from .domains.compose import project_name_for
+from .domains.compose import compose_base_dir, project_name_for
 from .domains.network import DERIVED_ENV_KEYS, NetworkDomain, env_lines_for, stack_params
 from .errors import ExternalCommandFailed, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
-from .paths import logs_dir
+from .paths import devc_dir, devc_env_dir, logs_dir, tooling_root
 from .runner import Runner
 
 # ---------------------------------------------------------------------------
@@ -63,6 +63,8 @@ def _devc_bash(wt: Path, script: str) -> list[str]:
         "exec",
         "--workspace-folder",
         str(wt),
+        "--config",
+        str(devc_dir(wt) / "devcontainer.json"),
         "bash",
         "-lc",
         script,
@@ -284,8 +286,10 @@ class CreateOrchestrator:
             already_inside = i.in_place or (_is_same_path(self.runner_cwd_or_main(), wt) and wt.exists())
             if not already_inside:
                 host = i.host_worktree_root
+                # The script ships with the tooling; the invoking checkout may
+                # not carry it. PROJECT_DIR still decides sibling placement.
                 argv = [
-                    str(host / "scripts" / "dev" / "create_worktree.sh"),
+                    str(tooling_root() / "scripts" / "dev" / "create_worktree.sh"),
                 ]
                 if i.force:
                     argv.append("-f")
@@ -305,15 +309,18 @@ class CreateOrchestrator:
             # Switch context before initialize.sh renders compose.generated.yml.
             if i.context:
                 self.runner.run_streaming(
-                    ["make", "switch", f"context={i.context}"],
+                    [str(tooling_root() / "scripts" / "dev" / "switch_context.sh"), i.context],
                     prefix="[ctx] ",
                     log_path=log_dir / "context_switch.log",
                     cwd=wt,
+                    env={"PROJECT_DIR": str(wt)},
                 )
 
         # ---- initialize_hook ---------------------------------------------
         def _do_initialize_hook() -> None:
-            init_sh = wt / ".devcontainer" / "scripts" / "initialize.sh"
+            # Tooling copy: renders devcontainer.json/compose files into
+            # <wt>/.generated/devcontainer/ for worktrees of any branch.
+            init_sh = tooling_root() / ".devcontainer" / "scripts" / "initialize.sh"
             if not init_sh.is_file():
                 return
             self.runner.run_streaming(
@@ -325,7 +332,7 @@ class CreateOrchestrator:
 
         # ---- net_allocate -------------------------------------------------
         def _do_net_allocate() -> None:
-            env_file = wt / ".devcontainer" / ".env"
+            env_file = devc_env_dir(wt) / ".env"
             existing_prefix = _read_existing_prefix(env_file)
             if existing_prefix is not None:
                 # Prefix already pinned. If a prior run crashed before writing the
@@ -385,14 +392,15 @@ class CreateOrchestrator:
                     # its node-container IP (kubeconfig rewrite + dc_up net join).
                     mc_ctx = i.context or "e2e_multi_cluster_kind"
                     self.runner.run_streaming(
-                        ["make", "switch", f"context={mc_ctx}"],
+                        [str(tooling_root() / "scripts" / "dev" / "switch_context.sh"), mc_ctx],
                         prefix="[local-kind] ",
                         log_path=log_dir / "evg_prepare.log",
                         cwd=wt,
+                        env={"PROJECT_DIR": str(wt)},
                     )
                     if not i.skip_recreate:
                         self.runner.run_streaming(
-                            [str(wt / "scripts" / "dev" / "recreate_kind_clusters.sh")],
+                            [str(tooling_root() / "scripts" / "dev" / "recreate_kind_clusters.sh")],
                             prefix="[local-kind] ",
                             log_path=log_dir / "evg_prepare.log",
                             env={"DELETE_KIND_NETWORK": "false"},
@@ -404,7 +412,7 @@ class CreateOrchestrator:
                     cluster = i.resolved_cluster_name()
                     if not i.skip_recreate:
                         self.runner.run_streaming(
-                            [str(wt / "scripts" / "dev" / "recreate_kind_cluster.sh"), cluster],
+                            [str(tooling_root() / "scripts" / "dev" / "recreate_kind_cluster.sh"), cluster],
                             prefix="[local-kind] ",
                             log_path=log_dir / "evg_prepare.log",
                             env={"DELETE_KIND_NETWORK": "false"},
@@ -417,10 +425,11 @@ class CreateOrchestrator:
                     if current_ctx_file.is_file():
                         ctx = current_ctx_file.read_text().strip()
                         self.runner.run_streaming(
-                            ["make", "switch", f"context={ctx}"],
+                            [str(tooling_root() / "scripts" / "dev" / "switch_context.sh"), ctx],
                             prefix="[local-kind] ",
                             log_path=log_dir / "evg_prepare.log",
                             cwd=wt,
+                            env={"PROJECT_DIR": str(wt)},
                         )
                 # On-host kfp registration (the devc-side registration runs later
                 # in the `kubeconfig` phase). refresh needs CLUSTER_NAME /
@@ -436,7 +445,7 @@ class CreateOrchestrator:
                 )
                 return
             argv = [
-                str(wt / "scripts" / "dev" / "evg_prepare.sh"),
+                str(tooling_root() / "scripts" / "dev" / "evg_prepare.sh"),
                 "--name",
                 i.resolved_evg_host_name(),
             ]
@@ -462,7 +471,14 @@ class CreateOrchestrator:
 
         # ---- dc_build -----------------------------------------------------
         def _do_dc_build() -> None:
-            argv = ["devcontainer", "build", "--workspace-folder", str(wt)]
+            argv = [
+                "devcontainer",
+                "build",
+                "--workspace-folder",
+                str(wt),
+                "--config",
+                str(devc_dir(wt) / "devcontainer.json"),
+            ]
             self.runner.run_streaming(
                 argv,
                 prefix="[build] ",
@@ -493,7 +509,14 @@ class CreateOrchestrator:
                     cwd=wt,
                 )
 
-            argv = ["devcontainer", "up", "--workspace-folder", str(wt)]
+            argv = [
+                "devcontainer",
+                "up",
+                "--workspace-folder",
+                str(wt),
+                "--config",
+                str(devc_dir(wt) / "devcontainer.json"),
+            ]
             self.runner.run_streaming(
                 argv,
                 prefix="[up] ",
@@ -509,7 +532,8 @@ class CreateOrchestrator:
 
         # ---- reconcile ----------------------------------------------------
         def _do_reconcile() -> None:
-            user_yml = wt / ".devcontainer" / "compose.user.yml"
+            base_dir = compose_base_dir(wt)
+            user_yml = base_dir / "compose.user.yml"
             if not user_yml.is_file() or user_yml.stat().st_size == 0:
                 return  # no overrides → nothing to reconcile
             # Reconcile the auxiliary sidecars only. Force-recreating the main
@@ -518,8 +542,8 @@ class CreateOrchestrator:
             services = [s for s in _services_in(user_yml) if s != "devcontainer"]
             if not services:
                 return
-            compose = wt / ".devcontainer" / "compose.yml"
-            generated = wt / ".devcontainer" / "compose.generated.yml"
+            compose = base_dir / "compose.yml"
+            generated = base_dir / "compose.generated.yml"
             project = project_name_for(wt)
             base = ["docker", "compose", "-p", project, "-f", str(compose)]
             if generated.is_file():
@@ -539,7 +563,7 @@ class CreateOrchestrator:
             cmd = (
                 "if [[ ! -S /ssh-agent/socket ]]; then "
                 "echo 'ssh-agent socket missing; re-running post-start.sh'; "
-                "bash /workspace/.devcontainer/scripts/post-start.sh; "
+                "bash /mck-tooling/.devcontainer/scripts/post-start.sh; "
                 "else echo 'ssh-agent socket already present'; fi"
             )
             self.runner.run_streaming(
@@ -560,9 +584,9 @@ class CreateOrchestrator:
             cmd = (
                 "set -Eeou pipefail; "
                 "cd /workspace; "
-                "if [[ -f scripts/dev/devenv ]]; then . scripts/dev/devenv 2>/dev/null || true; fi; "
-                'make switch context="$(cat .generated/.current_context)"; '
-                "scripts/dev/wt-ctl --quiet kubeconfig refresh"
+                ". /mck-tooling/scripts/dev/devenv 2>/dev/null || true; "
+                '/mck-tooling/scripts/dev/switch_context.sh "$(cat .generated/.current_context)"; '
+                "/mck-tooling/scripts/dev/wt-ctl --quiet kubeconfig refresh"
             )
             self.runner.run_streaming(
                 _devc_bash(wt, cmd),
@@ -590,7 +614,7 @@ class CreateOrchestrator:
             self.runner.run_streaming(
                 _devc_bash(
                     wt,
-                    "set -Eeou pipefail; " "cd /workspace; " ". scripts/dev/devenv; " "make prepare-local-e2e",
+                    "set -Eeou pipefail; " "cd /workspace; " ". /mck-tooling/scripts/dev/devenv; " "make prepare-local-e2e",
                 ),
                 prefix="[prepare-e2e] ",
                 log_path=log_dir / "prepare_local_e2e.log",
@@ -621,8 +645,8 @@ class CreateOrchestrator:
                     wt,
                     "set -Eeou pipefail; "
                     "cd /workspace; "
-                    ". scripts/dev/devenv; "
-                    "scripts/dev/op_run.sh --detach || "
+                    ". /mck-tooling/scripts/dev/devenv; "
+                    "/mck-tooling/scripts/dev/op_run.sh --detach || "
                     "echo '[op_run] start failed (continuing; run op_run.sh manually)'; "
                     "tmux kill-session -t mck 2>/dev/null && "
                     "echo '[op_run] killed stale mck tmux session; next wt-ctl attach will re-load tmuxp' || "
@@ -662,7 +686,7 @@ class CreateOrchestrator:
                     {
                         "branch_dir": i.branch_dir,
                         "missing_derived": _missing_derived_env_keys(
-                            i.worktree_path_or_main() / ".devcontainer" / ".env",
+                            devc_env_dir(i.worktree_path_or_main()) / ".env",
                         ),
                     }
                 ),
@@ -937,7 +961,7 @@ class CreateOrchestrator:
             wt,
             "set -Eeou pipefail; "
             "cd /workspace; "
-            ". scripts/dev/devenv; "
+            ". /mck-tooling/scripts/dev/devenv; "
             "kubectl --request-timeout=3s get --raw=/readyz",
         )
         deadline = time.monotonic() + deadline_s
@@ -1087,15 +1111,15 @@ class DeleteOrchestrator:
         if not wt.is_dir():
             emit("[wt-ctl] om: skipped (worktree dir gone)")
             return
-        env_file = wt / ".devcontainer" / ".env"
+        env_file = devc_env_dir(wt) / ".env"
         prefix = _read_existing_prefix(env_file)
         if prefix is None:
-            emit("[wt-ctl] om: skipped (no MCK_DEVC_NET_PREFIX in .devcontainer/.env)")
+            emit("[wt-ctl] om: skipped (no MCK_DEVC_NET_PREFIX in devcontainer .env)")
             return
         emit("[wt-ctl] om: deleting cloud-qa OM projects scoped to this worktree")
         try:
             self.runner.run_streaming(
-                [str(wt / "scripts" / "dev" / "delete_om_projects.sh")],
+                [str(tooling_root() / "scripts" / "dev" / "delete_om_projects.sh")],
                 prefix="[om-clean] ",
                 cwd=wt,
             )

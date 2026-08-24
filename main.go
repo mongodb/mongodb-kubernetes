@@ -587,10 +587,12 @@ func initializeEnvironment() {
 }
 
 // loadEnvFromLocalFileForDevelopment loads the generated context env files when
-// not running in "prod" env. The operator overlay omits KUBECONFIG/KUBE_CONFIG_PATH
-// (switch_context.sh strips them), so bare `go run`/IDE launches must also load
-// context.<side>.env to recover the generated kubeconfig; context.env supplies the
-// shared base. Side detection matches devenv (/.dockerenv → devc, else host).
+// not running in "prod" env. The operator overlay carries KUBECONFIG /
+// KUBE_CONFIG_PATH for master-compat (worktrees checked out from master run a
+// main.go that reads ONLY context.operator.env), but THIS loader ignores those
+// two keys there and takes them from context.<side>.env instead, so per-side
+// kubeconfig selection stays correct; context.env supplies the shared base.
+// Side detection matches devenv (/.dockerenv → devc, else host).
 func loadEnvFromLocalFileForDevelopment() {
 	if getOperatorEnv() == util.OperatorEnvironmentProd {
 		return
@@ -605,19 +607,30 @@ func loadEnvFromLocalFileForDevelopment() {
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		side = "devc"
 	}
-	// Load (not Overload) in precedence order — first file wins per key and real
-	// environment variables win over all files, so operator-specific values and
-	// ad-hoc overrides (WATCH_NAMESPACE=x go run ./main.go, IDE launch configs)
+	// Load in precedence order — first file wins per key and real environment
+	// variables win over all files, so operator-specific values and ad-hoc
+	// overrides (WATCH_NAMESPACE=x go run ./main.go, IDE launch configs)
 	// survive while KUBECONFIG falls through from the side file.
 	for _, envFile := range []string{operatorEnvFile, ".generated/context." + side + ".env", ".generated/context.env"} {
 		if _, err := os.Stat(envFile); err != nil {
 			continue
 		}
-		if err := godotenv.Load(envFile); err != nil {
+		envMap, err := godotenv.Read(envFile)
+		if err != nil {
 			log.Warnf("Failed to load environment variables from file %s: %v", envFile, err)
-		} else {
-			log.Infof("Loaded environment variables from file %s", envFile)
+			continue
 		}
+		if envFile == operatorEnvFile {
+			// Master-compat bytes; the side file is authoritative here.
+			delete(envMap, "KUBECONFIG")
+			delete(envMap, "KUBE_CONFIG_PATH")
+		}
+		for k, v := range envMap {
+			if _, present := os.LookupEnv(k); !present {
+				os.Setenv(k, v)
+			}
+		}
+		log.Infof("Loaded environment variables from file %s", envFile)
 	}
 }
 

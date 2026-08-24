@@ -552,6 +552,37 @@ class ReconcileTests(unittest.TestCase):
             self.assertIn("k8s-proxy", recreated)
             self.assertNotIn("devcontainer", recreated)
 
+    def test_reconcile_prefers_rendered_devc_dir(self) -> None:
+        """When the per-worktree render dir (.generated/devcontainer/) is
+        populated, reconcile must read compose files from there — the
+        legacy .devcontainer/ copy (if any) is ignored."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            devc = target / ".generated" / "devcontainer"
+            devc.mkdir(parents=True)
+            (devc / "compose.yml").write_text("services: {}\n")
+            (devc / "compose.user.yml").write_text(
+                "services:\n"
+                "  k8s-proxy:\n"
+                "    environment:\n"
+                "      FOO: bar\n"
+            )
+            # A stale legacy override must NOT be picked up.
+            (target / ".devcontainer" / "compose.user.yml").write_text(
+                "services:\n  gost-proxy:\n    environment:\n      X: y\n"
+            )
+            inputs = _make_inputs(repo, target, branch, branch_dir, skip_prepare_e2e=True)
+            runner = FakeRunner()
+            CreateOrchestrator(runner, inputs).run()
+            recreated = self._recreated_services(runner.calls)
+            self.assertIn("k8s-proxy", recreated)
+            self.assertNotIn("gost-proxy", recreated)
+            recreate_calls = [c for c in runner.calls if "--force-recreate" in c]
+            for c in recreate_calls:
+                joined = " ".join(c)
+                self.assertIn(str(devc / "compose.yml"), joined)
+                self.assertNotIn(str(target / ".devcontainer" / "compose.yml"), joined)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,10 @@ for mount_point in \
     sudo chown -R "${DEVCONTAINER_USER}:${DEVCONTAINER_USER}" "${mount_point}" 2>/dev/null || true
 done
 
-for file in .devcontainer/scripts/on-create/*.sh; do
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Self-relative (NOT /workspace-relative): the workspace may be a worktree
+# without the devcontainer tooling; these steps live next to this script.
+for file in "${SCRIPT_DIR}"/on-create/*.sh; do
     bash "${file}"
 done

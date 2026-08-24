@@ -12,11 +12,24 @@ from pathlib import Path
 from typing import Optional
 
 from ..errors import ToolMissing
+from ..paths import devc_dir
 from ..runner import Runner
 from ..state import DevcState
 
 
+def compose_base_dir(worktree_root: Path) -> Path:
+    """Where this worktree's compose files live: the render dir
+    (``.generated/devcontainer/``) when populated, else the legacy
+    in-tree ``.devcontainer/`` (stacks created before the render dir
+    existed)."""
+    if (devc_dir(worktree_root) / "compose.yml").exists():
+        return devc_dir(worktree_root)
+    return worktree_root / ".devcontainer"
+
+
 def project_name_for(worktree_root: Path) -> str:
+    """Compose project name for a worktree; must stay derived from the
+    worktree basename (network-registry contract)."""
     return f"{worktree_root.name.lower()}_devcontainer"
 
 
@@ -127,8 +140,9 @@ class ComposeDomain:
     # ------------------------------------------------------------------
     def down(self, worktree_root: Path) -> None:
         proj = project_name_for(worktree_root)
-        compose = worktree_root / ".devcontainer" / "compose.yml"
-        gen = worktree_root / ".devcontainer" / "compose.generated.yml"
+        base = compose_base_dir(worktree_root)
+        compose = base / "compose.yml"
+        gen = base / "compose.generated.yml"
         argv = ["docker", "compose", "-p", proj, "-f", str(compose)]
         if gen.exists():
             argv += ["-f", str(gen)]

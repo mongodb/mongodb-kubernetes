@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..errors import ExternalCommandFailed, ToolMissing, WtCtlError
+from ..paths import tooling_root
 from ..runner import Runner
 from ..state import OmState
 
@@ -65,7 +66,7 @@ class OmDomain:
     def clean(self, worktree_root: Path) -> None:
         env = _read_context_env(worktree_root)
         env.setdefault("PROJECT_DIR", str(worktree_root))
-        argv = [str(self.repo_root / "scripts/dev/delete_om_projects.sh")]
+        argv = [str(tooling_root() / "scripts/dev/delete_om_projects.sh")]
         self.runner.run_streaming(argv, prefix="[om-clean] ", env=env, cwd=worktree_root)
 
     # ------------------------------------------------------------------

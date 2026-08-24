@@ -176,6 +176,7 @@ fi
 # EVG host's outbound to sum.golang.org (the checksum DB) is blocked, so go's
 # module verification fails ("open /go/pkg/sumdb/.../latest: no such file").
 # Disabling the sumdb skips that verification (fine for throwaway CI).
+mkdir -p .generated/devcontainer
 {
   cat <<YAML
 services:
@@ -193,7 +194,7 @@ YAML
     [[ -z "${v}" ]] && continue
     printf '      %s: "%s"\n' "${kv%%=*}" "${v}"
   done
-} >.devcontainer/compose.user.yml
+} >.generated/devcontainer/compose.user.yml
 
 # Fresh artifact dir per task: under --in-place the worktree root is this
 # checkout, so wt-ctl phase logs, test logs and gathered diagnostics all land in
