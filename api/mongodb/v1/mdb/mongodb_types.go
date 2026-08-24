@@ -449,9 +449,8 @@ type DbCommonSpec struct {
 	// resource as the externally-managed Application Database for a
 	// MongoDBOpsManager resource.
 	// +optional
-	// +kubebuilder:default=""
 	// +kubebuilder:validation:XValidation:rule="self == '' || self == 'AppDB'",message="spec.role must be 'AppDB' when set"
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
+	// +kubebuilder:validation:XValidation:rule="has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role == oldSelf.role)",message="spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
 	Role string `json:"role,omitempty"`
 }
 
@@ -834,10 +833,6 @@ func (d *DbCommonSpec) GetAdditionalMongodConfig() *AdditionalMongodConfig {
 	}
 
 	return d.AdditionalMongodConfig
-}
-
-func (d *DbCommonSpec) GetRole() string {
-	return d.Role
 }
 
 func (s *Security) IsTLSEnabled() bool {

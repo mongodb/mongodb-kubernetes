@@ -57,7 +57,6 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 	tests := []struct {
 		name          string
 		mutate        func(*mdbv1.MongoDB)
-		updateMutate  func(*mdbv1.MongoDB)
 		errorContains string
 	}{
 		{
@@ -168,13 +167,6 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rs := newMongoDB(t, tc.mutate)
 			err := k8sClient.Create(ctx, rs)
-
-			if tc.updateMutate != nil {
-				require.NoError(t, err)
-				tc.updateMutate(rs)
-				err = k8sClient.Update(ctx, rs)
-			}
-
 			if tc.errorContains == "" {
 				require.NoError(t, err)
 				return

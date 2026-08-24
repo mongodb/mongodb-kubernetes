@@ -175,7 +175,7 @@ type MongoDBOpsManagerSpec struct {
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
 }
 
-// ExternalApplicationDatabaseRef references the MongoDB resource
+// ExternalApplicationDatabaseRef references an MongoDB resource
 // playing the AppDB role for this Ops Manager instance.
 type ExternalApplicationDatabaseRef struct {
 	// Name of the MongoDB resource to use as the external AppDB.
