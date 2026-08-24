@@ -20,4 +20,9 @@ git clone --depth 1 --branch "${PLUGIN_VERSION}" \
     https://github.com/helm-unittest/helm-unittest.git \
     "${PLUGIN_DIR}"
 chown -R "${REMOTE_USER}:${REMOTE_USER}" "${PLUGIN_DIR}"
-su - "${REMOTE_USER}" -c "helm plugin install ${PLUGIN_DIR} --verify=false"
+# --verify is a helm 4 flag; helm 3 rejects it.
+install_flags=""
+if helm plugin install --help 2>&1 | grep -q -- "--verify"; then
+    install_flags="--verify=false"
+fi
+su - "${REMOTE_USER}" -c "helm plugin install ${PLUGIN_DIR} ${install_flags}"

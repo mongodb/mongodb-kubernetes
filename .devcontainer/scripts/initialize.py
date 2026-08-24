@@ -82,17 +82,10 @@ def mirror_local_features(tooling_root, workspace_root):
     src = os.path.join(tooling_root, ".devcontainer", "features")
     dst = os.path.join(workspace_root, ".devcontainer", "features")
     if os.path.realpath(src) != os.path.realpath(dst):
+        # No info/exclude entry: linked worktrees share the main checkout's
+        # exclude file, so an entry here would hide the tooling's own tracked
+        # copy of these files.
         shutil.copytree(src, dst, dirs_exist_ok=True)
-        exclude = subprocess.check_output(
-            ["git", "-C", workspace_root, "rev-parse", "--git-path", "info/exclude"], text=True
-        ).strip()
-        if not os.path.isabs(exclude):
-            exclude = os.path.join(workspace_root, exclude)
-        entry = "/.devcontainer/features/"
-        existing = open(exclude).read() if os.path.exists(exclude) else ""
-        if entry not in existing.splitlines():
-            with open(exclude, "a") as f:
-                f.write(("" if existing.endswith("\n") or not existing else "\n") + entry + "\n")
     return "../../.devcontainer/features/"
 
 
