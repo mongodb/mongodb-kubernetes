@@ -71,6 +71,31 @@ def tmux_volumes():
     return entries
 
 
+def mirror_local_features(tooling_root, workspace_root):
+    """Mirror the tooling's local devcontainer features into the target
+    worktree's ``.devcontainer/features``.
+
+    The devcontainer CLI rejects a local feature whose resolved path escapes
+    ``<workspace-folder>/.devcontainer``, so the rendered config can't point at
+    the tooling checkout directly. Returns the relative prefix to use in
+    devcontainer.json (relative to the rendered config's dir)."""
+    src = os.path.join(tooling_root, ".devcontainer", "features")
+    dst = os.path.join(workspace_root, ".devcontainer", "features")
+    if os.path.realpath(src) != os.path.realpath(dst):
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+        exclude = subprocess.check_output(
+            ["git", "-C", workspace_root, "rev-parse", "--git-path", "info/exclude"], text=True
+        ).strip()
+        if not os.path.isabs(exclude):
+            exclude = os.path.join(workspace_root, exclude)
+        entry = "/.devcontainer/features/"
+        existing = open(exclude).read() if os.path.exists(exclude) else ""
+        if entry not in existing.splitlines():
+            with open(exclude, "a") as f:
+                f.write(("" if existing.endswith("\n") or not existing else "\n") + entry + "\n")
+    return "../../.devcontainer/features/"
+
+
 def render_config(tooling_root, workspace_root, devc_dir):
     """Render the per-worktree devcontainer config next to the compose
     override:
@@ -91,6 +116,8 @@ def render_config(tooling_root, workspace_root, devc_dir):
     shutil.copyfile(os.path.join(src_devc, "compose.yml"), os.path.join(devc_dir, "compose.yml"))
 
     json_text = open(os.path.join(src_devc, "devcontainer.json")).read()
+    feature_prefix = mirror_local_features(tooling_root, workspace_root)
+    json_text = json_text.replace('"./features/', f'"{feature_prefix}')
     replacements = [
         ('"../.generated/devcontainer/compose.yml"', '"compose.yml"'),
         ('"../.generated/devcontainer/compose.generated.yml"', '"compose.generated.yml"'),
