@@ -657,7 +657,6 @@ spec:
                 - username
                 type: object
               role:
-                default: ""
                 description: |-
                   Role marks this resource as playing a special role for another MongoDB
                   Kubernetes resource. Currently only AppDB is supported, marking this
@@ -670,7 +669,8 @@ spec:
                 - message: 'spec.role is immutable: it cannot be added, removed, or
                     changed after creation; to stop using a resource as AppDB, perform
                     a reverse migration (delete the resource)'
-                  rule: self == oldSelf
+                  rule: has(self.role) == has(oldSelf.role) && (!has(self.role) ||
+                    self.role == oldSelf.role)
               security:
                 properties:
                   authentication:
