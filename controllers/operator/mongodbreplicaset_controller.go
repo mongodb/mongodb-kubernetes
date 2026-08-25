@@ -948,13 +948,6 @@ func (r *ReplicaSetReconcilerHelper) claimAppDBRoleSecrets(ctx context.Context, 
 	keyfileSecretName := fmt.Sprintf("%s-keyfile", mdb.Name)
 
 	for _, name := range []string{passwordSecretName, keyfileSecretName} {
-		s := corev1.Secret{}
-		if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s); err != nil {
-			if errors.IsNotFound(err) {
-				continue
-			}
-			return xerrors.Errorf("failed to fetch secret %s: %w", name, err)
-		}
 		if err := r.claimSecretForCR(ctx, mdb, name); err != nil {
 			return xerrors.Errorf("failed to claim secret %s: %w", name, err)
 		}
@@ -966,6 +959,9 @@ func (r *ReplicaSetReconcilerHelper) claimAppDBRoleSecrets(ctx context.Context, 
 func (r *ReplicaSetReconcilerHelper) claimSecretForCR(ctx context.Context, mdb *mdbv1.MongoDB, name string) error {
 	s := corev1.Secret{}
 	if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
 		return xerrors.Errorf("failed to fetch secret %s while claiming ownership: %w", name, err)
 	}
 	for _, ref := range s.OwnerReferences {
