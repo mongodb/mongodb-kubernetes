@@ -28,7 +28,7 @@ const (
 	ClusterTopologyMultiCluster = "MultiCluster"
 )
 
-// AppDBUserRoles defines required roles for the AppDB user are outlined in the documentation
+// AppDBUserRoles defines required roles for the AppDB user that are outlined in the documentation
 // https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
 var AppDBUserRoles = []authtypes.Role{
 	{Name: "readWriteAnyDatabase", Database: "admin"},
