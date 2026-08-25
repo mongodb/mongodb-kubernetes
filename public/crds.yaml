@@ -2130,11 +2130,6 @@ spec:
                 x-kubernetes-validations:
                 - message: spec.role must be 'AppDB' when set
                   rule: self == '' || self == 'AppDB'
-                - message: 'spec.role is immutable: it cannot be added, removed, or
-                    changed after creation; to stop using a resource as AppDB, perform
-                    a reverse migration (delete the resource)'
-                  rule: has(self.role) == has(oldSelf.role) && (!has(self.role) ||
-                    self.role == oldSelf.role)
               security:
                 properties:
                   authentication:
@@ -3398,6 +3393,11 @@ spec:
               rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
                 || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers
                 == true'
+            - message: 'spec.role is immutable: it cannot be added, removed, or changed
+                after creation; to stop using a resource as AppDB, perform a reverse
+                migration (delete the resource)'
+              rule: has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role
+                == oldSelf.role)
           status:
             properties:
               backup:
@@ -4179,11 +4179,6 @@ spec:
                 x-kubernetes-validations:
                 - message: spec.role must be 'AppDB' when set
                   rule: self == '' || self == 'AppDB'
-                - message: 'spec.role is immutable: it cannot be added, removed, or
-                    changed after creation; to stop using a resource as AppDB, perform
-                    a reverse migration (delete the resource)'
-                  rule: has(self.role) == has(oldSelf.role) && (!has(self.role) ||
-                    self.role == oldSelf.role)
               security:
                 properties:
                   authentication:
@@ -4538,7 +4533,7 @@ spec:
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
             - message: spec.role is not supported on MongoDBMultiCluster
-              rule: self.role == ""
+              rule: '!has(self.role) || self.role == ""'
             - message: spec.security.authentication must be enabled with modes [SCRAM]
                 only when spec.role is AppDB, or omitted entirely
               rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
@@ -4550,6 +4545,11 @@ spec:
               rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
                 || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers
                 == true'
+            - message: 'spec.role is immutable: it cannot be added, removed, or changed
+                after creation; to stop using a resource as AppDB, perform a reverse
+                migration (delete the resource)'
+              rule: has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role
+                == oldSelf.role)
           status:
             properties:
               backup:
