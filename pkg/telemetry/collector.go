@@ -239,6 +239,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 
 			numberOfClustersUsed := getMaxNumberOfClustersSCIsDeployedOn(item)
 			properties := DeploymentUsageSnapshotProperties{
+				Role:                     item.Spec.Role,
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,
 				Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
@@ -280,6 +281,7 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 
 		properties := DeploymentUsageSnapshotProperties{
 			DatabaseClusters:         &clusters, // cannot be null in mdbmulti
+			Role:                     item.Spec.Role,
 			DeploymentUID:            string(item.UID),
 			OperatorID:               operatorUUID,
 			Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),

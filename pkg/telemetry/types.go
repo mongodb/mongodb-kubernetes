@@ -46,6 +46,7 @@ type DeploymentUsageSnapshotProperties struct {
 	AppDBClusters            *int     `json:"appDBClusters,omitempty"`
 	AppDBBackupMode          string   `json:"appDBBackupMode,omitempty"`
 	ExternalAppDB            string   `json:"externalAppDB,omitempty"`
+	Role                     string   `json:"role,omitempty"`
 	OmClusters               *int     `json:"OmClusters,omitempty"`
 	DeploymentUID            string   `json:"deploymentUID"`
 	OperatorID               string   `json:"operatorID"`

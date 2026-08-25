@@ -47,6 +47,7 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 			AppDBBackupMode:          "enabled",
 			ExternalAppDB:            "MongoDB",
 			OmClusters:               &omClusters,
+			Role:                     "AppDB",
 			DeploymentUID:            "test-deployment-uid",
 			OperatorID:               "test-operator-id",
 			Architecture:             "amd64",

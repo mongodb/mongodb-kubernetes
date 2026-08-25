@@ -951,6 +951,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbv1.MongoDbSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
 							Backup: &mdbv1.Backup{
 								Mode: "enabled",
 							},
@@ -980,6 +981,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbv1.MongoDbSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.custom.domain"),
 							},
@@ -1012,6 +1014,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
 							Backup: &mdbv1.Backup{
 								Mode: "enabled",
 							},
@@ -1046,6 +1049,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					Spec: mdbmulti.MongoDBMultiSpec{
 						DbCommonSpec: mdbv1.DbCommonSpec{
 							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.default.domain"),
 							},
@@ -1096,6 +1100,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			expectedEventsWithProperties: []map[string]any{
 				{
 					"deploymentUID":            "ext-appdb-mdb-backup-none-uid",
+					"role":                     "AppDB",
 					"operatorID":               testOperatorUUID,
 					"architecture":             string(architectures.NonStatic),
 					"isMultiCluster":           false,
@@ -1103,9 +1108,11 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
 					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
 				},
 				{
 					"deploymentUID":            "ext-appdb-mdb-backup-uniform-uid",
+					"role":                     "AppDB",
 					"operatorID":               testOperatorUUID,
 					"architecture":             string(architectures.NonStatic),
 					"isMultiCluster":           false,
@@ -1113,9 +1120,11 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainUniform,
 					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
 				},
 				{
 					"deploymentUID":            "ext-appdb-mdbm-clusters-uid",
+					"role":                     "AppDB",
 					"operatorID":               testOperatorUUID,
 					"architecture":             string(architectures.NonStatic),
 					"isMultiCluster":           true,
@@ -1161,6 +1170,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				{
 					"deploymentUID":            "ext-appdb-mdbm-mixed-terminated-uid",
+					"role":                     "AppDB",
 					"operatorID":               testOperatorUUID,
 					"architecture":             string(architectures.NonStatic),
 					"isMultiCluster":           true,
