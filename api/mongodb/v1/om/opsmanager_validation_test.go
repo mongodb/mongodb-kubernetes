@@ -410,20 +410,20 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
 				SetAppDBToNil().
-				SetExternalApplicationDatabaseRef(ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 		},
 		"applicationDatabase and externalApplicationDatabaseRef both set": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
-				SetExternalApplicationDatabaseRef(ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 		},
 		"externalApplicationDatabaseRef mismatching name": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
 				SetAppDBToNil().
-				SetExternalApplicationDatabaseRef(ExternalApplicationDatabaseRef{Name: "om-test-other", Kind: "MongoDB"}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-other", Kind: "MongoDB"}).
 				Build(),
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "spec.externalApplicationDatabaseRef.name must be om-test-db",
@@ -432,7 +432,7 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
 				SetAppDbVersion("not-a-version").
-				SetExternalApplicationDatabaseRef(ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 		},
 		"externalApplicationDatabaseRef set, multi-cluster AppDB clusterSpecList ignored": {
@@ -443,14 +443,14 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 					{ClusterName: "dup", Members: 1},
 					{ClusterName: "dup", Members: 1},
 				}).
-				SetExternalApplicationDatabaseRef(ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 		},
 		"externalApplicationDatabaseRef set and OM-level validators still run": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
 				SetVersion("4.4").
-				SetExternalApplicationDatabaseRef(ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid",

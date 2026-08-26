@@ -78,8 +78,8 @@ spec:
               applicationDatabase:
                 description: |-
                   AppDB configures the internally-managed Application Database. Required unless
-                  ExternalApplicationDatabaseRef is set, in which case it may be omitted entirely.
-                  Ignored when ExternalApplicationDatabaseRef is set.
+                  ExternalAppDBRef is set, in which case it may be omitted entirely.
+                  Ignored when ExternalAppDBRef is set.
                 properties:
                   additionalMongodConfig:
                     description: |-
@@ -1628,9 +1628,9 @@ spec:
                 type: object
               externalApplicationDatabaseRef:
                 description: |-
-                  ExternalApplicationDatabaseRef references a MongoDB resource
+                  ExternalAppDBRef references a MongoDB resource
                   to use as this Ops Manager's AppDB, instead of the internally-managed one.
-                  Takes precedence over applicationDatabase when both are set.
+                  Takes precedence over AppDB when both are set.
                 properties:
                   kind:
                     description: Kind of the referenced resource.

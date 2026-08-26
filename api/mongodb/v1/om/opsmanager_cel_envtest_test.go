@@ -48,7 +48,7 @@ func TestOpsManagerCELValidation_AppDBOrExternalRefRequired(t *testing.T) {
 			name: "neither applicationDatabase nor externalApplicationDatabaseRef is rejected",
 			mutate: func(om *omv1.MongoDBOpsManager) {
 				om.Spec.AppDB = nil
-				om.Spec.ExternalApplicationDatabaseRef = nil
+				om.Spec.ExternalAppDBRef = nil
 			},
 			errorContains: "at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set",
 		},
@@ -66,7 +66,7 @@ func TestOpsManagerCELValidation_AppDBOrExternalRefRequired(t *testing.T) {
 		{
 			name: "externalApplicationDatabaseRef set is accepted",
 			mutate: func(om *omv1.MongoDBOpsManager) {
-				om.Spec.ExternalApplicationDatabaseRef = &omv1.ExternalApplicationDatabaseRef{
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{
 					Name: "test-om-db",
 					Kind: "MongoDB",
 				}

@@ -186,7 +186,7 @@ func TestAppDBName(t *testing.T) {
 			name: "returns externalApplicationDatabaseRef name when set",
 			prepare: func(om *MongoDBOpsManager) {
 				om.Spec.AppDB = nil
-				om.Spec.ExternalApplicationDatabaseRef = &ExternalApplicationDatabaseRef{Name: "external-appdb", Kind: "MongoDB"}
+				om.Spec.ExternalAppDBRef = &ExternalAppDBRef{Name: "external-appdb", Kind: "MongoDB"}
 			},
 			expected: "external-appdb",
 		},
@@ -207,7 +207,7 @@ func TestAppDBName(t *testing.T) {
 }
 
 func TestOpsManager_InitDefaultFields_ExternalRefSkipsAppDBDefaulting(t *testing.T) {
-	externalRef := &ExternalApplicationDatabaseRef{Name: "om-test-db", Kind: "MongoDB"}
+	externalRef := &ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}
 	tests := []struct {
 		name             string
 		spec             MongoDBOpsManagerSpec
@@ -216,12 +216,12 @@ func TestOpsManager_InitDefaultFields_ExternalRefSkipsAppDBDefaulting(t *testing
 	}{
 		{
 			name:             "ref-only: AppDB stays nil",
-			spec:             MongoDBOpsManagerSpec{ExternalApplicationDatabaseRef: externalRef},
+			spec:             MongoDBOpsManagerSpec{ExternalAppDBRef: externalRef},
 			expectedAppDBNil: true,
 		},
 		{
 			name:            "both set: AppDB kept but not defaulted",
-			spec:            MongoDBOpsManagerSpec{AppDB: &AppDBSpec{}, ExternalApplicationDatabaseRef: externalRef},
+			spec:            MongoDBOpsManagerSpec{AppDB: &AppDBSpec{}, ExternalAppDBRef: externalRef},
 			expectedDefault: false,
 		},
 		{
@@ -265,6 +265,6 @@ func TestOpsManager_UnmarshalJSON_ExternalRefLeavesAppDBNil(t *testing.T) {
 	data := []byte(`{"metadata":{"name":"om-test","namespace":"mongodb"},"spec":{"externalApplicationDatabaseRef":{"name":"om-test-db","kind":"MongoDB"}}}`)
 	om := &MongoDBOpsManager{}
 	require.NoError(t, json.Unmarshal(data, om))
-	assert.NotNil(t, om.Spec.ExternalApplicationDatabaseRef)
+	assert.NotNil(t, om.Spec.ExternalAppDBRef)
 	assert.Nil(t, om.Spec.AppDB)
 }

@@ -121,16 +121,16 @@ type MongoDBOpsManagerSpec struct {
 	AdminSecret string `json:"adminCredentials,omitempty"`
 
 	// AppDB configures the internally-managed Application Database. Required unless
-	// ExternalApplicationDatabaseRef is set, in which case it may be omitted entirely.
-	// Ignored when ExternalApplicationDatabaseRef is set.
+	// ExternalAppDBRef is set, in which case it may be omitted entirely.
+	// Ignored when ExternalAppDBRef is set.
 	// +optional
 	AppDB *AppDBSpec `json:"applicationDatabase,omitempty"`
 
-	// ExternalApplicationDatabaseRef references a MongoDB resource
+	// ExternalAppDBRef references a MongoDB resource
 	// to use as this Ops Manager's AppDB, instead of the internally-managed one.
-	// Takes precedence over applicationDatabase when both are set.
+	// Takes precedence over AppDB when both are set.
 	// +optional
-	ExternalApplicationDatabaseRef *ExternalApplicationDatabaseRef `json:"externalApplicationDatabaseRef,omitempty"`
+	ExternalAppDBRef *ExternalAppDBRef `json:"externalApplicationDatabaseRef,omitempty"`
 
 	Logging *Logging `json:"logging,omitempty"`
 	// Custom JVM parameters passed to the Ops Manager JVM
@@ -175,9 +175,9 @@ type MongoDBOpsManagerSpec struct {
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
 }
 
-// ExternalApplicationDatabaseRef references an MongoDB resource
+// ExternalAppDBRef references an MongoDB resource
 // playing the AppDB role for this Ops Manager instance.
-type ExternalApplicationDatabaseRef struct {
+type ExternalAppDBRef struct {
 	// Name of the MongoDB resource to use as the external AppDB.
 	// Must be in the same namespace as the MongoDBOpsManager resource, and named
 	// <MongoDBOpsManager name>-db.
@@ -666,7 +666,7 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.Backup.Members = 1
 	}
 
-	if om.Spec.ExternalApplicationDatabaseRef == nil {
+	if om.Spec.ExternalAppDBRef == nil {
 		if om.Spec.AppDB == nil {
 			om.Spec.AppDB = &AppDBSpec{}
 		}
@@ -692,8 +692,8 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 // AppDBName's AppDB branch is nil-safe only via the admission invariant that at least one of
 // applicationDatabase or externalApplicationDatabaseRef is set.
 func (om *MongoDBOpsManager) AppDBName() string {
-	if om.Spec.ExternalApplicationDatabaseRef != nil {
-		return om.Spec.ExternalApplicationDatabaseRef.Name
+	if om.Spec.ExternalAppDBRef != nil {
+		return om.Spec.ExternalAppDBRef.Name
 	}
 	return om.Spec.AppDB.Name()
 }

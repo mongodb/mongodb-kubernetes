@@ -279,8 +279,8 @@ func (b *OpsManagerBuilder) SetOpsManagerClusterSpecList(clusterSpecItems []Clus
 	return b
 }
 
-func (b *OpsManagerBuilder) SetExternalApplicationDatabaseRef(ref ExternalApplicationDatabaseRef) *OpsManagerBuilder {
-	b.om.Spec.ExternalApplicationDatabaseRef = &ref
+func (b *OpsManagerBuilder) SetExternalApplicationDatabaseRef(ref ExternalAppDBRef) *OpsManagerBuilder {
+	b.om.Spec.ExternalAppDBRef = &ref
 	return b
 }
 
