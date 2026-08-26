@@ -1,0 +1,24 @@
+---
+# The one CR the decentralized installer applies identically to every cluster: each operator
+# reads its own local copy. clusterSpecList is rewritten by the installer from the configured
+# cluster names (one member each); the values here document the default kind topology.
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  name: multi-replica-set
+spec:
+  version: 8.0.0-ent
+  type: ReplicaSet
+  persistent: false
+  duplicateServiceObjects: false
+  credentials: my-credentials
+  opsManager:
+    configMapRef:
+      name: my-project
+  clusterSpecList:
+    - clusterName: kind-e2e-cluster-1
+      members: 1
+    - clusterName: kind-e2e-cluster-2
+      members: 1
+    - clusterName: kind-e2e-cluster-3
+      members: 1
