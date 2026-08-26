@@ -8,14 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
-	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
-	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 )
 
@@ -34,7 +29,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) assembleSnapshot(ctx context.Contex
 		ProjectID:      projectID,
 		ClusterDomain:  mrs.Spec.GetClusterDomain(),
 		SpecViolations: decentralizedSpecViolations(mrs.Spec),
-		Directives:     readDirectiveViews(ctx, r.memberClusterClientsMap, kube.ObjectKey(mrs.Namespace, mrs.Name), log),
+		Directives:     r.transport.ReadDirectives(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), log),
 	}
 	for _, item := range mrs.Spec.ClusterSpecList {
 		s.Targets = append(s.Targets, clusterTarget{
@@ -58,32 +53,6 @@ func (r *ReconcileMongoDBMultiClusterLeader) assembleSnapshot(ctx context.Contex
 		s.OMFacts = omFactsFromClusterState(clusterState)
 	}
 	return s
-}
-
-// readDirectiveViews reads this deployment's directive on every known cluster. NotFound and a
-// failed read are different worlds: NotFound is an authoritative "no entry here", a failed read
-// is absence of visibility — the allocation guard must not mint new indexes over the latter.
-func readDirectiveViews(ctx context.Context, clients map[string]kubernetesClient.Client, nsName types.NamespacedName, log *zap.SugaredLogger) map[string]directiveView {
-	views := make(map[string]directiveView, len(clients))
-	for clusterName, memberClient := range clients {
-		directive := operatorv1.MongoDBDirective{}
-		if err := memberClient.Get(ctx, nsName, &directive); err != nil {
-			if apiErrors.IsNotFound(err) {
-				views[clusterName] = directiveView{Exists: false}
-				continue
-			}
-			log.Warnf("Failed reading the directive on cluster %s: %s", clusterName, err)
-			views[clusterName] = directiveView{Unreachable: true}
-			continue
-		}
-		views[clusterName] = directiveView{
-			Exists:     true,
-			Spec:       directive.Spec,
-			Status:     directive.Status,
-			Generation: directive.Generation,
-		}
-	}
-	return views
 }
 
 // acViewFromDeployment reduces the deployment to what plan() keys on: per-cluster-index process

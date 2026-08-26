@@ -70,7 +70,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
 	"sort"
 
@@ -87,8 +86,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -112,31 +109,26 @@ import (
 // writing directives and publishing the automation config; it never touches workload resources
 // (that is the member controller's job, gated by its local directive).
 type ReconcileMongoDBMultiClusterLeader struct {
-	localClient             kubernetesClient.Client            // this cluster: the CR copy and its status
-	memberClusterClientsMap map[string]kubernetesClient.Client // holds the client for each of the member clusters, including this one
-	elector                 Elector
-	omConnectionFactory     om.ConnectionFactory
-	imageUrls               images.ImageUrls
-	defaultArchitecture     architectures.DefaultArchitecture
-	forceEnterprise         bool
+	localClient         kubernetesClient.Client // this cluster: the CR copy and its status
+	transport           directiveTransport      // delivers directives to member clusters, including this one
+	elector             Elector
+	omConnectionFactory om.ConnectionFactory
+	imageUrls           images.ImageUrls
+	defaultArchitecture architectures.DefaultArchitecture
+	forceEnterprise     bool
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDBMultiClusterLeader{}
 
-func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, memberClustersMap map[string]client.Client, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise bool) *ReconcileMongoDBMultiClusterLeader {
-	clientsMap := make(map[string]kubernetesClient.Client)
-	for k, v := range memberClustersMap {
-		clientsMap[k] = kubernetesClient.NewClient(v)
-	}
-
+func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, transport directiveTransport, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise bool) *ReconcileMongoDBMultiClusterLeader {
 	return &ReconcileMongoDBMultiClusterLeader{
-		localClient:             kubernetesClient.NewClient(localClient),
-		memberClusterClientsMap: clientsMap,
-		elector:                 elector,
-		omConnectionFactory:     omConnectionFactory,
-		imageUrls:               imageUrls,
-		defaultArchitecture:     defaultArchitecture,
-		forceEnterprise:         forceEnterprise,
+		localClient:         kubernetesClient.NewClient(localClient),
+		transport:           transport,
+		elector:             elector,
+		omConnectionFactory: omConnectionFactory,
+		imageUrls:           imageUrls,
+		defaultArchitecture: defaultArchitecture,
+		forceEnterprise:     forceEnterprise,
 	}
 }
 
@@ -217,11 +209,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) prepareReadOnlyConnection(ctx conte
 func (r *ReconcileMongoDBMultiClusterLeader) execute(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection, decision planDecision, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
 	switch decision.Kind {
 	case decisionWriteDirective:
-		memberClient, ok := r.memberClusterClientsMap[decision.TargetCluster]
-		if !ok {
-			return reconcile.Result{}, xerrors.Errorf("no client for member cluster %s", decision.TargetCluster)
-		}
-		if err := r.writeDirective(ctx, memberClient, kube.ObjectKey(mrs.Namespace, mrs.Name), decision.DirectiveSpec); err != nil {
+		if err := r.transport.WriteDirective(ctx, decision.TargetCluster, kube.ObjectKey(mrs.Namespace, mrs.Name), decision.DirectiveSpec); err != nil {
 			return reconcile.Result{}, xerrors.Errorf("failed writing the directive to cluster %s: %w", decision.TargetCluster, err)
 		}
 		return commoncontroller.UpdateStatus(ctx, r.localClient, mrs, workflow.Pending("%s", decision.Reason), log, statusOptions...)
@@ -257,45 +245,6 @@ func (r *ReconcileMongoDBMultiClusterLeader) saveLastAchievedSpec(ctx context.Co
 	return annotations.SetAnnotations(ctx, mrs, map[string]string{util.LastAchievedSpec: string(achievedSpecBytes)}, r.localClient)
 }
 
-// writeDirective puts the planned directive spec on one member cluster as a read-modify-write:
-// the stored allocation map is unioned into the decision's (a stored entry the planner did not
-// carry is preserved — a stale leader's single write must never regress a copy), AdvancedAt is
-// persisted only when the instruction actually changed, and an unchanged spec skips the write
-// entirely. A resourceVersion conflict (the member bumps it with status writes) is a transient
-// error; controller-runtime retries. The directive carries no owner reference: it is
-// leader-managed and usually lives on a foreign cluster, where GC would never fire.
-func (r *ReconcileMongoDBMultiClusterLeader) writeDirective(ctx context.Context, memberClient kubernetesClient.Client, nsName types.NamespacedName, desired operatorv1.MongoDBDirectiveSpec) error {
-	directive := operatorv1.MongoDBDirective{}
-	err := memberClient.Get(ctx, nsName, &directive)
-	if apiErrors.IsNotFound(err) {
-		directive = operatorv1.MongoDBDirective{
-			ObjectMeta: metav1.ObjectMeta{Name: nsName.Name, Namespace: nsName.Namespace},
-			Spec:       desired,
-		}
-		return memberClient.Create(ctx, &directive)
-	}
-	if err != nil {
-		return err
-	}
-
-	merged := maps.Clone(desired.IndexAllocations)
-	for cluster, index := range directive.Spec.IndexAllocations {
-		if _, ok := merged[cluster]; !ok {
-			merged[cluster] = index
-		}
-	}
-	desired.IndexAllocations = merged
-
-	unchanged := desired
-	unchanged.AdvancedAt = directive.Spec.AdvancedAt
-	if reflect.DeepEqual(directive.Spec, unchanged) {
-		return nil // write-quiescence; keeping the old AdvancedAt also keeps stuckness visible
-	}
-
-	directive.Spec = desired
-	return memberClient.Update(ctx, &directive)
-}
-
 // publishAutomationConfig is the leader-only, non-blocking sibling of the legacy
 // updateOmDeploymentRs (mongodbmultireplicaset_controller.go): the same composition — existing
 // process ids reused by name, NewMultiClusterReplicaSetWithProcesses, ReconcileReplicaSetAC —
@@ -311,7 +260,7 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 
 	// the planner's allocation map fixes each cluster's index; counts are the planned membership
 	allocations := map[string]int{}
-	for _, view := range readDirectiveViews(ctx, r.memberClusterClientsMap, kube.ObjectKey(mrs.Namespace, mrs.Name), log) {
+	for _, view := range r.transport.ReadDirectives(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), log) {
 		for cluster, index := range view.Spec.IndexAllocations {
 			allocations[cluster] = index
 		}
@@ -357,7 +306,8 @@ func enqueueSameNameRequest(_ context.Context, o client.Object) []reconcile.Requ
 
 // AddMongoDBMultiClusterLeaderController creates the leader controller and adds it to the Manager.
 func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise bool, maxConcurrentReconciles int) error {
-	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), elector, omConnectionFactory, imageUrls, defaultArchitecture, forceEnterprise)
+	transport := newAPIServerTransport(multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), transport, elector, omConnectionFactory, imageUrls, defaultArchitecture, forceEnterprise)
 	c, err := controller.New(util.MongoDbMultiClusterLeaderController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err

@@ -56,7 +56,7 @@ func newDecentralizedWorld(m *mdbmulti.MongoDBMultiCluster) *decentralizedWorld 
 		seeds := append([]client.Object{m.DeepCopy(), agentApiKeySecret(om.TestGroupID)}, mock.GetDefaultResources()...)
 		w.members[clusterName], w.clients[clusterName] = materializerReconcilerForTest(NewStaticElector(clusterName, clusters[0]), w.factory, true, seeds...)
 	}
-	w.leader = newMongoDBMultiClusterLeaderReconciler(w.clients[clusters[0]], w.clients, NewStaticElector(clusters[0], clusters[0]), w.factory.GetConnectionFunc, nil, architectures.NonStatic, false)
+	w.leader = newMongoDBMultiClusterLeaderReconciler(w.clients[clusters[0]], newAPIServerTransport(w.clients), NewStaticElector(clusters[0], clusters[0]), w.factory.GetConnectionFunc, nil, architectures.NonStatic, false)
 	return w
 }
 

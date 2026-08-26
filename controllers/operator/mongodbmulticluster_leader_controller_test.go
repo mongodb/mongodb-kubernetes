@@ -52,7 +52,7 @@ func leaderReconcilerForTest(m *mdbmulti.MongoDBMultiCluster, self string, elect
 			clientsMap[clusterName] = mock.NewEmptyFakeClientBuilder().Build()
 		}
 	}
-	reconciler := newMongoDBMultiClusterLeaderReconciler(clientsMap[self], clientsMap, elector, omConnectionFactory.GetConnectionFunc, nil, architectures.NonStatic, false)
+	reconciler := newMongoDBMultiClusterLeaderReconciler(clientsMap[self], newAPIServerTransport(clientsMap), elector, omConnectionFactory.GetConnectionFunc, nil, architectures.NonStatic, false)
 	return reconciler, clientsMap, omConnectionFactory
 }
 
@@ -167,7 +167,7 @@ func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	reconciler, clientsMap, _ := leaderReconcilerForTest(m, clusters[0], NewStaticElector(clusters[0], clusters[0]))
-	memberClient := reconciler.memberClusterClientsMap[clusters[1]]
+	memberClient := clientsMap[clusters[1]]
 
 	// a stored entry the planner does not carry (a ghost from a previous leader) must survive
 	stored := buildDirective(m, clusters[1], 1, "old-hash")
@@ -184,7 +184,7 @@ func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {
 		ProjectID:        om.TestGroupID,
 		AdvancedAt:       metav1.NewTime(time.Now().Truncate(time.Second)),
 	}
-	require.NoError(t, reconciler.writeDirective(ctx, memberClient, kube.ObjectKey(m.Namespace, m.Name), desired))
+	require.NoError(t, reconciler.transport.WriteDirective(ctx, clusters[1], kube.ObjectKey(m.Namespace, m.Name), desired))
 
 	readBack := operatorv1.MongoDBDirective{}
 	require.NoError(t, memberClient.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
@@ -196,7 +196,7 @@ func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {
 	resourceVersion := readBack.ResourceVersion
 	repeat := desired
 	repeat.AdvancedAt = metav1.NewTime(time.Now().Add(time.Hour).Truncate(time.Second))
-	require.NoError(t, reconciler.writeDirective(ctx, memberClient, kube.ObjectKey(m.Namespace, m.Name), repeat))
+	require.NoError(t, reconciler.transport.WriteDirective(ctx, clusters[1], kube.ObjectKey(m.Namespace, m.Name), repeat))
 	require.NoError(t, memberClient.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &readBack))
 	assert.Equal(t, resourceVersion, readBack.ResourceVersion)
 	assert.Equal(t, desired.AdvancedAt, readBack.Spec.AdvancedAt)

@@ -37,7 +37,8 @@ func TestReadDirectiveViews(t *testing.T) {
 		}).Build()),
 	}
 
-	views := readDirectiveViews(ctx, clientsMap, requestFromObject(m).NamespacedName, zap.S())
+	transport := &apiServerTransport{clients: clientsMap}
+	views := transport.ReadDirectives(ctx, requestFromObject(m).NamespacedName, zap.S())
 
 	require.Len(t, views, 3)
 	assert.True(t, views[clusters[0]].Exists)
