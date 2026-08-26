@@ -1058,6 +1058,41 @@ class KubernetesTester(object):
             return KubernetesTester.create_group(org_id, group_name)
 
     @staticmethod
+    def create_group_with_agent_key(org_id, group_name):
+        """
+        Creates the group in Ops Manager and returns (group_id, agent_api_key). 'POST /groups'
+        mints an agent API key and returns it only in that response; create_group discards it.
+        """
+        url = build_om_groups_endpoint(KubernetesTester.get_om_base_url())
+        response = KubernetesTester.om_request("post", url, {"name": group_name, "orgId": org_id})
+        group = response.json()
+
+        return group["id"], group["agentApiKey"]
+
+    @staticmethod
+    def generate_agent_api_key(group_id):
+        """Mints a new agent API key for an existing group and returns it."""
+        url = build_om_agent_api_keys_endpoint(KubernetesTester.get_om_base_url(), group_id)
+        response = KubernetesTester.om_request("post", url, {"desc": "Agent API key for Kubernetes"})
+
+        return response.json()["key"]
+
+    @staticmethod
+    def ensure_group_with_agent_key(org_id, group_name):
+        """
+        Like ensure_group, but also returns an agent API key for the group: the one minted with a
+        newly created group, or a freshly generated one when the group already exists (existing
+        keys cannot be read back from the API).
+        """
+        try:
+            group_id = KubernetesTester.get_om_group_id(group_name=group_name, org_id=org_id)
+        except Exception as e:
+            print(f"Caught exception: {e}")
+            return KubernetesTester.create_group_with_agent_key(org_id, group_name)
+
+        return group_id, KubernetesTester.generate_agent_api_key(group_id)
+
+    @staticmethod
     def query_group(group_name, org_id=None):
         """
         Obtains the group id of the group with specified name.
@@ -1771,6 +1806,10 @@ def build_om_groups_endpoint(base_url):
 
 def build_om_group_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
+
+
+def build_om_agent_api_keys_endpoint(base_url, group_id):
+    return "{}/api/public/v1.0/groups/{}/agentapikeys".format(base_url, group_id)
 
 
 def build_om_org_endpoint(base_url):
