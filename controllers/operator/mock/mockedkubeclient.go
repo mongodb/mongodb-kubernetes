@@ -15,6 +15,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	certsv1 "k8s.io/api/certificates/v1beta1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
@@ -108,6 +109,11 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 	}
 
 	err = operatorv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = coordinationv1.AddToScheme(s)
 	if err != nil {
 		return nil
 	}

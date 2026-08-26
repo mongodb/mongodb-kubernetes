@@ -100,7 +100,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -306,7 +305,7 @@ func enqueueSameNameRequest(_ context.Context, o client.Object) []reconcile.Requ
 
 // AddMongoDBMultiClusterLeaderController creates the leader controller and adds it to the Manager.
 func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, elector Elector, omConnectionFactory om.ConnectionFactory, imageUrls images.ImageUrls, defaultArchitecture architectures.DefaultArchitecture, forceEnterprise bool, maxConcurrentReconciles int) error {
-	transport := newAPIServerTransport(multicluster.ClustersMapToClientMap(memberClustersMap))
+	transport := newAPIServerTransportFromClusters(memberClustersMap)
 	reconciler := newMongoDBMultiClusterLeaderReconciler(mgr.GetClient(), transport, elector, omConnectionFactory, imageUrls, defaultArchitecture, forceEnterprise)
 	c, err := controller.New(util.MongoDbMultiClusterLeaderController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
