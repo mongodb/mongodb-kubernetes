@@ -369,7 +369,6 @@ func run() error {
 	if slices.Contains(watchedResources, mongoDBDirectiveCRDPlural) {
 		selfClusterName := operator.GetOperatorClusterName()
 		leaderClusterName := env.ReadOrDefault(util.OperatorLeaderClusterNameEnv, "")
-		log.Infof("Decentralized multi-cluster mode enabled: operator cluster identity = %q, designated leader cluster = %q", selfClusterName, leaderClusterName)
 
 		// the leader writes directives to its own cluster through the same map as to its peers;
 		// the manager already is a cluster.Cluster for the local API server, so no new informers
@@ -380,7 +379,20 @@ func run() error {
 			}
 		}
 
-		elector := operator.NewStaticElector(selfClusterName, leaderClusterName)
+		// OPERATOR_LEADER_CLUSTER_NAME is the explicit dev/test override: leadership pinned to
+		// one cluster, no election. Unset (the default), the majority lease elects per deployment.
+		var elector operator.Elector
+		if leaderClusterName != "" {
+			log.Infof("Decentralized multi-cluster mode enabled: operator cluster identity = %q, designated leader cluster = %q", selfClusterName, leaderClusterName)
+			elector = operator.NewStaticElector(selfClusterName, leaderClusterName)
+		} else {
+			log.Infof("Decentralized multi-cluster mode enabled: operator cluster identity = %q, majority-lease election", selfClusterName)
+			quorumElector := operator.NewQuorumElector(mgr.GetCache(), memberClusterObjectsMap, selfClusterName)
+			if err := mgr.Add(quorumElector); err != nil {
+				return err
+			}
+			elector = quorumElector
+		}
 		if err := setupMongoDBDirectiveCRD(mgr, memberClusterObjectsMap, elector, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, defaultArchitecture, forceEnterprise, agentDebug, agentDebugImage, propagateProxyEnv, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}

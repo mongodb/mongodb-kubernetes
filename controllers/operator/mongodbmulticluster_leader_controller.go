@@ -134,6 +134,7 @@ func newMongoDBMultiClusterLeaderReconciler(localClient client.Client, transport
 // MongoDBMultiCluster Resource (leader role)
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbmulticluster,mongodbmulticluster/status},verbs=get;list;watch;patch;update,namespace=placeholder
 // +kubebuilder:rbac:groups=operator.mongodb.com,resources=mongodbdirectives,verbs=get;list;watch;create;update,namespace=placeholder
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=placeholder
 
 // Reconcile plans one pass for a MongoDBMultiCluster deployment: assemble the snapshot, call the
 // pure planner, execute exactly one decision, map it one-to-one to a workflow status.
@@ -338,6 +339,13 @@ func AddMongoDBMultiClusterLeaderController(mgr manager.Manager, memberClustersM
 		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &operatorv1.MongoDBDirective{}, handler.EnqueueRequestsFromMapFunc(enqueueSameNameRequest)))
 		if err != nil {
 			return xerrors.Errorf("failed to set MongoDBDirective watch on member cluster %s: %w", clusterName, err)
+		}
+	}
+
+	// the elector wakes us on leadership transitions; a static elector has none to signal
+	if events := elector.Events(); events != nil {
+		if err := c.Watch(source.Channel[client.Object](events, &handler.EnqueueRequestForObject{})); err != nil {
+			return xerrors.Errorf("failed to set the elector transition watch: %w", err)
 		}
 	}
 

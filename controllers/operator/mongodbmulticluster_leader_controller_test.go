@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +38,10 @@ type fakeElector struct {
 func (e fakeElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 	return e.term, e.isLeader
 }
+
+func (e fakeElector) Events() <-chan event.GenericEvent { return nil }
+
+func (e fakeElector) ObserveTermFloor(types.NamespacedName, int64) {}
 
 // leaderReconcilerForTest builds a leader reconciler over one fake client per member cluster.
 // The self cluster's client holds the CR plus the project ConfigMap and credentials Secret (the

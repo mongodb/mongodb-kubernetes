@@ -2,6 +2,7 @@ package operator
 
 import (
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 // Elector is the seam between the decentralized controllers and the leader-election machinery.
@@ -18,6 +19,15 @@ type Elector interface {
 	// even when the writer's belief was stale. isLeader == true implies the takeover hold-off has
 	// already been served — the caller may perform guarded writes immediately.
 	Current(deployment types.NamespacedName) (term int64, isLeader bool)
+	// Events wakes the leader controller on leadership transitions through a source.Channel
+	// watch — reconcile now, don't wait for a requeue. A nil channel means the elector has no
+	// transitions to signal (the static elector) and the caller skips the watch.
+	Events() <-chan event.GenericEvent
+	// ObserveTermFloor pushes the term stamped in the automation config (T16): the elector
+	// cannot read Ops Manager, so the leader controller reports the floor after every snapshot.
+	// Candidacies start above it; a floor raise at or above the held term re-CASes the majority
+	// at floor+1 on the next renewal. Electors that never mint terms ignore it.
+	ObserveTermFloor(deployment types.NamespacedName, floor int64)
 }
 
 // staticElectorTerm is the constant term handed out by StaticElector. Leadership never changes
@@ -46,3 +56,11 @@ func NewStaticElector(selfClusterName, leaderClusterName string) *StaticElector 
 func (e *StaticElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 	return staticElectorTerm, e.selfClusterName != "" && e.selfClusterName == e.leaderClusterName
 }
+
+// Events returns nil: static leadership never transitions, there is nothing to wake anyone for.
+func (e *StaticElector) Events() <-chan event.GenericEvent {
+	return nil
+}
+
+// ObserveTermFloor is a no-op: the static elector never mints terms.
+func (e *StaticElector) ObserveTermFloor(types.NamespacedName, int64) {}
