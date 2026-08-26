@@ -350,9 +350,14 @@ def render_dry_run(settings: InstallerSettings, out_dir: str) -> Dict[str, Dict[
 
 
 def crd_files_from_chart() -> List[str]:
-    # Same resolution as kubetester.helm: DEFAULT_HELM_CHART_PATH points at the local chart both
-    # in the test pod and via scripts/dev/contexts locally.
-    chart_path = os.environ.get("DEFAULT_HELM_CHART_PATH", "helm_chart")
+    # DEFAULT_HELM_CHART_PATH points at the local chart both in the test pod and via
+    # scripts/dev/contexts locally; the last fallback walks from this file up to the repo root so
+    # the dry-run also works from a bare checkout.
+    chart_path = os.environ.get("DEFAULT_HELM_CHART_PATH", "")
+    if not chart_path:
+        chart_path = "helm_chart"
+    if not os.path.isdir(chart_path):
+        chart_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "helm_chart")
     return sorted(glob.glob(os.path.join(chart_path, "crds", "*.yaml")))
 
 

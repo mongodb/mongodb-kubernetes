@@ -90,3 +90,13 @@ def test_the_workload_cr_and_om_inputs_are_identical_everywhere(tmp_path):
     for operator_config in operator_configs:
         # mongodbdirectives is opt-in only; without it the member controllers are deaf.
         assert operator_config["spec"]["watchedResources"] == ["mongodbdirectives"]
+
+
+def test_dry_run_lists_the_chart_crds(tmp_path):
+    render_dry_run(make_settings(), str(tmp_path))
+
+    for cluster in CLUSTERS:
+        with open(tmp_path / cluster / "crds-from-chart.txt") as f:
+            crds = f.read().split()
+        assert "operator.mongodb.com_mongodbdirectives.yaml" in crds
+        assert "operator.mongodb.com_memberclusters.yaml" in crds
