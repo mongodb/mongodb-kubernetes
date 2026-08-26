@@ -1,0 +1,66 @@
+suite: Operator own-role directives and leases grants
+templates:
+  - operator-roles-base.yaml
+tests:
+  - it: grants the operator full mongodbdirectives, status echo, and leases in base mode
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: kind
+          value: Role
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - operator.mongodb.com
+            resources:
+              - mongodbdirectives
+            verbs:
+              - '*'
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - operator.mongodb.com
+            resources:
+              - mongodbdirectives/status
+            verbs:
+              - get
+              - update
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - coordination.k8s.io
+            resources:
+              - leases
+            verbs:
+              - get
+              - create
+              - update
+  - it: keeps the hub-and-spoke member role free of directives and leases
+    set:
+      memberCluster.enabled: true
+      memberCluster.name: cluster-1
+    documentIndex: 0
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - operator.mongodb.com
+            resources:
+              - mongodbdirectives
+            verbs:
+              - '*'
+      - notContains:
+          path: rules
+          content:
+            apiGroups:
+              - coordination.k8s.io
+            resources:
+              - leases
+            verbs:
+              - get
+              - create
+              - update
