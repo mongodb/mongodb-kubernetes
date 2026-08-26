@@ -283,10 +283,12 @@ func appDBTlsCAConfigMapName(opsManager *omv1.MongoDBOpsManager) string {
 	// even in external-AppDB mode, so OM/BackupDaemon won't trust the external CR's actual
 	// CA. Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not
 	// fixed here.
-	if opsManager.Spec.ExternalAppDBRef != nil {
+	if opsManager.IsInternalAppDB() {
+		opsManager.Spec.AppDB.GetCAConfigMapName()
 		return ""
 	}
-	return opsManager.Spec.AppDB.GetCAConfigMapName()
+
+	return ""
 }
 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager

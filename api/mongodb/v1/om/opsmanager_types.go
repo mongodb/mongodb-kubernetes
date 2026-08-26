@@ -702,10 +702,15 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 // AppDBName's AppDB branch is nil-safe only via the admission invariant that at least one of
 // applicationDatabase or externalApplicationDatabaseRef is set.
 func (om *MongoDBOpsManager) AppDBName() string {
-	if om.Spec.ExternalAppDBRef != nil {
-		return om.Spec.ExternalAppDBRef.Name
+	if om.IsInternalAppDB() {
+		return om.Spec.AppDB.Name()
 	}
-	return om.Spec.AppDB.Name()
+
+	return om.Spec.ExternalAppDBRef.Name
+}
+
+func (om *MongoDBOpsManager) IsInternalAppDB() bool {
+	return om.Spec.ExternalAppDBRef == nil
 }
 
 func (om *MongoDBOpsManager) SvcName() string {

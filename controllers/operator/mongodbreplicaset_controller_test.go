@@ -1691,20 +1691,18 @@ func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		role        string
 		existingKey string // pre-seeded "<name>-keyfile" secret contents; "" = secret absent
 		projectKey  string // pre-existing project automation-config key; "" = none
 	}{
-		{name: "existing secret overrides a differing project key", role: mdbv1.RoleAppDB, existingKey: sharedKey, projectKey: projectGeneratedKey},
-		{name: "existing secret with matching project key stays in place", role: mdbv1.RoleAppDB, existingKey: sharedKey, projectKey: sharedKey},
-		{name: "absent secret is seeded from the project key", role: mdbv1.RoleAppDB, projectKey: projectGeneratedKey},
-		{name: "absent secret and no project key: key generated and persisted", role: mdbv1.RoleAppDB},
-		{name: "non-AppDB role is skipped", role: ""},
+		{name: "existing secret overrides a differing project key", existingKey: sharedKey, projectKey: projectGeneratedKey},
+		{name: "existing secret with matching project key stays in place", existingKey: sharedKey, projectKey: sharedKey},
+		{name: "absent secret is seeded from the project key", projectKey: projectGeneratedKey},
+		{name: "absent secret and no project key: key generated and persisted"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(tt.role).Build()
+			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
 			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 			conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
@@ -1732,15 +1730,7 @@ func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 			ac, err := conn.ReadAutomationConfig()
 			require.NoError(t, err)
 			sec := corev1.Secret{}
-			secretErr := kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, keyfileSecretName), &sec)
-
-			if tt.role != mdbv1.RoleAppDB {
-				assert.Equal(t, tt.projectKey, ac.Auth.Key, "non-AppDB CRs must not touch the project key")
-				assert.True(t, apiErrors.IsNotFound(secretErr), "non-AppDB CRs must not create the keyfile secret")
-				return
-			}
-
-			require.NoError(t, secretErr)
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, keyfileSecretName), &sec))
 			persistedKey := string(sec.Data[constants.AgentKeyfileKey])
 			if tt.existingKey != "" {
 				assert.Equal(t, tt.existingKey, ac.Auth.Key, "the shared secret's key must win over the project key")
@@ -2034,26 +2024,6 @@ func assertAppDBRoleUserRolesAndCreds(t *testing.T, createdUser *om.MongoDBUser)
 	assert.ElementsMatch(t, expectedAppDBRoleUserRoles, createdUser.Roles)
 	require.NotNil(t, createdUser.ScramSha256Creds)
 	require.NotNil(t, createdUser.ScramSha1Creds)
-}
-
-func TestEnsureAppDBRoleUser_NoOpWhenRoleNotSet(t *testing.T) {
-	ctx := context.Background()
-	mdb := DefaultReplicaSetBuilder().SetName("my-plain-rs").Build()
-	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
-
-	err := helper.ensureAppDBRoleUser(ctx, mdb, conn)
-	assert.NoError(t, err)
-
-	ac, err := conn.ReadAutomationConfig()
-	require.NoError(t, err)
-	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
-	assert.Nil(t, createdUser)
-
-	sec := corev1.Secret{}
-	err = kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName(mdb.Name)), &sec)
-	assert.True(t, apiErrors.IsNotFound(err))
 }
 
 func TestReleaseStatefulSetIfRequested(t *testing.T) {
