@@ -68,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--skip-evg", dest="skip_evg", action="store_true")
     sc.add_argument("--skip-devcontainer", dest="skip_devcontainer", action="store_true")
     sc.add_argument("--skip-prepare-e2e", dest="skip_prepare_e2e", action="store_true")
+    sc.add_argument(
+        "--vanilla",
+        dest="vanilla",
+        action="store_true",
+        help="leave the kind clusters untouched by this checkout: no prepare-local-e2e "
+        "(no CRDs, no RBAC, no secrets) and no local operator. Use for real-world "
+        "installation and upgrade scenarios that must start from a clean cluster.",
+    )
     sc.add_argument("--force", action="store_true")
     sc.add_argument("--evg-host-name", dest="evg_host_name")
     sc.add_argument(
@@ -1010,6 +1018,7 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         skip_evg=args.skip_evg,
         skip_devcontainer=args.skip_devcontainer,
         skip_prepare_e2e=args.skip_prepare_e2e,
+        vanilla=args.vanilla,
         force=args.force,
         evg_host_name=args.evg_host_name,
         distro=getattr(args, "distro", None),

@@ -97,6 +97,9 @@ class CreateInputs:
     skip_evg: bool = False
     skip_devcontainer: bool = False
     skip_prepare_e2e: bool = False
+    # Vanilla: leave the clusters free of anything this checkout would install
+    # (CRDs, RBAC, a running operator) so real install/upgrade flows start clean.
+    vanilla: bool = False
     force: bool = False
     evg_host_name: Optional[str] = None  # default: branch_dir
     # EVG spawn overrides; None → evg spawn's defaults (ubuntu2204-latest-large / eu-west-1).
@@ -129,6 +132,7 @@ class CreateInputs:
             "skip_evg": self.skip_evg,
             "skip_devcontainer": self.skip_devcontainer,
             "skip_prepare_e2e": self.skip_prepare_e2e,
+            "vanilla": self.vanilla,
             "force": self.force,
             "evg_host_name": self.resolved_evg_host_name(),
             "distro": self.distro,
@@ -151,6 +155,7 @@ class CreateInputs:
             skip_evg=saved.get("skip_evg", self.skip_evg),
             skip_devcontainer=saved.get("skip_devcontainer", self.skip_devcontainer),
             skip_prepare_e2e=saved.get("skip_prepare_e2e", self.skip_prepare_e2e),
+            vanilla=saved.get("vanilla", self.vanilla),
             force=saved.get("force", self.force),
             evg_host_name=saved.get("evg_host_name"),
             distro=saved.get("distro"),
@@ -754,7 +759,7 @@ class CreateOrchestrator:
                 name="prepare_e2e",
                 run=_do_prepare_e2e,
                 input_hash=lambda: _h({"branch_dir": i.branch_dir}),
-                skip=lambda: i.skip_devcontainer or i.skip_prepare_e2e,
+                skip=lambda: i.skip_devcontainer or i.skip_prepare_e2e or i.vanilla,
                 log_relpath="logs/setup_worktree/prepare_local_e2e.log",
             ),
             Phase(
@@ -765,7 +770,7 @@ class CreateOrchestrator:
                 # against the current kubeconfig and re-wires tmux, even on a no-op
                 # resume (dc_up's compose-down nuked both). op_run.sh is idempotent.
                 input_hash=lambda: _h({"ts": time.time_ns()}),
-                skip=lambda: i.skip_devcontainer,
+                skip=lambda: i.skip_devcontainer or i.vanilla,
                 log_relpath="logs/setup_worktree/op_run.log",
             ),
         ]
