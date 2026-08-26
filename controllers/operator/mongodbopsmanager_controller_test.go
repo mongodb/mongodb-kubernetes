@@ -1546,7 +1546,7 @@ func TestOpsManagerReconcile_ExternalAppDBRef_TLS_MountsAppDBCAVolume(t *testing
 	externalAppDB.Spec.Role = mdbv1.RoleAppDB
 	externalAppDB.Spec.Security.TLSConfig.CA = "app-db-issuer-ca"
 
-	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 		Name: "test-om-db",
 		Kind: "MongoDB",
 	})

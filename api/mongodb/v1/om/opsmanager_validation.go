@@ -292,7 +292,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	}
 
 	// AppDB validators apply only to an internal AppDB
-	if om.Spec.ExternalAppDBRef == nil && om.Spec.AppDB != nil {
+	if om.IsInternalAppDB() && om.Spec.AppDB != nil {
 		validators = append(validators,
 			validAppDBVersion,
 			connectivityIsNotConfigurable,
@@ -316,7 +316,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		}
 	}
 
-	if om.Spec.ExternalAppDBRef != nil {
+	if !om.IsInternalAppDB() {
 		expectedName := om.Name + "-db"
 		if om.Spec.ExternalAppDBRef.Name != expectedName {
 			validationResults = append(validationResults, v1.OpsManagerResourceValidationError(fmt.Sprintf("spec.externalApplicationDatabaseRef.name must be %s", expectedName), status.OpsManager))

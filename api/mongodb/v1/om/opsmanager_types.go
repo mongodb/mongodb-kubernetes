@@ -662,7 +662,7 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.Backup.Members = 1
 	}
 
-	if om.Spec.ExternalAppDBRef == nil {
+	if om.IsInternalAppDB() {
 		if om.Spec.AppDB == nil {
 			om.Spec.AppDB = &AppDBSpec{}
 		}
@@ -773,7 +773,7 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
-	if om.Spec.ExternalAppDBRef != nil {
+	if !om.IsInternalAppDB() {
 		om.Status.AppDbStatus = AppDbStatus{}
 		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 		return

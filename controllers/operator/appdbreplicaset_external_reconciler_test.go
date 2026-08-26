@@ -237,7 +237,7 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 				externalAppDB.Spec.Security.TLSConfig.CA = tt.caConfigMapName
 			}
 
-	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+			testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
 				Kind: "MongoDB",
 			})

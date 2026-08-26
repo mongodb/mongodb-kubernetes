@@ -54,7 +54,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, o
 
 // GetAppDBConfig computes the AppDB configuration including connection string and TLS settings from the referenced MongoDB CR.
 func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, _ *zap.SugaredLogger) (*AppDBConfig, error) {
-	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	ref := opsManager.Spec.ExternalAppDBRef
 	refObject, err := e.fetchExternalAppDBRefObject(ctx, ref)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch externalApplicationDatabaseRef %s/%s: %w", ref.Namespace, ref.Name, err)
