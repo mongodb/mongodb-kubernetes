@@ -434,9 +434,10 @@ func (s *quorumLeaseCore) heldContent(term int64, now time.Time) leaseContent {
 }
 
 // renewGeneration derives the heartbeat carrier from the caller's clock; observers only ever
-// compare it for change.
+// compare it for change. Microsecond precision, because the carrier round-trips through
+// LeaseSpec.RenewTime (a metav1.MicroTime) and written content must read back identical.
 func renewGeneration(now time.Time) string {
-	return now.UTC().Format(time.RFC3339Nano)
+	return strconv.FormatInt(now.UnixMicro(), 10)
 }
 
 // applyWriteResult feeds one executed intent back. A successful CAS is a fresh observation of
