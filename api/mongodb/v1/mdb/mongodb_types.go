@@ -386,6 +386,8 @@ type BackupStatus struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || (self.security.authentication.enabled == true && has(self.security.authentication.modes) && size(self.security.authentication.modes) == 1 && self.security.authentication.modes[0] == 'SCRAM')",message="spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB, or omitted entirely"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers == true",message="spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB and authentication is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.type == 'ReplicaSet'",message="spec.resourceType must be ReplicaSet when spec.role is AppDB"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role == oldSelf.role)",message="spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
@@ -454,8 +456,6 @@ type DbCommonSpec struct {
 	Role string `json:"role,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.type == 'ReplicaSet'",message="spec.resourceType must be ReplicaSet when spec.role is AppDB"
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields

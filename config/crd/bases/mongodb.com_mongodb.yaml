@@ -2649,12 +2649,6 @@ spec:
             type: object
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
-            - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
-            - message: spec.topology MultiCluster is not supported when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
-                || self.topology != ''MultiCluster'''
             - message: spec.members must be >= 3 when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.members)
                 && self.members >= 3)'
@@ -2669,6 +2663,12 @@ spec:
               rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
                 || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers
                 == true'
+            - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
+            - message: spec.topology MultiCluster is not supported when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
+                || self.topology != ''MultiCluster'''
             - message: 'spec.role is immutable: it cannot be added, removed, or changed
                 after creation; to stop using a resource as AppDB, perform a reverse
                 migration (delete the resource)'
