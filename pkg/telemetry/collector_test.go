@@ -966,7 +966,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
 						Topology: "Single",
-						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
 							Name: "om-ext-appdb-backup-none-db",
 							Kind: "MongoDB",
 						},
@@ -999,7 +999,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
 						Topology: "Single",
-						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
 							Name: "om-ext-appdb-backup-uniform-db",
 							Kind: "MongoDB",
 						},
@@ -1034,7 +1034,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
 						Topology: "Single",
-						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
 							Name: "om-ext-appdb-mdbm-clusters-db",
 							Kind: "MongoDBMultiCluster",
 						},
@@ -1071,7 +1071,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
 						Topology: "Single",
-						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
 							Name: "om-ext-appdb-mdbm-mixed-terminated-db",
 							Kind: "MongoDBMultiCluster",
 						},
@@ -1085,7 +1085,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
 						Topology: "Single",
-						ExternalApplicationDatabaseRef: &omv1.ExternalApplicationDatabaseRef{
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
 							Name: "non-existent-db",
 							Kind: "MongoDB",
 						},
