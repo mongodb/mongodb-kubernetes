@@ -269,11 +269,11 @@ func TestOpsManager_UnmarshalJSON_ExternalRefLeavesAppDBNil(t *testing.T) {
 	assert.Nil(t, om.Spec.AppDB)
 }
 
-func TestUpdateStatusAppDb_ExternalApplicationDatabaseRefResetsStatus(t *testing.T) {
+func TestUpdateStatusAppDb_ExternalAppDBRefResetsStatus(t *testing.T) {
 	t.Run("external ref set + nil AppDB resets AppDbStatus", func(t *testing.T) {
 		resource := &MongoDBOpsManager{
 			Spec: MongoDBOpsManagerSpec{
-				ExternalApplicationDatabaseRef: &ExternalApplicationDatabaseRef{
+				ExternalAppDBRef: &ExternalAppDBRef{
 					Name: "test-om-db",
 					Kind: "MongoDB",
 				},

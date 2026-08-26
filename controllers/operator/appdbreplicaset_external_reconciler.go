@@ -59,7 +59,7 @@ func (e *ReconcileExternalAppDBReplicaSet) BuildAppDBConnectionURL(ctx context.C
 
 // validateExternalAppDBReference validates that opsManager's spec.externalApplicationDatabaseRef
 func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
-	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	ref := opsManager.Spec.ExternalAppDBRef
 	if ref == nil {
 		return xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
 	}
@@ -84,7 +84,7 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 //   - foreign-owned (a MongoDB CR) or already detached: no-op - the CR owns the StatefulSet
 func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
 	sts := appsv1.StatefulSet{}
-	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.ExternalApplicationDatabaseRef.Name)
+	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.ExternalAppDBRef.Name)
 	if err := e.client.Get(ctx, stsKey, &sts); err != nil {
 		if apiErrors.IsNotFound(err) {
 			return nil // Fresh Start, nothing to detach
@@ -125,7 +125,7 @@ func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx cont
 // the shared mongodb-ops-manager password secret, computes the connection string directly via
 // BuildConnectionString.
 func (e *ReconcileExternalAppDBReplicaSet) computeExternalAppDBConnectionString(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
-	ref := opsManager.Spec.ExternalApplicationDatabaseRef
+	ref := opsManager.Spec.ExternalAppDBRef
 
 	password, err := secret.ReadKey(ctx, e.SecretClient, util.OpsManagerPasswordKey, kube.ObjectKey(opsManager.Namespace, omv1.OpsManagerUserPasswordSecretName(ref.Name)))
 	if err != nil {
@@ -150,7 +150,7 @@ type ExternalAppDB interface {
 	GetRole() string
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalApplicationDatabaseRef) (ExternalAppDB, error) {
+func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (ExternalAppDB, error) {
 	switch ref.Kind {
 	case "MongoDB":
 		mongodb := &mdbv1.MongoDB{}

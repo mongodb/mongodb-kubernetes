@@ -1415,11 +1415,11 @@ func addAppDBTLSResources(ctx context.Context, client client.Client, secretName 
 	_ = client.Create(ctx, certSecret)
 }
 
-func withExternalAppDBRef(om *omv1.MongoDBOpsManager, ref *omv1.ExternalApplicationDatabaseRef) *omv1.MongoDBOpsManager {
+func withExternalAppDBRef(om *omv1.MongoDBOpsManager, ref *omv1.ExternalAppDBRef) *omv1.MongoDBOpsManager {
 	if ref.Namespace == "" {
 		ref.Namespace = om.Namespace
 	}
-	om.Spec.ExternalApplicationDatabaseRef = ref
+	om.Spec.ExternalAppDBRef = ref
 	return om
 }
 
@@ -1433,7 +1433,7 @@ func TestOpsManagerReconcile_ExternalAppDBRef_SkipsInternalAppDBReconciliation(t
 		Build()
 	externalAppDB.Spec.Role = mdbv1.RoleAppDB
 
-	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 		Name: "test-om-db",
 		Kind: "MongoDB",
 	})
@@ -1456,7 +1456,7 @@ func TestOpsManagerReconcile_NoExternalAppDBRef_StillReconcilesInternalAppDB(t *
 		AddOplogStoreConfig("oplog-store-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
 		AddBlockStoreConfig("block-store-config-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
 		Build()
-	require.Nil(t, testOm.Spec.ExternalApplicationDatabaseRef)
+	require.Nil(t, testOm.Spec.ExternalAppDBRef)
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
@@ -1472,7 +1472,7 @@ func TestOpsManagerReconcile_NoExternalAppDBRef_StillReconcilesInternalAppDB(t *
 func TestOpsManagerReconcile_InvalidExternalAppDBRef_FailsReconcile(t *testing.T) {
 	ctx := context.Background()
 
-	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 		Name: "wrong-name",
 		Kind: "MongoDB",
 	})
@@ -1503,7 +1503,7 @@ func TestReconcile_ExternalAppDBRef_NeverCreatesInternalPasswordSecret(t *testin
 		Build()
 	externalAppDB.Spec.Role = mdbv1.RoleAppDB
 
-	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 		Name: "test-om-db",
 		Kind: "MongoDB",
 	})

@@ -312,7 +312,7 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 }
 
 func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
-	if ms.ExternalApplicationDatabaseRef != nil {
+	if ms.ExternalAppDBRef != nil {
 		return ""
 	}
 
@@ -686,7 +686,7 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
 		om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
 	} else {
-		om.Spec.ExternalApplicationDatabaseRef.Namespace = om.Namespace
+		om.Spec.ExternalAppDBRef.Namespace = om.Namespace
 	}
 }
 
@@ -780,7 +780,7 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
-	if om.Spec.ExternalApplicationDatabaseRef != nil {
+	if om.Spec.ExternalAppDBRef != nil {
 		om.Status.AppDbStatus = AppDbStatus{}
 		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 		return

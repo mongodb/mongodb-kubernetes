@@ -485,7 +485,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OpsManagerSecretMetadataPath(), opsManager.Namespace, s)
 			vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
 		}
-		if opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+		if opsManager.Spec.ExternalAppDBRef == nil {
 			for _, s := range opsManager.Spec.AppDB.GetSecretsMountedIntoPod() {
 				path := fmt.Sprintf("%s/%s/%s", r.VaultClient.AppDBSecretMetadataPath(), opsManager.Namespace, s)
 				vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
@@ -507,7 +507,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 }
 
 func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
-	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+	if opsManager.Spec.ExternalAppDBRef != nil {
 		return r.createNewExternalAppDBReconciler(log), nil
 	}
 
@@ -924,7 +924,7 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 	// TODO(CLOUDP-TBD): reflects internal AppDB's TLS setting even in external-AppDB mode —
 	// same deferred TLS/CA parity gap as opsmanager_construction.go's AppDBTlsCAConfigMapName.
 	// Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not fixed here.
-	if reconcilerHelper.opsManager.Spec.ExternalApplicationDatabaseRef == nil {
+	if reconcilerHelper.opsManager.Spec.ExternalAppDBRef == nil {
 		if reconcilerHelper.opsManager.Spec.AppDB.Security.IsTLSEnabled() {
 			setConfigProperty(reconcilerHelper.opsManager, util.MmsMongoSSL, "true", log)
 		}
@@ -986,10 +986,10 @@ func (r *OpsManagerReconciler) createBackupDaemonStatefulset(ctx context.Context
 func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
 	// The order matters here, since appDB and opsManager share the same reconcile ObjectKey being opsmanager crd
 	// That means we need to remove first, which SetupCommonWatchers or RemoveDependentWatchedResources does, then register additional watches
-	if opsManager.Spec.ExternalApplicationDatabaseRef != nil {
+	if opsManager.Spec.ExternalAppDBRef != nil {
 		r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
 
-		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalApplicationDatabaseRef.Name, opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(opsManager))
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(opsManager))
 	} else {
 		r.SetupCommonWatchers(opsManager.Spec.AppDB, nil, nil, opsManager.Spec.AppDB.GetName())
 	}
@@ -2072,7 +2072,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, lo
 		}
 	}
 
-	if opsManager.Spec.ExternalApplicationDatabaseRef == nil && opsManager.Spec.AppDB.IsMultiCluster() {
+	if opsManager.Spec.ExternalAppDBRef == nil && opsManager.Spec.AppDB.IsMultiCluster() {
 		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
 		if err != nil {
 			log.Errorf("Error initializing AppDB reconciler helper: %s", err)

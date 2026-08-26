@@ -63,7 +63,7 @@ func PredicatesForOpsManager() predicate.Funcs {
 					}
 				}
 
-				if oldResource.Spec.ExternalApplicationDatabaseRef == nil {
+				if oldResource.Spec.ExternalAppDBRef == nil {
 					for _, e := range oldResource.Spec.AppDB.GetSecretsMountedIntoPod() {
 						if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
 							return true

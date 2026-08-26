@@ -11,7 +11,7 @@ import (
 
 // AppDBReconciler is implemented by both the ReconcileAppDbReplicaSet (internal AppDB reconciler
 // backed by opsManager.Spec.AppDB) and the ReconcileExternalAppDBReplicaSet (backed by
-// opsManager.Spec.ExternalApplicationDatabaseRef).
+// opsManager.Spec.ExternalAppDBRef).
 type AppDBReconciler interface {
 	// ReconcileAppDB brings the AppDB (internal StatefulSet, or external CR reference)
 	// to the desired state. Returns the same (reconcile.Result, error) contract as the

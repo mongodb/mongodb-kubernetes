@@ -54,7 +54,7 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 		},
 		{
 			name: "referenced MongoDB does not exist",
-			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
 				Kind: "MongoDB",
 			}),
@@ -62,7 +62,7 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 		},
 		{
 			name: "referenced MongoDB does not have role AppDB",
-			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
 				Kind: "MongoDB",
 			}),
@@ -73,7 +73,7 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 		},
 		{
 			name: "referenced MongoDB is valid",
-			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
 				Kind: "MongoDB",
 			}),
@@ -81,7 +81,7 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 		},
 		{
 			name: "unsupported kind",
-			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
 				Kind: "SomethingElse",
 			}),
@@ -102,8 +102,8 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 	}
 }
 
-func validExternalAppDBRef() *omv1.ExternalApplicationDatabaseRef {
-	return &omv1.ExternalApplicationDatabaseRef{
+func validExternalAppDBRef() *omv1.ExternalAppDBRef {
+	return &omv1.ExternalAppDBRef{
 		Name:      "test-om-db",
 		Kind:      "MongoDB",
 		Namespace: mock.TestNamespace,
@@ -208,7 +208,7 @@ func TestComputeExternalAppDBConnectionString_WritesFixedSecret(t *testing.T) {
 		Build()
 	externalAppDB.Spec.Role = mdbv1.RoleAppDB
 
-	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalApplicationDatabaseRef{
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 		Name: "test-om-db",
 		Kind: "MongoDB",
 	})
