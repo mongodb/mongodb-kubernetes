@@ -33,6 +33,8 @@ type configReader struct {
 	configMapName, secretName, namespace string
 }
 
+var _ project.Reader = (*configReader)(nil)
+
 func (r *configReader) GetProjectConfigMapName() string       { return r.configMapName }
 func (r *configReader) GetProjectConfigMapNamespace() string  { return r.namespace }
 func (r *configReader) GetCredentialsSecretName() string      { return r.secretName }
