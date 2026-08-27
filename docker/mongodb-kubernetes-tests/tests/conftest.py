@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally, wait_for_operator_pod_present, wait_for_operator_pod_restart
+from kubetester.kubetester import running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -924,35 +924,8 @@ def _install_multi_cluster_operator(
     # same for the in-cluster and local operator, since pytest runs in the same network vantage as
     # the operator either way. If the central cluster also serves as a member, it's included in
     # configure_member_clusters and gets the same treatment as any other member.
-    #
-    # TODO(m1kola): slice-9: for a local (host-run) operator the MemberCluster watcher currently
-    # stops the process on a CR change and nothing restarts it, so the operator must be (re)started
-    # after this runs. Slice 9 (no-restart hot reload, or an interim local restart-loop) makes it
-    # seamless. See docs/dev/multi-cluster-config-tooling.md.
     if configure_member_clusters is not None:
         assert operator_name is not None
-        # A fresh registration makes the operator restart to rebuild its member-cluster client map;
-        # snapshot the restart count first and wait for that restart so tests don't race it. If the
-        # MemberCluster CRs already exist (e.g. reinstalling the operator in an already-configured
-        # namespace) the operator picks them up at startup and does not restart, so skip the wait. The
-        # local operator has no pod to restart (see the slice-9 TODO above).
-        try:
-            existing_member_crs = client.CustomObjectsApi(central_cluster_client).list_namespaced_custom_object(
-                group="operator.mongodb.com",
-                version="v1",
-                namespace=namespace,
-                plural="memberclusters",
-            )["items"]
-        except client.rest.ApiException:
-            existing_member_crs = []
-        wait_for_registration_restart = not local_operator() and len(existing_member_crs) == 0
-
-        previous_restart_count = None
-        if wait_for_registration_restart:
-            previous_restart_count = wait_for_operator_pod_present(
-                namespace, operator_name, api_client=central_cluster_client
-            )
-
         configure_multi_cluster_members(
             configure_member_clusters,
             namespace,
@@ -961,11 +934,6 @@ def _install_multi_cluster_operator(
             workload_namespaces=member_clusters_workload_namespaces,
             operator_cluster_scoped=member_clusters_operator_cluster_scoped,
         )
-
-        if wait_for_registration_restart:
-            wait_for_operator_pod_restart(
-                namespace, operator_name, previous_restart_count, api_client=central_cluster_client
-            )
         operator.wait_for_operator_ready()
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
