@@ -1,6 +1,8 @@
 package generatememberregistration
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net/url"
 	"os"
@@ -21,6 +23,7 @@ var flags struct {
 	operatorNamespace        string
 	memberClusterLogicalName string
 	memberClusterApiServer   string
+	memberClusterApiServerCA string
 }
 
 func init() {
@@ -30,6 +33,7 @@ func init() {
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
+	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServerCA, "member-cluster-api-server-ca", "", "Path to a PEM file with the CA certificate the operator should use to verify the member cluster's API server. [optional, default: the CA from the member cluster's ServiceAccount token Secret]")
 }
 
 // GenerateMemberRegistrationCmd reads a member cluster's ServiceAccount token and emits the
@@ -43,6 +47,7 @@ single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdo
 
 If the token Secret is not populated yet, the command waits up to a minute for Kubernetes to provision it.
 By default the credential kubeconfig uses the API server address from --member-cluster-context; pass --member-cluster-api-server to override it.
+By default the credential kubeconfig uses the CA from the member cluster's ServiceAccount token Secret; pass --member-cluster-api-server-ca to override it.
 
 Apply the output to the operator's cluster with kubectl, or commit it to Git for GitOps.
 
@@ -101,12 +106,52 @@ func parseFlags() (memberregistration.Options, error) {
 		}
 	}
 
+	memberClusterApiServerCA, err := loadMemberClusterApiServerCA(flags.memberClusterApiServerCA)
+	if err != nil {
+		return memberregistration.Options{}, err
+	}
+
 	return memberregistration.Options{
 		MemberClusterName:        flags.memberCluster,
 		MemberClusterNamespace:   flags.memberClusterNamespace,
 		OperatorNamespace:        flags.operatorNamespace,
 		MemberClusterLogicalName: memberClusterLogicalName,
 		MemberClusterApiServer:   memberClusterApiServer,
+		MemberClusterApiServerCA: memberClusterApiServerCA,
 		TokenWaitTimeout:         memberregistration.DefaultTokenWaitTimeout,
 	}, nil
+}
+
+// loadMemberClusterApiServerCA reads and validates the PEM bundle named by
+// --member-cluster-api-server-ca; a blank flag value means no override.
+func loadMemberClusterApiServerCA(path string) ([]byte, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, nil
+	}
+	caPEM, err := os.ReadFile(path)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid --member-cluster-api-server-ca: failed reading CA file %q: %w", path, err)
+	}
+	if err := validateCAPEM(caPEM); err != nil {
+		return nil, xerrors.Errorf("invalid --member-cluster-api-server-ca: %q: %w", path, err)
+	}
+	return caPEM, nil
+}
+
+// validateCAPEM rejects a bundle the Operator could not use, or should never be handed: it builds
+// its cert pool from this value alone, and the bundle is copied verbatim into a Secret.
+func validateCAPEM(caPEM []byte) error {
+	// a bundle exported from a TLS terminator can carry the server key next to its certificate
+	for block, rest := pem.Decode(caPEM); block != nil; block, rest = pem.Decode(rest) {
+		if strings.HasSuffix(block.Type, "PRIVATE KEY") {
+			return xerrors.Errorf("found a private key (%s block), pass certificates only", block.Type)
+		}
+	}
+
+	if !x509.NewCertPool().AppendCertsFromPEM(caPEM) {
+		return xerrors.Errorf("no PEM encoded certificate found")
+	}
+
+	return nil
 }
