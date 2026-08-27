@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -613,20 +614,26 @@ func AddMongoDBSearchController(
 		}
 	}
 
-	// Per-member-cluster watches. An empty provider (single-cluster
-	// install) skips them entirely — there is nothing to watch.
-	memberClusterEntries := memberClustersProvider.Entries()
-	if len(memberClusterEntries) > 0 {
-		// Per-member-cluster watches map events back to the parent MongoDBSearch
-		// via the search-owner labels (cross-cluster owner refs do not GC).
-		for k, v := range memberClusterEntries {
+	// Per-member-cluster watches follow member-cluster engagement: on every cluster add attach
+	// the watches to the new cluster (they map events back to the parent MongoDBSearch via the
+	// search-owner labels — cross-cluster owner refs do not GC) and enqueue all MongoDBSearch
+	// CRs — watch replay alone cannot reach CRs that own no resources on the new cluster yet.
+	clusterAddedEvents := make(chan event.GenericEvent)
+	if err := c.Watch(source.Channel[client.Object](clusterAddedEvents, &handler.EnqueueRequestForObject{})); err != nil {
+		return xerrors.Errorf("failed to set MongoDBSearch cluster-added channel watch: %w", err)
+	}
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, entry multicluster.Entry) {
 			for _, w := range memberMongoDBSearchResourceWatches(r) {
-				if err := c.Watch(source.Kind[client.Object](v.Cluster.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
-					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, w.obj, err)
+				if err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
+					zap.S().Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %s", clusterName, w.obj, err)
 				}
 			}
-		}
-	}
+			if err := multicluster.EnqueueAll(ctx, mgr.GetClient(), &searchv1.MongoDBSearchList{}, clusterAddedEvents); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDBSearch resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+	})
 
 	return nil
 }
