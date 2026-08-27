@@ -302,6 +302,45 @@ func TestQuorumCoreDirtyTakeoverServesHoldOff(t *testing.T) {
 	assert.True(t, isLeader)
 }
 
+func TestQuorumCoreHoldOffRemainingIsTheWakeUpHorizon(t *testing.T) {
+	t0 := time.Now()
+	world := newFakeLeaseWorld()
+	for _, cluster := range clusters {
+		world.seed(cluster, "the-dead-leader", 3)
+	}
+	core := coreForTest(clusters[0])
+
+	expiredAt := t0.Add(testLeaseDuration + time.Second)
+	world.drive(core, t0)
+	world.drive(core, expiredAt)
+	require.True(t, world.drive(core, expiredAt))
+
+	// dirty acquire: the remaining hold-off counts down to zero exactly when current() flips
+	assert.Equal(t, testLeaseDuration, core.holdOffRemaining(expiredAt))
+	assert.Equal(t, time.Second, core.holdOffRemaining(expiredAt.Add(testLeaseDuration-time.Second)))
+	assert.Equal(t, time.Duration(0), core.holdOffRemaining(expiredAt.Add(testLeaseDuration)))
+
+	// a non-leader has no hold-off to wake up for
+	follower := coreForTest(clusters[1])
+	assert.Equal(t, time.Duration(0), follower.holdOffRemaining(t0))
+}
+
+func TestQuorumCoreHoldOffRemainingZeroOnCleanAcquire(t *testing.T) {
+	t0 := time.Now()
+	world := newFakeLeaseWorld()
+	leader := coreForTest(clusters[0])
+	world.drive(leader, t0)
+	require.True(t, world.drive(leader, t0))
+	world.observeAll(leader, t0)
+	world.execute(leader, leader.releaseIntents(t0), t0)
+	leader.settle(t0)
+
+	successor := coreForTest(clusters[1])
+	world.drive(successor, t0)
+	require.True(t, world.drive(successor, t0))
+	assert.Equal(t, time.Duration(0), successor.holdOffRemaining(t0), "clean handover: nothing to wake up for")
+}
+
 func TestQuorumCoreRandomizedDelayBounds(t *testing.T) {
 	core := newQuorumLeaseCore(clusters[0], testLeaseDuration)
 	for i := 0; i < 200; i++ {

@@ -193,6 +193,14 @@ func (q *quorumLock) Current() (int64, bool) {
 	return q.core.current(q.clock())
 }
 
+// HoldOffRemaining is the time left before Current() starts answering leader after a dirty
+// acquire; see quorumLeaseCore.holdOffRemaining.
+func (q *quorumLock) HoldOffRemaining() time.Duration {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.core.holdOffRemaining(q.clock())
+}
+
 // ObserveTermFloor forwards the AC-stamped term (T16); see quorumLeaseCore.observeTermFloor.
 func (q *quorumLock) ObserveTermFloor(floor int64) {
 	q.mu.Lock()

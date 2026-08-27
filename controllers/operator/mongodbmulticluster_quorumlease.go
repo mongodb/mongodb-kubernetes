@@ -505,3 +505,17 @@ func (s *quorumLeaseCore) current(now time.Time) (int64, bool) {
 	}
 	return s.heldTerm, true
 }
+
+// holdOffRemaining is how long current() will keep answering non-leader after a dirty acquire:
+// positive only while leading with an unserved hold-off, zero otherwise. Current() flipping true
+// at the end of the hold-off is a silent transition — client-go reported the acquire when it
+// happened — so the elector schedules one extra wake-up at this horizon.
+func (s *quorumLeaseCore) holdOffRemaining(now time.Time) time.Duration {
+	if s.phase != phaseLeader || s.cleanAcquire {
+		return 0
+	}
+	if remaining := s.leaseDuration - now.Sub(s.acquiredAt); remaining > 0 {
+		return remaining
+	}
+	return 0
+}

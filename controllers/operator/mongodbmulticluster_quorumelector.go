@@ -199,7 +199,21 @@ func (e *QuorumElector) contend(ctx context.Context, nsName types.NamespacedName
 			ReleaseOnCancel: true,
 			Name:            nsName.String(),
 			Callbacks: leaderelection.LeaderCallbacks{
-				OnStartedLeading: func(context.Context) { e.notify(nsName) },
+				OnStartedLeading: func(leadCtx context.Context) {
+					e.notify(nsName)
+					// a dirty acquire leaves Current() answering non-leader until the hold-off
+					// is served, and that flip is silent — schedule the wake-up that lets the
+					// new leader actually start planning
+					if remaining := entry.lock.HoldOffRemaining(); remaining > 0 {
+						go func() {
+							select {
+							case <-leadCtx.Done():
+							case <-time.After(remaining):
+								e.notify(nsName)
+							}
+						}()
+					}
+				},
 				OnStoppedLeading: func() { e.notify(nsName) },
 				OnNewLeader:      func(string) { e.notify(nsName) },
 			},
