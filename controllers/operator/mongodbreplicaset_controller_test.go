@@ -1858,11 +1858,6 @@ func (b *StatefulSetBuilder) SetReplicas(replicas int32) *StatefulSetBuilder {
 	return b
 }
 
-func (b *StatefulSetBuilder) SetContainers(containers []corev1.Container) *StatefulSetBuilder {
-	b.sts.Spec.Template.Spec.Containers = containers
-	return b
-}
-
 func (b *StatefulSetBuilder) SetVolumes(volumes []corev1.Volume) *StatefulSetBuilder {
 	b.sts.Spec.Template.Spec.Volumes = volumes
 	return b
@@ -2120,64 +2115,66 @@ func TestValidateAppDBForwardMigration(t *testing.T) {
 	const appDBCAConfigMap = "my-om-db-ca"
 
 	tests := []struct {
-		name               string
-		tlsEnabled         bool
-		tlsCA              string
-		members            int
-		stsReplicas        int32
-		enterpriseForm     bool
-		annotated          bool
-		certSecretExists   bool
-		expectedViolations []string // substrings of the Invalid message; empty = expect OK
+		name             string
+		tlsEnabled       bool
+		tlsCA            string
+		members          int
+		stsReplicas      int32
+		annotated        bool
+		certSecretExists bool
+		expectedError    string // exact Invalid message; empty = expect OK
 	}{
 		{
-			name:               "disabling TLS is blocked",
-			members:            3,
-			stsReplicas:        3,
-			certSecretExists:   true,
-			expectedViolations: []string{"spec.security.tls.enabled must remain true"},
+			name:             "disabling TLS is blocked",
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
 		},
 		{
 			name:        "TLS-off spec against a non-TLS AppDB passes",
 			members:     3,
 			stsReplicas: 3,
+			annotated:   true,
 		},
 		{
-			name:               "changing the CA is blocked",
-			tlsEnabled:         true,
-			tlsCA:              "other-ca",
-			members:            3,
-			stsReplicas:        3,
-			certSecretExists:   true,
-			expectedViolations: []string{`spec.security.tls.ca must reference ConfigMap "my-om-db-ca"`},
+			name:             "changing the CA is blocked",
+			tlsEnabled:       true,
+			tlsCA:            "other-ca",
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    `cannot change AppDB configuration during forward migration: spec.security.tls.ca must reference ConfigMap "my-om-db-ca"`,
 		},
 		{
-			name:               "scaling down is blocked",
-			tlsEnabled:         true,
-			tlsCA:              appDBCAConfigMap,
-			members:            3,
-			stsReplicas:        5,
-			certSecretExists:   true,
-			expectedViolations: []string{"spec.members must remain 5"},
+			name:             "scaling down is blocked",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          3,
+			stsReplicas:      5,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.members must remain 5",
 		},
 		{
-			name:               "scaling up is blocked",
-			tlsEnabled:         true,
-			tlsCA:              appDBCAConfigMap,
-			members:            5,
-			stsReplicas:        3,
-			certSecretExists:   true,
-			expectedViolations: []string{"spec.members must remain 3"},
-		},
-		{
-			name:             "violations are aggregated into a single message",
+			name:             "scaling up is blocked",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
 			members:          5,
 			stsReplicas:      3,
+			annotated:        true,
 			certSecretExists: true,
-			expectedViolations: []string{
-				"spec.security.tls.enabled must remain true",
-				"spec.members must remain 3",
-			},
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.members must remain 3",
+		},
+		{
+			name:             "first violation wins when several settings diverge",
+			members:          5,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
 		},
 		{
 			name:             "matching spec passes",
@@ -2185,25 +2182,14 @@ func TestValidateAppDBForwardMigration(t *testing.T) {
 			tlsCA:            appDBCAConfigMap,
 			members:          3,
 			stsReplicas:      3,
+			annotated:        true,
 			certSecretExists: true,
 		},
 		{
-			name:             "enterprise-form StatefulSet closes the window",
+			name:             "missing migration annotation closes the window",
 			members:          5,
 			stsReplicas:      3,
-			enterpriseForm:   true,
 			certSecretExists: true,
-		},
-		{
-			name:               "migration annotation keeps the window open on an enterprise-form StatefulSet",
-			tlsEnabled:         true,
-			tlsCA:              appDBCAConfigMap,
-			members:            5,
-			stsReplicas:        3,
-			enterpriseForm:     true,
-			annotated:          true,
-			certSecretExists:   true,
-			expectedViolations: []string{"spec.members must remain 3"},
 		},
 	}
 	for _, tt := range tests {
@@ -2219,20 +2205,15 @@ func TestValidateAppDBForwardMigration(t *testing.T) {
 			}
 			mdb := builder.Build()
 
-			// the AppDB pod template mounts the TLS volumes unconditionally (Optional=true),
-			// so the fixture always carries them regardless of whether TLS is enabled
-			containers := []corev1.Container{{Name: util.AgentContainerName}, {Name: util.MongodbContainerName}}
-			if tt.enterpriseForm {
-				containers = []corev1.Container{{Name: util.DatabaseContainerName}}
-			}
 			annotations := map[string]string{}
 			if tt.annotated {
 				annotations[util.AppDBMigrationReadyAnnotation] = "true"
 			}
+			// the AppDB pod template mounts the TLS volumes unconditionally (Optional=true),
+			// so the fixture always carries them regardless of whether TLS is enabled
 			sts := DefaultStatefulSetBuilder().SetName("my-om-db").
 				SetAnnotations(annotations).
 				SetReplicas(tt.stsReplicas).
-				SetContainers(containers).
 				SetVolumes([]corev1.Volume{
 					{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: certSecretName}}},
 					{Name: tls.ConfigMapVolumeCAName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: appDBCAConfigMap}}}},
@@ -2247,17 +2228,13 @@ func TestValidateAppDBForwardMigration(t *testing.T) {
 
 			validationStatus := helper.validateAppDBForwardMigration(ctx, mdb, sts)
 
-			if len(tt.expectedViolations) == 0 {
+			if tt.expectedError == "" {
 				assert.True(t, validationStatus.IsOK())
 				return
 			}
 			require.False(t, validationStatus.IsOK())
 			assert.Equal(t, status.PhaseFailed, validationStatus.Phase())
-			msg := statusMessage(validationStatus)
-			assert.Contains(t, msg, "cannot change AppDB configuration during forward migration")
-			for _, violation := range tt.expectedViolations {
-				assert.Contains(t, msg, violation)
-			}
+			assert.Equal(t, tt.expectedError, statusMessage(validationStatus))
 		})
 	}
 }

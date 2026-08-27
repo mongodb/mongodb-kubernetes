@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -54,7 +53,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
@@ -838,6 +836,8 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 	return workflow.OK()
 }
 
+const appDBForwardMigrationViolationFmt = "cannot change AppDB configuration during forward migration: %s"
+
 // validateAppDBForwardMigration rejects spec changes that cannot be applied while the AppDB
 // StatefulSet handover (forward migration) is in progress. The window is open until this
 // controller replaces the StatefulSet spec with the enterprise form: until then the pods run
@@ -845,48 +845,25 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 // cluster-visible settings (TLS, CA, members) no publish ordering works - rotated members become
 // incompatible with the unrotated ones. The handover must be config-identical; changes apply
 // once the migration completes.
-//
-// All checks read the adopted StatefulSet, plus one existence GET on the TLS cert secret:
-// the AppDB pod template mounts the TLS volumes unconditionally with Optional=true, so volume
-// presence alone cannot tell whether TLS is enabled.
 func (r *ReplicaSetReconcilerHelper) validateAppDBForwardMigration(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) workflow.Status {
-	if !appDBForwardMigrationWindowOpen(sts) {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
 		return workflow.OK()
 	}
 
-	var violations []string
-
-	if certSecretName := podTemplateVolumeSecretName(sts, util.SecretVolumeName); certSecretName != "" {
-		tlsEnabled, err := secret.Exists(ctx, r.reconciler.SecretClient, kube.ObjectKey(mdb.Namespace, certSecretName))
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to check TLS cert secret %s: %w", certSecretName, err))
+	if wasTLSSecretMounted(ctx, r.reconciler.SecretClient, sts, *mdb, r.log) {
+		if !mdb.Spec.Security.IsTLSEnabled() {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
 		}
-		if tlsEnabled {
-			if !mdb.Spec.Security.IsTLSEnabled() {
-				violations = append(violations, "spec.security.tls.enabled must remain true")
-			} else if caConfigMapName := podTemplateVolumeConfigMapName(sts, tls.ConfigMapVolumeCAName); caConfigMapName != "" && specCAConfigMapName(mdb) != caConfigMapName {
-				violations = append(violations, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caConfigMapName))
-			}
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && specCAConfigMapName(mdb) != caVolume.ConfigMap.Name {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
 		}
 	}
 
 	if sts.Spec.Replicas != nil && mdb.Spec.Members != int(*sts.Spec.Replicas) {
-		violations = append(violations, fmt.Sprintf("spec.members must remain %d", *sts.Spec.Replicas))
+		return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.members must remain %d", *sts.Spec.Replicas))
 	}
 
-	if len(violations) == 0 {
-		return workflow.OK()
-	}
-
-	return workflow.Invalid("cannot change AppDB configuration during forward migration: [%s]; complete the migration with a matching spec, then apply the changes", strings.Join(violations, "; "))
-}
-
-func appDBForwardMigrationWindowOpen(sts appsv1.StatefulSet) bool {
-	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
-		return true
-	}
-
-	return container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers) == nil
+	return workflow.OK()
 }
 
 func specCAConfigMapName(mdb *mdbv1.MongoDB) string {
@@ -895,26 +872,6 @@ func specCAConfigMapName(mdb *mdbv1.MongoDB) string {
 	}
 
 	return mdb.Spec.Security.TLSConfig.CA
-}
-
-func podTemplateVolumeSecretName(sts appsv1.StatefulSet, volumeName string) string {
-	for _, v := range sts.Spec.Template.Spec.Volumes {
-		if v.Name == volumeName && v.Secret != nil {
-			return v.Secret.SecretName
-		}
-	}
-
-	return ""
-}
-
-func podTemplateVolumeConfigMapName(sts appsv1.StatefulSet, volumeName string) string {
-	for _, v := range sts.Spec.Template.Spec.Volumes {
-		if v.Name == volumeName && v.ConfigMap != nil {
-			return v.ConfigMap.Name
-		}
-	}
-
-	return ""
 }
 
 func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) error {
