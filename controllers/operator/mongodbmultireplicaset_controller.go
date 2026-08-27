@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -1191,32 +1190,39 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		}
 	}
 
-	memberClusterEntries := memberClustersProvider.Entries()
-	for clusterName, entry := range memberClusterEntries {
-		err = c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
-		if err != nil {
-			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
-		}
-	}
-
 	// the operator watches the member clusters' API servers to determine whether the clusters are healthy or not
 	eventChannel := make(chan event.GenericEvent)
-	memberClusterHealthChecker := memberwatch.MemberClusterHealthChecker{
+	memberClusterHealthChecker := &memberwatch.MemberClusterHealthChecker{
 		Cache:                 make(map[string]memberwatch.ClusterHealthChecker),
 		HealthyStreak:         make(map[string]int),
 		RequiredHealthyStreak: requiredHealthyStreak,
 		ClientTimeout:         time.Duration(memberClusterClientTimeout) * time.Second,
 	}
-	memberClustersMap := make(map[string]cluster.Cluster)
-	for clusterName, entry := range memberClusterEntries {
-		memberClustersMap[clusterName] = entry.Cluster
-	}
-	go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, reconciler.client, memberClustersMap)
+	go memberClusterHealthChecker.WatchMemberClusterHealth(ctx, zap.S(), eventChannel, reconciler.client)
 
 	err = c.Watch(source.Channel[client.Object](eventChannel, &handler.EnqueueRequestForObject{}))
 	if err != nil {
 		zap.S().Errorf("failed to watch for member cluster healthcheck: %s", err)
 	}
+
+	// Member clusters come and go without an operator restart: on every cluster add (initial
+	// registration or later expansion) attach the StatefulSet watch to the new cluster and
+	// enqueue all MongoDBMultiCluster CRs — watch replay alone cannot reach CRs that own no
+	// resources on the new cluster yet. The health checker follows the same membership events.
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, entry multicluster.Entry) {
+			if err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet())); err != nil {
+				zap.S().Errorf("failed to set StatefulSet watch on member cluster %s: %s", clusterName, err)
+			}
+			memberClusterHealthChecker.AddCluster(clusterName, entry.Cluster.GetConfig(), zap.S())
+			if err := multicluster.EnqueueAll(ctx, reconciler.client, &mdbmultiv1.MongoDBMultiClusterList{}, eventChannel); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDBMultiCluster resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+		OnRemove: func(_ context.Context, clusterName string, _ multicluster.Entry) {
+			memberClusterHealthChecker.RemoveCluster(clusterName)
+		},
+	})
 
 	zap.S().Infof("Registered controller %s", util.MongoDbMultiReplicaSetController)
 	return err

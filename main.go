@@ -184,9 +184,8 @@ func run() error {
 				},
 			},
 		},
-		// Restrict the MemberCluster informer to the operator's own namespace, so only
-		// MemberCluster CRs there (the operator's source of truth for cluster membership) can
-		// trigger the membercluster.Watcher restart.
+		// Restrict the MemberCluster informer to the operator's own namespace: only
+		// MemberCluster CRs there are the operator's source of truth for cluster membership.
 		&operatorv1.MemberCluster{}: {
 			Namespaces: map[string]cache.Config{
 				currentNamespace: {},
@@ -271,61 +270,28 @@ func run() error {
 	memberClustersProvider := multicluster.NewProvider()
 
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		// Discover member clusters from MemberCluster CRs + their per-cluster credential Secrets.
-		// A direct (uncached) client is used because the manager cache is not started yet.
-		directClient, err := client.New(cfg, client.Options{Scheme: scheme})
-		if err != nil {
-			return err
-		}
-
-		memberClusterClients, memberClusterResourceNames, err := membercluster.Discover(ctx, directClient, currentNamespace, memberClusterClientTimeout)
-		if err != nil {
-			return err
-		}
-
-		// Watch MemberCluster CRs so the operator rebuilds its member-cluster client map when
-		// membership changes, including the first cluster registered after a single-cluster
-		// install. TODO(m1kola): slice-9: make this reactive (no restart).
-		if err := mgr.Add(membercluster.NewWatcher(mgr.GetCache(), cancel)); err != nil {
-			return err
-		}
-
-		log.Infof("Discovered %d member cluster(s) from MemberCluster CRs", len(memberClusterClients))
-
-		// Add the cluster object to the manager corresponding to each member clusters.
-		for k, v := range memberClusterClients {
-			var cluster runtime_cluster.Cluster
-
-			cluster, err := runtime_cluster.New(v, func(options *runtime_cluster.Options) {
-				// Use the operator scheme so cross-cluster owner references
-				// can resolve our CRD types (default scheme lacks them).
-				options.Scheme = scheme
-				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
-					defaultNamespaces := make(map[string]cache.Config)
-					for _, namespace := range namespacesToWatch {
-						defaultNamespaces[namespace] = cache.Config{}
+		// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
+		// each member cluster's runtime entry (and tears it down on CR deletion) without an
+		// operator restart. The initial informer replay registers the CRs that already exist.
+		memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
+			func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
+				return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
+					// Use the operator scheme so cross-cluster owner references
+					// can resolve our CRD types (default scheme lacks them).
+					options.Scheme = scheme
+					if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
+						defaultNamespaces := make(map[string]cache.Config)
+						for _, namespace := range namespacesToWatch {
+							defaultNamespaces[namespace] = cache.Config{}
+						}
+						options.Cache = cache.Options{
+							DefaultNamespaces: defaultNamespaces,
+						}
 					}
-					options.Cache = cache.Options{
-						DefaultNamespaces: defaultNamespaces,
-					}
-				}
+				})
 			})
-			if err != nil {
-				// don't panic here but rather log the error, for example, error might happen when one of the cluster is
-				// unreachable, we would still like the operator to continue reconciliation on the other clusters.
-				log.Errorf("Failed to initialize client for cluster: %s, err: %s", k, err)
-				continue
-			}
-
-			log.Infof("Adding cluster %s to cluster map.", k)
-			memberClustersProvider.Set(k, multicluster.Entry{
-				Cluster:      cluster,
-				Client:       cluster.GetClient(),
-				ResourceName: memberClusterResourceNames[k],
-			})
-			if err = mgr.Add(cluster); err != nil {
-				return err
-			}
+		if err := memberClusterReconciler.SetupWithManager(mgr); err != nil {
+			return err
 		}
 	}
 

@@ -323,12 +323,6 @@ def test_recover_operator_remove_cluster(
         name=f"mck-credential-{removed_cluster_name}",
         namespace=namespace,
     )
-    operator = Operator(
-        name=MULTI_CLUSTER_OPERATOR_NAME,
-        namespace=namespace,
-        api_client=central_cluster_client,
-    )
-    operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_recover_clusterwide
