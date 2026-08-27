@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -869,18 +870,27 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 		return err
 	}
 
-	// Per-member-cluster Envoy resource watches: label-based mapper, since
-	// cross-cluster owner refs don't GC. Same pattern as the AppDB MC and
-	// sharded MC controllers (see appdbreplicaset_controller.go and
-	// mongodbshardedcluster_controller.go).
-	for k, v := range memberClustersProvider.Entries() {
-		if err := c.Watch(source.Kind[client.Object](v.Cluster.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
-			return fmt.Errorf("failed to set Envoy Deployment watch on member cluster %s: %w", k, err)
-		}
-		if err := c.Watch(source.Kind[client.Object](v.Cluster.GetCache(), &corev1.ConfigMap{}, mapper, searchOwnerPredicate)); err != nil {
-			return fmt.Errorf("failed to set Envoy ConfigMap watch on member cluster %s: %w", k, err)
-		}
+	// Per-member-cluster Envoy resource watches follow member-cluster engagement: on every
+	// cluster add attach the watches to the new cluster (label-based mapper, since
+	// cross-cluster owner refs don't GC) and enqueue all MongoDBSearch CRs — watch replay
+	// alone cannot reach CRs that own no resources on the new cluster yet.
+	clusterAddedEvents := make(chan event.GenericEvent)
+	if err := c.Watch(source.Channel[client.Object](clusterAddedEvents, &handler.EnqueueRequestForObject{})); err != nil {
+		return fmt.Errorf("failed to set Envoy cluster-added channel watch: %w", err)
 	}
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, entry multicluster.Entry) {
+			if err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
+				zap.S().Errorf("failed to set Envoy Deployment watch on member cluster %s: %s", clusterName, err)
+			}
+			if err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &corev1.ConfigMap{}, mapper, searchOwnerPredicate)); err != nil {
+				zap.S().Errorf("failed to set Envoy ConfigMap watch on member cluster %s: %s", clusterName, err)
+			}
+			if err := multicluster.EnqueueAll(ctx, mgr.GetClient(), &searchv1.MongoDBSearchList{}, clusterAddedEvents); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDBSearch resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+	})
 
 	return nil
 }

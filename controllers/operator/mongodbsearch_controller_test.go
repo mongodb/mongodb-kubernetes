@@ -700,7 +700,7 @@ func newFakeClientForTest(t *testing.T) client.Client {
 func memberClustersProviderFromKubeClients(memberClients map[string]kubernetesClient.Client) *multicluster.Provider {
 	provider := multicluster.NewProvider()
 	for name, c := range memberClients {
-		provider.Set(name, multicluster.Entry{Client: c, ResourceName: name})
+		provider.Set(context.Background(), name, multicluster.Entry{Client: c, ResourceName: name})
 	}
 	return provider
 }

@@ -1586,7 +1586,7 @@ func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, 
 func multiClusterProviderFromClientMap(memberClusterMap map[string]client.Client) *multicluster.Provider {
 	provider := multicluster.NewProvider()
 	for clusterName, memberClient := range memberClusterMap {
-		provider.Set(clusterName, multicluster.Entry{Client: memberClient, ResourceName: clusterName})
+		provider.Set(context.Background(), clusterName, multicluster.Entry{Client: memberClient, ResourceName: clusterName})
 	}
 	return provider
 }
