@@ -150,7 +150,7 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebugImage     string
 	DefaultArchitecture architectures.DefaultArchitecture
 	PropagateProxyEnv   bool
-	DownloadBase string
+	DownloadBase        string
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
