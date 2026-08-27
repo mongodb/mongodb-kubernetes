@@ -122,7 +122,7 @@ type ReconcileAppDbReplicaSet struct {
 	defaultArchitecture architectures.DefaultArchitecture
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]multicluster.Entry, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	helper, err := NewAppDBReconcilerHelper(ctx, opsManager, commonController, globalMemberClustersMap, log)
 	if err != nil {
 		return nil, err
@@ -152,17 +152,17 @@ type AppDBReconcilerHelper struct {
 	readOnly bool
 }
 
-func NewAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*AppDBReconcilerHelper, error) {
+func NewAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger) (*AppDBReconcilerHelper, error) {
 	return newAppDBReconcilerHelper(ctx, opsManager, commonController, globalMemberClustersMap, false, log)
 }
 
 // NewReadOnlyAppDBReconcilerHelper builds the helper without writing any state back to the cluster,
 // for callers that only need the member cluster topology (e.g. OnDelete cleanup).
-func NewReadOnlyAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) (*AppDBReconcilerHelper, error) {
+func NewReadOnlyAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger) (*AppDBReconcilerHelper, error) {
 	return newAppDBReconcilerHelper(ctx, opsManager, commonController, globalMemberClustersMap, true, log)
 }
 
-func newAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, globalMemberClustersMap map[string]client.Client, readOnly bool, log *zap.SugaredLogger) (*AppDBReconcilerHelper, error) {
+func newAppDBReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, globalMemberClustersMap map[string]multicluster.Entry, readOnly bool, log *zap.SugaredLogger) (*AppDBReconcilerHelper, error) {
 	helper := &AppDBReconcilerHelper{
 		centralClient:   commonController.client,
 		secretClient:    commonController.SecretClient,
@@ -351,7 +351,7 @@ func (r *AppDBReconcilerHelper) initializeStateStore(ctx context.Context, appDBS
 //   - cluster-3, idx=2, members=3 (removed cluster, idx and previous members from map)
 //   - cluster-10, idx=3, members=10 (assigns a new index that is the next available index (0,1,2 are taken))
 //   - cluster-5, idx=4, members=5 (assigns a new index that is the next available index (0,1,2,3 are taken))
-func (r *AppDBReconcilerHelper) initializeMemberClusters(ctx context.Context, appDBSpec omv1.AppDBSpec, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger) error {
+func (r *AppDBReconcilerHelper) initializeMemberClusters(ctx context.Context, appDBSpec omv1.AppDBSpec, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger) error {
 	if appDBSpec.IsMultiCluster() {
 		if len(globalMemberClustersMap) == 0 {
 			return xerrors.Errorf("member clusters have to be initialized for MultiCluster AppDB topology")
@@ -441,7 +441,7 @@ func (r *AppDBReconcilerHelper) writeLegacyStateConfigMaps(ctx context.Context, 
 	return nil
 }
 
-func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]client.Client, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int, legacyMemberCluster bool) []multicluster.MemberCluster {
+func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpecList, globalMemberClustersMap map[string]multicluster.Entry, log *zap.SugaredLogger, memberClusterMapping map[string]int, getLastAppliedMemberCountFunc func(memberClusterName string) int, legacyMemberCluster bool) []multicluster.MemberCluster {
 	var memberClusters []multicluster.MemberCluster
 	specClusterMap := map[string]struct{}{}
 	for _, clusterSpecItem := range clusterSpecList {
@@ -449,7 +449,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 
 		var memberClusterKubeClient kubernetesClient.Client
 		var memberClusterSecretClient secrets.SecretClient
-		memberClusterClient, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
+		memberClusterEntry, ok := globalMemberClustersMap[clusterSpecItem.ClusterName]
 		if !ok {
 			var clusterList []string
 			for m := range globalMemberClustersMap {
@@ -458,7 +458,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			log.Warnf("Member cluster %s specified in clusterSpecList is not found in the list of operator's member clusters: %+v. "+
 				"Assuming the cluster is down. It will be ignored from reconciliation but its MongoDB processes will still be maintained in replicaset configuration.", clusterSpecItem.ClusterName, clusterList)
 		} else {
-			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient)
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterEntry.Client)
 			memberClusterSecretClient = secrets.SecretClient{
 				VaultClient: nil, // Vault is not supported yet on multi cluster
 				KubeClient:  memberClusterKubeClient,
@@ -470,6 +470,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			Index:        memberClusterMapping[clusterSpecItem.ClusterName],
 			Client:       memberClusterKubeClient,
 			SecretClient: memberClusterSecretClient,
+			ResourceName: memberClusterEntry.ResourceName,
 			Replicas:     getLastAppliedMemberCountFunc(clusterSpecItem.ClusterName),
 			Active:       true,
 			Healthy:      memberClusterKubeClient != nil,
@@ -492,7 +493,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 
 		var memberClusterKubeClient kubernetesClient.Client
 		var memberClusterSecretClient secrets.SecretClient
-		memberClusterClient, ok := globalMemberClustersMap[previousMember]
+		memberClusterEntry, ok := globalMemberClustersMap[previousMember]
 		if !ok {
 			var clusterList []string
 			for m := range globalMemberClustersMap {
@@ -501,7 +502,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			log.Warnf("Member cluster %s that has to be scaled to 0 replicas is not found in the list of operator's member clusters: %+v. "+
 				"Assuming the cluster is down. It will be ignored from reconciliation but it's MongoDB processes will be scaled down to 0 in replicaset configuration.", previousMember, clusterList)
 		} else {
-			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterClient)
+			memberClusterKubeClient = kubernetesClient.NewClient(memberClusterEntry.Client)
 			memberClusterSecretClient = secrets.SecretClient{
 				VaultClient: nil, // Vault is not supported yet on multi cluster
 				KubeClient:  memberClusterKubeClient,
@@ -513,6 +514,7 @@ func createMemberClusterListFromClusterSpecList(clusterSpecList mdbv1.ClusterSpe
 			Index:        memberClusterMapping[previousMember],
 			Client:       memberClusterKubeClient,
 			SecretClient: memberClusterSecretClient,
+			ResourceName: memberClusterEntry.ResourceName,
 			Replicas:     previousMemberReplicas,
 			Active:       false,
 			Healthy:      memberClusterKubeClient != nil,
@@ -2053,7 +2055,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 		updateStrategy := r.GetAppDBUpdateStrategyType(opsManager)
 
-		appdbOpts.ServiceAccountName = resourcenames.WorkloadAppDBServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)
+		appdbOpts.ServiceAccountName = resourcenames.WorkloadAppDBServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)
 		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, updateStrategy, r.defaultArchitecture, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))

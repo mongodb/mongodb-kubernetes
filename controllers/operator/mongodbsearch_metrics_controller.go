@@ -33,7 +33,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	runtimeCluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
@@ -98,35 +97,30 @@ const (
 // MongoDBSearchMetricsForwarderReconciler reconciles the metrics forwarder Deployment
 // that forwards mongot Prometheus metrics to Ops Manager.
 type MongoDBSearchMetricsForwarderReconciler struct {
-	kubeClient          kubernetesClient.Client
-	secretClient        secrets.SecretClient
-	watch               *watch.ResourceWatcher
-	defaultImage        string
-	omRequester         omAgentRequester
-	otelConfigTemplate  searchcontroller.MetricsForwarderOTelConfigTemplate
-	operatorClusterName string
-	memberClients       map[string]kubernetesClient.Client
+	kubeClient             kubernetesClient.Client
+	secretClient           secrets.SecretClient
+	watch                  *watch.ResourceWatcher
+	defaultImage           string
+	omRequester            omAgentRequester
+	otelConfigTemplate     searchcontroller.MetricsForwarderOTelConfigTemplate
+	operatorClusterName    string
+	memberClustersProvider *multicluster.Provider
 
 	prepareSearch prepareSearchFuncs
 }
 
-func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, memberClusterMap map[string]client.Client, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
-	clientsMap := make(map[string]kubernetesClient.Client, len(memberClusterMap))
-	for k, v := range memberClusterMap {
-		clientsMap[k] = kubernetesClient.NewClient(v)
-	}
-
+func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, memberClustersProvider *multicluster.Provider, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
 	central := kubernetesClient.NewClient(c)
 	return &MongoDBSearchMetricsForwarderReconciler{
-		kubeClient:          central,
-		secretClient:        secrets.SecretClient{KubeClient: central},
-		watch:               watch.NewResourceWatcher(),
-		defaultImage:        defaultImage,
-		omRequester:         omHTTPAgentRequester{},
-		otelConfigTemplate:  searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
-		operatorClusterName: operatorClusterName,
-		memberClients:       clientsMap,
-		prepareSearch:       newPrepareSearch(operatorClusterName),
+		kubeClient:             central,
+		secretClient:           secrets.SecretClient{KubeClient: central},
+		watch:                  watch.NewResourceWatcher(),
+		defaultImage:           defaultImage,
+		omRequester:            omHTTPAgentRequester{},
+		otelConfigTemplate:     searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
+		operatorClusterName:    operatorClusterName,
+		memberClustersProvider: memberClustersProvider,
+		prepareSearch:          newPrepareSearch(operatorClusterName),
 	}
 }
 
@@ -145,11 +139,15 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		return result, err
 	}
 
+	// Snapshot the member-cluster registry once: this whole reconcile works on a single
+	// membership view.
+	memberClients := memberClusterClients(r.memberClustersProvider.Entries())
+
 	if !mdbSearch.DeletionTimestamp.IsZero() {
 		if !controllerutil.ContainsFinalizer(mdbSearch, util.SearchMetricsForwarderFinalizer) {
 			return reconcile.Result{}, nil
 		}
-		st := r.reconcileCore(ctx, mdbSearch, log)
+		st := r.reconcileCore(ctx, mdbSearch, memberClients, log)
 		if st.IsOK() {
 			return reconcile.Result{}, nil
 		}
@@ -167,7 +165,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 	// never drive deletions; cleanup pauses while the spec sits invalid and
 	// resumes once it is fixed) but on the PRE-localization spec.
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
-		return r.reconcileCore(ctx, mdbSearch, log).ReconcileResult()
+		return r.reconcileCore(ctx, mdbSearch, memberClients, log).ReconcileResult()
 	}
 
 	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
@@ -178,7 +176,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 	switch mode {
 	case searchv1.MetricsForwarderModeAuto, "":
 		if !mdbSearch.IsMetricsForwarderEnabled() {
-			r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
+			r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, memberClients, log)
 			return r.clearMetricsForwarderStatus(ctx, mdbSearch, log)
 		}
 
@@ -187,9 +185,9 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		if !mdbSearch.Spec.Observability.Prometheus.IsEnabled() {
 			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Invalid("metrics forwarder requires Prometheus; set spec.observability.prometheus.mode: enabled to enable it, or set spec.observability.metricsForwarder.mode: disabled to silence this message"), log)
 		}
-		return r.updateMetricsForwarderStatus(ctx, mdbSearch, r.reconcileCore(ctx, mdbSearch, log), log)
+		return r.updateMetricsForwarderStatus(ctx, mdbSearch, r.reconcileCore(ctx, mdbSearch, memberClients, log), log)
 	case searchv1.MetricsForwarderModeDisabled:
-		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
+		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, memberClients, log)
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Disabled(), log)
 	default:
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Invalid("unknown metrics forwarder mode %q", mode), log)
@@ -202,19 +200,19 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 // degrades to a spec-only sweep). Failures only warn: the disabled paths must
 // never mark the CR Failed, and the retained topology state entries and Ops
 // Manager hosts drive the retry on the next reconcile.
-func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResourcesFromState(ctx context.Context, search *searchv1.MongoDBSearch, log *zap.SugaredLogger) {
-	workList := r.buildClusterWorkList(search)
+func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResourcesFromState(ctx context.Context, search *searchv1.MongoDBSearch, memberClients map[string]kubernetesClient.Client, log *zap.SugaredLogger) {
+	workList := r.buildClusterWorkList(search, memberClients)
 	if topologyState, err := r.loadTopologyState(ctx, search, log); err != nil {
 		log.Warnf("Sweeping only the current spec clusters; persisted metrics forwarder state is unreadable: %v", err)
 	} else {
-		workList = append(workList, r.workForRemovedClusters(search, topologyState, log)...)
+		workList = append(workList, r.workForRemovedClusters(search, topologyState, memberClients, log)...)
 	}
 	if err := r.deleteMetricsForwarderResources(ctx, search, workList, log); err != nil {
 		log.Warnf("Failed to delete metrics forwarder resources (retried on the next reconcile): %v", err)
 	}
 }
 
-func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, log *zap.SugaredLogger) workflow.Status {
+func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, memberClients map[string]kubernetesClient.Client, log *zap.SugaredLogger) workflow.Status {
 	deleting := !mdbSearch.DeletionTimestamp.IsZero()
 	cleaningRemovedOperator := operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName)
 	if !deleting && !cleaningRemovedOperator {
@@ -234,7 +232,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 
 	fwdCtx, groupId, fwdStatus, supported := r.resolveForwarderContext(mdbSearch, searchSource)
 	if !supported {
-		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
+		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, memberClients, log)
 		if deleting {
 			// An unsupported source has no project config to deregister hosts with;
 			// never hold the CR hostage on the finalizer for cleanup we cannot do.
@@ -267,7 +265,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 		}
 	}
 
-	workList := r.buildClusterWorkList(mdbSearch)
+	workList := r.buildClusterWorkList(mdbSearch, memberClients)
 	var shardNames []string
 	if shardedSource, ok := searchSource.(searchcontroller.SearchSourceShardedDeployment); ok {
 		shardNames = shardedSource.GetShardNames()
@@ -276,7 +274,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	if deleting {
 		log.Info("MongoDBSearch is being deleted")
 		if controllerutil.ContainsFinalizer(mdbSearch, util.SearchMetricsForwarderFinalizer) {
-			return r.preDeletionCleanup(ctx, mdbSearch, shardNames, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, workList, log)
+			return r.preDeletionCleanup(ctx, mdbSearch, shardNames, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, workList, memberClients, log)
 		}
 		return workflow.OK()
 	}
@@ -289,7 +287,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 
 	if !cleaningRemovedOperator {
 		if supported, st := r.checkOMVersionForMetricsEndpoint(mdbSearch, projectConfig, log); !supported {
-			r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
+			r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, memberClients, log)
 			return st
 		}
 
@@ -312,7 +310,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	// Removed-cluster cleanup runs before the total-miss guard below: a removed
 	// cluster can still have a registered client and persisted topology to clean
 	// while every in-spec cluster is unregistered.
-	removedPending, removedErr := r.cleanupRemovedClusters(ctx, mdbSearch, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, log)
+	removedPending, removedErr := r.cleanupRemovedClusters(ctx, mdbSearch, groupId, projectConfig, fwdCtx.agentApiKeySecret.Name, memberClients, log)
 	pendingPodTerminations := removedPending
 	if removedErr != nil {
 		worstPhase = searchv1.WorstOfPhase(worstPhase, status.PhaseFailed)
@@ -370,24 +368,24 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 // cluster index pin (clusters[].index). Single-cluster: one item with ClusterName="" and
 // ClusterIndex=0. spec.clusters is validated non-empty, so the empty-clusters branch is a
 // defensive backstop only.
-func (r *MongoDBSearchMetricsForwarderReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
+func (r *MongoDBSearchMetricsForwarderReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, memberClients map[string]kubernetesClient.Client) []clusterWorkItem {
 	if r.operatorClusterName != "" {
 		if len(search.Spec.Clusters) == 0 {
-			return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
+			return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, memberClients, r.operatorClusterName)}
 		}
 		for _, c := range search.Spec.Clusters {
 			if c.Name == r.operatorClusterName {
-				return []clusterWorkItem{newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName)}
+				return []clusterWorkItem{newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, memberClients, r.operatorClusterName)}
 			}
 		}
 		return nil
 	}
 	if len(search.Spec.Clusters) == 0 {
-		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
+		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, memberClients, r.operatorClusterName)}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
+		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, memberClients, r.operatorClusterName))
 	}
 	return work
 }
@@ -490,7 +488,7 @@ func normalizeTopologyState(search *searchv1.MongoDBSearch, topologyState *searc
 // client; a named entry with no resolvable index is invalid state, and guessing
 // an index could delete another cluster's resources, so its cleanup is skipped
 // with a warning.
-func (r *MongoDBSearchMetricsForwarderReconciler) workForRemovedClusters(search *searchv1.MongoDBSearch, topologyState *searchTopologyState, log *zap.SugaredLogger) []clusterWorkItem {
+func (r *MongoDBSearchMetricsForwarderReconciler) workForRemovedClusters(search *searchv1.MongoDBSearch, topologyState *searchTopologyState, memberClients map[string]kubernetesClient.Client, log *zap.SugaredLogger) []clusterWorkItem {
 	liveNameByIndex := specNamesByIndex(search)
 	var work []clusterWorkItem
 	for clusterName, clusterState := range topologyState.Clusters {
@@ -504,7 +502,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) workForRemovedClusters(search 
 		if r.operatorClusterName != "" && clusterName != "" && clusterName != r.operatorClusterName {
 			continue
 		}
-		work = append(work, newClusterWorkItem(search, clusterName, *clusterState.ClusterIndex, r.kubeClient, r.memberClients, r.operatorClusterName))
+		work = append(work, newClusterWorkItem(search, clusterName, *clusterState.ClusterIndex, r.kubeClient, memberClients, r.operatorClusterName))
 	}
 	sort.Slice(work, func(i, j int) bool { return work[i].ClusterName < work[j].ClusterName })
 	return work
@@ -527,13 +525,14 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedClusters(
 	groupID string,
 	projectConfig mdbv1.ProjectConfig,
 	agentSecretName string,
+	memberClients map[string]kubernetesClient.Client,
 	log *zap.SugaredLogger,
 ) (bool, error) {
 	topologyState, err := r.loadTopologyState(ctx, search, log)
 	if err != nil {
 		return false, err
 	}
-	removedWork := r.workForRemovedClusters(search, topologyState, log)
+	removedWork := r.workForRemovedClusters(search, topologyState, memberClients, log)
 	pending := false
 	stateChanged := false
 	var cleanupErr error
@@ -1409,7 +1408,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureFinalizer(ctx context.Co
 	return nil
 }
 
-func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context.Context, search *searchv1.MongoDBSearch, shardNames []string, groupID string, projectConfig mdbv1.ProjectConfig, agentSecretName string, workList []clusterWorkItem, log *zap.SugaredLogger) workflow.Status {
+func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context.Context, search *searchv1.MongoDBSearch, shardNames []string, groupID string, projectConfig mdbv1.ProjectConfig, agentSecretName string, workList []clusterWorkItem, memberClients map[string]kubernetesClient.Client, log *zap.SugaredLogger) workflow.Status {
 	log.Info("Performing pre deletion cleanup before deleting MongoDBSearch metrics forwarder")
 
 	topologyState, err := r.loadTopologyState(ctx, search, log)
@@ -1419,7 +1418,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 	// Removed clusters still in persisted state (dropped from spec.clusters, or
 	// this operator's own cluster when it was removed) still hold resources and
 	// Ops Manager hosts to clean up.
-	workList = append(workList, r.workForRemovedClusters(search, topologyState, log)...)
+	workList = append(workList, r.workForRemovedClusters(search, topologyState, memberClients, log)...)
 
 	// Check for running Deployments. If any exist, delete them and requeue. We must
 	// not deregister OM hosts while any forwarder pod is still running — a live collector would
@@ -1538,11 +1537,11 @@ func memberMongoDBSearchMetricsForwarderResourceWatches(r *MongoDBSearchMetricsF
 }
 
 // AddMongoDBSearchMetricsForwarderController registers the metrics forwarder controller with the manager.
-func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string, maxConcurrentReconciles int) error {
+func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, memberClustersProvider *multicluster.Provider, operatorClusterName string, maxConcurrentReconciles int) error {
 	r := newMongoDBSearchMetricsForwarderReconciler(
 		mgr.GetClient(),
 		defaultImage,
-		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+		memberClustersProvider,
 		operatorClusterName,
 	)
 	c, err := controller.New("mongodbsearchmetricsforwarder", mgr, controller.Options{
@@ -1563,9 +1562,9 @@ func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager
 	}
 
 	// Per-member-cluster resource watches: label-based mapper, since cross-cluster owner refs don't GC.
-	for k, v := range memberClusterObjectsMap {
+	for k, v := range memberClustersProvider.Entries() {
 		for _, w := range memberMongoDBSearchMetricsForwarderResourceWatches(r) {
-			if err := c.Watch(source.Kind[client.Object](v.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
+			if err := c.Watch(source.Kind[client.Object](v.Cluster.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
 				return fmt.Errorf("failed to set metrics forwarder member-cluster watch on %s for %T: %w", k, w.obj, err)
 			}
 		}

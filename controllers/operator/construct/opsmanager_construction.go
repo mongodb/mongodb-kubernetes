@@ -315,7 +315,7 @@ func opsManagerOptions(memberCluster multicluster.MemberCluster, additionalOpts 
 		opts.Replicas = memberCluster.Replicas
 		opts.StatefulSetSpecOverride = stsSpec
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
-		opts.ServiceAccountName = resourcenames.WorkloadOpsManagerServiceAccount.Name(memberCluster.Name, memberCluster.Legacy)
+		opts.ServiceAccountName = resourcenames.WorkloadOpsManagerServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)
 
 		for _, additionalOpt := range additionalOpts {
 			additionalOpt(&opts)
