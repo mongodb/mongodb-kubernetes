@@ -870,7 +870,9 @@ func (c clusterState) waitingOn() string {
 	case awaitingGoalState:
 		return "the automation agents have not reached goal state"
 	case inGoalState:
-		return "nothing — in goal state"
+		// reachable while the cluster is still in flight: the directive looks converged but the
+		// member's reported facts (applied hash/count) have not caught up yet
+		return "the member's reported facts have not converged yet"
 	}
 	return "unknown"
 }
