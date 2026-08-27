@@ -473,6 +473,22 @@ func recognition(s plannerSnapshot) (planDecision, bool) {
 				Reason:        fmt.Sprintf("recognizing existing capacity: re-granting cluster %s at the automation config count %d", t.ClusterName, ac),
 			}, true
 		}
+		// re-stamp: a directive from an older leadership with a correct count is refused by the
+		// member's term fence (its facts freeze, which reads as in-flight and blocks
+		// advancement), and no ladder ever rewrites it — the same instruction is re-issued at
+		// the current term, changing nothing physical (found live: a member fencing on a
+		// lingering higher lease term deadlocked against a leader waiting for its facts)
+		if d.Spec.LeadershipTerm < s.LeadershipTerm {
+			restamped := d.Spec
+			restamped.LeadershipTerm = s.LeadershipTerm
+			restamped.AdvancedAt = metav1.NewTime(s.Now)
+			return planDecision{
+				Kind:          decisionWriteDirective,
+				TargetCluster: t.ClusterName,
+				DirectiveSpec: restamped,
+				Reason:        fmt.Sprintf("re-stamping cluster %s at term %d: its directive carries the older term %d", t.ClusterName, s.LeadershipTerm, d.Spec.LeadershipTerm),
+			}, true
+		}
 	}
 	return planDecision{}, false
 }

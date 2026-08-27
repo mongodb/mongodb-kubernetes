@@ -144,6 +144,27 @@ func (b *snapshotBuilder) build() plannerSnapshot {
 	return b.s
 }
 
+// TestPlanReStampsStaleTermDirectives pins the fence-deadlock repair: a directive from an older
+// leadership with a correct count is refused by the member's term fence (its facts freeze,
+// which reads as in-flight and blocks advancement), and no ladder rewrites it — the same
+// instruction must be re-issued at the current term (found live: a lingering higher lease term
+// deadlocked a member against a leader waiting for its facts).
+func TestPlanReStampsStaleTermDirectives(t *testing.T) {
+	b := converged(2, 2, 2)
+	b.editDirective(clusters[1], func(d *directiveView) { d.Spec.LeadershipTerm = b.s.LeadershipTerm - 3 })
+
+	decision := plan(b.build())
+	require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+	assert.Equal(t, clusters[1], decision.TargetCluster)
+	assert.Contains(t, decision.Reason, "re-stamping")
+	assert.Equal(t, b.s.LeadershipTerm, decision.DirectiveSpec.LeadershipTerm)
+	assert.Equal(t, 2, decision.DirectiveSpec.MemberCount, "the instruction is unchanged, only the term moves")
+
+	// idempotence: once every directive carries the current term, the world is Noop again
+	b.editDirective(clusters[1], func(d *directiveView) { d.Spec.LeadershipTerm = b.s.LeadershipTerm })
+	assert.Equal(t, decisionNoop, plan(b.build()).Kind)
+}
+
 func TestPlanNoopWhenConverged(t *testing.T) {
 	decision := plan(converged(2, 2, 2).build())
 	assert.Equal(t, decisionNoop, decision.Kind, decision.Reason)

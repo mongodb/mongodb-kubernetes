@@ -377,12 +377,15 @@ func (s *quorumLeaseCore) acquireIntents(now time.Time) []leaseWriteIntent {
 
 // renewIntents re-proves the majority (~every duration/3): rewrite every lease that is mine, and
 // converge any takeable straggler so a later loss of one majority member is survivable. A fresh
-// foreign lease (a ghost) is left alone. A floor raise at or above the held term bumps the
-// renewal to floor+1 — the whole majority re-CASes at the new term in one pass.
+// foreign lease (a ghost) is left alone. A raise STRICTLY above the held term — a pushed floor
+// or a higher term observed in any lease (an abandoned candidacy's lingering minority write) —
+// bumps the renewal to raise+1, re-CASing the whole majority in one pass. Equality never bumps:
+// the leader stamps its own held term into the AC, and treating its own stamp as a raise made
+// every AC write inflate the term and skew the leases ahead of the directives (found live).
 func (s *quorumLeaseCore) renewIntents(now time.Time) []leaseWriteIntent {
 	renewTerm := s.heldTerm
-	if s.termFloor >= s.heldTerm {
-		renewTerm = s.termFloor + 1
+	if raise := max(s.termFloor, s.maxObservedTerm()); raise > s.heldTerm {
+		renewTerm = raise + 1
 	}
 	s.pending = attemptRenew
 	s.candidateTerm = renewTerm

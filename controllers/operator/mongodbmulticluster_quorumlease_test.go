@@ -398,6 +398,36 @@ func TestQuorumCoreTermFloor(t *testing.T) {
 			assert.Equal(t, int64(10), world.leases[cluster].content.Term)
 		}
 	})
+
+	t.Run("the leader's own AC stamp never bumps the term", func(t *testing.T) {
+		// the leader stamps its held term into the AC and reads it back as the floor; treating
+		// that equality as a raise made every AC write inflate the term and skew the leases
+		// ahead of the directives (found live)
+		core := coreForTest(clusters[0])
+		world := newFakeLeaseWorld()
+		world.drive(core, t0)
+		require.True(t, world.drive(core, t0))
+		require.Equal(t, int64(1), core.heldTerm)
+
+		core.observeTermFloor(1)
+		require.True(t, world.drive(core, t0.Add(testLeaseDuration/3)))
+		assert.Equal(t, int64(1), core.heldTerm, "floor == held is the leader's own stamp, not a raise")
+		assert.Equal(t, int64(1), world.leases[clusters[0]].content.Term)
+	})
+
+	t.Run("a lingering higher lease term raises the renewal", func(t *testing.T) {
+		// an abandoned candidacy's minority write outranks the held term in one cluster; the
+		// members there fence every directive against it, so the leader must climb past it
+		core := coreForTest(clusters[0])
+		world := newFakeLeaseWorld()
+		world.drive(core, t0)
+		require.True(t, world.drive(core, t0))
+		require.Equal(t, int64(1), core.heldTerm)
+
+		world.seed(clusters[2], "abandoned-candidate", 7)
+		require.True(t, world.drive(core, t0.Add(testLeaseDuration/3)))
+		assert.Equal(t, int64(8), core.heldTerm, "the renewal climbs past the lingering term")
+	})
 }
 
 func TestQuorumCoreMajorityIsOfConfiguredClusters(t *testing.T) {
