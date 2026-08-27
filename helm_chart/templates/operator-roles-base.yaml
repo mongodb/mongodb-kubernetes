@@ -163,6 +163,31 @@ rules:
       - get
       - list
       - watch
+{{- /* Decentralized multi-cluster coordination on the operator's OWN cluster: full control of
+       the local mongodbdirectives copy, status echo, and the local election Lease. The narrow
+       peer-cluster counterpart (leases + directives only) is granted by the peer Role the
+       decentralized installer builds — never by this chart. */}}
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - mongodbdirectives
+    verbs:
+      - '*'
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - mongodbdirectives/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''
