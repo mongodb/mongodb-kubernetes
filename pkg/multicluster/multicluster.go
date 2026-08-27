@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -46,14 +45,6 @@ func GetRsNamefromMultiStsName(name string) string {
 	return strings.Join(ss[:len(ss)-1], "-")
 }
 
-func ClustersMapToClientMap(clusterMap map[string]cluster.Cluster) map[string]client.Client {
-	clientMap := map[string]client.Client{}
-	for memberClusterName, memberCluster := range clusterMap {
-		clientMap[memberClusterName] = memberCluster.GetClient()
-	}
-	return clientMap
-}
-
 // MemberCluster is a wrapper type containing basic information about member cluster in one place.
 // It is used to simplify reconciliation process and to ensure deterministic iteration over member clusters.
 type MemberCluster struct {
@@ -62,6 +53,9 @@ type MemberCluster struct {
 	Replicas     int
 	Client       kubernetesClient.Client
 	SecretClient secrets.SecretClient
+	// ResourceName is the MemberCluster CR's metadata.name, used to derive member-scoped
+	// resource names. Empty for the legacy central cluster (single-cluster mode).
+	ResourceName string
 	// Active marks a cluster as a member holding database nodes. The flag is useful for only relying on active clusters when reading
 	// information about the topology of the multi-cluster MongoDB or AppDB resource. This could mean automation config or cluster specific configuration.
 	Active bool
@@ -123,7 +117,7 @@ var memberClusterMapMutex sync.Mutex
 // IsMemberClusterMapInitializedForMultiCluster checks if global member cluster map
 // is properly initialized for multi-cluster workloads. The assumption is that if the map
 // contains only __default cluster, that means it's not configured for multi-cluster.
-func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]client.Client) bool {
+func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]Entry) bool {
 	memberClusterMapMutex.Lock()
 	defer memberClusterMapMutex.Unlock()
 
@@ -138,15 +132,15 @@ func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]cl
 	return true
 }
 
-func InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap map[string]client.Client, defaultKubeClient client.Client) map[string]client.Client {
+func InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap map[string]Entry, defaultKubeClient client.Client) map[string]Entry {
 	memberClusterMapMutex.Lock()
 	defer memberClusterMapMutex.Unlock()
 
 	if _, ok := globalMemberClustersMap[LegacyCentralClusterName]; !ok {
 		if globalMemberClustersMap == nil {
-			globalMemberClustersMap = map[string]client.Client{}
+			globalMemberClustersMap = map[string]Entry{}
 		}
-		globalMemberClustersMap[LegacyCentralClusterName] = defaultKubeClient
+		globalMemberClustersMap[LegacyCentralClusterName] = Entry{Client: defaultKubeClient}
 	}
 
 	return globalMemberClustersMap

@@ -1769,7 +1769,7 @@ func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.M
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
 	_ = c.Update(ctx, opsManager)
 	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager, commonController, omConnectionFactoryFunc, memberClusterMap, architectures.NonStatic, log)
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager, commonController, omConnectionFactoryFunc, multiClusterProviderFromClientMap(memberClusterMap).Entries(), architectures.NonStatic, log)
 }
 
 func TestChangingFCVAppDB(t *testing.T) {
