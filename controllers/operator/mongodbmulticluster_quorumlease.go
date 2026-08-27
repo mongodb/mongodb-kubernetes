@@ -308,13 +308,15 @@ func (s *quorumLeaseCore) step(now time.Time) []leaseWriteIntent {
 		if !s.selfEligible() {
 			return nil
 		}
-		if s.takeableCount(now) >= s.majority() {
-			// the expiry predicate fired: arm the randomized delay before the first CAS —
-			// Raft's randomized election timeout, breaking the 1-1-1 swap-cycle symmetry
-			s.phase = phaseDelaying
-			s.delayUntil = now.Add(s.randomDelay())
+		if s.takeableCount(now) < s.majority() {
+			return nil
 		}
-		return nil
+		// the expiry predicate fired: arm the randomized delay before the first CAS —
+		// Raft's randomized election timeout, breaking the 1-1-1 swap-cycle symmetry.
+		// A zero delay proceeds this same turn (falling through), never costing an extra tick.
+		s.phase = phaseDelaying
+		s.delayUntil = now.Add(s.randomDelay())
+		fallthrough
 	case phaseDelaying:
 		if s.takeableCount(now) < s.majority() {
 			s.phase = phaseFollower // the world moved on (a leader renewed); stand down

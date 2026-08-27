@@ -111,7 +111,9 @@ func TestQuorumLockAcquireRenewPartialFailure(t *testing.T) {
 	clientsMap := lock.transport.(*apiServerTransport).clients
 	self := resourceLockRecord(clusters[0])
 
-	// turn 1: Get + Update arms the randomized delay — no CAS yet
+	// turn 1: Get + Update arms the randomized delay — no CAS yet (a zero delay would proceed
+	// this same turn)
+	lock.core.randomDelay = func() time.Duration { return time.Second }
 	_, _, err := lock.Get(ctx)
 	require.NoError(t, err)
 	assert.ErrorContains(t, lock.Update(ctx, self), "no candidacy this turn")
@@ -120,7 +122,8 @@ func TestQuorumLockAcquireRenewPartialFailure(t *testing.T) {
 		assert.Error(t, getErr, "the delaying turn wrote nothing on %s", cluster)
 	}
 
-	// turn 2: the fan-out creates all three leases and wins
+	// turn 2: past the delay, the fan-out creates all three leases and wins
+	*now = now.Add(2 * time.Second)
 	_, _, err = lock.Get(ctx)
 	require.NoError(t, err)
 	require.NoError(t, lock.Update(ctx, self))

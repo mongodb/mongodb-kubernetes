@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -87,6 +88,19 @@ func RunShared(m *testing.M, opts ...Option) int {
 	return code
 }
 
+// Start boots an independent control plane, in addition to any RunShared one. It exists for
+// tests that need SEVERAL API servers in one process (e.g. multi-cluster leader election over
+// real Leases); single-control-plane packages should keep using RunShared, which amortizes the
+// boot cost across the package. The caller owns the shutdown: defer Stop().
+func Start(opts ...Option) (*TestEnv, error) {
+	return start(opts...)
+}
+
+// Stop tears the control plane down.
+func (e *TestEnv) Stop() error {
+	return e.Environment.Stop()
+}
+
 // Shared returns the package-wide environment started by RunShared in the
 // package's TestMain. It fails the test immediately if RunShared was not used.
 func Shared(t *testing.T) *TestEnv {
@@ -116,6 +130,9 @@ func start(opts ...Option) (*TestEnv, error) {
 
 	scheme := kruntime.NewScheme()
 	if err := mdbv1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := coordinationv1.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 

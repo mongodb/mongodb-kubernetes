@@ -175,7 +175,6 @@ func TestQuorumCorePartialAcquireIsAbandoned(t *testing.T) {
 
 	expiredAt := t0.Add(testLeaseDuration + time.Second)
 	world.drive(core, t0)
-	world.drive(core, expiredAt) // arms the delay
 
 	// a concurrent candidate seizes two objects between our read and our write: CAS losses
 	world.observeAll(core, expiredAt)
