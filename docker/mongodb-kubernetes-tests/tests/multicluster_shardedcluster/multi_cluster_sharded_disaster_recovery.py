@@ -6,13 +6,7 @@ import kubernetes.client
 from kubetester import delete_statefulset, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_env_var_or_fail,
-    is_default_architecture_static,
-    is_multi_cluster,
-    run_periodically,
-    skip_if_local,
-)
+from kubetester.kubetester import get_env_var_or_fail, is_multi_cluster, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -138,7 +132,7 @@ class TestDeployShardedClusterWithFailedCluster:
         logger.debug(f"Automation Config Version after initial deployment: {config_version_store.version}")
 
     def test_remove_member_cluster_to_simulate_it_is_unhealthy(
-        self, namespace, central_cluster_client: kubernetes.client.ApiClient, multi_cluster_operator: Operator
+        self, namespace, central_cluster_client: kubernetes.client.ApiClient
     ):
         # Simulate the failed cluster becoming unavailable by deleting its MemberCluster CR and
         # credential Secret.
@@ -154,11 +148,6 @@ class TestDeployShardedClusterWithFailedCluster:
             name=f"mck-credential-{FAILED_MEMBER_CLUSTER_NAME}",
             namespace=namespace,
         )
-
-    @skip_if_local
-    # Wait for the operator to be ready after the member cluster was removed.
-    def test_operator_processes_member_removal(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.wait_for_operator_ready()
 
     def test_delete_all_statefulsets_in_failed_cluster(
         self, sc: MongoDB, central_cluster_client: kubernetes.client.ApiClient
@@ -212,9 +201,6 @@ class TestDeployShardedClusterWithFailedCluster:
         sc.assert_reaches_phase(Phase.Running)
         # Automation Config shouldn't change when we lose a cluster
         expected_version = config_version_store.version
-        # in non-static, every restart of the operator increases version of ac due to agent upgrades
-        if not is_default_architecture_static():
-            expected_version += 1
 
         assert expected_version == sc.get_automation_config_tester().automation_config["version"]
 

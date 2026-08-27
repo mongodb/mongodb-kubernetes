@@ -4,8 +4,7 @@ import kubernetes
 import kubernetes.client
 from kubetester import delete_statefulset, get_statefulset, try_load
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import run_periodically, skip_if_local
-from kubetester.operator import Operator
+from kubetester.kubetester import run_periodically
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -126,14 +125,6 @@ def test_remove_member_cluster_to_simulate_it_is_unhealthy(
         name=f"mck-credential-{FAILED_MEMBER_CLUSTER_NAME}",
         namespace=namespace,
     )
-
-
-@mark.e2e_multi_cluster_appdb_disaster_recovery
-@mark.e2e_multi_cluster_appdb_disaster_recovery_force_reconfigure
-@skip_if_local
-def test_operator_processes_member_removal(multi_cluster_operator: Operator):
-    # Wait for the operator to be ready after the member cluster was removed.
-    multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_multi_cluster_appdb_disaster_recovery

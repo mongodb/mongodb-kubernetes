@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"slices"
@@ -12,7 +13,6 @@ import (
 
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	restclient "k8s.io/client-go/rest"
@@ -76,42 +76,52 @@ func credentialsFromRestConfig(restConfig *restclient.Config) (*ClusterCredentia
 	}, nil
 }
 
-// populateCache builds a per-cluster health checker for every member cluster in clustersMap,
-// sourcing the server URL, CA, and token from each cluster's in-memory rest.Config
-// (cluster.GetConfig()). This is independent of how the clusters were discovered — MemberCluster
-// CRs or the legacy mounted kubeconfig — since both populate clustersMap identically.
-func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) {
+// AddCluster registers a health checker for a member cluster, sourcing the server URL, CA,
+// and token from the cluster's rest.Config. Called when the cluster is engaged.
+func (m *MemberClusterHealthChecker) AddCluster(clusterName string, restConfig *restclient.Config, log *zap.SugaredLogger) {
 	timeout := m.ClientTimeout
 	if timeout <= 0 {
 		timeout = DefaultClientTimeout
 	}
 
-	for clusterName, memberCluster := range clustersMap {
-		restConfig := memberCluster.GetConfig()
-		if restConfig == nil {
-			log.Errorf("Skipping cluster %s: no REST config available", clusterName)
-			continue
-		}
-		credentials, err := credentialsFromRestConfig(restConfig)
-		if err != nil {
-			log.Errorf("Skipping cluster %s: %v", clusterName, err)
-			continue
-		}
-		m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log, WithTimeout(timeout))
-		m.HealthyStreak[clusterName] = 0
+	if restConfig == nil {
+		log.Errorf("Skipping cluster %s: no REST config available", clusterName)
+		return
 	}
+	credentials, err := credentialsFromRestConfig(restConfig)
+	if err != nil {
+		log.Errorf("Skipping cluster %s: %v", clusterName, err)
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log, WithTimeout(timeout))
+	m.HealthyStreak[clusterName] = 0
+}
+
+// RemoveCluster drops a member cluster's health checker. Called when the cluster is
+// disengaged.
+func (m *MemberClusterHealthChecker) RemoveCluster(clusterName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.Cache, clusterName)
+	delete(m.HealthyStreak, clusterName)
+}
+
+// checkers returns a snapshot of the per-cluster health checkers; hooks may mutate the
+// registry while the health-check loop is iterating.
+func (m *MemberClusterHealthChecker) checkers() map[string]ClusterHealthChecker {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	checkers := make(map[string]ClusterHealthChecker, len(m.Cache))
+	maps.Copy(checkers, m.Cache)
+	return checkers
 }
 
 // WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enqueues the
 // MongoDBMultiCluster resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
-func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client, clustersMap map[string]cluster.Cluster) {
+func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client) {
 	for {
-		// (Re)populate the per-cluster health checkers if empty. Kept inside the loop so a
-		// transient empty clustersMap at startup does not permanently disable health checking.
-		if len(m.Cache) == 0 {
-			m.populateCache(clustersMap, log)
-		}
-
 		log.Info("Running member cluster healthcheck")
 		mdbmList := &mdbmulti.MongoDBMultiClusterList{}
 
@@ -121,7 +131,7 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 		}
 
 		// check the cluster health status corresponding to each member cluster
-		for k, v := range m.Cache {
+		for k, v := range m.checkers() {
 			if v.IsClusterHealthy(log) {
 				log.Infof("Cluster %s reported healthy", k)
 				if multicluster.ShouldPerformFailover() {
