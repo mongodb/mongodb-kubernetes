@@ -30,14 +30,14 @@ import (
 // state comes from the referenced MongoDB CR instead.
 type ReconcileExternalAppDBReplicaSet struct {
 	*ReconcileCommonController
-	memberClustersMap map[string]client.Client
-	log               *zap.SugaredLogger
+	memberClustersProvider *multicluster.Provider
+	log                    *zap.SugaredLogger
 }
 
 func (r *OpsManagerReconciler) createNewExternalAppDBReconciler(log *zap.SugaredLogger) *ReconcileExternalAppDBReplicaSet {
 	return &ReconcileExternalAppDBReplicaSet{
 		ReconcileCommonController: r.ReconcileCommonController,
-		memberClustersMap:         r.memberClustersMap,
+		memberClustersProvider:    r.memberClustersProvider,
 		log:                       log,
 	}
 }
@@ -152,7 +152,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 	// handover. A single-cluster reference always carries the internal AppDB's name, so it cannot
 	// leave one behind.
 	if appDB.isMultiCluster() {
-		for clusterName, memberClient := range e.memberClustersMap {
+		for clusterName, memberClient := range memberClusterClients(e.memberClustersProvider.Entries()) {
 			if memberClient == nil {
 				continue
 			}
@@ -317,10 +317,11 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		}
 
 		clusterList := make([]appDBClusterItem, 0, len(mdbm.Spec.ClusterSpecList))
+		memberClients := memberClusterClients(e.memberClustersProvider.Entries())
 		for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
 			clusterList = append(clusterList, appDBClusterItem{
 				clusterName: clusterSpec.ClusterName,
-				client:      e.memberClustersMap[clusterSpec.ClusterName],
+				client:      memberClients[clusterSpec.ClusterName],
 				stsName:     mdbm.StatefulSetNameForCluster(clusterSpec.ClusterName),
 			})
 		}

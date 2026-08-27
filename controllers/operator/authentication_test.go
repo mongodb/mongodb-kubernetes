@@ -233,7 +233,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, multiClusterProviderFromClientMap(memberClusterMap), testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(x509User))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -269,7 +269,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, multiClusterProviderFromClientMap(memberClusterMap), testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(scramUser))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -880,7 +880,7 @@ func TestUpdateOmAuthentication_KeyFileFollowsDownloadBase(t *testing.T) {
 		rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
 		omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, false, true, 1200, omConnectionFactory.GetConnectionFunc)
 
 		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", "/custom/download/base", false, zap.S())
 		assert.True(t, status.IsOK())
@@ -894,7 +894,7 @@ func TestUpdateOmAuthentication_KeyFileFollowsDownloadBase(t *testing.T) {
 		rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
 		omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, false, true, 1200, omConnectionFactory.GetConnectionFunc)
 
 		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 		assert.True(t, status.IsOK())

@@ -279,7 +279,7 @@ func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
 
 func TestCreateSearchStatefulSetFunc_ImagePullPolicy(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "default")
-	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", nil, "mongot:latest", corev1.PullIfNotPresent, false)
+	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", util.MongoDBServiceAccount, nil, "mongot:latest", corev1.PullIfNotPresent, false)
 	sts := statefulset.New(stsMod)
 
 	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
@@ -466,13 +466,13 @@ func TestCreateSearchStatefulSetFunc_ServiceAccount(t *testing.T) {
 	labels := map[string]string{appLabelKey: "test-search-svc"}
 
 	t.Run("fixed default serviceAccountName provided by the caller is used", func(t *testing.T) {
-		stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", util.MongoDBServiceAccount, labels, "mongot:latest", false)
+		stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", util.MongoDBServiceAccount, labels, "mongot:latest", corev1.PullAlways, false)
 		sts := statefulset.New(stsMod)
 		assert.Equal(t, util.MongoDBServiceAccount, sts.Spec.Template.Spec.ServiceAccountName)
 	})
 
 	t.Run("member-scoped serviceAccountName is used", func(t *testing.T) {
-		stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", "mck-member-cluster-1-database-pods", labels, "mongot:latest", false)
+		stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", "mck-member-cluster-1-database-pods", labels, "mongot:latest", corev1.PullAlways, false)
 		sts := statefulset.New(stsMod)
 		assert.Equal(t, "mck-member-cluster-1-database-pods", sts.Spec.Template.Spec.ServiceAccountName)
 	})

@@ -36,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
@@ -65,7 +66,7 @@ func TestMultiReplicaSetHostnameConfigMapUsesStableClusterIndexes(t *testing.T) 
 	mrs.Spec.Mapping = map[string]int{clusters[0]: 5, clusters[1]: 3, clusters[2]: 8}
 	mrs.Spec.ClusterSpecList[0], mrs.Spec.ClusterSpecList[2] = mrs.Spec.ClusterSpecList[2], mrs.Spec.ClusterSpecList[0]
 	reconciler, _, members, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
-	require.NoError(t, reconciler.reconcileHostnameOverrideConfigMap(ctx, zap.S(), *mrs))
+	require.NoError(t, reconciler.reconcileHostnameOverrideConfigMap(ctx, zap.S(), *mrs, reconciler.memberClustersProvider.Entries()))
 	for _, item := range mrs.Spec.ClusterSpecList {
 		cm := corev1.ConfigMap{}
 		require.NoError(t, members[item.ClusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-hostname-override"), &cm))
@@ -912,7 +913,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, false, true, 1200, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, false, true, 1200, omConnectionFactory.GetConnectionFunc, multiClusterProviderFromClientMap(memberClusterMap))
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -1673,6 +1674,12 @@ func newMultiClusterGateFixture(role string) (*mdbmulti.MongoDBMultiCluster, *Re
 	return mrs, reconciler, clusterMap, omConnectionFactory
 }
 
+// gateSecretClient returns the secret client for a member cluster from the reconciler's live provider.
+func gateSecretClient(reconciler *ReconcileMongoDbMultiReplicaSet, clusterName string) secrets.SecretClient {
+	_, secretClients := memberClusterAndSecretClients(reconciler.memberClustersProvider.Entries())
+	return secretClients[clusterName]
+}
+
 func TestMDBMultiAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
 	ctx := context.Background()
 	mrs, reconciler, _, omConnectionFactory := newMultiClusterGateFixture(mdb.RoleAppDB)
@@ -1764,7 +1771,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
 				for _, clusterName := range []string{cluster1, cluster2, cluster3} {
 					item := mdb.ClusterSpecItem{ClusterName: clusterName, Members: 3}
-					gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[clusterName], reconciler.memberClusterSecretClientsMap[clusterName], zap.S())
+					gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[clusterName], gateSecretClient(reconciler, clusterName), zap.S())
 					assert.True(t, gateStatus.IsOK())
 				}
 			},
@@ -1784,7 +1791,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 					before := appsv1.StatefulSet{}
 					require.NoError(t, clusterMap[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(clusterName)), &before))
 					item := mdb.ClusterSpecItem{ClusterName: clusterName, Members: 3}
-					gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[clusterName], reconciler.memberClusterSecretClientsMap[clusterName], zap.S())
+					gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[clusterName], gateSecretClient(reconciler, clusterName), zap.S())
 					assert.True(t, gateStatus.IsOK())
 
 					result := appsv1.StatefulSet{}
@@ -1808,7 +1815,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			},
 			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
 				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
-				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], gateSecretClient(reconciler, cluster1), zap.S())
 				assert.True(t, gateStatus.IsOK())
 			},
 		},
@@ -1821,7 +1828,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			},
 			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
 				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
-				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], gateSecretClient(reconciler, cluster1), zap.S())
 				assertPending(t, gateStatus, "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource")
 			},
 		},
@@ -1835,7 +1842,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			},
 			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
 				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
-				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], gateSecretClient(reconciler, cluster1), zap.S())
 				assert.True(t, gateStatus.IsOK())
 			},
 		},
@@ -1946,7 +1953,7 @@ func TestMDBMultiValidateAppDBForwardMigration(t *testing.T) {
 					corev1.Volume{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: certSecretName}}},
 					corev1.Volume{Name: tls.ConfigMapVolumeCAName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: appDBCAConfigMap}}}},
 				)
-				require.NoError(t, reconciler.memberClusterSecretClientsMap[clusterName].CreateSecret(ctx, corev1.Secret{
+				require.NoError(t, gateSecretClient(reconciler, clusterName).CreateSecret(ctx, corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{Name: certSecretName, Namespace: mrs.Namespace},
 					Data:       map[string][]byte{"tls.crt": []byte("cert")},
 				}))
@@ -1955,7 +1962,7 @@ func TestMDBMultiValidateAppDBForwardMigration(t *testing.T) {
 			sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(clusterName), nil, annotations, tt.stsReplicas, volumes...)
 			require.NoError(t, clusterMap[clusterName].Create(ctx, &sts))
 
-			gateStatus := reconciler.validateAppDBForwardMigration(ctx, mrs, item, sts, reconciler.memberClusterSecretClientsMap[clusterName], zap.S())
+			gateStatus := reconciler.validateAppDBForwardMigration(ctx, mrs, item, sts, gateSecretClient(reconciler, clusterName), zap.S())
 			assert.Equal(t, tt.expectedOK, gateStatus.IsOK())
 			if tt.expectedError != "" {
 				assert.Equal(t, status.PhaseFailed, gateStatus.Phase())
@@ -1993,9 +2000,9 @@ func TestMDBMultiAppDBOwnershipGate_MemberClusterClients(t *testing.T) {
 			mrs, reconciler, _, _ := newMultiClusterGateFixture(mdb.RoleAppDB)
 			switch {
 			case tt.deleteClient:
-				delete(reconciler.memberClusterClientsMap, clusters[0])
+				reconciler.memberClustersProvider = multicluster.NewProvider()
 			case tt.nilClient:
-				reconciler.memberClusterClientsMap[clusters[0]] = nil
+				reconciler.memberClustersProvider.Set(clusters[0], multicluster.Entry{})
 			}
 
 			gateStatus := reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
@@ -2025,7 +2032,7 @@ func TestMDBMultiAppDBAdoptionGate_WiredIntoReconcileStatefulSets(t *testing.T) 
 	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
 	require.True(t, ownershipStatus.IsOK())
 
-	_ = reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "")
+	_ = reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "", reconciler.memberClustersProvider.Entries())
 
 	result := appsv1.StatefulSet{}
 	require.NoError(t, clusterMap[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(clusterName)), &result))
@@ -2110,7 +2117,7 @@ func TestMDBMultiAppDBSharedSecrets_WiredIntoReconcileStatefulSets(t *testing.T)
 			}
 
 			for _, clusterName := range clusters {
-				memberSecretClient := reconciler.memberClusterSecretClientsMap[clusterName]
+				memberSecretClient := gateSecretClient(reconciler, clusterName)
 				_, err := memberSecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
 				assert.Error(t, err)
 				_, err = memberSecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
@@ -2244,7 +2251,16 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, false, true, 1200, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
+	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, false, true, 1200, omConnectionFactory.GetConnectionFunc, multiClusterProviderFromClientMap(memberClusterMap)), kubeClient, memberClusterMap, omConnectionFactory
+}
+
+// multiClusterProviderFromClientMap builds a multicluster.Provider from a fake member cluster client map.
+func multiClusterProviderFromClientMap(memberClusterMap map[string]client.Client) *multicluster.Provider {
+	provider := multicluster.NewProvider()
+	for clusterName, memberClient := range memberClusterMap {
+		provider.Set(clusterName, multicluster.Entry{Client: memberClient, ResourceName: clusterName})
+	}
+	return provider
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {
