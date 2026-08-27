@@ -244,12 +244,9 @@ class InstallerSettings:
     # cluster -> (bearer token, base64 ca.crt), read back from the populated token Secrets.
     peer_credentials: Dict[str, Tuple[str, str]] = field(default_factory=dict)
     operator_config_extra_spec: Optional[dict] = None
-
-    @property
-    def leader_cluster(self) -> str:
-        # TEMPORARY until M3.7 (majority lease) merges: OPERATOR_LEADER_CLUSTER_NAME pins the
-        # StaticElector so exactly one of the three operators leads.
-        return self.clusters[0]
+    # Debugging escape hatch: pins the StaticElector so this cluster always leads, bypassing
+    # the quorum lease election. Leave None (the default) to exercise the real election.
+    forced_leader_cluster: Optional[str] = None
 
     def api_server_url(self, cluster_name: str) -> str:
         # The in-pod address of a peer's API server: https://<its default/kubernetes Service
@@ -274,6 +271,7 @@ def settings_from_env() -> InstallerSettings:
         om_user=os.environ.get("OM_USER", "PLACEHOLDER_OM_USER"),
         om_api_key=os.environ.get("OM_API_KEY", "PLACEHOLDER_OM_API_KEY"),
         project_name=namespace,
+        forced_leader_cluster=os.environ.get("OPERATOR_LEADER_CLUSTER_NAME") or None,
     )
 
 
@@ -316,7 +314,8 @@ def build_helm_values(cluster_name: str, settings: InstallerSettings) -> Dict[st
         # webhook registration entirely.
         "operator.webhook.registerConfiguration": "false",
     }
-    add_to_custom_env_vars_value(values, "OPERATOR_LEADER_CLUSTER_NAME", settings.leader_cluster)
+    if settings.forced_leader_cluster:
+        add_to_custom_env_vars_value(values, "OPERATOR_LEADER_CLUSTER_NAME", settings.forced_leader_cluster)
     return values
 
 

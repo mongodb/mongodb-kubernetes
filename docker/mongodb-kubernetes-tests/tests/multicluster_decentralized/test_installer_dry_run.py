@@ -48,7 +48,7 @@ def test_dry_run_renders_the_per_cluster_inventory(tmp_path):
         }
 
 
-def test_dry_run_helm_values_pin_identity_and_the_static_leader(tmp_path):
+def test_dry_run_helm_values_pin_identity_and_elect_by_default(tmp_path):
     render_dry_run(make_settings(), str(tmp_path))
 
     for cluster in CLUSTERS:
@@ -56,8 +56,19 @@ def test_dry_run_helm_values_pin_identity_and_the_static_leader(tmp_path):
             values = yaml.safe_load(f)
         assert values["operator.name"] == "mongodb-kubernetes-operator-decentralized"
         assert values["operator.clusterIdentity.clusterName"] == cluster
-        # TEMPORARY until M3.7: every operator points at the same statically elected leader.
-        assert "OPERATOR_LEADER_CLUSTER_NAME=kind-e2e-cluster-1" in values["customEnvVars"]
+        # No forced leader: the quorum lease election decides who leads.
+        assert "OPERATOR_LEADER_CLUSTER_NAME" not in values.get("customEnvVars", "")
+
+
+def test_dry_run_helm_values_can_force_a_leader_for_debugging(tmp_path):
+    settings = make_settings()
+    settings.forced_leader_cluster = "kind-e2e-cluster-2"
+    render_dry_run(settings, str(tmp_path))
+
+    for cluster in CLUSTERS:
+        with open(tmp_path / cluster / "helm-values.yaml") as f:
+            values = yaml.safe_load(f)
+        assert "OPERATOR_LEADER_CLUSTER_NAME=kind-e2e-cluster-2" in values["customEnvVars"]
 
 
 def test_dry_run_registers_exactly_the_two_peers(tmp_path):
