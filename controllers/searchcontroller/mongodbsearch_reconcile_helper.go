@@ -43,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
@@ -91,11 +92,12 @@ type MongoDBSearchReconcileHelper struct {
 	db                   SearchSourceDBResource
 	operatorSearchConfig OperatorSearchConfig
 
-	// memberClients holds a client per named member cluster in spec.clusters.
+	// memberClusters is the per-reconcile snapshot of the member-cluster
+	// registry: one entry per named member cluster in spec.clusters.
 	// Local clusters — the legacy unnamed entry, and the operator's own cluster
 	// in per-cluster operator mode — use client instead; a named cluster missing
 	// from this map gets no client and is skipped or surfaced as Pending.
-	memberClients       map[string]kubernetesClient.Client
+	memberClusters      map[string]multicluster.Entry
 	operatorClusterName string
 
 	// state is the per-CR persisted state from the search state ConfigMap: the
@@ -110,7 +112,7 @@ func NewMongoDBSearchReconcileHelper(
 	mdbSearch *searchv1.MongoDBSearch,
 	db SearchSourceDBResource,
 	operatorSearchConfig OperatorSearchConfig,
-	memberClients map[string]kubernetesClient.Client,
+	memberClusters map[string]multicluster.Entry,
 	operatorClusterName string,
 	state *SearchDeploymentState,
 ) *MongoDBSearchReconcileHelper {
@@ -122,7 +124,7 @@ func NewMongoDBSearchReconcileHelper(
 		operatorSearchConfig: operatorSearchConfig,
 		mdbSearch:            mdbSearch,
 		db:                   db,
-		memberClients:        memberClients,
+		memberClusters:       memberClusters,
 		operatorClusterName:  operatorClusterName,
 		state:                state,
 	}
@@ -270,7 +272,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 			tlsResource:        r.mdbSearch,
 			mongotConfigFn:     mongotConfigFn,
 			clusterName:        w.ClusterName,
-			serviceAccountName: resourcenames.WorkloadDatabasePodsServiceAccount.Name(w.ClusterName, w.Local),
+			serviceAccountName: resourcenames.WorkloadDatabasePodsServiceAccount.Name(w.ResourceName, w.Local),
 			client:             w.Client,
 			clusterIndex:       w.ClusterIndex,
 			ownerReferences:    w.ownerReferences(r.mdbSearch),
@@ -300,6 +302,10 @@ type clusterWork struct {
 	SyncSourceSelector *searchv1.SyncSourceSelector
 	Client             kubernetesClient.Client
 	Local              bool
+	// ResourceName is the MemberCluster CR metadata.name used to derive
+	// member-scoped resource names. Empty when the cluster is absent from the
+	// registry; such a work item has a nil Client and never reaches construction.
+	ResourceName string
 }
 
 func (w clusterWork) ownerReferences(search *searchv1.MongoDBSearch) []metav1.OwnerReference {
@@ -323,8 +329,9 @@ func (r *MongoDBSearchReconcileHelper) buildClusterWorkList() []clusterWork {
 		}
 		if w.Local {
 			w.Client = r.client
-		} else {
-			w.Client = r.memberClients[c.Name]
+		} else if entry, ok := r.memberClusters[c.Name]; ok && entry.Client != nil {
+			w.Client = kubernetesClient.NewClient(entry.Client)
+			w.ResourceName = entry.ResourceName
 		}
 		work = append(work, w)
 	}
@@ -420,7 +427,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			tlsResource:         &perShardTLSResource{MongoDBSearch: r.mdbSearch, clusterIndex: w.ClusterIndex, shardName: w.ShardName},
 			mongotConfigFn:      mongotConfigFn,
 			clusterName:         w.ClusterName,
-			serviceAccountName:  resourcenames.WorkloadDatabasePodsServiceAccount.Name(w.ClusterName, w.Local),
+			serviceAccountName:  resourcenames.WorkloadDatabasePodsServiceAccount.Name(w.ResourceName, w.Local),
 			client:              w.Client,
 			clusterIndex:        w.ClusterIndex,
 			ownerReferences:     w.ownerReferences(r.mdbSearch),

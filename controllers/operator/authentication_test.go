@@ -234,7 +234,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, multiClusterProviderFromClientMap(memberClusterMap), testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(x509User))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
@@ -270,7 +270,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
+	userReconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, multiClusterProviderFromClientMap(memberClusterMap), testBackupEnableDelay)
 
 	actual, err := userReconciler.Reconcile(ctx, requestFromObject(scramUser))
 	expected := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}

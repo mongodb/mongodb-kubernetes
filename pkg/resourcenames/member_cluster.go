@@ -6,8 +6,6 @@
 package resourcenames
 
 import (
-	"sync"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -29,36 +27,6 @@ func MemberClusterTokenSecretName(memberClusterName string) string {
 	return MemberClusterResourceName(memberClusterName) + "-token"
 }
 
-// resourceNames maps spec.clusterName → MemberCluster CR metadata.name. It is set once at
-// operator startup from Discover's result; the operator restarts on membership changes, so
-// write-once-at-startup is safe.
-// TODO(m1kola): slice-9: remove this registry when the MemberCluster watch becomes reactive (no restart); the resource-name mapping must then flow with the cluster objects themselves.
-var (
-	resourceNamesMu sync.RWMutex
-	resourceNames   map[string]string
-)
-
-// SetResourceNames sets the spec.clusterName → CR metadata.name mapping. A nil map resets the
-// registry (used by tests).
-func SetResourceNames(names map[string]string) {
-	resourceNamesMu.Lock()
-	defer resourceNamesMu.Unlock()
-	resourceNames = names
-}
-
-// ResourceNameForCluster returns the MemberCluster CR metadata.name for the given
-// spec.clusterName. If the registry has no entry it returns clusterName as a deterministic
-// fallback; that happens only for clusters absent from discovery, which have no client and
-// never reach pod construction.
-func ResourceNameForCluster(clusterName string) string {
-	resourceNamesMu.RLock()
-	defer resourceNamesMu.RUnlock()
-	if name, ok := resourceNames[clusterName]; ok {
-		return name
-	}
-	return clusterName
-}
-
 // workloadServiceAccount pairs a member-scoped suffix with the fixed helm-install SA name.
 type workloadServiceAccount struct {
 	suffix    string
@@ -71,12 +39,13 @@ var (
 	WorkloadOpsManagerServiceAccount   = workloadServiceAccount{suffix: "ops-manager", fixedName: util.OpsManagerServiceAccount}
 )
 
-// Name returns the ServiceAccount name for this workload on the given cluster (identified by
-// its spec.clusterName). baseInstall selects the fixed SA name provided by the base installation
-// (helm/OLM); otherwise the member-scoped mck-member-<metadata.name>-<suffix> name is used.
-func (w workloadServiceAccount) Name(clusterName string, baseInstall bool) string {
+// Name returns the ServiceAccount name for this workload on the given cluster. resourceName is
+// the MemberCluster CR's metadata.name (multicluster.Entry.ResourceName). baseInstall
+// selects the fixed SA name provided by the base installation (helm/OLM); otherwise the
+// member-scoped mck-member-<metadata.name>-<suffix> name is used.
+func (w workloadServiceAccount) Name(resourceName string, baseInstall bool) string {
 	if baseInstall {
 		return w.fixedName
 	}
-	return MemberClusterResourceName(ResourceNameForCluster(clusterName)) + "-" + w.suffix
+	return MemberClusterResourceName(resourceName) + "-" + w.suffix
 }
