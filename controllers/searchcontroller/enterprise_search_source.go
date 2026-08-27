@@ -74,6 +74,10 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 		return xerrors.Errorf("MongoDBSearch is only supported for %s resources", mdbv1.ReplicaSet)
 	}
 
+	if err := validateSearchSourceExternalDomain(&r.Spec); err != nil {
+		return err
+	}
+
 	authModes := r.Spec.GetSecurityAuthenticationModes()
 	foundScram := false
 	for _, authMode := range authModes {

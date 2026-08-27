@@ -97,6 +97,10 @@ func (r *ShardedInternalSearchSource) Validate() error {
 		return xerrors.New("ShardCount must be greater than 0 for sharded clusters")
 	}
 
+	if err := validateSearchSourceExternalDomain(&r.Spec); err != nil {
+		return err
+	}
+
 	authModes := r.Spec.GetSecurityAuthenticationModes()
 	foundScram := false
 	for _, authMode := range authModes {
