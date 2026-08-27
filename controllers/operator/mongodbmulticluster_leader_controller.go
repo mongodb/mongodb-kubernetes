@@ -179,11 +179,15 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 	}
 
 	snapshot := r.assembleSnapshot(ctx, &mrs, term, specHash, conn, projectID, log)
-	if snapshot.AC.Read {
-		// the elector cannot read Ops Manager: push the AC-stamped term as the candidacy floor
-		// (T16), so terms stay monotonic even when every lease was lost — a new leader always
-		// outranks whatever term the AC already carries
-		r.elector.ObserveTermFloor(request.NamespacedName, snapshot.AC.LeadershipTerm)
+	if floor := observedTermFloor(snapshot); floor > 0 {
+		// the elector cannot read Ops Manager or peer directives: push the highest term the
+		// world carries as the candidacy floor (T16), so terms stay monotonic even when every
+		// lease was lost — a new leader always outranks anything already written. The AC term
+		// alone is not enough: directives are rewritten on every takeover, the AC only when it
+		// changes, so after a total lease loss the directives usually carry the higher term
+		// (found live: a wiped ensemble healed to the AC's floor and then wedged forever on a
+		// directive from a later term).
+		r.elector.ObserveTermFloor(request.NamespacedName, floor)
 	}
 	decision := plan(snapshot)
 	log.Infof("Planned decision %s: %s", decision.Kind, decision.Reason)
@@ -192,6 +196,21 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 	}
 
 	return r.execute(ctx, &mrs, conn, decision, log, clusterStatusOption(snapshot))
+}
+
+// observedTermFloor is the highest leadership term readable anywhere in the snapshot: the
+// AC-stamped term and every visible directive's term. Zero when nothing readable carries one.
+func observedTermFloor(s plannerSnapshot) int64 {
+	var floor int64
+	if s.AC.Read {
+		floor = s.AC.LeadershipTerm
+	}
+	for _, d := range s.Directives {
+		if d.Exists && d.Spec.LeadershipTerm > floor {
+			floor = d.Spec.LeadershipTerm
+		}
+	}
+	return floor
 }
 
 // prepareReadOnlyConnection builds the leader's Ops Manager connection from the project

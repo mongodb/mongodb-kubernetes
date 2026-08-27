@@ -174,26 +174,37 @@ func TestElectorTermFlowsIntoDirectiveSpec(t *testing.T) {
 	assert.Equal(t, int64(42), directive.Spec.LeadershipTerm)
 }
 
-// TestLeaderPushesACTermFloorToElector pins the T16 push: the elector cannot read Ops Manager,
-// so after every snapshot with a readable automation config the leader reports the AC-stamped
-// term as the candidacy floor — terms stay monotonic even when every lease was lost.
+// TestLeaderPushesACTermFloorToElector pins the T16 push: the elector cannot read Ops Manager
+// or peer directives, so after every snapshot the leader reports the highest term the world
+// carries — AC-stamped term AND every visible directive's term — as the candidacy floor. The
+// directive half is load-bearing: directives are rewritten on every takeover, the AC only when
+// it changes, so after a total lease loss the directives usually carry the higher term (a live
+// wiped ensemble healed to the AC's floor and then wedged forever below its directives).
 func TestLeaderPushesACTermFloorToElector(t *testing.T) {
 	ctx := context.Background()
 	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 	var floors []int64
 	reconciler, _, omConnectionFactory := leaderReconcilerForTest(m, clusters[0], fakeElector{term: 9, isLeader: true, floors: &floors})
 
-	// directives (and their allocation maps) in place so a direct AC publish is possible
+	// the passes write directives at the elector's term 9; those terms feed the floor even
+	// though the AC carries no stamp yet
 	driveLeaderPasses(ctx, t, reconciler, m, 5)
 	require.NotEmpty(t, floors)
-	assert.Equal(t, int64(0), floors[len(floors)-1], "an AC without a stamped term floors at 0")
+	assert.Equal(t, int64(9), floors[len(floors)-1], "visible directive terms feed the floor before any AC stamp exists")
 
+	// an AC stamped BELOW the directives must not lower the floor (max, never last-writer)
 	conn := omConnectionFactory.GetConnection()
 	payload := acPayload{LeadershipTerm: 7, MemberCounts: map[string]int{clusters[0]: 1, clusters[1]: 1, clusters[2]: 1}}
 	require.NoError(t, reconciler.publishAutomationConfig(ctx, conn, m, payload, zap.S()))
 
 	driveLeaderPasses(ctx, t, reconciler, m, 1)
-	assert.Equal(t, int64(7), floors[len(floors)-1], "the AC-stamped term is pushed as the floor")
+	assert.Equal(t, int64(9), floors[len(floors)-1], "the floor is the max over AC and directives")
+
+	// an AC stamped ABOVE every directive raises it
+	payload.LeadershipTerm = 12
+	require.NoError(t, reconciler.publishAutomationConfig(ctx, conn, m, payload, zap.S()))
+	driveLeaderPasses(ctx, t, reconciler, m, 1)
+	assert.Equal(t, int64(12), floors[len(floors)-1], "the AC-stamped term raises the floor past the directives")
 }
 
 func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {
