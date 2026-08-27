@@ -284,8 +284,7 @@ func appDBTlsCAConfigMapName(opsManager *omv1.MongoDBOpsManager) string {
 	// CA. Tracked as a separate PR (TLS/CA parity for externalApplicationDatabaseRef) — not
 	// fixed here.
 	if opsManager.IsInternalAppDB() {
-		opsManager.Spec.AppDB.GetCAConfigMapName()
-		return ""
+		return opsManager.Spec.AppDB.GetCAConfigMapName()
 	}
 
 	return ""
