@@ -247,7 +247,10 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 		Replicas(target.memberCount),
 		mconstruct.WithStsOverride(&stsOverride),
 		mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(target.clusterIndex)),
-		mconstruct.WithServiceAccount(resourcenames.WorkloadDatabasePodsServiceAccount.Name(target.clusterName, false)),
+		// baseInstall: every decentralized cluster carries a full chart install, so the fixed
+		// helm-created ServiceAccount exists locally; the mck-member-* names only exist where
+		// the kubectl plugin seeded member RBAC
+		mconstruct.WithServiceAccount(resourcenames.WorkloadDatabasePodsServiceAccount.Name(target.clusterName, true)),
 		PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(""),
 		WithLabels(mrs.GetOwnerLabels()),

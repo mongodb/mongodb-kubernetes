@@ -239,7 +239,7 @@ func TestMaterializerOperatorFlagsPlumbing(t *testing.T) {
 
 	sts := appsv1.StatefulSet{}
 	require.NoError(t, c.Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-0", m.Name)), &sts))
-	assert.Equal(t, resourcenames.WorkloadDatabasePodsServiceAccount.Name(clusters[0], false), sts.Spec.Template.Spec.ServiceAccountName, "per-member-cluster service account, like the legacy path")
+	assert.Equal(t, resourcenames.WorkloadDatabasePodsServiceAccount.Name(clusters[0], true), sts.Spec.Template.Spec.ServiceAccountName, "the fixed base-install service account: every decentralized cluster carries a full chart install")
 
 	require.NotNil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
 	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)
