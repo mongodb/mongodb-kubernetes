@@ -5,7 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -28,6 +32,43 @@ func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 	assert.Equal(t, "test-om-backup-daemon", sts.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.NotNil(t, sts.Spec.Template.Spec.Containers[0].ReadinessProbe)
+}
+
+// TestBackupDaemonProbesRemainExec guards the backup daemon against the shared Ops Manager
+// options now carrying a probe Scheme: the daemon's probes are exec-based and must stay that way.
+func TestBackupDaemonProbesRemainExec(t *testing.T) {
+	ctx := context.Background()
+	client, _ := mock.NewDefaultFakeClient(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "om-tls-cert", Namespace: mock.TestNamespace},
+		Type:       corev1.SecretTypeOpaque,
+	})
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	om := omv1.NewOpsManagerBuilderDefault().
+		SetName("test-om").
+		SetNamespace(mock.TestNamespace).
+		SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+			SecretRef: omv1.TLSSecretRef{Name: "om-tls-cert"},
+		}).
+		Build()
+
+	sts, err := BackupDaemonStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
+	require.NoError(t, err)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+	containerObj := sts.Spec.Template.Spec.Containers[0]
+
+	for probeName, probe := range map[string]*corev1.Probe{
+		"readiness": containerObj.ReadinessProbe,
+		"liveness":  containerObj.LivenessProbe,
+		"startup":   containerObj.StartupProbe,
+	} {
+		require.NotNil(t, probe, "%s probe must be set", probeName)
+		assert.Nil(t, probe.HTTPGet, "%s probe must not use an HTTPGet handler", probeName)
+		require.NotNil(t, probe.Exec, "%s probe must use an Exec handler", probeName)
+	}
 }
 
 func TestBackupPodTemplate_TerminationTimeout(t *testing.T) {

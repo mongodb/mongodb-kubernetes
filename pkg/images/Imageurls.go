@@ -11,6 +11,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
+// preReleaseRegex matches semver pre-release qualifiers we ship images for, e.g. 9.0.0-rc0 or 4.4.0-rc2.
+// Those are part of the version itself and must not be mistaken for an image type suffix.
+var preReleaseRegex = regexp.MustCompile(`-(rc|alpha|beta)\.?\d*$`)
+
 // replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
 func replaceImageTagOrDigestToTag(image string, newVersion string) string {
 	// example: quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
@@ -142,8 +146,10 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
 		}
 		// 5.0.6 ->  5.0.6-ubi8
+		// 9.0.0-rc0 -> 9.0.0-rc0-ubi8: a pre-release qualifier is part of the version, not an image
+		// type, so it still needs the suffix appended.
 		r := regexp.MustCompile("-.+$")
-		if !r.MatchString(version) {
+		if !r.MatchString(version) || preReleaseRegex.MatchString(version) {
 			version = version + "-" + imageType
 		}
 		if found, suffix := architectures.HasSupportedImageTypeSuffix(version); found {

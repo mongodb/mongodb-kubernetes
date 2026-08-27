@@ -271,8 +271,9 @@ class MongoTester:
             pass
 
     def assert_version(self, expected_version: str):
-        # version field does not contain -ent suffix in MongoDB
-        assert self.client.admin.command("buildInfo")["version"] == expected_version.split("-")[0]
+        # version field does not contain the -ent suffix in MongoDB. Only that suffix is stripped:
+        # pre-release versions such as 9.0.0-rc0 are reported by buildInfo verbatim.
+        assert self.client.admin.command("buildInfo")["version"] == expected_version.removesuffix("-ent")
         if expected_version.endswith("-ent"):
             self.assert_is_enterprise()
 
