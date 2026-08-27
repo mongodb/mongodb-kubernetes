@@ -489,6 +489,25 @@ func recognition(s plannerSnapshot) (planDecision, bool) {
 				Reason:        fmt.Sprintf("re-stamping cluster %s at term %d: its directive carries the older term %d", t.ClusterName, s.LeadershipTerm, d.Spec.LeadershipTerm),
 			}, true
 		}
+		// hash retarget, the fence-held sibling of the term re-stamp: the member echoes the
+		// leader's own spec hash (it provably holds the current spec and is refusing the
+		// directive's foreign target, not mid-apply — it never acts on a mismatch), so
+		// re-targeting at the same count interrupts nothing. Without it a directive whose hash
+		// nobody ever applied — a hand-written recovery one — wedges forever: the member's spec
+		// fence freezes its facts, frozen facts read as in-flight, and in-flight blocks the
+		// advancement that would have rewritten the hash (found live via the majority-loss
+		// runbook: the recovery directive's placeholder hash deadlocked). The !factsConverged
+		// arm keeps ordinary config rollouts with advancement: a cluster waiting its turn is
+		// converged at the previous target and must move only under advancement's one-at-a-time
+		// restraint.
+		if d.Spec.TargetSpecHash != s.SpecHash && d.Status.ObservedSpecHash == s.SpecHash && !factsConverged(d) {
+			return planDecision{
+				Kind:          decisionWriteDirective,
+				TargetCluster: t.ClusterName,
+				DirectiveSpec: desiredDirectiveSpec(s, t.ClusterName, d.Spec.MemberCount, allocations),
+				Reason:        fmt.Sprintf("re-targeting cluster %s at the current spec: its directive targets hash %q which the fence-held member refuses", t.ClusterName, d.Spec.TargetSpecHash),
+			}, true
+		}
 	}
 	return planDecision{}, false
 }

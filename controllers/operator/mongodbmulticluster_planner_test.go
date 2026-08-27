@@ -165,6 +165,34 @@ func TestPlanReStampsStaleTermDirectives(t *testing.T) {
 	assert.Equal(t, decisionNoop, plan(b.build()).Kind)
 }
 
+// TestPlanRetargetsFenceHeldHash pins the hash sibling of the re-stamp: a directive targeting a
+// hash the member never applied (a hand-written recovery directive) is refused by the spec
+// fence; the frozen facts read as in-flight and block advancement forever. When the member
+// echoes the leader's own hash and its facts are not converged, the leader re-targets at the
+// same count (found live executing the majority-loss runbook with a placeholder hash).
+func TestPlanRetargetsFenceHeldHash(t *testing.T) {
+	b := converged(2, 2, 2)
+	b.editDirective(clusters[0], func(d *directiveView) {
+		d.Spec.TargetSpecHash = "runbook-recovery"
+		d.Status.StsApplied = false
+		d.Status.AgentRegistered = false
+		d.Status.InGoalState = false
+	})
+
+	decision := plan(b.build())
+	require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+	assert.Equal(t, clusters[0], decision.TargetCluster)
+	assert.Contains(t, decision.Reason, "re-targeting")
+	assert.Equal(t, b.s.SpecHash, decision.DirectiveSpec.TargetSpecHash)
+	assert.Equal(t, 2, decision.DirectiveSpec.MemberCount, "same count — nothing physical moves")
+
+	// a healthy rollout stays advancement's job: a cluster converged at the previous target is
+	// never re-targeted by recognition
+	rollout := converged(2, 2, 2)
+	rollout.editDirective(clusters[0], func(d *directiveView) { d.Spec.TargetSpecHash = "previous-spec" })
+	assert.NotContains(t, plan(rollout.build()).Reason, "re-targeting")
+}
+
 func TestPlanNoopWhenConverged(t *testing.T) {
 	decision := plan(converged(2, 2, 2).build())
 	assert.Equal(t, decisionNoop, decision.Kind, decision.Reason)
