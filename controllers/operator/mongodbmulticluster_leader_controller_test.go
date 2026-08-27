@@ -29,10 +29,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
-// fakeElector returns a fixed leadership belief, for injecting arbitrary terms in tests.
+// fakeElector returns a fixed leadership belief, for injecting arbitrary terms in tests; a
+// non-nil floors slice records every term floor the leader pushes (T16).
 type fakeElector struct {
 	term     int64
 	isLeader bool
+	floors   *[]int64
 }
 
 func (e fakeElector) Current(types.NamespacedName) (term int64, isLeader bool) {
@@ -41,7 +43,11 @@ func (e fakeElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 
 func (e fakeElector) Events() <-chan event.GenericEvent { return nil }
 
-func (e fakeElector) ObserveTermFloor(types.NamespacedName, int64) {}
+func (e fakeElector) ObserveTermFloor(_ types.NamespacedName, floor int64) {
+	if e.floors != nil {
+		*e.floors = append(*e.floors, floor)
+	}
+}
 
 // leaderReconcilerForTest builds a leader reconciler over one fake client per member cluster.
 // The self cluster's client holds the CR plus the project ConfigMap and credentials Secret (the
@@ -166,6 +172,28 @@ func TestElectorTermFlowsIntoDirectiveSpec(t *testing.T) {
 	directive := operatorv1.MongoDBDirective{}
 	require.NoError(t, clientsMap[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), &directive))
 	assert.Equal(t, int64(42), directive.Spec.LeadershipTerm)
+}
+
+// TestLeaderPushesACTermFloorToElector pins the T16 push: the elector cannot read Ops Manager,
+// so after every snapshot with a readable automation config the leader reports the AC-stamped
+// term as the candidacy floor — terms stay monotonic even when every lease was lost.
+func TestLeaderPushesACTermFloorToElector(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	var floors []int64
+	reconciler, _, omConnectionFactory := leaderReconcilerForTest(m, clusters[0], fakeElector{term: 9, isLeader: true, floors: &floors})
+
+	// directives (and their allocation maps) in place so a direct AC publish is possible
+	driveLeaderPasses(ctx, t, reconciler, m, 5)
+	require.NotEmpty(t, floors)
+	assert.Equal(t, int64(0), floors[len(floors)-1], "an AC without a stamped term floors at 0")
+
+	conn := omConnectionFactory.GetConnection()
+	payload := acPayload{LeadershipTerm: 7, MemberCounts: map[string]int{clusters[0]: 1, clusters[1]: 1, clusters[2]: 1}}
+	require.NoError(t, reconciler.publishAutomationConfig(ctx, conn, m, payload, zap.S()))
+
+	driveLeaderPasses(ctx, t, reconciler, m, 1)
+	assert.Equal(t, int64(7), floors[len(floors)-1], "the AC-stamped term is pushed as the floor")
 }
 
 func TestWriteDirectiveIsReadModifyWrite(t *testing.T) {

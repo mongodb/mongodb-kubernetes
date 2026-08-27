@@ -179,6 +179,12 @@ func (r *ReconcileMongoDBMultiClusterLeader) Reconcile(ctx context.Context, requ
 	}
 
 	snapshot := r.assembleSnapshot(ctx, &mrs, term, specHash, conn, projectID, log)
+	if snapshot.AC.Read {
+		// the elector cannot read Ops Manager: push the AC-stamped term as the candidacy floor
+		// (T16), so terms stay monotonic even when every lease was lost — a new leader always
+		// outranks whatever term the AC already carries
+		r.elector.ObserveTermFloor(request.NamespacedName, snapshot.AC.LeadershipTerm)
+	}
 	decision := plan(snapshot)
 	log.Infof("Planned decision %s: %s", decision.Kind, decision.Reason)
 	for _, t := range snapshot.Targets {
