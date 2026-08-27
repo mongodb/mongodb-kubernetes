@@ -86,6 +86,7 @@ class TestSentinelDocSurvivesForwardMigration:
     CR named "<om-name>-db", set externalApplicationDatabaseRef, and wait for adoption."""
 
     password_secret_before: ClassVar[dict[str, str]]
+    keyfile_secret_before: ClassVar[dict[str, str]]
     connection_string_before: ClassVar[str]
 
     def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager):
@@ -93,6 +94,7 @@ class TestSentinelDocSurvivesForwardMigration:
 
     def test_capture_state_before_migration(self, primary_om: MongoDBOpsManager, namespace: str):
         self.__class__.password_secret_before = read_secret(namespace, password_secret_name(OM_NAME))
+        self.__class__.keyfile_secret_before = read_secret(namespace, f"{DB_NAME}-keyfile")
         self.__class__.connection_string_before = primary_om.read_appdb_connection_url()
 
     def test_create_external_appdb(self, external_appdb: MongoDB, meta_om: MongoDBOpsManager, namespace: str):
@@ -133,6 +135,10 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_password_secret_unchanged_after_forward_migration(self, namespace: str):
         password_secret_now = read_secret(namespace, password_secret_name(OM_NAME))
         assert password_secret_now == self.password_secret_before
+
+    def test_keyfile_secret_unchanged_after_forward_migration(self, namespace: str):
+        keyfile_secret_now = read_secret(namespace, f"{DB_NAME}-keyfile")
+        assert keyfile_secret_now == self.keyfile_secret_before
 
 
 @pytest.mark.e2e_om_external_appdb_forward
