@@ -580,7 +580,7 @@ func TestNewAppDBReconcilerHelper(t *testing.T) {
 		// member-cluster-3 is removed from the spec
 		opsManager.Spec.AppDB.ClusterSpecList = makeClusterSpecList(memberClusterName1, memberClusterName2)
 
-		helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, NewReconcileCommonController(ctx, kubeClient), memberClusterMap, log)
+		helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, NewReconcileCommonController(ctx, kubeClient), multiClusterProviderFromClientMap(memberClusterMap).Entries(), log)
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{memberClusterName1, memberClusterName2, memberClusterName3}, memberClusterNames(helper))
@@ -608,7 +608,7 @@ func TestNewAppDBReconcilerHelper(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, NewReconcileCommonController(ctx, kubeClient), memberClusterMap, log)
+		helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, NewReconcileCommonController(ctx, kubeClient), multiClusterProviderFromClientMap(memberClusterMap).Entries(), log)
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{memberClusterName1, memberClusterName2}, memberClusterNames(helper))
@@ -628,7 +628,7 @@ func TestNewAppDBReconcilerHelper(t *testing.T) {
 		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
 		memberClusterMap := getFakeMultiClusterMapWithClusters([]string{memberClusterName1, memberClusterName2}, omConnectionFactory)
 
-		helper, err := NewAppDBReconcilerHelper(ctx, opsManager, NewReconcileCommonController(ctx, kubeClient), memberClusterMap, log)
+		helper, err := NewAppDBReconcilerHelper(ctx, opsManager, NewReconcileCommonController(ctx, kubeClient), multiClusterProviderFromClientMap(memberClusterMap).Entries(), log)
 		require.NoError(t, err)
 
 		assert.Equal(t, []string{memberClusterName1, memberClusterName2}, memberClusterNames(helper))
