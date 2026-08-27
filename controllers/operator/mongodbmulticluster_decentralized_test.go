@@ -43,6 +43,12 @@ type decentralizedWorld struct {
 }
 
 func newDecentralizedWorld(m *mdbmulti.MongoDBMultiCluster) *decentralizedWorld {
+	return newDecentralizedWorldWithLeaderElector(m, NewStaticElector(clusters[0], clusters[0]))
+}
+
+// newDecentralizedWorldWithLeaderElector injects the leader's elector — the term knob the T16
+// and T17 scenarios turn; real-elector behavior is owned by the unit and envtest layers.
+func newDecentralizedWorldWithLeaderElector(m *mdbmulti.MongoDBMultiCluster, leaderElector Elector) *decentralizedWorld {
 	w := &decentralizedWorld{
 		m:       m,
 		members: map[string]*ReconcileMongoDBDirective{},
@@ -56,7 +62,7 @@ func newDecentralizedWorld(m *mdbmulti.MongoDBMultiCluster) *decentralizedWorld 
 		seeds := append([]client.Object{m.DeepCopy(), agentApiKeySecret(om.TestGroupID)}, mock.GetDefaultResources()...)
 		w.members[clusterName], w.clients[clusterName] = materializerReconcilerForTest(NewStaticElector(clusterName, clusters[0]), w.factory, true, seeds...)
 	}
-	w.leader = newMongoDBMultiClusterLeaderReconciler(w.clients[clusters[0]], newAPIServerTransport(w.clients), NewStaticElector(clusters[0], clusters[0]), w.factory.GetConnectionFunc, nil, architectures.NonStatic, false)
+	w.leader = newMongoDBMultiClusterLeaderReconciler(w.clients[clusters[0]], newAPIServerTransport(w.clients), leaderElector, w.factory.GetConnectionFunc, nil, architectures.NonStatic, false)
 	return w
 }
 
@@ -535,6 +541,135 @@ func TestDecentralizedTotalStateLossFreezesThenRunbookHeals(t *testing.T) {
 	}
 	assert.Equal(t, []map[int]int{baseline}, history, "the AC membership never moved")
 	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+}
+
+// stsReplicas reads every cluster's StatefulSet replica count, keyed by cluster name.
+func (w *decentralizedWorld) stsReplicas(ctx context.Context, t *testing.T) map[string]int32 {
+	replicas := map[string]int32{}
+	for i, clusterName := range clusters {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, w.clients[clusterName].Get(ctx, kube.ObjectKey(w.m.Namespace, fmt.Sprintf("%s-%d", w.m.Name, i)), &sts))
+		require.NotNil(t, sts.Spec.Replicas)
+		replicas[clusterName] = *sts.Spec.Replicas
+	}
+	return replicas
+}
+
+func (w *decentralizedWorld) directiveTerms(ctx context.Context, t *testing.T) map[string]int64 {
+	terms := map[string]int64{}
+	for _, clusterName := range clusters {
+		terms[clusterName] = w.readDirective(ctx, t, clusterName).Spec.LeadershipTerm
+	}
+	return terms
+}
+
+// TestDecentralizedStaleLeaderWedgesThenTermBumpHeals pins T16 end to end: a leader whose term
+// fell below the AC-stamped term (every lease lost, then a naive re-election) wedges on
+// staleWorld writing nothing; the wedged pass itself pushes the AC term as the floor, and once
+// the elector re-elects above it the directives are rewritten at the new term one at a time,
+// the members re-echo, and the world returns to Running with zero AC writes and zero pod
+// movement.
+func TestDecentralizedStaleLeaderWedgesThenTermBumpHeals(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	var floors []int64
+	elector := &fakeElector{term: 5, isLeader: true, floors: &floors}
+	w := newDecentralizedWorldWithLeaderElector(m, elector)
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+	replicasBefore := w.stsReplicas(ctx, t)
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	mockedConn.CleanHistory()
+
+	// every lease lost: the re-elected term never saw the AC's stamped 5
+	elector.term = 3
+	for i := 0; i < 3; i++ {
+		w.reconcileAll(ctx, t)
+	}
+
+	assert.Equal(t, status.PhasePending, w.leaderPhase(ctx, t))
+	crCopy := &mdbmulti.MongoDBMultiCluster{}
+	require.NoError(t, w.clients[clusters[0]].Get(ctx, kube.ObjectKey(m.Namespace, m.Name), crCopy))
+	assert.Contains(t, crCopy.Status.Message, "newer leadership term")
+	assert.Equal(t, map[string]int64{clusters[0]: 5, clusters[1]: 5, clusters[2]: 5}, w.directiveTerms(ctx, t), "a wedged leader writes nothing")
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+	require.NotEmpty(t, floors)
+	assert.Equal(t, int64(5), floors[len(floors)-1], "the wedged pass still pushes the AC term as the floor")
+
+	// the elector honors the floor: the next candidacy lands at floor+1
+	elector.term = floors[len(floors)-1] + 1
+	previous := w.directiveTerms(ctx, t)
+	for pass := 0; pass < 30; pass++ {
+		result := w.reconcileAll(ctx, t)
+		current := w.directiveTerms(ctx, t)
+		changed := 0
+		for clusterName, term := range current {
+			if term != previous[clusterName] {
+				changed++
+				assert.Equal(t, int64(6), term, "rewrites carry the bumped term")
+			}
+		}
+		assert.LessOrEqual(t, changed, 1, "directives are rewritten one at a time: %v -> %v", previous, current)
+		previous = current
+		if result.RequeueAfter == util.TWENTY_FOUR_HOURS {
+			break
+		}
+	}
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	assert.Equal(t, map[string]int64{clusters[0]: 6, clusters[1]: 6, clusters[2]: 6}, w.directiveTerms(ctx, t))
+	counts, ok := w.acCounts()
+	require.True(t, ok)
+	assert.Equal(t, baseline, counts, "the AC membership never moved")
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+	assert.Equal(t, replicasBefore, w.stsReplicas(ctx, t), "zero pod movement")
+}
+
+// TestDecentralizedZombieLeaderSingleStaleWriteSelfHeals pins T17 end to end: a deposed leader
+// gets one last directive write in at its old term; the live leader recognizes the downgrade and
+// rewrites it once at the current term — one write of churn, no oscillation, no AC or pod
+// movement.
+func TestDecentralizedZombieLeaderSingleStaleWriteSelfHeals(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorldWithLeaderElector(m, &fakeElector{term: 5, isLeader: true})
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+	baselineGrant := w.readDirective(ctx, t, clusters[1]).Spec.MemberCount
+	replicasBefore := w.stsReplicas(ctx, t)
+	mockedConn := w.factory.GetConnection().(*om.MockedOmConnection)
+	mockedConn.CleanHistory()
+
+	// the zombie's write: same instruction, old term — its belief was stale, not its plan
+	zombieWrite := w.readDirective(ctx, t, clusters[1])
+	zombieWrite.Spec.LeadershipTerm = 4
+	require.NoError(t, w.clients[clusters[1]].Update(ctx, &zombieWrite))
+
+	rewrites := 0
+	previousTerm := int64(4)
+	for pass := 0; pass < 30; pass++ {
+		result := w.reconcileAll(ctx, t)
+		term := w.readDirective(ctx, t, clusters[1]).Spec.LeadershipTerm
+		if term != previousTerm {
+			rewrites++
+			previousTerm = term
+		}
+		if result.RequeueAfter == util.TWENTY_FOUR_HOURS {
+			break
+		}
+	}
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	assert.Equal(t, 1, rewrites, "exactly one healing write, no oscillation")
+	assert.Equal(t, int64(5), previousTerm, "the directive is back at the live term")
+	assert.Equal(t, baselineGrant, w.readDirective(ctx, t, clusters[1]).Spec.MemberCount)
+	counts, ok := w.acCounts()
+	require.True(t, ok)
+	assert.Equal(t, baseline, counts, "the AC membership never moved")
+	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateDeployment))
+	assert.Equal(t, replicasBefore, w.stsReplicas(ctx, t), "zero pod movement")
 }
 
 func TestDecentralizedScalingBothWaysRefused(t *testing.T) {
