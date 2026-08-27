@@ -199,7 +199,14 @@ def build_agent_api_key_secret(namespace: str, project_id: str, agent_api_key: s
 
 
 def build_namespace(namespace: str) -> dict:
-    return {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": namespace}}
+    # istio-injection: the operators coordinate through API servers and need no mesh, but the
+    # mongod members dial each other by cross-cluster service DNS, which the mesh provides
+    # (without the label the agents wedge on WaitAllRsMembersUp — found on the first live run).
+    return {
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {"name": namespace, "labels": {"istio-injection": "enabled"}},
+    }
 
 
 def build_operator_config(namespace: str, extra_spec: Optional[dict] = None) -> dict:
