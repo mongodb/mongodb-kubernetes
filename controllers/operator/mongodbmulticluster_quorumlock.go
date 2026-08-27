@@ -193,6 +193,14 @@ func (q *quorumLock) Current() (int64, bool) {
 	return q.core.current(q.clock())
 }
 
+// ObservedTerm is the highest leadership term this lock has seen anywhere, independent of
+// leadership; see quorumLeaseCore.observedTerm.
+func (q *quorumLock) ObservedTerm() int64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.core.observedTerm()
+}
+
 // HoldOffRemaining is the time left before Current() starts answering leader after a dirty
 // acquire; see quorumLeaseCore.holdOffRemaining.
 func (q *quorumLock) HoldOffRemaining() time.Duration {

@@ -277,6 +277,14 @@ func (s *quorumLeaseCore) contentFingerprint() []byte {
 }
 
 // maxObservedTerm is the candidacy input: the highest term seen anywhere, takeable or not.
+// observedTerm is the highest leadership term this core has seen anywhere — held, pushed as a
+// floor, or carried by any lease it observed — independent of whether we lead. Member
+// controllers fence stale directives against it: an instruction from an older leadership must
+// be refused even by a cluster that never led.
+func (s *quorumLeaseCore) observedTerm() int64 {
+	return max(s.maxObservedTerm(), s.termFloor, s.heldTerm)
+}
+
 func (s *quorumLeaseCore) maxObservedTerm() int64 {
 	var maxTerm int64
 	for _, rec := range s.records {

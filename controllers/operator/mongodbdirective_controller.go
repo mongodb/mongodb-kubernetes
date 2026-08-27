@@ -146,8 +146,11 @@ func (r *ReconcileMongoDBDirective) Reconcile(ctx context.Context, request recon
 	}
 
 	// term fence: reject the past, not the future — a NEWER term is a legitimate leader elected
-	// while our locally observed term was stale
-	term, _ := r.elector.Current(request.NamespacedName)
+	// while our locally observed term was stale. The comparison is against the highest term this
+	// operator has OBSERVED, never its own leadership term: a follower's Current() term is zero,
+	// which would wave every stale instruction through (a live forged stale scale-down did
+	// exactly that before this read was switched)
+	term := r.elector.ObservedTerm(request.NamespacedName)
 	localCR := &mrs
 	if !crFound {
 		localCR = nil

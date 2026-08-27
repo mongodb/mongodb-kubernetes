@@ -255,6 +255,18 @@ func (e *QuorumElector) Current(deployment types.NamespacedName) (term int64, is
 	return entry.lock.Current()
 }
 
+// ObservedTerm reports the highest term the deployment's election has seen anywhere; an unknown
+// deployment has observed nothing.
+func (e *QuorumElector) ObservedTerm(deployment types.NamespacedName) int64 {
+	e.mu.Lock()
+	entry, ok := e.entries[deployment]
+	e.mu.Unlock()
+	if !ok {
+		return 0
+	}
+	return entry.lock.ObservedTerm()
+}
+
 func (e *QuorumElector) Events() <-chan event.GenericEvent {
 	return e.events
 }

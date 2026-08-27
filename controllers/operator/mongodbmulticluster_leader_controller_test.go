@@ -41,6 +41,8 @@ func (e fakeElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 	return e.term, e.isLeader
 }
 
+func (e fakeElector) ObservedTerm(types.NamespacedName) int64 { return e.term }
+
 func (e fakeElector) Events() <-chan event.GenericEvent { return nil }
 
 func (e fakeElector) ObserveTermFloor(_ types.NamespacedName, floor int64) {

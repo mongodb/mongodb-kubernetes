@@ -23,6 +23,12 @@ type Elector interface {
 	// watch — reconcile now, don't wait for a requeue. A nil channel means the elector has no
 	// transitions to signal (the static elector) and the caller skips the watch.
 	Events() <-chan event.GenericEvent
+	// ObservedTerm is the highest leadership term this elector has seen anywhere for the
+	// deployment — held, floored, or carried by any lease it observed — independent of whether
+	// this operator leads. The member controllers fence stale directives against it: Current()
+	// is useless for that on a follower (its term is zero when not leading), and a live forged
+	// stale write proved the difference matters.
+	ObservedTerm(deployment types.NamespacedName) int64
 	// ObserveTermFloor pushes the term stamped in the automation config (T16): the elector
 	// cannot read Ops Manager, so the leader controller reports the floor after every snapshot.
 	// Candidacies start above it; a floor raise at or above the held term re-CASes the majority
@@ -55,6 +61,11 @@ func NewStaticElector(selfClusterName, leaderClusterName string) *StaticElector 
 
 func (e *StaticElector) Current(types.NamespacedName) (term int64, isLeader bool) {
 	return staticElectorTerm, e.selfClusterName != "" && e.selfClusterName == e.leaderClusterName
+}
+
+// ObservedTerm: static leadership has exactly one term, and every operator has observed it.
+func (e *StaticElector) ObservedTerm(types.NamespacedName) int64 {
+	return staticElectorTerm
 }
 
 // Events returns nil: static leadership never transitions, there is nothing to wake anyone for.

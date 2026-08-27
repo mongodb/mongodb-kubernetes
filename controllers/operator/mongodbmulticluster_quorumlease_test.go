@@ -302,6 +302,28 @@ func TestQuorumCoreDirtyTakeoverServesHoldOff(t *testing.T) {
 	assert.True(t, isLeader)
 }
 
+// TestQuorumCoreFollowerObservesTheLeaderTerm pins the member fence's input: a core that never
+// led still reports the highest term it has seen in any lease. current() answering (0, false)
+// for a follower is correct for leadership, useless for fencing — a live forged stale
+// scale-down went through a follower whose fence compared against its own zero term.
+func TestQuorumCoreFollowerObservesTheLeaderTerm(t *testing.T) {
+	t0 := time.Now()
+	world := newFakeLeaseWorld()
+	for _, cluster := range clusters {
+		world.seed(cluster, "the-leader", 8)
+	}
+	follower := coreForTest(clusters[1])
+	world.observeAll(follower, t0)
+
+	term, isLeader := follower.current(t0)
+	assert.False(t, isLeader)
+	assert.Equal(t, int64(0), term, "a follower holds no leadership term")
+	assert.Equal(t, int64(8), follower.observedTerm(), "but it has observed the leader's term for fencing")
+
+	follower.observeTermFloor(11)
+	assert.Equal(t, int64(11), follower.observedTerm(), "the AC floor raises the observed term too")
+}
+
 func TestQuorumCoreHoldOffRemainingIsTheWakeUpHorizon(t *testing.T) {
 	t0 := time.Now()
 	world := newFakeLeaseWorld()
