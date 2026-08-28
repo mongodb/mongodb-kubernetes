@@ -188,6 +188,9 @@ type ExternalAppDBRef struct {
 	// +kubebuilder:validation:Enum=MongoDB
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
+
+	// Transient fields
+	Namespace string `json:"-"`
 }
 
 type Logging struct {
@@ -309,9 +312,14 @@ func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 }
 
 func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
+	if ms.ExternalAppDBRef != nil {
+		return ""
+	}
+
 	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
 		return ms.AppDB.Security.TLSConfig.CA
 	}
+
 	return ""
 }
 
@@ -677,6 +685,8 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.AppDB.Namespace = om.Namespace
 		om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
 		om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+	} else {
+		om.Spec.ExternalAppDBRef.Namespace = om.Namespace
 	}
 }
 
@@ -692,10 +702,15 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 // AppDBName's AppDB branch is nil-safe only via the admission invariant that at least one of
 // applicationDatabase or externalApplicationDatabaseRef is set.
 func (om *MongoDBOpsManager) AppDBName() string {
-	if om.Spec.ExternalAppDBRef != nil {
-		return om.Spec.ExternalAppDBRef.Name
+	if om.IsInternalAppDB() {
+		return om.Spec.AppDB.Name()
 	}
-	return om.Spec.AppDB.Name()
+
+	return om.Spec.ExternalAppDBRef.Name
+}
+
+func (om *MongoDBOpsManager) IsInternalAppDB() bool {
+	return om.Spec.ExternalAppDBRef == nil
 }
 
 func (om *MongoDBOpsManager) SvcName() string {
@@ -770,6 +785,12 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	if om.Spec.ExternalAppDBRef != nil {
+		om.Status.AppDbStatus = AppDbStatus{}
+		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
+		return
+	}
+
 	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {

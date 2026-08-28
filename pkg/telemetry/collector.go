@@ -311,7 +311,12 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 		for _, item := range omList.Items {
 			// Detect enterprise
 			omClusters := len(item.Spec.ClusterSpecList)
-			appDBClusters := len(item.Spec.AppDB.ClusterSpecList)
+			var appDBClusters int
+			var appDBExternalDomains string
+			if item.Spec.ExternalAppDBRef == nil {
+				appDBClusters = len(item.Spec.AppDB.ClusterSpecList)
+				appDBExternalDomains = getExternalDomainPropertyForAppDB(item)
+			}
 			properties := DeploymentUsageSnapshotProperties{
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,
@@ -319,7 +324,7 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     "OpsManager",
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
-				ExternalDomains:          getExternalDomainPropertyForOpsManager(item),
+				ExternalDomains:          appDBExternalDomains,
 			}
 
 			if omClusters > 0 {
@@ -545,7 +550,7 @@ func getExternalDomainPropertyForMongoDBMulti(mdb mdbmultiv1.MongoDBMultiCluster
 	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
 }
 
-func getExternalDomainPropertyForOpsManager(om omv1.MongoDBOpsManager) string {
+func getExternalDomainPropertyForAppDB(om omv1.MongoDBOpsManager) string {
 	isUniformExternalDomainSpecified := om.Spec.AppDB.GetExternalDomain() != nil
 
 	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInClusterSpecList(om.Spec.AppDB.ClusterSpecList)

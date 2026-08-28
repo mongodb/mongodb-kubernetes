@@ -229,6 +229,10 @@ func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
 }
 
+func (m *MongoDB) IsRoleAppDB() bool {
+	return m.Spec.Role == RoleAppDB
+}
+
 type AdditionalMongodConfigType int
 
 const (
@@ -1441,7 +1445,7 @@ func (m *MongoDB) InitDefaults() {
 
 	m.Spec.Security = EnsureSecurity(m.Spec.Security)
 
-	if m.Spec.Role == RoleAppDB {
+	if m.IsRoleAppDB() {
 		m.Spec.Security.Authentication = &Authentication{
 			Enabled:            true,
 			Modes:              []AuthMode{util.SCRAM},
