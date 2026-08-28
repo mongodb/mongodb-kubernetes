@@ -16,7 +16,7 @@ type OpsManagerBuilder struct {
 }
 
 func NewOpsManagerBuilder() *OpsManagerBuilder {
-	return &OpsManagerBuilder{}
+	return &OpsManagerBuilder{om: MongoDBOpsManager{Spec: MongoDBOpsManagerSpec{AppDB: &AppDBSpec{}}}}
 }
 
 func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
@@ -24,11 +24,19 @@ func NewOpsManagerBuilderDefault() *OpsManagerBuilder {
 }
 
 func NewOpsManagerBuilderFromResource(resource MongoDBOpsManager) *OpsManagerBuilder {
+	if resource.Spec.AppDB == nil {
+		resource.Spec.AppDB = &AppDBSpec{}
+	}
 	return &OpsManagerBuilder{om: resource}
 }
 
 func (b *OpsManagerBuilder) SetVersion(version string) *OpsManagerBuilder {
 	b.om.Spec.Version = version
+	return b
+}
+
+func (b *OpsManagerBuilder) SetAppDBToNil() *OpsManagerBuilder {
+	b.om.Spec.AppDB = nil
 	return b
 }
 
@@ -268,6 +276,11 @@ func (b *OpsManagerBuilder) SetAppDBClusterSpecList(clusterSpecItems mdbv1.Clust
 
 func (b *OpsManagerBuilder) SetOpsManagerClusterSpecList(clusterSpecItems []ClusterSpecOMItem) *OpsManagerBuilder {
 	b.om.Spec.ClusterSpecList = append(b.om.Spec.ClusterSpecList, clusterSpecItems...)
+	return b
+}
+
+func (b *OpsManagerBuilder) SetExternalApplicationDatabaseRef(ref ExternalAppDBRef) *OpsManagerBuilder {
+	b.om.Spec.ExternalAppDBRef = &ref
 	return b
 }
 

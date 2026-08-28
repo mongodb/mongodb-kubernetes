@@ -128,7 +128,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			objects: []client.Object{
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB:    omv1.AppDBSpec{},
+						AppDB:    &omv1.AppDBSpec{},
 						Topology: "Single",
 					},
 					ObjectMeta: metav1.ObjectMeta{
@@ -204,7 +204,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB:    omv1.AppDBSpec{},
+						AppDB:    &omv1.AppDBSpec{},
 						Topology: "Single",
 					},
 					ObjectMeta: metav1.ObjectMeta{
@@ -217,7 +217,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB:    omv1.AppDBSpec{},
+						AppDB:    &omv1.AppDBSpec{},
 						Topology: "Single",
 					},
 					ObjectMeta: metav1.ObjectMeta{
@@ -377,7 +377,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ClusterSpecList: []mdbv1.ClusterSpecItem{
 								{
 									ClusterName: "cluster1",
@@ -702,7 +702,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{},
+						AppDB: &omv1.AppDBSpec{},
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						UID:  "5999bccb-d17d-4657-9ea6-ee9fa264d749",
@@ -711,7 +711,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.custom.domain"),
 							},
@@ -724,7 +724,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.custom.domain"),
 							},
@@ -772,7 +772,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ClusterSpecList: []mdbv1.ClusterSpecItem{
 								{
 									ClusterName: "cluster1",

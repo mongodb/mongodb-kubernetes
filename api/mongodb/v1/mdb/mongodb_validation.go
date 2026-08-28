@@ -20,6 +20,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
+// RoleAppDB is the only supported value for spec.role, marking a MongoDB
+// as the externally-managed Application Database for a MongoDBOpsManager resource.
+const RoleAppDB = "AppDB"
+
 type MongoDBValidator struct{}
 
 var _ admission.CustomValidator = &MongoDBValidator{}

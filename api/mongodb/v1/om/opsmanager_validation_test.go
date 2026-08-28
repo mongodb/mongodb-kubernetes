@@ -255,10 +255,18 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").Build(),
 			expectedPart: status.None,
 		},
-		"Single cluster AppDB deployment should have empty clusterSpecList": {
+		"Topology error precedes AppDB clusterSpecList error when both apply": {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
 				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
 				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
+				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{{ClusterName: "test"}}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList",
+		},
+		"Single cluster AppDB deployment should have empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
 				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{{ClusterName: "test"}}).
 				Build(),
 			expectedPart:         status.OpsManager,
@@ -380,6 +388,87 @@ func TestOpsManagerValidation(t *testing.T) {
 			if testConfig.expectedWarningMessage != "" {
 				warnings := testConfig.testedOm.GetStatusWarnings(testConfig.expectedPart)
 				assert.Contains(t, warnings, testConfig.expectedWarningMessage)
+			}
+		})
+	}
+}
+
+func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
+	type args struct {
+		testedOm             *MongoDBOpsManager
+		expectedPart         status.Part
+		expectedErrorMessage string
+	}
+
+	tests := map[string]args{
+		"applicationDatabase only": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				Build(),
+		},
+		"externalApplicationDatabaseRef only": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDBToNil().
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"applicationDatabase and externalApplicationDatabaseRef both set": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"externalApplicationDatabaseRef mismatching name": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDBToNil().
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-other", Kind: "MongoDB"}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "spec.externalApplicationDatabaseRef.name must be om-test-db",
+		},
+		"externalApplicationDatabaseRef set, invalid AppDB version ignored": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDbVersion("not-a-version").
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"externalApplicationDatabaseRef set, multi-cluster AppDB clusterSpecList ignored": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+					{ClusterName: "dup", Members: 1},
+					{ClusterName: "dup", Members: 1},
+				}).
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"externalApplicationDatabaseRef set and OM-level validators still run": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetVersion("4.4").
+				SetExternalApplicationDatabaseRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid",
+		},
+	}
+
+	for testName := range tests {
+		t.Run(testName, func(t *testing.T) {
+			testConfig := tests[testName]
+			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
+
+			if testConfig.expectedErrorMessage != "" {
+				assert.NotNil(t, err)
+				assert.Equal(t, testConfig.expectedPart, part)
+				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, status.None, part)
 			}
 		})
 	}

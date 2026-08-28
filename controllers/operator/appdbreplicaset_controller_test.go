@@ -2115,10 +2115,10 @@ func TestMonitoringAgentStartupParametersIgnored(t *testing.T) {
 // monitoringAutomationConfigSecretName / monitoringAutomationConfigConfigMapName reproduce the
 // names of the pre-single-agent monitoring automation config resources. The operator no longer
 // creates these; the helpers exist only so tests can assert their absence (or exercise legacy paths).
-func monitoringAutomationConfigSecretName(appdb omv1.AppDBSpec) string {
+func monitoringAutomationConfigSecretName(appdb *omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-config"
 }
 
-func monitoringAutomationConfigConfigMapName(appdb omv1.AppDBSpec) string {
+func monitoringAutomationConfigConfigMapName(appdb *omv1.AppDBSpec) string {
 	return appdb.Name() + "-monitoring-automation-config-version"
 }
