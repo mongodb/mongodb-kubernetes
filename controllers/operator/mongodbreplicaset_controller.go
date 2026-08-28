@@ -838,13 +838,28 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 
 const appDBForwardMigrationViolationFmt = "cannot change AppDB configuration during forward migration: %s"
 
-// validateAppDBForwardMigration rejects spec changes that cannot be applied while the AppDB
-// StatefulSet handover (forward migration) is in progress. The window is open until this
-// controller replaces the StatefulSet spec with the enterprise form: until then the pods run
-// headless agents that read the mounted automation config and never poll Ops Manager, so for
-// cluster-visible settings (TLS, CA, members) no publish ordering works - rotated members become
-// incompatible with the unrotated ones. The handover must be config-identical; changes apply
-// once the migration completes.
+// validateAppDBForwardMigration rejects spec changes that are unsafe to apply during
+// AppDB forward migration.
+//
+// There is a window of time during which some spec changes are not safe to reconcile.
+// The window runs from the start of forward migration until AppDBMigrationReadyAnnotation
+// becomes true, at which point this controller replaces the StatefulSet spec with the
+// enterprise form.
+//
+// Changes are unsafe during this window because, for some configurations, they could
+// create a situation where two mutually incompatible populations of pods are running
+// during the rolling update. Transitioning cluster-visible settings (TLS, CA, members)
+// from state A to state Z normally goes through intermediate states (A -> N1 -> N2 ->
+// ... -> Z); a population spanning two neighbouring states (e.g. A and N1) is fine, but
+// a population made up of both A and Z pods is not.
+//
+// In normal operation we handle this in the operator (see e.g. publishAutomationConfigFirst),
+// which has enough visibility to sequence the transition safely. But before
+// AppDBMigrationReadyAnnotation is true, the AppDB pods run headless agents that read
+// the automation config from a locally mounted file and never poll Ops Manager. Since
+// they never poll, the operator has no way to roll a cluster-visible config change out
+// pod-by-pod without creating an incompatible mixed population mid-rollout. The handover
+// must therefore be config-identical; changes apply once the migration completes.
 func (r *ReplicaSetReconcilerHelper) validateAppDBForwardMigration(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) workflow.Status {
 	if sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
 		return workflow.OK()
