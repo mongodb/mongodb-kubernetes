@@ -4,23 +4,27 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
+	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
-func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
-	//nolint
-	crt := `-----BEGIN CERTIFICATE-----
+//nolint
+var testTLSCrt = `-----BEGIN CERTIFICATE-----
 MIIFWzCCA0OgAwIBAgIRAJ/vHVZs6TGyhP/AIR+TAvMwDQYJKoZIhvcNAQELBQAw
 cTELMAkGA1UEBhMCVVMxETAPBgNVBAgMCE5ldyBZb3JrMREwDwYDVQQHDAhOZXcg
 WW9yazEQMA4GA1UECgwHTW9uZ29EQjEQMA4GA1UECwwHbW9uZ29kYjEYMBYGA1UE
@@ -51,8 +55,9 @@ uD7tgoEguEmih1e1Fc8nIlByx3zj+ifNkuwHytIvip3uvaiQZTEda9i9TMZ6sDeN
 1pAwMVMKOGqYBR6ibZJ20vGiKMwBLCQOEqckZg5j2ULHx5LYbbF24uKpMTX8OAtQ
 WyU44tyEDe5JUgwo3G/3/Hp6WJARpV1MVy3y5hHNaA==
 -----END CERTIFICATE-----`
-	//nolint
-	key := `-----BEGIN RSA PRIVATE KEY-----
+
+//nolint
+var testTLSKey = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpgIBAAKCAQEA1XriqO3WuZ+5gBkvL2s6iC1BOIU0mqR9ULNpDwibO2rF5cDC
 g133snCbzbGClRHsyuS7Stp7EiEoPxHOA6vzvQvuyLgxeZl2S7G9B/5IBI6xS5oG
 1zt6nM7N+FXYX/ZGCD9HNkQ80u0X0osZatLvertzPZkZtOZzqroMuKRApWrV3+58
@@ -79,7 +84,9 @@ sNSYUjWhAoGBAKjzEsMga2Lonk5sHkVPkYm8Kl4PrfK4lj1U78to0tgcguLjGyRW
 c4IFWO5/ibu3HV3eLMiJBmSR8iR5Iue9cCm782/tncuWLsCoDGUmCG1D2Q4iBx2J
 EHE1zXjECRf87xR2aKbPUR+44bG/ILCbUypquP48GC+S6OqVF7utkXgF
 -----END RSA PRIVATE KEY-----`
-	secretData := map[string][]byte{"tls.crt": []byte(crt), "tls.key": []byte(key)}
+
+func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
+	secretData := map[string][]byte{"tls.crt": []byte(testTLSCrt), "tls.key": []byte(testTLSKey)}
 
 	_, err := VerifyTLSSecretForStatefulSet(secretData, Options{})
 	assert.NoError(t, err)
@@ -236,5 +243,48 @@ func TestRotateCertificate(t *testing.T) {
 		}
 
 		assert.Equal(t, expectedPem, pemSecret)
+	})
+}
+
+// TestValidateSelfManagedSSLCertsForStatefulSet_ValidatesPemInWriteCluster reproduces the multi-cluster
+// setup where the source certificate secret lives in the central cluster (read client) while the
+// generated -pem secret is created in a member cluster (write client). The -pem secret must be
+// validated in the cluster it was written to.
+func TestValidateSelfManagedSSLCertsForStatefulSet_ValidatesPemInWriteCluster(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		centralClient, _ := mock.NewDefaultFakeClient()
+		memberClient, _ := mock.NewDefaultFakeClient()
+		secretReadClient := secrets.SecretClient{KubeClient: centralClient}
+		secretWriteClient := secrets.SecretClient{KubeClient: memberClient}
+
+		opts := Options{Namespace: "test"}
+		certSecretName := "test-mrs-cert"
+		pemSecretName := certSecretName + OperatorGeneratedCertSuffix
+
+		err := centralClient.CreateSecret(ctx, corev1.Secret{
+			ObjectMeta: v1.ObjectMeta{Name: certSecretName, Namespace: opts.Namespace},
+			Type:       corev1.SecretTypeTLS,
+			Data:       map[string][]byte{"tls.crt": []byte(testTLSCrt), "tls.key": []byte(testTLSKey)},
+		})
+		assert.NoError(t, err)
+
+		status := ValidateSelfManagedSSLCertsForStatefulSet(ctx, secretReadClient, secretWriteClient, certSecretName, opts, zap.S())
+		assert.True(t, status.IsOK())
+
+		// the -pem secret is created in the write (member) cluster only
+		pemSecret, err := memberClient.GetSecret(ctx, kube.ObjectKey(opts.Namespace, pemSecretName))
+		assert.NoError(t, err)
+		_, err = centralClient.GetSecret(ctx, kube.ObjectKey(opts.Namespace, pemSecretName))
+		assert.True(t, apiErrors.IsNotFound(err))
+
+		// a stale entry containing a certificate without its private key in the member cluster's
+		// -pem secret must fail validation
+		pemSecret.Data["stale-hash"] = []byte(testTLSCrt)
+		err = memberClient.UpdateSecret(ctx, pemSecret)
+		assert.NoError(t, err)
+
+		status = ValidateSelfManagedSSLCertsForStatefulSet(ctx, secretReadClient, secretWriteClient, certSecretName, opts, zap.S())
+		assert.False(t, status.IsOK())
 	})
 }

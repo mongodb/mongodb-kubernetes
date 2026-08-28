@@ -424,8 +424,8 @@ func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(
 
 	secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 
-	// Validates that the secret is valid
-	if err := certs.ValidateCertificates(ctx, r.client, secretName, opts.Namespace, log); err != nil {
+	// Validates that the secret is valid, in the cluster it was just created in
+	if err := certs.ValidateCertificates(ctx, configurator.GetSecretWriteClient().KubeClient, secretName, opts.Namespace, log); err != nil {
 		return err
 	}
 	return nil
