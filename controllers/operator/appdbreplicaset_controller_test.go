@@ -2140,9 +2140,9 @@ func TestReconcileAppDbReplicaSet_BuildAppDBConnectionURL(t *testing.T) {
 		SetField(util.OpsManagerPasswordKey, "test-password").
 		Build()))
 
-	connString, err := appDbReconciler.BuildAppDBConnectionURL(ctx, testOm, zap.S())
+	cfg, err := appDbReconciler.GetAppDBConfig(ctx, testOm, zap.S())
 	require.NoError(t, err)
-	assert.Contains(t, connString, util.OpsManagerMongoDBUserName)
+	assert.Contains(t, cfg.ConnectionString, util.OpsManagerMongoDBUserName)
 }
 
 // TestReconcileAppDB_ReshapesReAdoptedStatefulSet reproduces the reverse-migration state right

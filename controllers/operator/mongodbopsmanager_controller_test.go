@@ -822,7 +822,7 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
 	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
 	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
@@ -855,7 +855,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
 	// then
 	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
@@ -881,7 +881,7 @@ func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
 	// then
 	assert.Nil(t, s3Configs[0].ObjectLockEnabled)
@@ -1531,6 +1531,50 @@ func TestReconcile_ExternalAppDBRef_NeverCreatesInternalPasswordSecret(t *testin
 	result := corev1.Secret{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, omv1.OpsManagerUserPasswordSecretName("test-om-db")), &result))
 	assert.Equal(t, "test-password", string(result.Data[util.OpsManagerPasswordKey]))
+}
+
+func TestOpsManagerReconcile_ExternalAppDBRef_TLS_MountsAppDBCAVolume(t *testing.T) {
+	ctx := context.Background()
+
+	externalAppDB := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		SetMembers(3).
+		SetSecurityTLSEnabled().
+		Build()
+	externalAppDB.Spec.Role = mdbv1.RoleAppDB
+	externalAppDB.Spec.Security.TLSConfig.CA = "app-db-issuer-ca"
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "test-om-db",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+	require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+		SetNamespace(testOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "test-password").
+		Build()))
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	omSts := appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Name), &omSts))
+
+	var caVolume *corev1.Volume
+	for i := range omSts.Spec.Template.Spec.Volumes {
+		if omSts.Spec.Template.Spec.Volumes[i].Name == "appdb-ca-certificate" {
+			caVolume = &omSts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, caVolume, "expected appdb-ca-certificate volume on OM StatefulSet when external AppDB has TLS enabled")
+	require.NotNil(t, caVolume.ConfigMap)
+	assert.Equal(t, "app-db-issuer-ca", caVolume.ConfigMap.Name)
 }
 
 func addOMTLSResources(ctx context.Context, client client.Client, secretName string) {

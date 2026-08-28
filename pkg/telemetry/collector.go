@@ -313,7 +313,7 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 			omClusters := len(item.Spec.ClusterSpecList)
 			var appDBClusters int
 			var appDBExternalDomains string
-			if item.Spec.ExternalAppDBRef == nil {
+			if item.IsInternalAppDB() {
 				appDBClusters = len(item.Spec.AppDB.ClusterSpecList)
 				appDBExternalDomains = getExternalDomainPropertyForAppDB(item)
 			}

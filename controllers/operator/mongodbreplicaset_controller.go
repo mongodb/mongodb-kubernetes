@@ -932,10 +932,6 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context,
 // claimAppDBRoleSecrets claims ownership of the shared user and keyfile secrets for an AppDB-role CR.
 // It tolerates secrets that don't exist yet (they will be created by ensureAppDBRoleUser/Keyfile later).
 func (r *ReplicaSetReconcilerHelper) claimAppDBRoleSecrets(ctx context.Context, mdb *mdbv1.MongoDB) error {
-	if mdb.Spec.Role != mdbv1.RoleAppDB {
-		return nil
-	}
-
 	passwordSecretName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
 	keyfileSecretName := fmt.Sprintf("%s-keyfile", mdb.Name)
 

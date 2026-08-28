@@ -10,8 +10,10 @@ from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
+from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
+    appdb_tls_security,
     assert_no_migration_annotations,
     assert_project_exists,
     assert_sentinel_doc_present,
@@ -51,17 +53,41 @@ def meta_om(namespace: str, custom_version: Optional[str], custom_appdb_version:
 
 
 @fixture(scope="module")
-def primary_om(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
+def appdb_ca_configmap(app_db_issuer_ca_configmap: str) -> str:
+    # same CA used by the internal AppDB (before forward migration) and the external MongoDB CR
+    # (after), so the computed connection string is identical across the switch and OM pods don't roll.
+    return app_db_issuer_ca_configmap
+
+
+@fixture(scope="module")
+def appdb_cert_prefix(namespace: str, issuer: str) -> str:
+    # "appdb-<DB_NAME>-cert"; the internal AppDB and the MongoDB CR share DB_NAME and this prefix, so
+    # they resolve to the same member cert secret across forward migration.
+    return create_appdb_certs(namespace, issuer, DB_NAME)
+
+
+@fixture(scope="module")
+def primary_om(
+    namespace: str,
+    custom_version: Optional[str],
+    custom_appdb_version: str,
+    appdb_ca_configmap: str,
+    appdb_cert_prefix: str,
+) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_external_appdb_primary_om.yaml"), namespace=namespace)
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
+    # start with a TLS-enabled internal AppDB so that after forward migration to the (also TLS)
+    # external CR the connection string (ssl=true, same hosts) is unchanged.
+    resource["spec"]["applicationDatabase"]["security"] = appdb_tls_security(appdb_ca_configmap, appdb_cert_prefix)
     try_load(resource)
     return resource
 
 
 @fixture(scope="module")
-def external_appdb(namespace: str, custom_mdb_version: str) -> MongoDB:
+def external_appdb(namespace: str, custom_mdb_version: str, appdb_cert_prefix: str, appdb_ca_configmap: str) -> MongoDB:
     resource = appdb_role_resource(namespace, custom_mdb_version, name=DB_NAME)
+    resource.configure_custom_tls(appdb_ca_configmap, appdb_cert_prefix)
     try_load(resource)
     return resource
 
@@ -89,8 +115,11 @@ class TestSentinelDocSurvivesForwardMigration:
     keyfile_secret_before: ClassVar[dict[str, str]]
     connection_string_before: ClassVar[str]
 
-    def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager):
-        write_sentinel_doc(primary_om.read_appdb_connection_url())
+    def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
+        cnx_string = primary_om.read_appdb_connection_url()
+        # the internal AppDB is TLS-enabled, so its connection string must request TLS
+        assert "ssl=true" in cnx_string
+        write_sentinel_doc(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_capture_state_before_migration(self, primary_om: MongoDBOpsManager, namespace: str):
         self.__class__.password_secret_before = read_secret(namespace, password_secret_name(OM_NAME))
@@ -124,8 +153,11 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_no_migration_annotations_after_forward_migration(self, namespace: str):
         assert_no_migration_annotations(namespace, DB_NAME)
 
-    def test_sentinel_doc_survives(self, primary_om: MongoDBOpsManager):
-        assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
+    def test_sentinel_doc_survives(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
+        cnx_string = primary_om.read_appdb_connection_url()
+        # after forward migration the external CR is also TLS, so the string still requests TLS
+        assert "ssl=true" in cnx_string
+        assert_sentinel_doc_present(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_connection_string_unchanged_after_forward_migration(self, primary_om: MongoDBOpsManager):
         # same hosts + same password => the computed connection string value must not
@@ -211,10 +243,11 @@ class TestReverseMigrationAfterForwardMigration:
     def test_no_migration_annotations_after_reverse_migration(self, namespace: str):
         assert_no_migration_annotations(namespace, DB_NAME)
 
-    def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager):
+    def test_sentinel_doc_survives_reverse_migration(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
         # the data-preservation proof: written before the forward migration, survives CR deletion
-        # and the recreate because the PVCs were retained
-        assert_sentinel_doc_present(primary_om.read_appdb_connection_url())
+        # and the recreate because the PVCs were retained. The internal AppDB security (TLS) is
+        # inherited from the OM spec's applicationDatabase, so the reconnect is over TLS.
+        assert_sentinel_doc_present(primary_om.read_appdb_connection_url(), tls_ca_file=issuer_ca_filepath)
 
     def test_project_still_exists_after_reverse_migration(self, meta_om: MongoDBOpsManager):
         assert_project_exists(meta_om, DB_NAME)
