@@ -395,7 +395,7 @@ func validateTLS(proc *om.Process) []ValidationResult {
 	if len(proc.NetTLSSections()) == 0 {
 		return []ValidationResult{{
 			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("Process %q has no TLS. Set spec.additionalMongodConfig.net.tls.mode to \"disabled\" to match the operator and avoid a deployment change.", proc.Name()),
+			Message:  fmt.Sprintf("Process %q has no TLS. Set net.tls.mode to \"disabled\" on each VM process in the automation configuration to begin the migration.", proc.Name()),
 		}}
 	}
 	return nil
