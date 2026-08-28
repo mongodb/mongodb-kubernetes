@@ -31,8 +31,8 @@ func SecretName(mdb *mdbv1.MongoDB) string {
 // secret content does not change.
 func PublishForMongoDB(ctx context.Context, c client.Client, mdb *mdbv1.MongoDB, hostnames []string) error {
 	builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
-	std := builder.BuildConnectionString("", "", connectionstring.SchemeMongoDB, nil)
-	srv := builder.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+	std := builder.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	srv := builder.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	s := secret.Builder().
 		SetName(SecretName(mdb)).
