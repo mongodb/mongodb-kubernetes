@@ -1114,10 +1114,10 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 	}
 
-	excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
-	if excessProcesses > 0 {
-		return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
-	}
+	//excessProcesses := d.GetNumberOfExcessProcesses(resourceName)
+	//if excessProcesses > 0 {
+	//	return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
+	//}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, spec.GetExternalMemberProcessNames(), log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
