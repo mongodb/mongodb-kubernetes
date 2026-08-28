@@ -44,6 +44,9 @@ func (p KubernetesClusterUsageSnapshotProperties) ConvertToFlatMap() (map[string
 type DeploymentUsageSnapshotProperties struct {
 	DatabaseClusters         *int     `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
 	AppDBClusters            *int     `json:"appDBClusters,omitempty"`
+	AppDBBackupMode          string   `json:"appDBBackupMode,omitempty"`
+	ExternalAppDB            string   `json:"externalAppDB,omitempty"`
+	Role                     string   `json:"role,omitempty"`
 	OmClusters               *int     `json:"OmClusters,omitempty"`
 	DeploymentUID            string   `json:"deploymentUID"`
 	OperatorID               string   `json:"operatorID"`
@@ -51,8 +54,8 @@ type DeploymentUsageSnapshotProperties struct {
 	IsMultiCluster           bool     `json:"isMultiCluster"`
 	Type                     string   `json:"type"` // RS, SC, OM, Single
 	IsRunningEnterpriseImage bool     `json:"IsRunningEnterpriseImage"`
-	ExternalDomains          string   `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
-	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used 	// None, Uniform, ClusterSpecific, Mixed
+	ExternalDomains          string   `json:"externalDomains,omitempty"`         // None, Uniform, ClusterSpecific, Mixed
+	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used: None, Embedded, Referenced
 	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
 	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
 }

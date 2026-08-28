@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -240,20 +239,21 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 
 			numberOfClustersUsed := getMaxNumberOfClustersSCIsDeployedOn(item)
 			properties := DeploymentUsageSnapshotProperties{
+				Role:                     item.Spec.Role,
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,
 				Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     string(item.Spec.GetResourceType()),
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(imageURL),
-				ExternalDomains:          getExternalDomainProperty(item),
+				ExternalDomains:          getExternalDomainPropertyForMongoDB(item),
 				CustomRoles:              getCustomRoles(item.Spec.Security),
 				AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
 				AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 			}
 
 			if numberOfClustersUsed > 0 {
-				properties.DatabaseClusters = ptr.To(numberOfClustersUsed)
+				properties.DatabaseClusters = &numberOfClustersUsed
 			}
 
 			if event := createEvent(properties, now, Deployments); event != nil {
@@ -280,7 +280,8 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 		clusters := len(item.Spec.ClusterSpecList)
 
 		properties := DeploymentUsageSnapshotProperties{
-			DatabaseClusters:         ptr.To(clusters), // cannot be null in mdbmulti
+			DatabaseClusters:         &clusters, // cannot be null in mdbmulti
+			Role:                     item.Spec.Role,
 			DeploymentUID:            string(item.UID),
 			OperatorID:               operatorUUID,
 			Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
@@ -311,28 +312,25 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 		for _, item := range omList.Items {
 			// Detect enterprise
 			omClusters := len(item.Spec.ClusterSpecList)
-			var appDBClusters int
-			var appDBExternalDomains string
-			if item.IsInternalAppDB() {
-				appDBClusters = len(item.Spec.AppDB.ClusterSpecList)
-				appDBExternalDomains = getExternalDomainPropertyForAppDB(item)
-			}
+			appDBProperties := getAppDBProperties(ctx, operatorClusterClient, item)
 			properties := DeploymentUsageSnapshotProperties{
+				AppDBBackupMode:          appDBProperties.BackupMode,
+				ExternalAppDB:            appDBProperties.ExternalAppDB,
 				DeploymentUID:            string(item.UID),
 				OperatorID:               operatorUUID,
 				Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
 				Type:                     "OpsManager",
 				IsRunningEnterpriseImage: images.IsEnterpriseImage(mongodbImage),
-				ExternalDomains:          appDBExternalDomains,
+				ExternalDomains:          appDBProperties.ExternalDomains,
 			}
 
 			if omClusters > 0 {
-				properties.OmClusters = ptr.To(omClusters)
+				properties.OmClusters = &omClusters
 			}
 
-			if appDBClusters > 0 {
-				properties.AppDBClusters = ptr.To(appDBClusters)
+			if appDBProperties.Clusters > 0 {
+				properties.AppDBClusters = &appDBProperties.Clusters
 			}
 
 			if event := createEvent(properties, now, Deployments); event != nil {
@@ -341,6 +339,25 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 		}
 	}
 	return events
+}
+
+type AppDBProperties struct {
+	ExternalAppDB   string
+	BackupMode      string
+	Clusters        int
+	ExternalDomains string
+}
+
+func getAppDBProperties(ctx context.Context, operatorClusterClient kubeclient.Client, om omv1.MongoDBOpsManager) AppDBProperties {
+	ref := om.Spec.ExternalAppDBRef
+	if ref != nil {
+		return resolveExternalAppDBProperties(ctx, operatorClusterClient, ref)
+	}
+
+	return AppDBProperties{
+		Clusters:        len(om.Spec.AppDB.ClusterSpecList),
+		ExternalDomains: getExternalDomainPropertyForAppDB(om),
+	}
 }
 
 func createEvent(properties FlatProperties, now time.Time, eventType EventType) *Event {
@@ -534,28 +551,26 @@ const (
 	ExternalDomainNone            = "None"
 )
 
-func getExternalDomainProperty(mdb mdbv1.MongoDB) string {
-	isUniformExternalDomainSpecified := mdb.Spec.GetExternalDomain() != nil
-
+func getExternalDomainPropertyForMongoDB(mdb mdbv1.MongoDB) string {
 	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInAnyShardedClusterSpec(mdb)
 
-	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
+	return getExternalDomainGeneric(mdb.Spec.GetExternalDomain(), isClusterSpecificExternalDomainSpecified)
 }
 
 func getExternalDomainPropertyForMongoDBMulti(mdb mdbmultiv1.MongoDBMultiCluster) string {
-	isUniformExternalDomainSpecified := mdb.Spec.GetExternalDomain() != nil
-
 	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInClusterSpecList(mdb.Spec.ClusterSpecList)
 
-	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
+	return getExternalDomainGeneric(mdb.Spec.GetExternalDomain(), isClusterSpecificExternalDomainSpecified)
 }
 
 func getExternalDomainPropertyForAppDB(om omv1.MongoDBOpsManager) string {
-	isUniformExternalDomainSpecified := om.Spec.AppDB.GetExternalDomain() != nil
-
 	isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInClusterSpecList(om.Spec.AppDB.ClusterSpecList)
 
-	return mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified, isClusterSpecificExternalDomainSpecified)
+	return getExternalDomainGeneric(om.Spec.AppDB.GetExternalDomain(), isClusterSpecificExternalDomainSpecified)
+}
+
+func getExternalDomainGeneric(externalDomain *string, isClusterSpecificExternalDomainSpecified bool) string {
+	return mapExternalDomainConfigurationToEnum(externalDomain != nil, isClusterSpecificExternalDomainSpecified)
 }
 
 func mapExternalDomainConfigurationToEnum(isUniformExternalDomainSpecified bool, isClusterSpecificExternalDomainSpecified bool) string {
@@ -642,4 +657,39 @@ func getAuthenticationAgentMode(security *mdbv1.Security) string {
 	}
 
 	return security.Authentication.Agents.Mode
+}
+
+func resolveExternalAppDBProperties(ctx context.Context, operatorClusterClient kubeclient.Client, ref *omv1.ExternalAppDBRef) AppDBProperties {
+	key := kubeclient.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}
+
+	appDBProperties := AppDBProperties{
+		ExternalAppDB: ref.Kind,
+	}
+	if ref.Kind == "MongoDB" {
+		mdb := &mdbv1.MongoDB{}
+		if err := operatorClusterClient.Get(ctx, key, mdb); err != nil {
+			Logger.Warnf("Couldn't fetch MongoDB %s/%s for OpsManager external database reference: %v", ref.Namespace, ref.Name, err)
+			return appDBProperties
+		}
+
+		if mdb.Spec.Backup != nil {
+			appDBProperties.BackupMode = string(mdb.Spec.Backup.Mode)
+		}
+		appDBProperties.ExternalDomains = getExternalDomainGeneric(mdb.Spec.GetExternalDomain(), false)
+	} else if ref.Kind == "MongoDBMultiCluster" {
+		mdbm := &mdbmultiv1.MongoDBMultiCluster{}
+		if err := operatorClusterClient.Get(ctx, key, mdbm); err != nil {
+			Logger.Warnf("Couldn't fetch MongoDBMultiCluster %s/%s for OpsManager external database reference: %v", ref.Namespace, ref.Name, err)
+			return appDBProperties
+		}
+
+		if mdbm.Spec.Backup != nil {
+			appDBProperties.BackupMode = string(mdbm.Spec.Backup.Mode)
+		}
+		isClusterSpecificExternalDomainSpecified := isExternalDomainSpecifiedInClusterSpecList(mdbm.Spec.ClusterSpecList)
+		appDBProperties.ExternalDomains = getExternalDomainGeneric(mdbm.Spec.GetExternalDomain(), isClusterSpecificExternalDomainSpecified)
+		appDBProperties.Clusters = len(mdbm.Spec.ClusterSpecList)
+	}
+
+	return appDBProperties
 }
