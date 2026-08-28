@@ -20,7 +20,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -596,7 +595,7 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 func (d Deployment) GetNumberOfExcessProcesses(resourceName string, replicaSetNameOverride string, externalMembers []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
-	externalMembersSet := merge.StringsToSet(externalMembers)
+	externalMembersSet := stringutil.ToSet(externalMembers)
 
 	rsName := resourceName
 	if replicaSetNameOverride != "" {

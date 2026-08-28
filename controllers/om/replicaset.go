@@ -10,7 +10,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 /* This corresponds to:
@@ -199,7 +199,7 @@ func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet, externalMembers []string) [
 	// for the 'r' object
 	omMap := buildMapOfRsNodes(r)
 	operatorMap := buildMapOfRsNodes(operatorRs)
-	externalSet := merge.StringsToSet(externalMembers)
+	externalSet := stringutil.ToSet(externalMembers)
 
 	// merge overlapping members into the operatorMap (overriding the 'host',
 	// 'horizons' and '_id' fields only)
