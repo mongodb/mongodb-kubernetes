@@ -48,7 +48,11 @@ def test_operators_log_their_identity_and_read_the_local_cr(
         ).items
         assert len(pods) == 1, f"expected exactly one operator pod on {cluster}, found {len(pods)}"
 
-        logs = corev1.read_namespaced_pod_log(pods[0].metadata.name, decentralized_settings.namespace)
+        # the mesh-enrolled namespace injects an istio sidecar into the operator pod too;
+        # log reads on a multi-container pod must name the container
+        logs = corev1.read_namespaced_pod_log(
+            pods[0].metadata.name, decentralized_settings.namespace, container=DECENTRALIZED_OPERATOR_NAME
+        )
         assert "Decentralized multi-cluster mode enabled" in logs, f"no decentralized-mode banner on {cluster}"
         assert cluster in logs, f"operator on {cluster} does not log its own identity"
         # The local CR copy was read: the reconciler logs the resource it works on.
@@ -66,11 +70,7 @@ def test_no_broad_cross_cluster_credential_exists(
 
     for cluster, api_client in decentralized_cluster_clients.items():
         rbacv1 = client.RbacAuthorizationV1Api(api_client)
-        role = rbacv1.read_namespaced_role(
-            f"mck-member-{cluster}-peer-role", decentralized_settings.namespace
-        )
+        role = rbacv1.read_namespaced_role(f"mck-member-{cluster}-peer-role", decentralized_settings.namespace)
         expected = build_peer_role(cluster, decentralized_settings.namespace)["rules"]
-        actual = [
-            {"apiGroups": r.api_groups, "resources": r.resources, "verbs": r.verbs} for r in role.rules
-        ]
+        actual = [{"apiGroups": r.api_groups, "resources": r.resources, "verbs": r.verbs} for r in role.rules]
         assert actual == expected, f"peer Role on {cluster} drifted from the frozen contract"
