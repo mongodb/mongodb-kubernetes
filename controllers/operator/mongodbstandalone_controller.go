@@ -244,8 +244,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
-	agentCertHash, defaultAgentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
-	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, s.Spec.GetSecurity())
+	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, s.Namespace, agentCertSecretName, databaseSecretPath)
 
 	var automationAgentVersion string
 	if architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {

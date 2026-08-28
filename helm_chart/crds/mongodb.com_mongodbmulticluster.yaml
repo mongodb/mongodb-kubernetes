@@ -719,6 +719,9 @@ spec:
                               and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
                               that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
                               hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+                              This field is meant to be used only in the context of a migration into MCK where the existing project is already configured with a non-default path for the PEM file.
+                              In all other cases, this field should be left empty and the operator will use the default path.
+                              This field will not be used for MongoDBMultiCluster, AppDB or MongoDB standalone resource.
                             type: string
                           automationLdapGroupDN:
                             type: string
