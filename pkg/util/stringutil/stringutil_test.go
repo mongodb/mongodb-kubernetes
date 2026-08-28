@@ -40,3 +40,23 @@ func TestCheckCertificateDomains(t *testing.T) {
 	assert.False(t, CheckCertificateAddresses([]string{"abd.efg.com", "*.cluster.local", "*.dev.local", "abc.mongodb.com", "abcdef"}, "abdcdefg"))
 	assert.False(t, CheckCertificateAddresses([]string{"abd.efg.com", "*.cluster.local", "*.dev.local", "abc.mongodb.com", "abcdef"}, "*.somethingthatdoesntfit"))
 }
+
+func TestToSet_Empty(t *testing.T) {
+	result := ToSet([]string{})
+	assert.Empty(t, result)
+}
+
+func TestToSet_Normal(t *testing.T) {
+	result := ToSet([]string{"a", "b", "c"})
+	assert.Len(t, result, 3)
+	assert.Contains(t, result, "a")
+	assert.Contains(t, result, "b")
+	assert.Contains(t, result, "c")
+}
+
+func TestToSet_Duplicates(t *testing.T) {
+	result := ToSet([]string{"x", "x", "y"})
+	assert.Len(t, result, 2)
+	assert.Contains(t, result, "x")
+	assert.Contains(t, result, "y")
+}
