@@ -354,17 +354,30 @@ func (m *MongoDBMultiCluster) GetClusterSpecItems() (mdbv1.ClusterSpecList, erro
 			return append(specsForThisReconciliation, item), nil
 		}
 		// can only scale one member at a time, so we return early on each increment.
+		// specsForThisReconciliation is in previous-spec order, which is not guaranteed to
+		// match the cluster indexes, so entries are looked up by cluster name.
 		if item.Members > prevItem.Members {
-			specsForThisReconciliation[m.ClusterNum(item.ClusterName)].Members += 1
+			specsForThisReconciliation[indexOfClusterSpecItem(specsForThisReconciliation, item.ClusterName)].Members += 1
 			return specsForThisReconciliation, nil
 		}
 		if item.Members < prevItem.Members {
-			specsForThisReconciliation[m.ClusterNum(item.ClusterName)].Members -= 1
+			specsForThisReconciliation[indexOfClusterSpecItem(specsForThisReconciliation, item.ClusterName)].Members -= 1
 			return specsForThisReconciliation, nil
 		}
 	}
 
 	return specsForThisReconciliation, nil
+}
+
+// indexOfClusterSpecItem returns the position of the cluster spec item with the given cluster
+// name, or -1 if there is none.
+func indexOfClusterSpecItem(clusterSpecList mdbv1.ClusterSpecList, clusterName string) int {
+	for i, spec := range clusterSpecList {
+		if spec.ClusterName == clusterName {
+			return i
+		}
+	}
+	return -1
 }
 
 // HasClustersToFailOver checks if the MongoDBMultiCluster CR has ""clusterSpecOverride" annotation which is put when one or more clusters

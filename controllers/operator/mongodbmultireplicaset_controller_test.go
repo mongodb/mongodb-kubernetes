@@ -35,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -768,6 +769,95 @@ func TestSpecIsSavedAsAnnotation_WhenReconciliationIsSuccessful(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.True(t, areEqual)
+}
+
+// setLastAchievedState writes the annotations the operator persists after a successful
+// reconciliation: the last-achieved spec and the cluster index mapping.
+func setLastAchievedState(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, achievedSpecList mdb.ClusterSpecList, clusterNumMapping map[string]int) {
+	achievedSpec := mrs.Spec
+	achievedSpec.ClusterSpecList = achievedSpecList
+	achievedSpecBytes, err := json.Marshal(achievedSpec)
+	require.NoError(t, err)
+	mappingBytes, err := json.Marshal(clusterNumMapping)
+	require.NoError(t, err)
+	if mrs.Annotations == nil {
+		mrs.Annotations = map[string]string{}
+	}
+	mrs.Annotations[util.LastAchievedSpec] = string(achievedSpecBytes)
+	mrs.Annotations[mdbmulti.LastClusterNumMapping] = string(mappingBytes)
+}
+
+// TestGetClusterSpecItems_WithClusterIndexGaps covers the state where a removed cluster left
+// a gap in the persisted cluster index mapping and the last-achieved spec no longer carries an
+// entry for it. Cluster indexes then no longer match positions in the spec list, so the scaling
+// logic must look entries up by cluster name instead of indexing by cluster index.
+func TestGetClusterSpecItems_WithClusterIndexGaps(t *testing.T) {
+	mapping := map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}
+
+	t.Run("Scaling up", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+			{ClusterName: clusters[0], Members: 2},
+			{ClusterName: clusters[2], Members: 3},
+		}
+		setLastAchievedState(t, mrs, mdb.ClusterSpecList{
+			{ClusterName: clusters[0], Members: 2},
+			{ClusterName: clusters[2], Members: 2},
+		}, mapping)
+
+		items, err := mrs.GetClusterSpecItems()
+		require.NoError(t, err)
+		require.Len(t, items, 2)
+		assert.Equal(t, 2, items[0].Members)
+		assert.Equal(t, 3, items[1].Members)
+	})
+
+	t.Run("Scaling down", func(t *testing.T) {
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+			{ClusterName: clusters[0], Members: 2},
+			{ClusterName: clusters[2], Members: 1},
+		}
+		setLastAchievedState(t, mrs, mdb.ClusterSpecList{
+			{ClusterName: clusters[0], Members: 2},
+			{ClusterName: clusters[2], Members: 2},
+		}, mapping)
+
+		items, err := mrs.GetClusterSpecItems()
+		require.NoError(t, err)
+		require.Len(t, items, 2)
+		assert.Equal(t, 2, items[0].Members)
+		assert.Equal(t, 1, items[1].Members)
+	})
+}
+
+// TestReconcileHostnameOverrideConfigMap_WithClusterIndexGaps verifies that the hostname
+// override entries are built from the cluster index, which determines pod names, and not from
+// the cluster's position in the spec list.
+func TestReconcileHostnameOverrideConfigMap_WithClusterIndexGaps(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+		{ClusterName: clusters[0], Members: 2},
+		{ClusterName: clusters[2], Members: 2},
+	}
+	setLastAchievedState(t, mrs, mrs.Spec.ClusterSpecList, map[string]int{clusters[0]: 0, clusters[2]: 2})
+
+	reconciler, _, memberClusters, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	err := reconciler.reconcileHostnameOverrideConfigMap(ctx, zap.S(), *mrs)
+	require.NoError(t, err)
+
+	cm := corev1.ConfigMap{}
+	err = memberClusters[clusters[2]].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.GetHostNameOverrideConfigmapName()), &cm)
+	require.NoError(t, err)
+
+	// pods in this cluster are named after cluster index 2, not after position 1 in the spec list
+	expectedData := map[string]string{
+		dns.GetMultiPodName(mrs.Name, 2, 0): dns.GetMultiClusterPodServiceFQDN(mrs.Name, mrs.Namespace, 2, nil, 0, mrs.Spec.GetClusterDomain()),
+		dns.GetMultiPodName(mrs.Name, 2, 1): dns.GetMultiClusterPodServiceFQDN(mrs.Name, mrs.Namespace, 2, nil, 1, mrs.Spec.GetClusterDomain()),
+	}
+	assert.Equal(t, expectedData, cm.Data)
 }
 
 func TestMultiReplicaSetRace(t *testing.T) {
