@@ -679,6 +679,9 @@ func populateMigrationFields(props *DeploymentUsageSnapshotProperties, condition
 
 	isActive := cond.Status == metav1.ConditionTrue
 	isComplete := cond.Status == metav1.ConditionFalse && cond.Reason == string(mdbstatus.MigratingReasonComplete)
+	if !isActive && !isComplete {
+		return
+	}
 
 	props.MigrationPhase = cond.Reason
 	props.ExternalMembersCount = ptr.To(externalCount)
