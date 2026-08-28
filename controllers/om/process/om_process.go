@@ -62,7 +62,7 @@ func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bo
 	for idx := range hostnames {
 		name := fmt.Sprintf("%s-%d-%d", mrs.Name, clusterNums[idx], podNum[idx])
 		if !useLegacyNames {
-			name = fmt.Sprintf("k8s/%s/%s", mrs.Namespace, name)
+			name = PodNameToProcessName(name, mrs.Namespace)
 		}
 		processes[idx] = om.NewMongodProcess(name, hostnames[idx], mongoDBImage, forceEnterprise, mrs.Spec.GetAdditionalMongodConfig(), &mrs.Spec, certFileName, mrs.Annotations, mrs.CalculateFeatureCompatibilityVersion(), defaultArchitecture)
 	}

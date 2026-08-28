@@ -242,7 +242,7 @@ func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 }
 
 func (m *MongoDB) GetReplicaSetName() string {
-	if m.Spec.GetResourceType() != ReplicaSet {
+	if !m.IsReplicaSet() {
 		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
 	}
 	if m.Spec.ReplicaSetNameOverride != "" {
@@ -1938,9 +1938,9 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 
 func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	name := m.Name
-	if m.Spec.ResourceType == ShardedCluster {
+	if m.IsShardedCluster() {
 		name = m.MongosRsName()
-	} else if m.Spec.ResourceType == ReplicaSet {
+	} else if m.IsReplicaSet() {
 		name = m.GetReplicaSetName()
 	}
 
