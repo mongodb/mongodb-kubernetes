@@ -488,6 +488,7 @@ type DbCommonSpec struct {
 	// +optional
 	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
 
+	// +optional
 	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
