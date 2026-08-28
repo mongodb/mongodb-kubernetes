@@ -825,6 +825,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_external_appdb_backup_and_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_external_connectivity
     tags: [ "patch-run" ]
     commands:

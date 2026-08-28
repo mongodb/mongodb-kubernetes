@@ -689,3 +689,7 @@ func (m *MongoDBMultiCluster) IsInChangeVersion() bool {
 func (m *MongoDBMultiCluster) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
 }
+
+func (m *MongoDBMultiCluster) IsReconciliationDisabled() bool {
+	return m.Annotations[util.DisableReconciliationAnnotation] == "true"
+}

@@ -315,6 +315,10 @@ const (
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
+	// DisableReconciliationAnnotation when set to "true" on a CR, short-circuits
+	// the reconciler: it returns Result{} + nil without mutating any owned objects.
+	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
+
 	// AppDBMigrationReadyAnnotation marks the internal AppDB StatefulSet as fully detached from
 	// the MongoDBOpsManager resource, allowing the referenced MongoDB resource to
 	// adopt it (see checkAdoptionGate).

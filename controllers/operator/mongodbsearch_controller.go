@@ -169,7 +169,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// Useful for tests when the operator is running locally and not in the pod.
 	if mdbSearch.IsReconciliationDisabled() {
 		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping",
-			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
+			mdbSearch.GetNamespace(), mdbSearch.GetName(), util.DisableReconciliationAnnotation)
 		return reconcile.Result{}, nil
 	}
 

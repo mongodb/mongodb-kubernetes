@@ -423,7 +423,7 @@ func TestMongoDBSearchReconcile_DisableReconciliationAnnotation_SkipsReconcile(t
 	// short-circuit must return Result{} + nil without touching status.
 	search := newMongoDBSearch("search", mock.TestNamespace, "missing-source")
 	search.Annotations = map[string]string{
-		searchv1.DisableReconciliationAnnotation: "true",
+		util.DisableReconciliationAnnotation: "true",
 	}
 	reconciler, c := newSearchReconciler(nil, search)
 
@@ -448,7 +448,7 @@ func TestMongoDBSearchReconcile_DisableReconciliationAnnotation_SkipsReconcile(t
 
 	// Annotation matching is case-sensitive: "True" does not disable, so the
 	// reconcile proceeds and the missing source surfaces as a failed phase.
-	updated.Annotations[searchv1.DisableReconciliationAnnotation] = "True"
+	updated.Annotations[util.DisableReconciliationAnnotation] = "True"
 	require.NoError(t, c.Update(ctx, updated))
 	res, err = reconciler.Reconcile(
 		ctx,

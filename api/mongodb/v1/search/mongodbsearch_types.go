@@ -18,6 +18,7 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
@@ -48,12 +49,6 @@ const (
 	EnvoyPreStopDrainSleepSeconds int64 = EnvoyTerminationGracePeriodSeconds - 10
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
-
-	// DisableReconciliationAnnotation, when set to "true" on a MongoDBSearch CR,
-	// short-circuits the reconciler: it returns Result{} + nil without
-	// mutating any owned objects. Useful for tests that need to mutate
-	// owned StatefulSets directly without the operator reverting them.
-	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
@@ -1044,7 +1039,7 @@ func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 }
 
 func (s *MongoDBSearch) IsReconciliationDisabled() bool {
-	return s.Annotations[DisableReconciliationAnnotation] == "true"
+	return s.Annotations[util.DisableReconciliationAnnotation] == "true"
 }
 
 func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
