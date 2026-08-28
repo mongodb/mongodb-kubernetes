@@ -774,28 +774,28 @@ func TestBuildConnectionString_SRV_WithExternalDomain(t *testing.T) {
 	externalDomain := "example.com"
 	rs := NewReplicaSetBuilder().SetMembers(2).ExposedExternally(nil, nil, &externalDomain).Build()
 
-	cnx := rs.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx := rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	assert.Equal(t, "mongodb+srv://example.com/?connectTimeoutMS=20000&replicaSet=test-mdb&"+
-		"serverSelectionTimeoutMS=20000", cnx)
+		"serverSelectionTimeoutMS=20000&ssl=false", cnx)
 }
 
 func TestBuildConnectionString_SRV_WithoutExternalDomain(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetMembers(2).Build()
 
-	cnx := rs.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx := rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	assert.Equal(t, "mongodb+srv://test-mdb-svc.testNS.svc.cluster.local/?connectTimeoutMS=20000&"+
-		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000", cnx)
+		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false", cnx)
 }
 
 func TestBuildConnectionString_SRV_WithCustomClusterDomain(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetMembers(2).SetClusterDomain("company.domain.net").Build()
 
-	cnx := rs.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx := rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	assert.Equal(t, "mongodb+srv://test-mdb-svc.testNS.svc.company.domain.net/?connectTimeoutMS=20000&"+
-		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000", cnx)
+		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false", cnx)
 }
 
 func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
@@ -1004,12 +1004,12 @@ func TestBuildConnectionString_ShardedClusterPerTierExternalDomain(t *testing.T)
 
 	assert.Equal(t, "mongodb://contractsDb-mongos-0.mongodb.example.com:27017,"+
 		"contractsDb-mongos-1.mongodb.example.com:27017/"+
-		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000",
-		sc.BuildConnectionString("", "", connectionstring.SchemeMongoDB, nil))
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
+		sc.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil))
 
 	assert.Equal(t, "mongodb+srv://mongodb.example.com/"+
-		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000",
-		sc.BuildConnectionString("", "", connectionstring.SchemeMongoDBSRV, nil))
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
+		sc.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil))
 }
 
 func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
