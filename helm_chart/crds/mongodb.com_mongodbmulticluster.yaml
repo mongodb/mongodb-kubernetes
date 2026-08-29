@@ -675,6 +675,20 @@ spec:
                 x-kubernetes-validations:
                 - message: spec.role must be 'AppDB' when set
                   rule: self == '' || self == 'AppDB'
+              remoteDuplicatePodService:
+                description: |-
+                  RemoteDuplicatePodService configures per-mongod pod Services outside their owning cluster.
+                  The pod-Service FQDN stays unchanged; only remote duplicates replace the backend selector.
+                  Owning-cluster pod Services keep the generated mongod selector.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  spec:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                type: object
               security:
                 properties:
                   authentication:

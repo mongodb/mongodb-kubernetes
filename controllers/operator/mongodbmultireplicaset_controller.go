@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"reflect"
 	"sort"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -905,6 +905,39 @@ func getService(mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string, podNum 
 	return svc
 }
 
+func getPodServiceForCluster(mrs *mdbmultiv1.MongoDBMultiCluster, clientClusterName string, clusterSpecItem mdb.ClusterSpecItem, podNum int) (corev1.Service, bool) {
+	return applyRemoteDuplicatePodServiceOverride(getService(mrs, clusterSpecItem.ClusterName, podNum), mrs, clientClusterName, clusterSpecItem.ClusterName)
+}
+
+func getExternalPodServiceForCluster(mrs *mdbmultiv1.MongoDBMultiCluster, clientClusterName string, clusterSpecItem mdb.ClusterSpecItem, podNum int) (corev1.Service, bool) {
+	return applyRemoteDuplicatePodServiceOverride(getExternalService(mrs, clusterSpecItem.ClusterName, podNum), mrs, clientClusterName, clusterSpecItem.ClusterName)
+}
+
+func applyRemoteDuplicatePodServiceOverride(svc corev1.Service, mrs *mdbmultiv1.MongoDBMultiCluster, clientClusterName, owningClusterName string) (corev1.Service, bool) {
+	override := mrs.Spec.RemoteDuplicatePodService
+	if clientClusterName == owningClusterName || override == nil {
+		return svc, false
+	}
+
+	replaceSelector := false
+	if override.SpecWrapper != nil {
+		overrideSpec := override.SpecWrapper.Spec.DeepCopy()
+		overrideSelector := maps.Clone(overrideSpec.Selector)
+		overrideSpec.Selector = nil
+		overrideSpec.Ports = nil
+		overrideSpec.ClusterIP = ""
+		overrideSpec.ClusterIPs = nil
+		svc.Spec = merge.ServiceSpec(svc.Spec, *overrideSpec)
+		if overrideSelector != nil {
+			svc.Spec.Selector = overrideSelector
+			replaceSelector = true
+		}
+	}
+	svc.Annotations = merge.StringToStringMap(svc.Annotations, override.Annotations)
+
+	return svc, replaceSelector
+}
+
 // reconcileServices makes sure that we have a service object corresponding to each statefulset pod
 // in the member clusters
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context, log *zap.SugaredLogger, mrs *mdbmultiv1.MongoDBMultiCluster) error {
@@ -993,7 +1026,8 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 	for podNum := 0; podNum < clusterSpecItem.Members; podNum++ {
 		var svc corev1.Service
 		if m.Spec.GetExternalAccessConfigurationForMemberCluster(clusterSpecItem.ClusterName) != nil {
-			svc = getExternalService(m, clusterSpecItem.ClusterName, podNum)
+			var replaceSelector bool
+			svc, replaceSelector = getExternalPodServiceForCluster(m, clientClusterName, clusterSpecItem, podNum)
 			externalDomain := m.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName)
 			placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(m.Name, m.Name, m.Namespace, clusterSpecItem.ClusterName, m.ClusterNum(clusterSpecItem.ClusterName), externalDomain, m.Spec.ClusterDomain, podNum)
 			if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
@@ -1003,7 +1037,12 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 				svc.Annotations = processedAnnotations
 			}
 
-			err := service.CreateOrUpdateService(ctx, client, svc)
+			var err error
+			if replaceSelector {
+				err = service.CreateOrUpdateServiceReplacingSelector(ctx, client, svc)
+			} else {
+				err = service.CreateOrUpdateService(ctx, client, svc)
+			}
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
 			}
@@ -1011,8 +1050,14 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 
 		// we create regular pod-services only if we don't use external domains
 		if m.Spec.GetExternalDomainForMemberCluster(clusterSpecItem.ClusterName) == nil {
-			svc = getService(m, clusterSpecItem.ClusterName, podNum)
-			err := service.CreateOrUpdateService(ctx, client, svc)
+			var err error
+			var replaceSelector bool
+			svc, replaceSelector = getPodServiceForCluster(m, clientClusterName, clusterSpecItem, podNum)
+			if replaceSelector {
+				err = service.CreateOrUpdateServiceReplacingSelector(ctx, client, svc)
+			} else {
+				err = service.CreateOrUpdateService(ctx, client, svc)
+			}
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, clientClusterName, err)
 			}

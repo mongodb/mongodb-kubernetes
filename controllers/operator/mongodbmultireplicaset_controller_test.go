@@ -35,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -514,6 +515,118 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 				assert.NoError(t, err)
 			}
 		}
+	}
+}
+
+func TestPodServiceCreation_RemoteDuplicatePodServiceOverride(t *testing.T) {
+	testClusters := clusters[:2]
+	relaySelector := map[string]string{"app": "envoy-proxy"}
+	tests := []struct {
+		name           string
+		externalDomain bool
+		override       *mdbmulti.RemoteDuplicatePodServiceConfiguration
+		expectedRemote map[string]string
+	}{
+		{
+			name: "internal service without override preserves pod selector",
+		},
+		{
+			name: "internal remote duplicate replaces pod selector",
+			override: &mdbmulti.RemoteDuplicatePodServiceConfiguration{
+				SpecWrapper: &v1.ServiceSpecWrapper{
+					Spec: corev1.ServiceSpec{Selector: relaySelector},
+				},
+			},
+			expectedRemote: relaySelector,
+		},
+		{
+			name:           "external service without override preserves pod selector",
+			externalDomain: true,
+		},
+		{
+			name:           "external remote duplicate replaces pod selector",
+			externalDomain: true,
+			override: &mdbmulti.RemoteDuplicatePodServiceConfiguration{
+				SpecWrapper: &v1.ServiceSpecWrapper{
+					Spec: corev1.ServiceSpec{Selector: relaySelector},
+				},
+			},
+			expectedRemote: relaySelector,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			builder := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(testClusters)
+			if tt.externalDomain {
+				builder.SetExternalAccess(mdb.ExternalAccessConfiguration{
+					ExternalDomain: ptr.To("default.testing"),
+					ExternalService: mdb.ExternalServiceConfiguration{
+						SpecWrapper: &v1.ServiceSpecWrapper{
+							Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP},
+						},
+					},
+				}, ptr.To("cluster-%d.testing"))
+			}
+			mrs := builder.Build()
+			mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
+			mrs.Spec.RemoteDuplicatePodService = tt.override
+
+			reconciler, centralClient, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+			checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, centralClient, false)
+
+			targetCluster := mrs.Spec.ClusterSpecList[1]
+			expectedLocal := getService(mrs, targetCluster.ClusterName, 0)
+			if tt.externalDomain {
+				expectedLocal = getExternalService(mrs, targetCluster.ClusterName, 0)
+			}
+			if tt.expectedRemote == nil {
+				tt.expectedRemote = expectedLocal.Spec.Selector
+			}
+			serviceKey := kube.ObjectKey(mrs.Namespace, expectedLocal.Name)
+			expectedProcessHostname := dns.GetMultiClusterPodServiceFQDN(
+				mrs.Name,
+				mrs.Namespace,
+				mrs.ClusterNum(targetCluster.ClusterName),
+				mrs.Spec.GetExternalDomainForMemberCluster(targetCluster.ClusterName),
+				0,
+				mrs.Spec.ClusterDomain,
+			)
+
+			localService := corev1.Service{}
+			require.NoError(t, memberClusterMap[targetCluster.ClusterName].Get(ctx, serviceKey, &localService))
+			assert.Equal(t, expectedLocal.Name, localService.Name)
+			assert.Equal(t, expectedLocal.Spec.Selector, localService.Spec.Selector)
+			if tt.externalDomain {
+				assert.Equal(t, "temple-1-0.cluster-1.testing", expectedProcessHostname)
+				assert.Equal(t, corev1.ServiceTypeClusterIP, localService.Spec.Type)
+			} else {
+				assert.Equal(t, "temple-1-0-svc.my-namespace.svc.cluster.local", expectedProcessHostname)
+			}
+
+			remoteClient := memberClusterMap[testClusters[0]]
+			remoteService := corev1.Service{}
+			require.NoError(t, remoteClient.Get(ctx, serviceKey, &remoteService))
+			assert.Equal(t, expectedLocal.Name, remoteService.Name)
+			assert.Equal(t, tt.expectedRemote, remoteService.Spec.Selector)
+
+			if tt.override != nil {
+				remoteService.Spec.ClusterIP = "10.0.0.25"
+				remoteService.Spec.ClusterIPs = []string{"10.0.0.25"}
+				remoteService.Spec.Ports[0].NodePort = 30017
+				remoteService.Spec.Selector[appsv1.StatefulSetPodNameLabel] = "stale-pod"
+				remoteService.Spec.Selector[util.OperatorLabelName] = util.OperatorLabelValue
+				require.NoError(t, remoteClient.Update(ctx, &remoteService))
+
+				checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, centralClient, false)
+				require.NoError(t, remoteClient.Get(ctx, serviceKey, &remoteService))
+				assert.Equal(t, relaySelector, remoteService.Spec.Selector)
+				assert.Equal(t, "10.0.0.25", remoteService.Spec.ClusterIP)
+				assert.Equal(t, []string{"10.0.0.25"}, remoteService.Spec.ClusterIPs)
+				assert.Equal(t, int32(30017), remoteService.Spec.Ports[0].NodePort)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -112,6 +113,15 @@ func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
 
 // CreateOrUpdateService will create or update a service in Kubernetes.
 func CreateOrUpdateService(ctx context.Context, getUpdateCreator GetUpdateCreator, desiredService corev1.Service) error {
+	return createOrUpdateService(ctx, getUpdateCreator, desiredService, false)
+}
+
+// CreateOrUpdateServiceReplacingSelector creates or updates a Service and replaces its selector.
+func CreateOrUpdateServiceReplacingSelector(ctx context.Context, getUpdateCreator GetUpdateCreator, desiredService corev1.Service) error {
+	return createOrUpdateService(ctx, getUpdateCreator, desiredService, true)
+}
+
+func createOrUpdateService(ctx context.Context, getUpdateCreator GetUpdateCreator, desiredService corev1.Service, replaceSelector bool) error {
 	namespacedName := types.NamespacedName{Namespace: desiredService.Namespace, Name: desiredService.Name}
 	existingService, err := getUpdateCreator.GetService(ctx, namespacedName)
 
@@ -126,6 +136,9 @@ func CreateOrUpdateService(ctx context.Context, getUpdateCreator GetUpdateCreato
 		}
 	} else {
 		mergedService := Merge(existingService, desiredService)
+		if replaceSelector {
+			mergedService.Spec.Selector = maps.Clone(desiredService.Spec.Selector)
+		}
 		err = getUpdateCreator.UpdateService(ctx, mergedService)
 		if err != nil {
 			return err

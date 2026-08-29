@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Single source of truth for the kind docker network subnet and the
+# per-cluster MetalLB IP ranges.
+#
+# Defaults to kind's own 172.18.0.0/16 subnet. Override by setting
+# KIND_NETWORK_SUBNET in the environment (or context) before sourcing this file.
+#
+# Conventions (10-IP-wide slots within ${PREFIX}.255.0/24):
+#   .200-.209  kind-e2e-operator (and the single 'kind' cluster)
+#   .210-.219  kind-e2e-cluster-1
+#   .220-.229  kind-e2e-cluster-2
+#   .230-.239  kind-e2e-cluster-3
+#   .200-.250  single 'kind' cluster (uses the full lower half)
+#
+# Sourcing this file is idempotent.
+
+# Allow KIND_NETWORK_SUBNET to be set externally; default to kind's subnet.
+export KIND_NETWORK_SUBNET="${KIND_NETWORK_SUBNET:-172.18.0.0/16}"
+
+# Extract the leading two octets ("172.18" by default).
+KIND_NETWORK_PREFIX="$(printf '%s' "${KIND_NETWORK_SUBNET}" | awk -F'.' '{print $1"."$2}')"
+export KIND_NETWORK_PREFIX
+
+# Helper: IP within the metallb row at offset N.
+# kind_lb_ip <cluster_slot> <offset>
+#   cluster_slot ∈ {200,210,220,230}
+#   offset       ∈ {0..9}
+kind_lb_ip() {
+  local slot="$1" offset="$2"
+  printf '%s.255.%d' "${KIND_NETWORK_PREFIX}" "$((slot + offset))"
+}
+
+# Per-cluster metallb ranges as "<from>-<to>" strings (the format
+# setup_kind_cluster.sh -l expects).
+export KIND_METALLB_RANGE_OPERATOR="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 10)"
+export KIND_METALLB_RANGE_CLUSTER_1="$(kind_lb_ip 210 0)-$(kind_lb_ip 210 10)"
+export KIND_METALLB_RANGE_CLUSTER_2="$(kind_lb_ip 220 0)-$(kind_lb_ip 220 10)"
+export KIND_METALLB_RANGE_CLUSTER_3="$(kind_lb_ip 230 0)-$(kind_lb_ip 230 10)"
+# Single 'kind' cluster uses the full lower half (.200-.250).
+export KIND_METALLB_RANGE_SINGLE="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 50)"

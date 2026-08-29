@@ -119,6 +119,63 @@ func TestCreateOrUpdateService_NodePortsArePreservedWhenThereIsMoreThanOnePortDe
 	assert.Equal(t, port2.NodePort, changedService.Spec.Ports[1].NodePort)
 }
 
+func TestCreateOrUpdateService_SelectorStrategy(t *testing.T) {
+	tests := []struct {
+		name            string
+		replaceSelector bool
+		expected        map[string]string
+	}{
+		{
+			name:            "merge preserves existing selector keys",
+			replaceSelector: false,
+			expected:        map[string]string{"generated": "pod", "app": "envoy-proxy"},
+		},
+		{
+			name:            "replacement removes existing selector keys",
+			replaceSelector: true,
+			expected:        map[string]string{"app": "envoy-proxy"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient := newFakeServiceClient()
+			existing := corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+				Spec: corev1.ServiceSpec{
+					ClusterIP: "10.0.0.1",
+					Selector:  map[string]string{"generated": "pod"},
+					Ports:     []corev1.ServicePort{{Port: 27017, NodePort: 30017}},
+				},
+			}
+			require.NoError(t, CreateOrUpdateService(ctx, fakeClient, existing))
+
+			desired := corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},
+				Spec: corev1.ServiceSpec{
+					Selector: map[string]string{"app": "envoy-proxy"},
+					Ports:    []corev1.ServicePort{{Port: 27017}},
+				},
+			}
+			var err error
+			if tt.replaceSelector {
+				err = CreateOrUpdateServiceReplacingSelector(ctx, fakeClient, desired)
+			} else {
+				err = CreateOrUpdateService(ctx, fakeClient, desired)
+			}
+			require.NoError(t, err)
+
+			got, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "my-service", Namespace: "my-namespace"})
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, got.Spec.Selector)
+			assert.Equal(t, "10.0.0.1", got.Spec.ClusterIP)
+			require.Len(t, got.Spec.Ports, 1)
+			assert.Equal(t, int32(30017), got.Spec.Ports[0].NodePort)
+		})
+	}
+}
+
 func TestService_NodePortIsNotOverwrittenIfNoNodePortIsSpecified(t *testing.T) {
 	dst := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-service", Namespace: "my-namespace"},

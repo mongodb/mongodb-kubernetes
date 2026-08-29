@@ -233,10 +233,25 @@ type MongoDBMultiStatus struct {
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
+type RemoteDuplicatePodServiceConfiguration struct {
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	SpecWrapper *v1.ServiceSpecWrapper `json:"spec,omitempty"`
+
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role == \"\"",message="spec.role is not supported on MongoDBMultiCluster"
 type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
+
+	// RemoteDuplicatePodService configures per-mongod pod Services outside their owning cluster.
+	// The pod-Service FQDN stays unchanged; only remote duplicates replace the backend selector.
+	// Owning-cluster pod Services keep the generated mongod selector.
+	// +optional
+	RemoteDuplicatePodService *RemoteDuplicatePodServiceConfiguration `json:"remoteDuplicatePodService,omitempty"`
 
 	ClusterSpecList mdbv1.ClusterSpecList `json:"clusterSpecList,omitempty"`
 
