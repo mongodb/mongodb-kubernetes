@@ -1,6 +1,7 @@
 package mdb
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ import (
 func rsMigrationTestResource(ext []ExternalMember, dryRun bool) *MongoDB {
 	ann := map[string]string{}
 	if dryRun {
-		ann[util.MigrationDryRunAnnotation] = "true"
+		ann[util.MigrationDryRunAnnotation] = strconv.FormatBool(dryRun)
 	}
 	m := &MongoDB{
 		ObjectMeta: metav1.ObjectMeta{Annotations: ann},
@@ -193,7 +194,7 @@ func uniformSize(perShardMongods, configMongods, mongos int) *status.MongodbShar
 func shardedMigrationTestResource(ext []ExternalMember, dryRun bool) *MongoDB {
 	ann := map[string]string{}
 	if dryRun {
-		ann[util.MigrationDryRunAnnotation] = "true"
+		ann[util.MigrationDryRunAnnotation] = strconv.FormatBool(dryRun)
 	}
 	m := &MongoDB{
 		ObjectMeta: metav1.ObjectMeta{Annotations: ann},
