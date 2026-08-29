@@ -19,6 +19,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     _deploy_vm_statefulset_from_fixture,
     assert_migration_dry_run_annotation,
     assert_migration_tool_version_annotation,
+    cluster_connection_string_secret_name,
     generated_mongodb_doc,
 )
 from tests.vm_migration.vm_migration_dry_run import (
@@ -112,7 +113,8 @@ def apply_generated_mongodb_resource(
 
 
 def migration_connection_strings(mdb_migration: MongoDB) -> tuple[str, str]:
-    secret = KubernetesTester.read_secret(mdb_migration.namespace, f"{mdb_migration.name}-connection-string")
+    secret_name = cluster_connection_string_secret_name(mdb_migration)
+    secret = KubernetesTester.read_secret(mdb_migration.namespace, secret_name)
     return secret.get("connectionString.standard", ""), secret.get("connectionString.standardSrv", "")
 
 
@@ -129,7 +131,7 @@ def connection_string_tester(
     try_load(mdb_migration)
     conn_str, _ = migration_connection_strings(mdb_migration)
     assert conn_str, (
-        f"connection-string secret {mdb_migration.name}-connection-string has no "
+        f"connection-string secret {cluster_connection_string_secret_name(mdb_migration)} has no "
         f"'connectionString.standard' value yet"
     )
     return MongoTester(conn_str, use_ssl, ca_path)
