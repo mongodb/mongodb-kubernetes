@@ -12,6 +12,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
