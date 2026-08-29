@@ -444,8 +444,10 @@ def wait_for_automation_config_quiescence(
     Waiting for the version to hold steady turns that race into a deterministic precondition.
     """
     deadline = time.time() + timeout
-    last_version = None
-    stable_since = None
+    # A missing "version" key reads as None, so seed with a sentinel no config can equal —
+    # otherwise the first poll would look stable before anything had been observed.
+    last_version = object()
+    stable_since = time.time()
     while True:
         ac = om_tester.api_get_automation_config()
         version = ac.get("version")
