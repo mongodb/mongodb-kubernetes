@@ -911,7 +911,7 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 		for _, r := range omv1.AppDBUserRoles {
 			omUser.AddRole(&om.Role{Role: r.Name, Database: r.Database})
 		}
-		if err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
+		if _, err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
 			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
 		}
 		ac.Auth.EnsureUser(omUser)
