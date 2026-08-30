@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
-	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
