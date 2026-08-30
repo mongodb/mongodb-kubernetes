@@ -63,11 +63,11 @@ type GenerateOptions struct {
 }
 
 // GenerateMongoDBCR generates a MongoDB CR for the given topology.
-func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
+func GenerateMongoDBCR(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, error) {
 	isSharded := len(ac.Deployment.GetShardedClusters()) > 0
 
 	if isSharded {
-		return nil, "", fmt.Errorf("sharded cluster migration is not yet supported")
+		return nil, fmt.Errorf("sharded cluster migration is not yet supported")
 	}
 	return generateReplicaSet(ac, opts)
 }

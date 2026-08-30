@@ -13,10 +13,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, string, error) {
+func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.Object, error) {
 	replicaSets := ac.Deployment.GetReplicaSets()
 	if len(replicaSets) == 0 {
-		return nil, "", fmt.Errorf("no replica sets found in the automation config")
+		return nil, fmt.Errorf("no replica sets found in the automation config")
 	}
 	rs := replicaSets[0]
 
@@ -27,26 +27,26 @@ func generateReplicaSet(ac *om.AutomationConfig, opts GenerateOptions) (client.O
 	if resourceName == "" {
 		resourceName = util.NormalizeName(rsName)
 		if resourceName == "" {
-			return nil, "", fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name. Use --resource-name-override to provide one", rsName)
+			return nil, fmt.Errorf("replica set name %q cannot be normalized to a valid Kubernetes resource name. Use --resource-name-override to provide one", rsName)
 		}
 	}
 	if errs := k8svalidation.IsDNS1123Subdomain(resourceName); len(errs) > 0 {
-		return nil, "", fmt.Errorf("resource name %q is not a valid Kubernetes resource name: %s", resourceName, errs[0])
+		return nil, fmt.Errorf("resource name %q is not a valid Kubernetes resource name: %s", resourceName, errs[0])
 	}
 
 	return generateReplicaSetSingleCluster(ac, opts, rsName, resourceName, version, fcv, externalMembers)
 }
 
-func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptions, rsName, resourceName, version, fcv string, externalMembers []mdbv1.ExternalMember) (client.Object, string, error) {
+func generateReplicaSetSingleCluster(ac *om.AutomationConfig, opts GenerateOptions, rsName, resourceName, version, fcv string, externalMembers []mdbv1.ExternalMember) (client.Object, error) {
 	spec, err := buildReplicaSetSpec(ac, opts, version, fcv, externalMembers, rsName, resourceName)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to build MongoDB spec: %w", err)
+		return nil, fmt.Errorf("failed to build MongoDB spec: %w", err)
 	}
 	return &mdbv1.MongoDB{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "mongodb.com/v1", Kind: "MongoDB"},
 		ObjectMeta: buildCRObjectMeta(resourceName, opts.Namespace),
 		Spec:       spec,
-	}, resourceName, nil
+	}, nil
 }
 
 // buildReplicaSetDbCommonSpec constructs the DbCommonSpec for a replica set deployment,

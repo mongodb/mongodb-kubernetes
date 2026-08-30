@@ -50,7 +50,7 @@ func TestGenerateMongoDBCR_CustomResourceName(t *testing.T) {
 		CertsSecretPrefix:     "mdb",
 	})
 
-	obj, _, err := GenerateMongoDBCR(ac, opts)
+	obj, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
 	yamlOutput, err := marshalCRToYAML(obj)
 	require.NoError(t, err)
@@ -88,9 +88,9 @@ func TestGenerateMongoDBCR_AutoNormalizesRSName(t *testing.T) {
 		ConfigMapName:         "my-om-config",
 	})
 
-	obj, resourceName, err := GenerateMongoDBCR(ac, opts)
+	obj, err := GenerateMongoDBCR(ac, opts)
 	require.NoError(t, err)
-	assert.Equal(t, "my-replicaset", resourceName)
+	assert.Equal(t, "my-replicaset", obj.GetName())
 	yamlOutput, err := marshalCRToYAML(obj)
 	require.NoError(t, err)
 	assert.Contains(t, yamlOutput, "name: my-replicaset")
@@ -109,7 +109,7 @@ func TestGenerateMongoDBCR_NoReplicaSet(t *testing.T) {
 		ConfigMapName:         "my-om-config",
 	}
 
-	_, _, err := GenerateMongoDBCR(ac, opts)
+	_, err := GenerateMongoDBCR(ac, opts)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no replica sets found")
 }

@@ -113,7 +113,7 @@ func runGenerateMongodb(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	mongodbCR, _, err := GenerateMongoDBCR(ac, opts)
+	mongodbCR, err := GenerateMongoDBCR(ac, opts)
 	if err != nil {
 		return err
 	}
