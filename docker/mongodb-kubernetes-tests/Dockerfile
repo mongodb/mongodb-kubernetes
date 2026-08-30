@@ -99,8 +99,4 @@ COPY release.json /tests/release.json
 # we use the public directory to automatically test resources samples
 COPY public /mongodb-kubernetes/public
 
-RUN if [ -f "/tests/multi-cluster-kube-config-creator_${TARGETARCH}" ]; then \
-    install -m 755 "/tests/multi-cluster-kube-config-creator_${TARGETARCH}" /usr/local/bin/multi-cluster-kube-config-creator; \
-    fi
-
 ADD "docker/mongodb-kubernetes-tests/kubectl-mongodb_${TARGETARCH}" /usr/local/bin/kubectl-mongodb
