@@ -44,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
