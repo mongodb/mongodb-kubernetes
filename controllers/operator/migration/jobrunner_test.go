@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -20,6 +21,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/mongodb/mongodb-kubernetes/pkg/migration"
 )
+
+// testLog discards output; these tests assert on the returned workflow.Status, not on logs.
+var testLog = zap.NewNop().Sugar()
 
 const (
 	namespace = "test-ns"
@@ -58,7 +62,7 @@ func TestRunConnectivityJob_StateMachine_NoJobCreatesAndReturnsRunning(t *testin
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	template := testTemplate()
 
-	result := RunConnectivityJob(ctx, kubeClient, template)
+	result := RunConnectivityJob(ctx, kubeClient, template, testLog)
 
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, result.Phase, "phase: Running when job was just created")
@@ -84,7 +88,7 @@ func TestRunConnectivityJob_StateMachine_JobRunningReturnsRunning(t *testing.T) 
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(job).Build()
 	template := testTemplate()
 
-	result := RunConnectivityJob(ctx, kubeClient, template)
+	result := RunConnectivityJob(ctx, kubeClient, template, testLog)
 
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, result.Phase)
@@ -107,7 +111,7 @@ func TestRunConnectivityJob_StateMachine_JobSucceededReturnsPassed(t *testing.T)
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(job).Build()
 	template := testTemplate()
 
-	result := RunConnectivityJob(ctx, kubeClient, template)
+	result := RunConnectivityJob(ctx, kubeClient, template, testLog)
 
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Phase)
@@ -147,7 +151,7 @@ func TestRunConnectivityJob_StateMachine_JobFailedRecentReturnsFailedNoReplace(t
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(job, pod).Build()
 	template := testTemplate()
 
-	result := RunConnectivityJob(ctx, kubeClient, template)
+	result := RunConnectivityJob(ctx, kubeClient, template, testLog)
 
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Phase)
@@ -170,14 +174,14 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles(t *testing.T) {
 	template := testTemplate()
 
 	// Reconcile 1: No job → create → Running, Condition Unknown
-	r1 := RunConnectivityJob(ctx, kubeClient, template)
+	r1 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r1.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r1.Phase, "reconcile 1: Running after create")
 	c1 := conditionFromResult(r1).(mdbstatus.MigrationConditionOption).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c1.Status)
 
 	// Reconcile 2: Job still active (no status update in fake) → still Running
-	r2 := RunConnectivityJob(ctx, kubeClient, template)
+	r2 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r2.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r2.Phase, "reconcile 2: Running while job active")
 	c2 := conditionFromResult(r2).(mdbstatus.MigrationConditionOption).Condition
@@ -199,7 +203,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles(t *testing.T) {
 	require.NoError(t, kubeClient.Status().Update(ctx, freshSucceeded))
 
 	// Reconcile 3: Job succeeded → Passed, Condition True
-	r3 := RunConnectivityJob(ctx, kubeClient, template)
+	r3 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r3.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckPassed, r3.Phase, "reconcile 3: Passed after job succeeds")
 	c3 := conditionFromResult(r3).(mdbstatus.MigrationConditionOption).Condition
@@ -216,7 +220,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	now := time.Now()
 
 	// Reconcile 1: No job → create → Running, Condition Unknown
-	r1 := RunConnectivityJob(ctx, kubeClient, template)
+	r1 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r1.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r1.Phase, "reconcile 1: Running after create")
 	c1 := conditionFromResult(r1).(mdbstatus.MigrationConditionOption).Condition
@@ -248,7 +252,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	require.NoError(t, kubeClient.Create(ctx, pod))
 
 	// Reconcile 2: Job failed (recent) → Failed, Condition False, no replace
-	r2 := RunConnectivityJob(ctx, kubeClient, template)
+	r2 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r2.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, r2.Phase, "reconcile 2: Failed when job failed recently")
 	c2 := conditionFromResult(r2).(mdbstatus.MigrationConditionOption).Condition
@@ -261,14 +265,14 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	require.NoError(t, kubeClient.Delete(ctx, pod))
 
 	// Reconcile 3: No job (TTL deleted it) → create new job → Running, Condition Unknown
-	r3 := RunConnectivityJob(ctx, kubeClient, template)
+	r3 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r3.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r3.Phase, "reconcile 3: Running after TTL deleted job")
 	c3 := conditionFromResult(r3).(mdbstatus.MigrationConditionOption).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c3.Status)
 
 	// Reconcile 4: New job still active → Running
-	r4 := RunConnectivityJob(ctx, kubeClient, template)
+	r4 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r4.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r4.Phase, "reconcile 4: Running while new job active")
 	c4 := conditionFromResult(r4).(mdbstatus.MigrationConditionOption).Condition
@@ -281,7 +285,7 @@ func TestRunConnectivityJob_StateMachine_GetJobFailsReturnsFailed(t *testing.T) 
 	realClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	template := testTemplate()
 	wrapper := &getFailingClient{Client: realClient}
-	result := RunConnectivityJob(ctx, wrapper, template)
+	result := RunConnectivityJob(ctx, wrapper, template, testLog)
 
 	assert.Error(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Phase)

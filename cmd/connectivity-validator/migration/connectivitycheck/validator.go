@@ -49,8 +49,7 @@ type Config struct {
 }
 
 // Validate runs the full connectivity check and returns an exit code.
-func Validate(ctx context.Context, cfg Config) int {
-	log := zap.S()
+func Validate(ctx context.Context, cfg Config, log *zap.SugaredLogger) int {
 	log.Debugw("Connectivity validation started",
 		"authMechanism", cfg.AuthMechanism,
 		"connectionString", cfg.ConnectionString,
@@ -62,9 +61,9 @@ func Validate(ctx context.Context, cfg Config) int {
 		"mongodTLSCAPath", cfg.MongodTLSCAPath,
 	)
 
-	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString)
+	clientOpts, err := buildClientOptions(cfg, cfg.ConnectionString, log)
 	if err != nil {
-		code := classifyError(err)
+		code := classifyError(err, log)
 		log.Warnw("Failed to build client options", "error", err, "exitCode", code, "exitCodeName", exitcode.Name(code))
 		return code
 	}
@@ -72,7 +71,7 @@ func Validate(ctx context.Context, cfg Config) int {
 
 	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
-		code := classifyError(err)
+		code := classifyError(err, log)
 		log.Warnw("Failed to connect to MongoDB", "error", err, "exitCode", code, "exitCodeName", exitcode.Name(code))
 		return code
 	}
@@ -85,7 +84,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	log.Debugw("Connected to MongoDB")
 
 	if err := client.Ping(ctx, nil); err != nil {
-		code := classifyError(err)
+		code := classifyError(err, log)
 		log.Warnw("MongoDB ping failed", "error", err, "exitCode", code, "exitCodeName", exitcode.Name(code))
 		return code
 	}
@@ -93,7 +92,7 @@ func Validate(ctx context.Context, cfg Config) int {
 
 	for i, member := range cfg.ExternalMembers {
 		log.Debugw("Pinging external member", "member", member, "index", i+1, "total", len(cfg.ExternalMembers))
-		if code := pingMemberDirect(ctx, member, cfg); code != exitcode.ExitSuccess {
+		if code := pingMemberDirect(ctx, member, cfg, log); code != exitcode.ExitSuccess {
 			log.Warnw("External member ping failed", "member", member, "exitCode", code, "exitCodeName", exitcode.Name(code))
 			return code
 		}
@@ -104,8 +103,7 @@ func Validate(ctx context.Context, cfg Config) int {
 	return exitcode.ExitSuccess
 }
 
-func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) {
-	log := zap.S()
+func buildClientOptions(cfg Config, uri string, log *zap.SugaredLogger) (*options.ClientOptions, error) {
 	opts := options.Client().ApplyURI(uri)
 
 	switch cfg.AuthMechanism {
@@ -114,7 +112,7 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 		if _, statErr := os.Stat(cfg.CertPath); statErr != nil {
 			return nil, fmt.Errorf("stat X.509 cert: %w", statErr)
 		}
-		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath)
+		tlsCfg, err := buildTLSConfig(cfg.CertPath, cfg.CAPath, log)
 		if err != nil {
 			return nil, err
 		}
@@ -137,10 +135,10 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 		if cfg.CertPath != "" {
 			if _, statErr := os.Stat(cfg.CertPath); statErr == nil {
 				log.Debugw("Configuring TLS transport with client cert", "caPath", cfg.MongodTLSCAPath, "certPath", cfg.CertPath)
-				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath)
+				tlsCfg, err = buildTLSConfig(cfg.CertPath, cfg.MongodTLSCAPath, log)
 			} else if os.IsNotExist(statErr) && !cfg.ClientCertRequired {
 				log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
-				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+				tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath, log)
 			} else if os.IsNotExist(statErr) && cfg.ClientCertRequired {
 				return nil, fmt.Errorf("client certificate required but not found at %q", cfg.CertPath)
 			} else {
@@ -148,7 +146,7 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 			}
 		} else {
 			log.Debugw("Configuring TLS transport (CA only)", "caPath", cfg.MongodTLSCAPath)
-			tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath)
+			tlsCfg, err = buildTLSConfigFromCA(cfg.MongodTLSCAPath, log)
 		}
 		if err != nil {
 			return nil, err
@@ -158,8 +156,7 @@ func buildClientOptions(cfg Config, uri string) (*options.ClientOptions, error) 
 	return opts, nil
 }
 
-func buildTLSConfigFromCA(caPath string) (*tls.Config, error) {
-	log := zap.S()
+func buildTLSConfigFromCA(caPath string, log *zap.SugaredLogger) (*tls.Config, error) {
 	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		log.Warnw("Failed to read mongod CA file", "caPath", caPath, "error", err)
@@ -173,8 +170,7 @@ func buildTLSConfigFromCA(caPath string) (*tls.Config, error) {
 	return &tls.Config{RootCAs: caPool, MinVersion: tls.VersionTLS13}, nil
 }
 
-func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
-	log := zap.S()
+func buildTLSConfig(certPath, caPath string, log *zap.SugaredLogger) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certPath, certPath)
 	if err != nil {
 		log.Warnw("Failed to load client cert", "certPath", certPath, "error", err)
@@ -198,20 +194,19 @@ func buildTLSConfig(certPath, caPath string) (*tls.Config, error) {
 	}, nil
 }
 
-func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
-	log := zap.S()
+func pingMemberDirect(ctx context.Context, hostPort string, cfg Config, log *zap.SugaredLogger) int {
 	directURI := "mongodb://" + hostPort + "/?directConnection=true&serverSelectionTimeoutMS=5000"
 	log.Debugw("Pinging member directly", "hostPort", hostPort)
 
-	opts, err := buildClientOptions(cfg, directURI)
+	opts, err := buildClientOptions(cfg, directURI, log)
 	if err != nil {
-		code := classifyError(err)
+		code := classifyError(err, log)
 		log.Warnw("buildClientOptions failed for direct ping", "hostPort", hostPort, "error", err, "exitCode", code)
 		return code
 	}
 	client, err := mongo.Connect(ctx, opts)
 	if err != nil {
-		code := classifyError(err)
+		code := classifyError(err, log)
 		log.Warnw("Connect failed for direct ping", "hostPort", hostPort, "error", err, "exitCode", code)
 		return code
 	}
@@ -222,18 +217,17 @@ func pingMemberDirect(ctx context.Context, hostPort string, cfg Config) int {
 		}
 	}(client, ctx)
 	if err := client.Ping(ctx, nil); err != nil {
-		code := classifyError(err)
+		code := classifyError(err, log)
 		log.Warnw("Ping failed for direct connection", "hostPort", hostPort, "error", err, "exitCode", code)
 		return code
 	}
 	return exitcode.ExitSuccess
 }
 
-func classifyError(err error) int {
+func classifyError(err error, log *zap.SugaredLogger) int {
 	if err == nil {
 		return exitcode.ExitSuccess
 	}
-	log := zap.S()
 	// ServerSelectionError.Wrapped is just "server selection timeout" — the actual
 	// per-server cause lives in Desc.Servers[i].LastError.
 	var selErr topology.ServerSelectionError
@@ -241,7 +235,7 @@ func classifyError(err error) int {
 		log.Debugw("ServerSelectionError", "numServers", len(selErr.Desc.Servers))
 		for i, srv := range selErr.Desc.Servers {
 			if srv.LastError != nil {
-				code := classifyConnectionError(srv.LastError)
+				code := classifyConnectionError(srv.LastError, log)
 				log.Debugw("Server last error", "serverIndex", i, "addr", srv.Addr.String(), "error", srv.LastError, "classifiedCode", code)
 				if code != exitcode.ExitUnknown {
 					return code
@@ -250,17 +244,16 @@ func classifyError(err error) int {
 		}
 		return exitcode.ExitNetworkFailed
 	}
-	code := classifyConnectionError(err)
+	code := classifyConnectionError(err, log)
 	log.Debugw("Classified error", "error", err, "errorType", fmt.Sprintf("%T", err), "exitCode", code)
 	return code
 }
 
 // classifyConnectionError maps the error tree to an exit code.
-func classifyConnectionError(err error) int {
+func classifyConnectionError(err error, log *zap.SugaredLogger) int {
 	if err == nil {
 		return exitcode.ExitSuccess
 	}
-	log := zap.S()
 	// DNS implements net.Error; check DNS before net.Error.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {

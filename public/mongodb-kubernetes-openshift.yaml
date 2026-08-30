@@ -380,7 +380,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            # Must match the image actually running (OLM/certified installs: set to the same ref the catalog pulls, e.g. Red Hat registry).
+            # Migration dry-run job image.
+            # Optional: it can be resolved from the API server.
             - name: MDB_OPERATOR_IMAGE
               value: "quay.io/mongodb/mongodb-kubernetes:1.12.0"
             - name: WATCH_NAMESPACE

@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -49,7 +50,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
-	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -1359,20 +1359,16 @@ func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig
 	return workflow.OK(), nil
 }
 
-// runConnectivityJob builds, launches (or polls) a connectivity-validator Kubernetes Job from a
-// pre-built StatefulSet spec and returns the workflow.Status for the result.
-// No StatefulSets or Ops Manager config are modified.
-func (r *ReconcileCommonController) runConnectivityJob(
+// ensureAgentSubjectDN creates the agent PEM secret when X509 is in use and returns the
+// automation agent subject DN. Returns ("", workflow.OK()) for non-X509 deployments.
+// NOTE: this has a side effect - it creates the secret that ensureX509SecretAndCheckTLSType
+// would normally create, because the dry-run path skips that function.
+func (r *ReconcileCommonController) ensureAgentSubjectDN(
 	ctx context.Context,
 	mdb *mdbv1.MongoDB,
-	sts *appsv1.StatefulSet,
-	connectionString string,
-	allHostnames []string,
 	agentAuthMode string,
-	agentCertHash string,
-	operatorImage string,
 	log *zap.SugaredLogger,
-) workflow.Status {
+) (string, workflow.Status) {
 	subjectDN := ""
 	if sec := mdb.GetSecurity(); sec != nil && sec.GetAgentMechanism(agentAuthMode) == util.X509 {
 		agentCertSecretName := sec.AgentClientCertificateSecretName(mdb.Name)
@@ -1380,7 +1376,7 @@ func (r *ReconcileCommonController) runConnectivityJob(
 		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
 		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
 		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
-			return workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
+			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
 				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),
 				)))
@@ -1391,7 +1387,7 @@ func (r *ReconcileCommonController) runConnectivityJob(
 		}
 		userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, sel, log)
 		if err != nil {
-			return workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)).
+			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)).
 				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
 				)))
@@ -1399,9 +1395,13 @@ func (r *ReconcileCommonController) runConnectivityJob(
 		subjectDN = userOpts.AutomationSubject
 	}
 
-	job := pkgMigration.BuildJobFromStatefulSet(mdb, sts, operatorImage, connectionString, allHostnames, agentAuthMode, agentCertHash, subjectDN)
+	return subjectDN, workflow.OK()
+}
 
-	result := opMigration.RunConnectivityJob(ctx, r.client, job)
+// runConnectivityJob creates or polls the given Job and maps its outcome to a workflow.Status.
+// No StatefulSets or Ops Manager config are modified.
+func (r *ReconcileCommonController) runConnectivityJob(ctx context.Context, job *batchv1.Job, log *zap.SugaredLogger) workflow.Status {
+	result := opMigration.RunConnectivityJob(ctx, r.client, job, log)
 	if result.Err != nil {
 		return workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)).
 			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(

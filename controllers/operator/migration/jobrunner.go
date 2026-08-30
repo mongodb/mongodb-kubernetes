@@ -61,7 +61,7 @@ func resultErr(reason string, err error) ConnectivityJobResult {
 // - Job still running → Running.
 // - Job failed → return Failed with reason/message.
 // The Job template should set ttlSecondsAfterFinished so that Kubernetes deletes the Job and its Pods after completion; the next reconcile will then see no Job and create a new one for re-validation.
-func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template *batchv1.Job) ConnectivityJobResult {
+func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template *batchv1.Job, log *zap.SugaredLogger) ConnectivityJobResult {
 	key := client.ObjectKey{Namespace: template.Namespace, Name: template.Name}
 	var job batchv1.Job
 	if err := kubeClient.Get(ctx, key, &job); err != nil {
@@ -83,19 +83,19 @@ func RunConnectivityJob(ctx context.Context, kubeClient client.Client, template 
 		return resultRunning()
 	}
 
-	code, _ := jobPodOutcome(ctx, kubeClient, &job)
+	code, _ := jobPodOutcome(ctx, kubeClient, &job, log)
 	_, r, m := connectivityexit.NetworkConditionFromExitCode(code)
 	return resultFailed(r, m)
 }
 
 // jobPodOutcome lists the Job's pods once and returns the connectivity-validator container's exit code and finished time.
-func jobPodOutcome(ctx context.Context, kubeClient client.Client, job *batchv1.Job) (int32, time.Time) {
+func jobPodOutcome(ctx context.Context, kubeClient client.Client, job *batchv1.Job, log *zap.SugaredLogger) (int32, time.Time) {
 	var pods corev1.PodList
 	if err := kubeClient.List(ctx, &pods,
 		client.InNamespace(job.Namespace),
 		client.MatchingLabels{"job-name": job.Name},
 	); err != nil {
-		zap.S().Errorf("listing pods for job %s/%s: %v", job.Namespace, job.Name, err)
+		log.Errorf("listing pods for job %s/%s: %v", job.Namespace, job.Name, err)
 		return exitcode.ExitUnknown, time.Time{}
 	}
 	for i := range pods.Items {

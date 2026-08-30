@@ -58,6 +58,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -352,15 +353,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 		}
-		operatorImage := r.reconciler.imageUrls[util.OperatorImageEnv]
-		if operatorImage == "" {
-			return r.updateStatus(ctx,
-				workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)),
-				mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
-				)),
-			)
+		operatorImage, imgStatus := opMigration.ResolveOperatorImage(r.reconciler.imageUrls)
+		if !imgStatus.IsOK() {
+			return r.updateStatus(ctx, imgStatus, imgStatus.StatusOptions()...)
 		}
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
 	}
@@ -877,7 +872,14 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 	}
 	connectionString := fmt.Sprintf("mongodb://%s/?replicaSet=%s", strings.Join(hostnamePorts, ","), replicaSetName)
 
-	dryRunStatus := r.reconciler.runConnectivityJob(ctx, rs, &sts, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, operatorImage, log)
+	subjectDN, dnStatus := r.reconciler.ensureAgentSubjectDN(ctx, rs, deploymentOpts.currentAgentAuthMode, log)
+	if !dnStatus.IsOK() {
+		return r.updateStatus(ctx, dnStatus, dnStatus.StatusOptions()...)
+	}
+
+	job := pkgMigration.BuildJobFromStatefulSet(rs, &sts, operatorImage, connectionString, hostnamePorts, deploymentOpts.currentAgentAuthMode, deploymentOpts.agentCertHash, subjectDN)
+
+	dryRunStatus := r.reconciler.runConnectivityJob(ctx, job, log)
 	return r.updateStatus(ctx, dryRunStatus, dryRunStatus.StatusOptions()...)
 }
 

@@ -25,7 +25,6 @@ func main() {
 	)
 	logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
 	defer func() { _ = logger.Sync() }()
-	zap.ReplaceGlobals(logger) // validator package uses zap.S()
 	log := logger.Sugar()
 
 	members := strings.Fields(os.Getenv("EXTERNAL_MEMBERS"))
@@ -45,7 +44,7 @@ func main() {
 		os.Exit(exitcode.ExitUnknown)
 	}
 
-	exitCode := connectivitycheck.Validate(context.Background(), cfg)
+	exitCode := connectivitycheck.Validate(context.Background(), cfg, log)
 	log.Infow("Connectivity validation finished", "exitCode", exitCode, "exitCodeName", exitcode.Name(exitCode))
 	os.Exit(exitCode)
 }

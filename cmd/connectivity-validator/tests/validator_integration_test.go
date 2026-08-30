@@ -31,10 +31,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/migration/connectivitycheck"
 )
+
+// testLog discards output; the validator logs diagnostics but the tests assert on return values.
+var testLog = zap.NewNop().Sugar()
 
 const (
 	mongoImage                = "mongodb/mongodb-community-server:8.0-ubi8"
@@ -129,7 +133,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			ExternalMembers:  []string{addr},
 			AuthMechanism:    "SCRAM-SHA-256",
 		}
-		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg, testLog))
 	})
 
 	t.Run("OneUnreachable", func(t *testing.T) {
@@ -138,7 +142,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			ExternalMembers:  []string{addr, "localhost:27999"},
 			AuthMechanism:    "SCRAM-SHA-256",
 		}
-		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg, testLog))
 	})
 
 	t.Run("DNSFailed_ExternalMember", func(t *testing.T) {
@@ -147,7 +151,7 @@ func TestValidate_SingleMongod(t *testing.T) {
 			ExternalMembers:  []string{"nonexistent.invalid:27017"},
 			AuthMechanism:    "SCRAM-SHA-256",
 		}
-		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitNetworkFailed, connectivitycheck.Validate(ctx, cfg, testLog))
 	})
 }
 
@@ -166,7 +170,7 @@ func TestValidate_TLS(t *testing.T) {
 			AuthMechanism:    "SCRAM-SHA-256",
 			MongodTLSCAPath:  caPath,
 		}
-		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg, testLog))
 	})
 }
 
@@ -214,7 +218,7 @@ func TestValidate_X509Auth(t *testing.T) {
 			CAPath:        filepath.Join(certsDir, "ca.crt"),
 			CertPath:      filepath.Join(certsDir, "client.pem"),
 		}
-		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+		assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg, testLog))
 	})
 }
 
@@ -317,5 +321,5 @@ func TestValidate_TwoMembers_BothReachable(t *testing.T) {
 		ExternalMembers:  members,
 		AuthMechanism:    "SCRAM-SHA-256",
 	}
-	assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg))
+	assert.Equal(t, exitcode.ExitSuccess, connectivitycheck.Validate(ctx, cfg, testLog))
 }

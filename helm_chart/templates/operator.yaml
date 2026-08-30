@@ -90,7 +90,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            # Must match the image actually running (OLM/certified installs: set to the same ref the catalog pulls, e.g. Red Hat registry).
+            # Migration dry-run job image.
+            # Optional: it can be resolved from the API server.
             - name: MDB_OPERATOR_IMAGE
               value: "{{ $operatorImage }}"
     {{- $opentelemetry := default dict .Values.operator.opentelemetry }}

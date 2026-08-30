@@ -203,10 +203,12 @@ const (
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
 	// OperatorImageEnv is the MDB-prefixed env var for the full operator image reference (registry/name:tag or digest).
 	// The connectivity-validator binary is compiled into the same image, so migration dry-run Jobs use this ref.
-	OperatorImageEnv              = "MDB_OPERATOR_IMAGE"
-	ManagedSecurityContextEnv     = "MANAGED_SECURITY_CONTEXT"
-	CurrentNamespace              = "NAMESPACE"
-	OperatorNameEnv               = "OPERATOR_NAME"
+	OperatorImageEnv          = "MDB_OPERATOR_IMAGE"
+	ManagedSecurityContextEnv = "MANAGED_SECURITY_CONTEXT"
+	CurrentNamespace          = "NAMESPACE"
+	OperatorNameEnv           = "OPERATOR_NAME"
+	// OperatorPodNameEnv is injected via the Downward API and lets the operator read its own pod.
+	OperatorPodNameEnv            = "POD_NAME"
 	WatchNamespace                = "WATCH_NAMESPACE"
 	OpsManagerMonitorAppDB        = "OPS_MANAGER_MONITOR_APPDB"
 	MongodbCommunityAgentImageEnv = "MDB_COMMUNITY_AGENT_IMAGE"

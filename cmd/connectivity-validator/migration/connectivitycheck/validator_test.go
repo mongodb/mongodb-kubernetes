@@ -8,16 +8,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
+	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/cmd/connectivity-validator/exitcode"
 )
+
+// testLog discards output; the validator logs diagnostics but the tests assert on return values.
+var testLog = zap.NewNop().Sugar()
 
 // TestClassifyConnectionError_TLS verifies the x509 error paths without a running server.
 func TestClassifyConnectionError_TLS(t *testing.T) {
 	wrap := func(inner error) error { return topology.ConnectionError{Wrapped: inner} }
 
-	assert.Equal(t, exitcode.ExitNetworkFailed, classifyConnectionError(wrap(x509.UnknownAuthorityError{})))
-	assert.Equal(t, exitcode.ExitNetworkFailed, classifyConnectionError(wrap(x509.CertificateInvalidError{Reason: x509.Expired})))
+	assert.Equal(t, exitcode.ExitNetworkFailed, classifyConnectionError(wrap(x509.UnknownAuthorityError{}), testLog))
+	assert.Equal(t, exitcode.ExitNetworkFailed, classifyConnectionError(wrap(x509.CertificateInvalidError{Reason: x509.Expired}), testLog))
 }
 
 // TestBuildClientOptions_NoAuthWithMongodTLS ensures TLS is attempted even when no auth
@@ -31,7 +35,7 @@ func TestBuildClientOptions_NoAuthWithMongodTLS_SetsTLS(t *testing.T) {
 		AuthMechanism:   "",
 		MongodTLSCAPath: caFile,
 	}
-	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/")
+	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/", testLog)
 	assert.ErrorContains(t, err, "parsing mongod CA certificate")
 }
 
@@ -50,7 +54,7 @@ func TestBuildClientOptions_ClientCertRequired_MissingCert(t *testing.T) {
 		CertPath:           filepath.Join(t.TempDir(), "missing.pem"),
 		ClientCertRequired: true,
 	}
-	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/")
+	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/", testLog)
 	assert.ErrorContains(t, err, "client certificate required but not found")
 }
 
@@ -68,6 +72,6 @@ func TestBuildClientOptions_ClientCertOptional_MissingCert(t *testing.T) {
 		CertPath:           filepath.Join(t.TempDir(), "missing.pem"),
 		ClientCertRequired: false,
 	}
-	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/")
+	_, err = buildClientOptions(cfg, "mongodb://localhost:27017/", testLog)
 	assert.ErrorContains(t, err, "parsing mongod CA certificate")
 }

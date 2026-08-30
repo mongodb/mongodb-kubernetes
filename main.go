@@ -47,6 +47,7 @@ import (
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                       //nolint:depguard
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
@@ -222,6 +223,21 @@ func run() error {
 		return err
 	}
 	log.Info("Registering Components.")
+
+	// The migration dry-run Job runs the connectivity-validator binary from the operator image.
+	if imageUrls[util.OperatorImageEnv] == "" {
+		podClient, err := client.New(cfg, client.Options{})
+		if err != nil {
+			return err
+		}
+		operatorPodName := env.ReadOrDefault(util.OperatorPodNameEnv, "")
+		if image := opMigration.ImageFromOperatorPod(ctx, podClient, currentNamespace, operatorPodName, webhookSVCSelector); image != "" {
+			imageUrls[util.OperatorImageEnv] = image
+			log.Infof("Resolved operator image from pod %s/%s: %s", currentNamespace, operatorPodName, image)
+		} else {
+			log.Warnf("Could not resolve the operator image from pod %s/%s and %s is unset; migration dry-runs will fail until it is set", currentNamespace, operatorPodName, util.OperatorImageEnv)
+		}
+	}
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {

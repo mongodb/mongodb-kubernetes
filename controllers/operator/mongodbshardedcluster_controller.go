@@ -65,6 +65,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -946,13 +947,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 		}
-		operatorImage := r.imageUrls[util.OperatorImageEnv]
-		if operatorImage == "" {
-			return r.updateStatus(ctx, sc, workflow.Failed(fmt.Errorf("cannot run connectivity dry-run: operator image unknown (set %s or deploy operator from Helm chart)", util.OperatorImageEnv)).
-				WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
-					mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
-					"Set MDB_OPERATOR_IMAGE or deploy with the Helm chart so the operator image is available for the validation Job.",
-				))), log)
+		operatorImage, imgStatus := opMigration.ResolveOperatorImage(r.imageUrls)
+		if !imgStatus.IsOK() {
+			return r.updateStatus(ctx, sc, imgStatus, log)
 		}
 		currentAgentAuthMode, err := conn.GetAgentAuthMode()
 		if err != nil {
@@ -2697,8 +2694,14 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 		allHostnames = append(allHostnames, m.Hostname)
 	}
 
-	dryRunStatus := r.commonController.runConnectivityJob(ctx, sc, &sts, connectionString, allHostnames, opts.currentAgentAuthMode, opts.agentCertHash, operatorImage, log)
-	return dryRunStatus
+	subjectDN, dnStatus := r.commonController.ensureAgentSubjectDN(ctx, sc, opts.currentAgentAuthMode, log)
+	if !dnStatus.IsOK() {
+		return dnStatus
+	}
+
+	job := pkgMigration.BuildJobFromStatefulSet(sc, &sts, operatorImage, connectionString, allHostnames, opts.currentAgentAuthMode, opts.agentCertHash, subjectDN)
+
+	return r.commonController.runConnectivityJob(ctx, job, log)
 }
 
 func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resource *mdbv1.MongoDB, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
