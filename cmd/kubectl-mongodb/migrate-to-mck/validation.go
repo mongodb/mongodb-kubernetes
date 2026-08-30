@@ -451,7 +451,6 @@ func validateProcesses(d om.Deployment) []ValidationResult {
 	return results
 }
 
-// validateAuthSchemaVersion checks each mongod process has the expected authSchemaVersion.
 // validatePrometheus warns when Prometheus is enabled, since a pre-created Secret is required.
 func validatePrometheus(d om.Deployment) []ValidationResult {
 	prom := d.GetPrometheus()
@@ -464,6 +463,7 @@ func validatePrometheus(d om.Deployment) []ValidationResult {
 	}}
 }
 
+// validateAuthSchemaVersion checks each mongod process has the expected authSchemaVersion.
 func validateAuthSchemaVersion(d om.Deployment) []ValidationResult {
 	var results []ValidationResult
 	for _, proc := range d.GetProcesses() {
