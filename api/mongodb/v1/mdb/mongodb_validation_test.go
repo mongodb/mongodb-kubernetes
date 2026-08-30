@@ -1930,7 +1930,7 @@ func TestAtMostOneMigrationChangeAtATime_ShardMemberConfigCounted(t *testing.T) 
 	assert.Contains(t, result.Msg, "only one migration change type is allowed per update")
 }
 
-func TestGeneratedResourceUsedCorrectImportToolVersion(t *testing.T) {
+func TestImportToolVersionMatchesOperator(t *testing.T) {
 	// The validator compares the migrate-tool-version annotation against the operator's build version,
 	// so pin util.OperatorVersion for the duration of the test and restore it afterwards.
 	const operatorVersion = "1.42.0"
@@ -1970,7 +1970,7 @@ func TestGeneratedResourceUsedCorrectImportToolVersion(t *testing.T) {
 			rs := NewReplicaSetBuilder().Build()
 			rs.Annotations = tc.annotations
 
-			result := generatedResourceUsedCorrectImportToolVersion(rs)
+			result := importToolVersionMatchesOperator(rs)
 
 			if tc.expectError {
 				assert.Equal(t, v1.ErrorLevel, result.Level)

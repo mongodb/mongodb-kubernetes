@@ -173,8 +173,8 @@ func validateEmbeddedConfigServer(d om.Deployment) []ValidationResult {
 	return results
 }
 
-// validateNoStandalones rejects standalone mongod processes, i.e. mongods that are not part of any
-// replica set.
+// validateNoStandalones rejects the deployment if it has standalone mongod processes, i.e. mongods
+// that are not part of any replica set.
 func validateNoStandalones(d om.Deployment) []ValidationResult {
 	var standalones []string
 	for _, proc := range d.GetProcesses() {
