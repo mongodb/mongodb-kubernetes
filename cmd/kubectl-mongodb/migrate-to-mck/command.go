@@ -14,9 +14,9 @@ const defaultNamespace = "default"
 
 var MigrateCmd = &cobra.Command{
 	Use:   "migrate-to-mck",
-	Short: "Migrate MongoDB deployments to Kubernetes",
-	Long: `Generates Kubernetes Custom Resources from an Ops Manager/Cloud Manager automation
-config for migrating existing deployments to the operator.
+	Short: "Generate Kubernetes Custom Resources to migrate MongoDB deployments to the operator",
+	Long: `Generate Kubernetes Custom Resources from an Ops Manager/Cloud Manager automation
+config, for migrating existing non-Kubernetes deployments to operator-managed deployments.
 
 Use one of the subcommands to generate specific resource types:
   mongodb  Generate a MongoDB CR

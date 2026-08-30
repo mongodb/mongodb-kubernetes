@@ -329,7 +329,7 @@ func validateMemberPreservedFields(d om.Deployment) []ValidationResult {
 func validateProcessConfig(d om.Deployment, sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	var results []ValidationResult
 
-	results = append(results, validateProcessesAreValid(d)...)
+	results = append(results, validateProcesses(d)...)
 	results = append(results, validateAuthSchemaVersion(d)...)
 	results = append(results, validateTLS(sourceProcess)...)
 	results = append(results, validateProcessConfigDrift(sourceProcess, projectProcessConfigs)...)
@@ -338,8 +338,8 @@ func validateProcessConfig(d om.Deployment, sourceProcess *om.Process, projectPr
 	return results
 }
 
-// validateProcessesAreValid checks that all processes are mongod or mongos and not disabled.
-func validateProcessesAreValid(d om.Deployment) []ValidationResult {
+// validateProcesses checks that all processes are mongod or mongos and not disabled.
+func validateProcesses(d om.Deployment) []ValidationResult {
 	processes := d.GetProcesses()
 	if len(processes) == 0 {
 		return []ValidationResult{{
@@ -401,7 +401,7 @@ func validateTLS(proc *om.Process) []ValidationResult {
 	return nil
 }
 
-// validateProcessConfigDrift warns when the source process logRotate/auditLogRotate differs from project-level config.
+// validateProcessConfigDrift warns when the source process' logRotate/auditLogRotate differs from project-level config.
 func validateProcessConfigDrift(sourceProcess *om.Process, projectProcessConfigs *ProjectConfigs) []ValidationResult {
 	if projectProcessConfigs == nil {
 		return nil

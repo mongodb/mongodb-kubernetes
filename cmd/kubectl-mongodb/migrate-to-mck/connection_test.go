@@ -37,60 +37,55 @@ func mdbv1Credentials(pub, priv string) mdbv1.Credentials {
 	}
 }
 
-func TestResolveProjectReadOnly_Success(t *testing.T) {
+func TestResolveProjectReadOnly(t *testing.T) {
 	org := &om.Organization{ID: "org-1", Name: "my-org"}
 	proj := &om.Project{ID: "proj-1", Name: "my-project", OrgID: "org-1"}
-	mockConn := newMockConnection(map[*om.Organization][]*om.Project{
-		org: {proj},
-	})
 
-	origFactory := omConnectionFactory
-	defer func() { omConnectionFactory = origFactory }()
-	omConnectionFactory = func(_ *om.OMContext) om.Connection {
-		return mockConn
+	tests := map[string]struct {
+		orgsAndProjects map[*om.Organization][]*om.Project
+		orgID           string
+		projectName     string
+		expectedErr     string
+	}{
+		"project resolved": {
+			orgsAndProjects: map[*om.Organization][]*om.Project{org: {proj}},
+			orgID:           "org-1",
+			projectName:     "my-project",
+		},
+		"organization not found": {
+			orgsAndProjects: map[*om.Organization][]*om.Project{},
+			projectName:     "nonexistent",
+			expectedErr:     "organization not found",
+		},
+		"project not found in organization": {
+			orgsAndProjects: map[*om.Organization][]*om.Project{org: {}},
+			orgID:           "org-1",
+			projectName:     "missing-project",
+			expectedErr:     "not found in organization",
+		},
 	}
 
-	config := mdbv1ProjectConfig("http://localhost:8080", "org-1", "my-project")
-	creds := mdbv1Credentials("pub", "priv")
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			mockConn := newMockConnection(tc.orgsAndProjects)
 
-	conn, err := resolveProjectReadOnly(config, creds, testLogger())
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-}
+			origFactory := omConnectionFactory
+			t.Cleanup(func() { omConnectionFactory = origFactory })
+			omConnectionFactory = func(_ *om.OMContext) om.Connection { return mockConn }
 
-func TestResolveProjectReadOnly_OrgNotFound(t *testing.T) {
-	mockConn := newMockConnection(map[*om.Organization][]*om.Project{})
+			conn, err := resolveProjectReadOnly(
+				mdbv1ProjectConfig("http://localhost:8080", tc.orgID, tc.projectName),
+				mdbv1Credentials("pub", "priv"),
+				testLogger(),
+			)
 
-	origFactory := omConnectionFactory
-	defer func() { omConnectionFactory = origFactory }()
-	omConnectionFactory = func(_ *om.OMContext) om.Connection {
-		return mockConn
+			if tc.expectedErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErr)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, conn)
+		})
 	}
-
-	config := mdbv1ProjectConfig("http://localhost:8080", "", "nonexistent")
-	creds := mdbv1Credentials("pub", "priv")
-
-	_, err := resolveProjectReadOnly(config, creds, testLogger())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "organization not found")
-}
-
-func TestResolveProjectReadOnly_ProjectNotFound(t *testing.T) {
-	org := &om.Organization{ID: "org-1", Name: "my-org"}
-	mockConn := newMockConnection(map[*om.Organization][]*om.Project{
-		org: {},
-	})
-
-	origFactory := omConnectionFactory
-	defer func() { omConnectionFactory = origFactory }()
-	omConnectionFactory = func(_ *om.OMContext) om.Connection {
-		return mockConn
-	}
-
-	config := mdbv1ProjectConfig("http://localhost:8080", "org-1", "missing-project")
-	creds := mdbv1Credentials("pub", "priv")
-
-	_, err := resolveProjectReadOnly(config, creds, testLogger())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found in organization")
 }

@@ -28,17 +28,20 @@ type ProjectConfigs struct {
 
 var omConnectionFactory om.ConnectionFactory = om.NewOpsManagerConnection
 
-type configReader struct {
+// projectRefFromFlags is a flag-backed implementation of project.Reader. In the operator that interface is
+// satisfied by the CR itself; the plugin has no CR, so it points at the ConfigMap and Secret named on the
+// command line.
+type projectRefFromFlags struct {
 	metav1.ObjectMeta
 	configMapName, secretName, namespace string
 }
 
-var _ project.Reader = (*configReader)(nil)
+var _ project.Reader = (*projectRefFromFlags)(nil)
 
-func (r *configReader) GetProjectConfigMapName() string       { return r.configMapName }
-func (r *configReader) GetProjectConfigMapNamespace() string  { return r.namespace }
-func (r *configReader) GetCredentialsSecretName() string      { return r.secretName }
-func (r *configReader) GetCredentialsSecretNamespace() string { return r.namespace }
+func (r *projectRefFromFlags) GetProjectConfigMapName() string       { return r.configMapName }
+func (r *projectRefFromFlags) GetProjectConfigMapNamespace() string  { return r.namespace }
+func (r *projectRefFromFlags) GetCredentialsSecretName() string      { return r.secretName }
+func (r *projectRefFromFlags) GetCredentialsSecretNamespace() string { return r.namespace }
 
 func prepareConnection(ctx context.Context, namespace, configMapName, secretName string) (om.Connection, kubernetesClient.Client, error) {
 	kubeClient, err := newKubeClient()
@@ -47,7 +50,7 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 	}
 
 	log := zap.S()
-	reader := &configReader{configMapName: configMapName, secretName: secretName, namespace: namespace}
+	reader := &projectRefFromFlags{configMapName: configMapName, secretName: secretName, namespace: namespace}
 	secretClient := secrets.SecretClient{KubeClient: kubeClient}
 	config, credentials, err := project.ReadConfigAndCredentials(ctx, kubeClient, secretClient, reader, log)
 	if err != nil {
@@ -61,6 +64,11 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 	return conn, kubeClient, nil
 }
 
+// resolveProjectReadOnly is the read-only counterpart to project.ReadOrCreateProject: it looks up the
+// organization and project referenced by the connection ConfigMap and returns a connection configured for
+// that project, but never creates the organization or project if they are missing. The plugin only reads
+// from Ops Manager, so a missing project is an error rather than something to provision. The returned
+// connection is already bound to the project (ConfigureProject) and is ready for Read* calls.
 func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, error) {
 	omContext := om.OMContext{
 		GroupName:                  config.ProjectName,
