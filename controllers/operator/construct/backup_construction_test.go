@@ -84,3 +84,25 @@ func TestMultipleBackupDaemons(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 3, int(*sts.Spec.Replicas))
 }
+
+// TestBackupDaemonStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates asserts that the Ops Manager
+// resource labels reach the StatefulSet metadata but not the head DB volume claim template, which is
+// immutable and would wedge the StatefulSet on every label change (CLOUDP-208587).
+func TestBackupDaemonStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates(t *testing.T) {
+	ctx := context.Background()
+	client, _ := mock.NewDefaultFakeClient()
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  client,
+	}
+
+	opsManager := omv1.NewOpsManagerBuilderDefault().SetName("test-om").Build()
+	opsManager.Labels = map[string]string{"label1": "val1"}
+
+	sts, err := BackupDaemonStatefulSet(ctx, secretsClient, opsManager, multicluster.GetLegacyCentralMemberCluster(1, 0, client, secretsClient), zap.S())
+	assert.NoError(t, err)
+
+	assert.Equal(t, "val1", sts.Labels["label1"])
+	assert.Len(t, sts.Spec.VolumeClaimTemplates, 1)
+	assert.Empty(t, sts.Spec.VolumeClaimTemplates[0].Labels)
+}

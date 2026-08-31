@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/blang/semver"
@@ -64,6 +65,8 @@ type ReconcileCommonController struct {
 	secrets.SecretClient
 
 	resourceWatcher *watch.ResourceWatcher
+
+	customAgentURL string
 }
 
 func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
@@ -90,6 +93,8 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 			panic(xerrors.Errorf("unable to log in with vault client: %w", err))
 		}
 	}
+	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "") // nolint:forbidigo
+
 	return &ReconcileCommonController{
 		client: newClient,
 		SecretClient: secrets.SecretClient{
@@ -97,6 +102,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 			KubeClient:  newClient,
 		},
 		resourceWatcher: watch.NewResourceWatcher(),
+		customAgentURL:  customAgentURL,
 	}
 }
 
@@ -309,7 +315,6 @@ type WatcherResource interface {
 }
 
 // SetupCommonWatchers is the common shared method for all controller to watch the following resources:
-//   - OM related cm and secret
 //   - TLS related secrets, if enabled, this includes x509 internal authentication secrets
 //
 // Note: everything is watched under the same namespace as the objectKey
@@ -757,9 +762,16 @@ func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn 
 	return err
 }
 
-// getAgentVersion handles the common logic for error handling and instance initialisation
-// when retrieving the agent version from a controller
+// getAgentVersion resolves the agent version to use. When customAgentURL is set,
+// the version is extracted from the URL filename, overriding the Ops Manager API,
+// mapping file, and Cloud Manager paths.
 func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
+	// When a custom agent URL is set, derive the version from the URL filename.
+	// This overrides all other version resolution (Ops Manager API, mapping, Cloud Manager).
+	if r.customAgentURL != "" {
+		return agentVersionFromURL(r.customAgentURL), nil
+	}
+
 	m, err := agentVersionManagement.GetAgentVersionManager()
 	if err != nil || m == nil {
 		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
@@ -774,8 +786,29 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 	}
 }
 
+// agentVersionFromURL extracts the agent version from a custom agent tarball URL.
+// e.g. .../mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz → 108.0.26.9047-1
+func agentVersionFromURL(url string) string {
+	filename := url[strings.LastIndex(url, "/")+1:]
+	filename = strings.TrimSuffix(filename, ".tar.gz")
+	rest := strings.TrimPrefix(filename, "mongodb-mms-automation-agent-")
+	if idx := strings.LastIndex(rest, "."); idx > 0 {
+		return rest[:idx]
+	}
+	return rest
+}
+
 // deleteClusterResources removes all resources that are associated with the given resource owner in a given cluster.
 func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
+	errs := deleteOwnedClusterResources(ctx, client, clusterName, resourceOwner, log)
+
+	r.resourceWatcher.RemoveDependentWatchedResources(resourceOwner.ObjectKey())
+
+	return errs
+}
+
+// deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.
+func deleteOwnedClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
 	objectKey := resourceOwner.ObjectKey()
 
 	// cleanup resources in the namespace as the MongoDB with the corresponding label.
@@ -808,8 +841,6 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	} else {
 		log.Infof("Removed Secrets associated with %s in cluster %s", objectKey, clusterName)
 	}
-
-	r.resourceWatcher.RemoveDependentWatchedResources(objectKey)
 
 	return errs
 }
@@ -1003,7 +1034,15 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return false
 	}
 
+	if currentSts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		log.Debugf("Statefulset %s has the forward migration ready annotation set to true.", currentSts.Name)
+		return false
+	}
+
 	databaseContainer := container.GetByName(util.DatabaseContainerName, currentSts.Spec.Template.Spec.Containers)
+	if databaseContainer == nil {
+		return false
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 
 	if !mdb.Spec.Security.IsTLSEnabled() && wasTLSSecretMounted(ctx, getter, currentSts, mdb, log) {

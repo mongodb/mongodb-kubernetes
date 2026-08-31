@@ -3,7 +3,8 @@
 Each variant needs to be tagged with one or more tags referencing related build scenario:
  - pr_patch: for patches created by GitHub PRs
  - staging: for builds triggered when merging to master or release branch
- - release: for builds triggered on git tags
+ - deprecated-release: legacy release process (rebuilds/retests everything), triggered by "old-X.Y.Z" git tags. To be removed soon — see .evergreen-release.yml.
+ - release-publish: new release process (publish-only, no rebuild/retest), triggered by "new-X.Y.Z" git tags. See .evergreen-release-publish.yml.
 
 For variants that are **only** triggered manually (patch) or by PCT we should use "manual_patch" tag.
 Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
@@ -36,10 +37,20 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y
 evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
 ```
 
-### Release scenario:
+### Legacy release scenario (deprecated, to be removed soon):
+
+Rebuilds and retests every image before publishing. Triggered normally by pushing an "old-X.Y.Z" git tag; the command below runs the same variants via patch. See .evergreen-release.yml.
 
 ```shell
-evergreen patch -p mongodb-kubernetes -a release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
+evergreen patch -p mongodb-kubernetes -a deprecated-release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
+```
+
+### New release-publish scenario:
+
+Publishes already-promoted images straight to production — no rebuild, no retest. Triggered normally by pushing a "new-X.Y.Z" git tag; the command below runs the same variants via patch. See .evergreen-release-publish.yml.
+
+```shell
+evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
 
 ### Release-style preflight only (no image push, no Pyxis submit)
@@ -56,6 +67,32 @@ evergreen patch -p mongodb-kubernetes -a preflight_release_test \
 ```
 
 Adjust probe/hook params to match **`release.json`** if your project does not set them by default on patches. **`mongodb-enterprise-server`** preflight still enumerates Quay tags (same as release).
+
+### Custom agent URL
+
+Pass `mdb_custom_agent_url` to override the agent version in all e2e variants (static and non-static). The URL must point to a `.tar.gz` agent tarball; the version is extracted from the filename. No `release.json` changes are needed.
+
+```shell
+evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -u --path .evergreen.yml \
+  --param mdb_custom_agent_url=https://example.com/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz
+```
+
+## E2E Test Path Filtering on PRs
+
+Evergreen uses two levels of file-based filtering on PRs:
+
+- **Project-level `ignore:`** (top of `.evergreen.yml`): files that never trigger any build (e.g. `*.md`, `.github/**`, `changelog/**`). Add entries here for files that are purely non-functional.
+- **Variant-level `paths:`** (`production_code_paths` anchor in `.evergreen.yml`): controls which variants run. E2e variants use a denylist (`**` minus `ci/**` and the release config) so they skip CI-only changes but run for everything else.
+
+If your PR only touches ignored files, Evergreen sends a synthetic green status with no builds. If it touches non-ignored files that don't match the e2e `paths:`, static/lint variants still run but e2e is skipped.
+
+To trigger e2e manually on a PR:
+
+```shell
+evergreen patch -p mongodb-kubernetes -a pr_patch_e2e -d "Manual e2e run" -f -y -u
+```
+
+To add a new file type that should never trigger any build, add it to `ignore:` in `.evergreen.yml`. To make it skip e2e but still run lint/static, add a negation to `production_code_paths` instead.
 
 ## Manual Variant Aliases
 
@@ -88,3 +125,19 @@ evergreen patch --alias static
 
 - **om7**: Changes affecting Ops Manager 7.0 compatibility
 - **race**: Changes to concurrent code, goroutines, or shared state
+
+## Quarantined Tests
+
+E2e tests blocked on a known issue outside our control (e.g. an upstream regression) are
+tagged `quarantined` and set `patchable: false` in `.evergreen-tasks.yml`. This means they
+never run in PR or manual patches, but **do** run automatically on every master merge commit,
+so a known failure still correctly marks that commit as not releasable — quarantining never
+silently hides a failure from the release gate.
+
+List quarantined tests: `grep -B1 'tags:.*"quarantined"' .evergreen-tasks.yml` (or filter by
+tag `quarantined` in the Evergreen UI). Each test file has a comment linking the tracking
+ticket.
+
+Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
+check whether the upstream issue is fixed is to look at the task's result on master, or
+temporarily flip `patchable: true` in a throwaway branch.

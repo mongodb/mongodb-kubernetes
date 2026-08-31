@@ -16,9 +16,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
@@ -126,7 +128,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 			objects: []client.Object{
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB:    omv1.AppDBSpec{},
+						AppDB:    &omv1.AppDBSpec{},
 						Topology: "Single",
 					},
 					ObjectMeta: metav1.ObjectMeta{
@@ -202,7 +204,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB:    omv1.AppDBSpec{},
+						AppDB:    &omv1.AppDBSpec{},
 						Topology: "Single",
 					},
 					ObjectMeta: metav1.ObjectMeta{
@@ -215,7 +217,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB:    omv1.AppDBSpec{},
+						AppDB:    &omv1.AppDBSpec{},
 						Topology: "Single",
 					},
 					ObjectMeta: metav1.ObjectMeta{
@@ -375,7 +377,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ClusterSpecList: []mdbv1.ClusterSpecItem{
 								{
 									ClusterName: "cluster1",
@@ -700,7 +702,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{},
+						AppDB: &omv1.AppDBSpec{},
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						UID:  "5999bccb-d17d-4657-9ea6-ee9fa264d749",
@@ -709,7 +711,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.custom.domain"),
 							},
@@ -722,7 +724,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
 								ExternalDomain: ptr.To("some.custom.domain"),
 							},
@@ -770,7 +772,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 				},
 				&omv1.MongoDBOpsManager{
 					Spec: omv1.MongoDBOpsManagerSpec{
-						AppDB: omv1.AppDBSpec{
+						AppDB: &omv1.AppDBSpec{
 							ClusterSpecList: []mdbv1.ClusterSpecItem{
 								{
 									ClusterName: "cluster1",
@@ -940,6 +942,264 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": true,
 					"operatorID":               testOperatorUUID,
 					"type":                     "OpsManager",
+				},
+			},
+		},
+		"external appdb test": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
+							Backup: &mdbv1.Backup{
+								Mode: "enabled",
+							},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdb-backup-none-uid",
+						Name:      "om-ext-appdb-backup-none-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "om-ext-appdb-backup-none-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-backup-none-uid",
+						Name:      "om-ext-appdb-backup-none",
+						Namespace: "test-ns",
+					},
+				},
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
+							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+								ExternalDomain: ptr.To("some.custom.domain"),
+							},
+							Backup: &mdbv1.Backup{
+								Mode: "disabled",
+							},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdb-backup-uniform-uid",
+						Name:      "om-ext-appdb-backup-uniform-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "om-ext-appdb-backup-uniform-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-backup-uniform-uid",
+						Name:      "om-ext-appdb-backup-uniform",
+						Namespace: "test-ns",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
+							Backup: &mdbv1.Backup{
+								Mode: "enabled",
+							},
+						},
+						ClusterSpecList: []mdbv1.ClusterSpecItem{
+							{ClusterName: "cluster1", Members: 3},
+							{ClusterName: "cluster2", Members: 3},
+							{ClusterName: "cluster3", Members: 3},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdbm-clusters-uid",
+						Name:      "om-ext-appdb-mdbm-clusters-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "om-ext-appdb-mdbm-clusters-db",
+							Kind: "MongoDBMultiCluster",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-mdbm-clusters-uid",
+						Name:      "om-ext-appdb-mdbm-clusters",
+						Namespace: "test-ns",
+					},
+				},
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
+							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+								ExternalDomain: ptr.To("some.default.domain"),
+							},
+							Backup: &mdbv1.Backup{
+								Mode: "terminated",
+							},
+						},
+						ClusterSpecList: []mdbv1.ClusterSpecItem{
+							{ClusterName: "cluster1", Members: 3, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster1.domain")}},
+							{ClusterName: "cluster2", Members: 3, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster2.domain")}},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdbm-mixed-terminated-uid",
+						Name:      "om-ext-appdb-mdbm-mixed-terminated-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "om-ext-appdb-mdbm-mixed-terminated-db",
+							Kind: "MongoDBMultiCluster",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-mdbm-mixed-terminated-uid",
+						Name:      "om-ext-appdb-mdbm-mixed-terminated",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "non-existent-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-not-found-uid",
+						Name:      "om-ext-appdb-not-found",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "ext-appdb-mdb-backup-none-uid",
+					"role":                     "AppDB",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
+				},
+				{
+					"deploymentUID":            "ext-appdb-mdb-backup-uniform-uid",
+					"role":                     "AppDB",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainUniform,
+					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
+				},
+				{
+					"deploymentUID":            "ext-appdb-mdbm-clusters-uid",
+					"role":                     "AppDB",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(3),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-backup-none-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
+					"appDBBackupMode":          "enabled",
+					"externalDomains":          ExternalDomainNone,
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-backup-uniform-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
+					"appDBBackupMode":          "disabled",
+					"externalDomains":          ExternalDomainUniform,
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-mdbm-clusters-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDBMultiCluster",
+					"appDBBackupMode":          "enabled",
+					"externalDomains":          ExternalDomainNone,
+					"appDBClusters":            float64(3),
+				},
+				{
+					"deploymentUID":            "ext-appdb-mdbm-mixed-terminated-uid",
+					"role":                     "AppDB",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(2),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-mdbm-mixed-terminated-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDBMultiCluster",
+					"appDBBackupMode":          "terminated",
+					"externalDomains":          ExternalDomainMixed,
+					"appDBClusters":            float64(2),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-not-found-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
 				},
 			},
 		},
@@ -1171,47 +1431,77 @@ func (m *MockClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 	return m.MockGet(ctx, key, obj, opts...)
 }
 
-func TestAddCommunityEvents(t *testing.T) {
-	operatorUUID := "test-operator-uuid"
-
-	// Those 2 cases are when a customer uses Community reconciler to deploy enterprise or community MDB image
-	testCases := []struct {
-		name         string
-		mongodbImage string
-		isEnterprise bool
-	}{
-		{
-			name:         "With community image",
-			mongodbImage: "mongodb-community-server",
-			isEnterprise: false,
-		},
-		{
-			name:         "With enterprise image",
-			mongodbImage: "mongodb-enterprise-server",
-			isEnterprise: true,
+func communityItemWithMongodImage(uid, name, image string) mcov1.MongoDBCommunity {
+	item := mcov1.MongoDBCommunity{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:  types.UID(uid),
+			Name: name,
 		},
 	}
-
-	now := time.Now()
-
-	for _, tc := range testCases {
-		t.Run("With community resources", func(t *testing.T) {
-			communityList := &mcov1.MongoDBCommunityList{
-				Items: []mcov1.MongoDBCommunity{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("community-1"),
-							Name: "test-community-1",
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							UID:  types.UID("community-2"),
-							Name: "test-community-2",
+	if image != "" {
+		item.Spec.StatefulSetConfiguration = v1.StatefulSetConfiguration{
+			SpecWrapper: v1.StatefulSetSpecWrapper{
+				Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "mongod", Image: image},
+							},
 						},
 					},
 				},
-			}
+			},
+		}
+	}
+	return item
+}
+
+func TestAddCommunityEvents(t *testing.T) {
+	operatorUUID := "test-operator-uuid"
+	now := time.Now()
+
+	testCases := []struct {
+		name         string
+		items        []mcov1.MongoDBCommunity
+		isEnterprise []bool
+	}{
+		{
+			name: "No container image override defaults to community (not enterprise)",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", ""),
+				communityItemWithMongodImage("community-2", "test-community-2", ""),
+			},
+			isEnterprise: []bool{false, false},
+		},
+		{
+			name: "Explicit enterprise image override reports enterprise",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", "mongodb-enterprise-server:7.0"),
+				communityItemWithMongodImage("community-2", "test-community-2", "mongodb-enterprise-server:7.0"),
+			},
+			isEnterprise: []bool{true, true},
+		},
+		{
+			name: "Explicit community image override reports non-enterprise",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", "mongodb-community-server:7.0"),
+				communityItemWithMongodImage("community-2", "test-community-2", "mongodb-community-server:7.0"),
+			},
+			isEnterprise: []bool{false, false},
+		},
+		{
+			name: "Mixed: one enterprise override, one default",
+			items: []mcov1.MongoDBCommunity{
+				communityItemWithMongodImage("community-1", "test-community-1", "mongodb-enterprise-server:7.0"),
+				communityItemWithMongodImage("community-2", "test-community-2", ""),
+			},
+			isEnterprise: []bool{true, false},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			communityList := &mcov1.MongoDBCommunityList{Items: tc.items}
 
 			mc := &MockClient{
 				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
@@ -1222,49 +1512,43 @@ func TestAddCommunityEvents(t *testing.T) {
 				},
 			}
 
-			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
+			events := addCommunityEvents(context.Background(), mc, operatorUUID, now)
 
-			assert.Len(t, events, 2, "Should return 2 events for 2 community resources")
-
-			assert.Equal(t, now, events[0].Timestamp)
-			assert.Equal(t, Deployments, events[0].Source)
-			assert.Equal(t, "community-1", events[0].Properties["deploymentUID"])
-			assert.Equal(t, operatorUUID, events[0].Properties["operatorID"])
-			assert.Equal(t, false, events[0].Properties["isMultiCluster"])
-			assert.Equal(t, "Community", events[0].Properties["type"])
-			assert.Equal(t, tc.isEnterprise, events[0].Properties["IsRunningEnterpriseImage"])
-
-			assert.Equal(t, "community-2", events[1].Properties["deploymentUID"])
-			assert.Equal(t, tc.isEnterprise, events[1].Properties["IsRunningEnterpriseImage"])
-		})
-
-		t.Run("With list error", func(t *testing.T) {
-			mc := &MockClient{
-				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-					return errors.New("list error")
-				},
+			assert.Len(t, events, len(tc.items), "Should return one event per community resource")
+			for i, event := range events {
+				assert.Equal(t, now, event.Timestamp)
+				assert.Equal(t, Deployments, event.Source)
+				assert.Equal(t, string(tc.items[i].UID), event.Properties["deploymentUID"])
+				assert.Equal(t, operatorUUID, event.Properties["operatorID"])
+				assert.Equal(t, false, event.Properties["isMultiCluster"])
+				assert.Equal(t, "Community", event.Properties["type"])
+				assert.Equal(t, tc.isEnterprise[i], event.Properties["IsRunningEnterpriseImage"])
 			}
-
-			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
-
-			assert.Empty(t, events, "Should return empty slice on list error")
-		})
-
-		t.Run("With empty list", func(t *testing.T) {
-			mc := &MockClient{
-				MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-					if l, ok := list.(*mcov1.MongoDBCommunityList); ok {
-						*l = mcov1.MongoDBCommunityList{}
-					}
-					return nil
-				},
-			}
-
-			events := addCommunityEvents(context.Background(), mc, operatorUUID, tc.mongodbImage, now)
-
-			assert.Empty(t, events, "Should return empty slice for empty community list")
 		})
 	}
+
+	t.Run("With list error", func(t *testing.T) {
+		mc := &MockClient{
+			MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+				return errors.New("list error")
+			},
+		}
+		events := addCommunityEvents(context.Background(), mc, operatorUUID, now)
+		assert.Empty(t, events, "Should return empty slice on list error")
+	})
+
+	t.Run("With empty list", func(t *testing.T) {
+		mc := &MockClient{
+			MockList: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+				if l, ok := list.(*mcov1.MongoDBCommunityList); ok {
+					*l = mcov1.MongoDBCommunityList{}
+				}
+				return nil
+			},
+		}
+		events := addCommunityEvents(context.Background(), mc, operatorUUID, now)
+		assert.Empty(t, events, "Should return empty slice for empty community list")
+	})
 }
 
 func TestAddSearchEvents(t *testing.T) {

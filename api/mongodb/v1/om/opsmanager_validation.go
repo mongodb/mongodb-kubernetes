@@ -56,13 +56,8 @@ func validOmVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 
 func validAppDBVersion(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	version := os.AppDB.GetMongoDBVersion()
-	v, err := semver.Make(version)
-	if err != nil {
+	if _, err := semver.Make(version); err != nil {
 		return v1.OpsManagerResourceValidationError(fmt.Sprintf("'%s' is an invalid value for spec.applicationDatabase.version: %s", version, err), status.AppDb)
-	}
-	fourZero, _ := semver.Make("4.0.0")
-	if v.LT(fourZero) {
-		return v1.OpsManagerResourceValidationError("the version of Application Database must be >= 4.0", status.AppDb)
 	}
 
 	return v1.ValidationSuccess()
@@ -267,28 +262,49 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if len(os.AppDB.MonitoringAgent.StartupParameters) > 0 {
+		return v1.OpsManagerResourceValidationWarning("spec.appDB.monitoringAgent.startupOptions is deprecated and has no effect; the monitoring agent now runs inside the automation agent. Configure agent options, including log level and rotation, via spec.appDB.agent and remove spec.appDB.monitoringAgent from your configuration", status.AppDb)
+	}
+	return v1.ValidationSuccess()
+}
+
+func warnMonitoringAgentContainer(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if os.AppDB.PodSpec == nil || os.AppDB.PodSpec.PodTemplateWrapper.PodTemplate == nil {
+		return v1.ValidationSuccess()
+	}
+	for _, c := range os.AppDB.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers {
+		if c.Name == "mongodb-agent-monitoring" {
+			return v1.OpsManagerResourceValidationWarning("spec.appDB.podSpec.podTemplate contains a deprecated 'mongodb-agent-monitoring' container; it will be removed automatically — remove it from your configuration", status.AppDb)
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
 func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 	validators := []func(m MongoDBOpsManagerSpec) v1.ValidationResult{
 		validOmVersion,
-		validAppDBVersion,
-		connectivityIsNotConfigurable,
-		cloudManagerConfigIsNotConfigurable,
-		opsManagerConfigIsNotConfigurable,
-		credentialsIsNotConfigurable,
 		s3StoreMongodbUserSpecifiedNoMongoResource,
 		kmipValidation,
-		validateEmptyClusterSpecListSingleCluster,
 		validateTopologyIsSpecified,
 		validateClusterSpecList,
 		validateBackupS3Stores,
-		featureCompatibilityVersionValidation,
-		validateAppDBUniqueExternalDomains,
 	}
 
-	multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
-		mdb.ValidateUniqueClusterNames,
-		mdb.ValidateNonEmptyClusterSpecList,
-		mdb.ValidateMemberClusterIsSubsetOfKubeConfig,
+	// AppDB validators apply only to an internal AppDB
+	if om.IsInternalAppDB() && om.Spec.AppDB != nil {
+		validators = append(validators,
+			validAppDBVersion,
+			connectivityIsNotConfigurable,
+			cloudManagerConfigIsNotConfigurable,
+			opsManagerConfigIsNotConfigurable,
+			credentialsIsNotConfigurable,
+			validateEmptyClusterSpecListSingleCluster,
+			featureCompatibilityVersionValidation,
+			validateAppDBUniqueExternalDomains,
+			warnMonitoringAgentStartupParameters,
+			warnMonitoringAgentContainer,
+		)
 	}
 
 	var validationResults []v1.ValidationResult
@@ -300,8 +316,19 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		}
 	}
 
-	// Explicit tests for AppDB multi-cluster
-	if om.Spec.AppDB.IsMultiCluster() {
+	if !om.IsInternalAppDB() {
+		expectedName := om.Name + "-db"
+		if om.Spec.ExternalAppDBRef.Name != expectedName {
+			validationResults = append(validationResults, v1.OpsManagerResourceValidationError(fmt.Sprintf("spec.externalApplicationDatabaseRef.name must be %s", expectedName), status.OpsManager))
+		}
+	} else if om.Spec.AppDB != nil && om.Spec.AppDB.IsMultiCluster() {
+		// Explicit tests for AppDB multi-cluster
+		multiClusterAppDBSharedClusterValidators := []func(ms mdb.ClusterSpecList) v1.ValidationResult{
+			mdb.ValidateUniqueClusterNames,
+			mdb.ValidateNonEmptyClusterSpecList,
+			mdb.ValidateMemberClusterIsSubsetOfKubeConfig,
+		}
+
 		for _, validator := range multiClusterAppDBSharedClusterValidators {
 			res := validator(om.Spec.AppDB.ClusterSpecList)
 			if res.Level > 0 {

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.evergreen.notify_flaky_tests import FlakyTask, format_slack_message, get_honeycomb_headers
+from scripts.evergreen.notify_flaky_tests import FlakyTask, _honeycomb_headers, format_slack_message
 
 
 def make_flaky_task(
@@ -13,11 +13,7 @@ def make_flaky_task(
     flakiness_percent: float = 25.0,
 ) -> FlakyTask:
     """Create a FlakyTask for testing."""
-    return FlakyTask(
-        task_name=task_name,
-        variant=variant,
-        flakiness_percent=flakiness_percent,
-    )
+    return FlakyTask(task_name=task_name, variant=variant, flakiness_percent=flakiness_percent, total_runs=10)
 
 
 class TestFormatSlackMessage:
@@ -93,11 +89,11 @@ class TestGetHoneycombHeaders:
     def test_missing_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("HONEYCOMB_API_KEY", raising=False)
         with pytest.raises(RuntimeError, match="HONEYCOMB_API_KEY"):
-            get_honeycomb_headers()
+            _honeycomb_headers()
 
     def test_returns_headers_with_key(self, monkeypatch):
         monkeypatch.setenv("HONEYCOMB_API_KEY", "test-key")
-        headers = get_honeycomb_headers()
+        headers = _honeycomb_headers()
         assert headers["X-Honeycomb-Team"] == "test-key"
         assert headers["Content-Type"] == "application/json"
 

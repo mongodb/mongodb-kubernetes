@@ -4,6 +4,7 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
+source scripts/funcs/install
 
 # Path to the deploy script
 DEPLOY_SCRIPT_PATH="./deploy/kubernetes-latest/deploy.sh"
@@ -17,7 +18,7 @@ csi_driver_download() {
 
     # Download the tar.gz file
     echo "Downloading ${REPO_URL}..."
-    curl -L -o "${TAR_FILE}" "${REPO_URL}"
+    curl_with_retry -L -o "${TAR_FILE}" "${REPO_URL}"
 
     # Extract the tar.gz file
     echo "Extracting ${TAR_FILE}..."
@@ -34,16 +35,16 @@ csi_driver_deploy() {
     SNAPSHOTTER_BRANCH=release-6.3
 
     # Apply VolumeSnapshot CRDs
-    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
-    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
-    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
+    kubectl_apply_retry --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml
+    kubectl_apply_retry --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml
+    kubectl_apply_retry --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_BRANCH}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml
 
     # Change to the latest supported snapshotter version
     SNAPSHOTTER_VERSION=v6.3.3
 
     # Create snapshot controller
-    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
-    kubectl apply --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
+    kubectl_apply_retry --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml
+    kubectl_apply_retry --context "${context}" -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOTTER_VERSION}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
 
     # Run the deploy script with kubectl wrapped to force it to use specific context rather than rely on current context
     if ! run_script_with_wrapped_kubectl "${DEPLOY_SCRIPT_PATH}" "${context}"; then

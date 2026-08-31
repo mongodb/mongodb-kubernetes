@@ -203,6 +203,44 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "Labels: equal nil and empty",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: nil},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}},
+			},
+			want: true,
+		},
+		{
+			name: "Labels: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"label1": "val1"}},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"label1": "val2"}},
+			},
+			want: false,
+		},
+		{
+			name: "Labels: removed",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"label1": "val1"}},
+			},
+			desired: corev1.PersistentVolumeClaim{},
+			want:    false,
+		},
+		{
+			name: "Annotations: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"a": "1"}},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"a": "2"}},
+			},
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

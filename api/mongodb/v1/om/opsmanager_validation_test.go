@@ -243,13 +243,6 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'4.4.0_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.0_0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
-		"Too low AppDB version": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetAppDbVersion("3.6.12").
-				Build(),
-			expectedErrorMessage: "the version of Application Database must be >= 4.0",
-			expectedPart:         status.AppDb,
-		},
 		"Valid 4.0.0 OpsManager version": {
 			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
 			expectedPart: status.None,
@@ -262,10 +255,18 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").Build(),
 			expectedPart: status.None,
 		},
-		"Single cluster AppDB deployment should have empty clusterSpecList": {
+		"Topology error precedes AppDB clusterSpecList error when both apply": {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
 				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
 				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test"}}).
+				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{{ClusterName: "test"}}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList",
+		},
+		"Single cluster AppDB deployment should have empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).
 				SetAppDBClusterSpecList([]mdbv1.ClusterSpecItem{{ClusterName: "test"}}).
 				Build(),
 			expectedPart:         status.OpsManager,
@@ -392,6 +393,87 @@ func TestOpsManagerValidation(t *testing.T) {
 	}
 }
 
+func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
+	type args struct {
+		testedOm             *MongoDBOpsManager
+		expectedPart         status.Part
+		expectedErrorMessage string
+	}
+
+	tests := map[string]args{
+		"applicationDatabase only": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				Build(),
+		},
+		"externalApplicationDatabaseRef only": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDBToNil().
+				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"applicationDatabase and externalApplicationDatabaseRef both set": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"externalApplicationDatabaseRef mismatching name": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDBToNil().
+				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-other", Kind: "MongoDB"}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "spec.externalApplicationDatabaseRef.name must be om-test-db",
+		},
+		"externalApplicationDatabaseRef set, invalid AppDB version ignored": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDbVersion("not-a-version").
+				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"externalApplicationDatabaseRef set, multi-cluster AppDB clusterSpecList ignored": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+					{ClusterName: "dup", Members: 1},
+					{ClusterName: "dup", Members: 1},
+				}).
+				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+		},
+		"externalApplicationDatabaseRef set and OM-level validators still run": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetName("om-test").
+				SetVersion("4.4").
+				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "'4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4 is invalid",
+		},
+	}
+
+	for testName := range tests {
+		t.Run(testName, func(t *testing.T) {
+			testConfig := tests[testName]
+			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
+
+			if testConfig.expectedErrorMessage != "" {
+				assert.NotNil(t, err)
+				assert.Equal(t, testConfig.expectedPart, part)
+				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, status.None, part)
+			}
+		})
+	}
+}
+
 func TestOpsManager_RunValidations_InvalidPreRelease(t *testing.T) {
 	om := NewOpsManagerBuilder().SetVersion("3.5.0-1193-x86_64").SetAppDbVersion("4.4.4-ent").Build()
 	version, err := versionutil.StringToSemverVersion(om.Spec.Version)
@@ -403,4 +485,33 @@ func TestOpsManager_RunValidations_InvalidPreRelease(t *testing.T) {
 	assert.Equal(t, uint64(3), version.Major)
 	assert.Equal(t, uint64(5), version.Minor)
 	assert.Equal(t, uint64(0), version.Patch)
+}
+
+func TestWarnMonitoringAgentStartupParameters(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().Build()
+	om.Spec.AppDB.MonitoringAgent.StartupParameters = mdbv1.StartupParameters{"key": "value"}
+
+	results := om.RunValidations()
+
+	warnings := warningsFromResults(results)
+	assert.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "startupOptions is deprecated")
+}
+
+func TestWarnMonitoringAgentStartupParameters_NoWarnWhenEmpty(t *testing.T) {
+	om := NewOpsManagerBuilderDefault().Build()
+
+	results := om.RunValidations()
+
+	assert.Empty(t, warningsFromResults(results))
+}
+
+func warningsFromResults(results []v1.ValidationResult) []string {
+	var warnings []string
+	for _, r := range results {
+		if r.Level == v1.WarningLevel {
+			warnings = append(warnings, r.Msg)
+		}
+	}
+	return warnings
 }

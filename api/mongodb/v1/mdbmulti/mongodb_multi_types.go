@@ -229,6 +229,7 @@ type MongoDBMultiStatus struct {
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role == \"\"",message="spec.role is not supported on MongoDBMultiCluster"
 type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
@@ -632,10 +633,11 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 //
 // Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
 // to complete.
-func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
+		domain := m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), domain)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).
@@ -653,7 +655,8 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, s
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetHostnames(hostnames).
 		SetScheme(scheme).
-		SetConnectionParams(connectionParams)
+		SetConnectionParams(connectionParams).
+		SetConnectionStringDatabase(connectionStringDatabase)
 
 	return builder.Build()
 }
@@ -685,4 +688,8 @@ func (m *MongoDBMultiCluster) IsInChangeVersion() bool {
 
 func (m *MongoDBMultiCluster) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
+}
+
+func (m *MongoDBMultiCluster) IsReconciliationDisabled() bool {
+	return m.Annotations[util.DisableReconciliationAnnotation] == "true"
 }

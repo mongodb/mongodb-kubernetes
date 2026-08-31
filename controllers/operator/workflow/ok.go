@@ -13,7 +13,6 @@ import (
 // okStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type okStatus struct {
 	commonStatus
-	requeue      bool
 	requeueAfter time.Duration
 }
 
@@ -37,11 +36,11 @@ func (o *okStatus) WithRetry(retryInSeconds int) *okStatus {
 }
 
 func (o *okStatus) ReconcileResult() (reconcile.Result, error) {
-	return reconcile.Result{Requeue: o.requeue, RequeueAfter: o.requeueAfter}, nil
+	return reconcile.Result{RequeueAfter: o.requeueAfter}, nil
 }
 
 func (o *okStatus) IsOK() bool {
-	return !o.requeue
+	return true
 }
 
 func (o *okStatus) Merge(other Status) Status {

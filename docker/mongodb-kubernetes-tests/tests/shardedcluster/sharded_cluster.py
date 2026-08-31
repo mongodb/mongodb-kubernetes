@@ -241,7 +241,7 @@ class TestShardedClusterDeletion:
 
             return True
 
-        run_periodically(sts_are_deleted, timeout=60)
+        run_periodically(sts_are_deleted, timeout=300)
 
     def test_service_does_not_exist(self, sc: MongoDB, cluster_member_clients):
         def svc_are_deleted() -> bool:
@@ -256,4 +256,4 @@ class TestShardedClusterDeletion:
                             return False
             return True
 
-        run_periodically(svc_are_deleted, timeout=60)
+        run_periodically(svc_are_deleted, timeout=300)

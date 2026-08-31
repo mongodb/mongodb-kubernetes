@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -60,6 +61,10 @@ const (
 	GrpcKeyPasswordMountPath = "/mongot/grpc-key-password"           // #nosec G101 -- path, not a password
 	TempGrpcKeyPasswordPath  = tempVolumePath + "/grpc-key-password" // #nosec G101 -- path, not a password
 
+	// maxDefaultHeapMB caps the default JVM heap at 30GB, matching Atlas Search sizing guidance:
+	// https://www.mongodb.com/docs/manual/tutorial/mongot-sizing/advanced-guidance/hardware/#jvm-heap-sizing
+	maxDefaultHeapMB = 30 * 1024
+
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
@@ -84,6 +89,17 @@ type SearchSourceShardedDeployment interface {
 	GetShardNames() []string
 	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostsAndPorts() []string
+}
+
+var errExternalDomainNotSupported = xerrors.New("MongoDB Search is not supported on operator-managed MongoDB resources with spec.externalAccess.externalDomain set")
+
+// validateSearchSourceExternalDomain rejects sources with externalDomain set: mongot connects
+// via the internal service DNS, which doesn't match the externally advertised member identities.
+func validateSearchSourceExternalDomain(spec *mdb.MongoDbSpec) error {
+	if spec.GetExternalDomain() != nil {
+		return errExternalDomainNotSupported
+	}
+	return nil
 }
 
 type TLSSourceConfig struct {
@@ -142,7 +158,6 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 		statefulset.WithNamespace(namespace),
 		statefulset.WithServiceName(svcName),
 		statefulset.WithLabels(labels),
-		statefulset.WithOwnerReference(mdbSearch.GetOwnerReferences()),
 		statefulset.WithMatchLabels(labels),
 		statefulset.WithReplicas(sizing.ReplicasOrDefault()),
 		statefulset.WithUpdateStrategyType(appsv1.RollingUpdateStatefulSetStrategyType),
@@ -159,6 +174,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 				// required). A clusters[].statefulSet affinity override replaces this term.
 				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
+				nodeAffinityModification(sizing.NodeAffinity),
 				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig)),
 			),
 		),
@@ -179,14 +195,25 @@ func withDataPVCRetentionPolicy() statefulset.Modification {
 	}
 }
 
+// nodeAffinityModification sets the mongot pod template's node affinity from the
+// resolved clusters[].nodeAffinity (with any shardOverrides[].nodeAffinity already
+// layered in).
+func nodeAffinityModification(nodeAffinity *corev1.NodeAffinity) podtemplatespec.Modification {
+	if nodeAffinity == nil {
+		return podtemplatespec.NOOP()
+	}
+	return podtemplatespec.WithNodeAffinity(nodeAffinity.DeepCopy())
+}
+
 // StatefulSetOverrideModification applies the resolved clusters[].statefulSet, with any
 // shardOverrides[].statefulSet already deep-merged in (see ResolveSizingForClusterShard).
-// It must run LAST in the modification chain, over the fully built StatefulSet: the override
+// It must run after the fully built StatefulSet: the override
 // merge sorts volumes by name, so merging mid-pipeline (before the password/TLS
 // volume modifications append) yields a different volume order on the create and
 // update paths — the first reconcile after STS creation then sees a spurious
 // template diff and rolls every mongot pod. Applying last also makes the user
-// override win over operator-set fields, as the CRD field documents.
+// override win over operator-set fields, as the CRD field documents. Only the
+// managed identity labels are applied afterward, without changing the merged spec.
 func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) statefulset.Modification {
 	if stsConfig == nil {
 		return statefulset.NOOP()
@@ -258,6 +285,10 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		memRequest := resourceRequirements.Requests.Memory()
 		halfBytes := memRequest.Value() / 2
 		halfMB := halfBytes / (1024 * 1024)
+		// The same document recommends staying under ~30GB so the JVM keeps compressed object pointers.
+		if halfMB > maxDefaultHeapMB {
+			halfMB = maxDefaultHeapMB
+		}
 		flags = append(flags, fmt.Sprintf("-Xmx%dm", halfMB))
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}

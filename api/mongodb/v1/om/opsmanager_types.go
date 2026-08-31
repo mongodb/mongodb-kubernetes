@@ -65,7 +65,7 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
 	if om.IsTLSEnabled() {
 		opsManagerCA := om.Spec.GetOpsManagerCA()
 		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
@@ -75,7 +75,7 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 		ca := cm.Data["mms-ca.crt"]
 		return mdbv1.ProjectConfig{
 			BaseURL:     om.CentralURL(),
-			ProjectName: om.Spec.AppDB.Name(),
+			ProjectName: om.AppDBName(),
 			SSLProjectConfig: env.SSLProjectConfig{
 				SSLRequireValidMMSServerCertificates: true,
 				SSLMMSCAConfigMap:                    opsManagerCA,
@@ -86,7 +86,7 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 
 	return mdbv1.ProjectConfig{
 		BaseURL:     om.CentralURL(),
-		ProjectName: om.Spec.AppDB.Name(),
+		ProjectName: om.AppDBName(),
 	}, nil
 }
 
@@ -98,6 +98,7 @@ type MongoDBOpsManagerList struct {
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)",message="at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set"
 type MongoDBOpsManagerSpec struct {
 	// The configuration properties passed to Ops Manager/Backup Daemon
 	// +optional
@@ -117,8 +118,19 @@ type MongoDBOpsManagerSpec struct {
 
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
-	AdminSecret string    `json:"adminCredentials,omitempty"`
-	AppDB       AppDBSpec `json:"applicationDatabase"`
+	AdminSecret string `json:"adminCredentials,omitempty"`
+
+	// AppDB configures the internally-managed Application Database. Required unless
+	// ExternalAppDBRef is set, in which case it may be omitted entirely.
+	// Ignored when ExternalAppDBRef is set.
+	// +optional
+	AppDB *AppDBSpec `json:"applicationDatabase,omitempty"`
+
+	// ExternalAppDBRef references a MongoDB resource
+	// to use as this Ops Manager's AppDB, instead of the internally-managed one.
+	// Takes precedence over AppDB when both are set.
+	// +optional
+	ExternalAppDBRef *ExternalAppDBRef `json:"externalApplicationDatabaseRef,omitempty"`
 
 	Logging *Logging `json:"logging,omitempty"`
 	// Custom JVM parameters passed to the Ops Manager JVM
@@ -161,6 +173,24 @@ type MongoDBOpsManagerSpec struct {
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+}
+
+// ExternalAppDBRef references an MongoDB resource
+// playing the AppDB role for this Ops Manager instance.
+type ExternalAppDBRef struct {
+	// Name of the MongoDB resource to use as the external AppDB.
+	// Must be in the same namespace as the MongoDBOpsManager resource, and named
+	// <MongoDBOpsManager name>-db.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Kind of the referenced resource.
+	// +kubebuilder:validation:Enum=MongoDB
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+
+	// Transient fields
+	Namespace string `json:"-"`
 }
 
 type Logging struct {
@@ -277,13 +307,6 @@ func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	if ms.Security != nil {
 		return ms.Security.TLS.CA
-	}
-	return ""
-}
-
-func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
-	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
-		return ms.AppDB.Security.TLSConfig.CA
 	}
 	return ""
 }
@@ -639,13 +662,20 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.Backup.Members = 1
 	}
 
-	om.Spec.AppDB.Security = ensureSecurityWithSCRAM(om.Spec.AppDB.Security)
+	if om.IsInternalAppDB() {
+		if om.Spec.AppDB == nil {
+			om.Spec.AppDB = &AppDBSpec{}
+		}
+		om.Spec.AppDB.Security = ensureSecurityWithSCRAM(om.Spec.AppDB.Security)
 
-	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
-	om.Spec.AppDB.OpsManagerName = om.Name
-	om.Spec.AppDB.Namespace = om.Namespace
-	om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
-	om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+		// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
+		om.Spec.AppDB.OpsManagerName = om.Name
+		om.Spec.AppDB.Namespace = om.Namespace
+		om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
+		om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+	} else {
+		om.Spec.ExternalAppDBRef.Namespace = om.Namespace
+	}
 }
 
 func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
@@ -657,6 +687,20 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 	return specSecurity
 }
 
+// AppDBName's AppDB branch is nil-safe only via the admission invariant that at least one of
+// applicationDatabase or externalApplicationDatabaseRef is set.
+func (om *MongoDBOpsManager) AppDBName() string {
+	if om.IsInternalAppDB() {
+		return om.Spec.AppDB.Name()
+	}
+
+	return om.Spec.ExternalAppDBRef.Name
+}
+
+func (om *MongoDBOpsManager) IsInternalAppDB() bool {
+	return om.Spec.ExternalAppDBRef == nil
+}
+
 func (om *MongoDBOpsManager) SvcName() string {
 	return om.Name + "-svc"
 }
@@ -666,7 +710,7 @@ func (om *MongoDBOpsManager) ExternalSvcName() string {
 }
 
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
-	return om.Spec.AppDB.Name() + "-connection-string"
+	return om.AppDBName() + "-connection-string"
 }
 
 func (om *MongoDBOpsManager) BackupDaemonServiceName() string {
@@ -729,6 +773,12 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	if !om.IsInternalAppDB() {
+		om.Status.AppDbStatus = AppDbStatus{}
+		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
+		return
+	}
+
 	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
@@ -1133,4 +1183,8 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	}
 	ownerReference := *metav1.NewControllerRef(&m.OpsManager, groupVersionKind)
 	return []metav1.OwnerReference{ownerReference}
+}
+
+func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
+	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
 }

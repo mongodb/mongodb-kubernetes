@@ -2,6 +2,7 @@
 
 """This atomic_pipeline script knows about the details of our Docker images
 and where to fetch and calculate parameters."""
+
 import datetime
 import json
 import os
@@ -17,7 +18,7 @@ from lib.base_logger import logger
 from scripts.release.agent.agents_to_rebuild import get_all_agents_for_rebuild, get_currently_used_agents
 from scripts.release.agent.validation import generate_agent_build_args, generate_tools_build_args
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-from scripts.release.build.image_signing import mongodb_artifactory_login, sign_image, verify_signature
+from scripts.release.build.image_signing import docker_login_to_ecr, sign_image, verify_signature
 
 TRACER = trace.get_tracer("evergreen-agent")
 
@@ -64,7 +65,7 @@ def build_image(
     for registry in registries:
         arch_suffix = ""
         if build_configuration.architecture_suffix and len(build_configuration.platforms) == 1:
-            arch_suffix = f"-{build_configuration.platforms[0].split("/")[1]}"
+            arch_suffix = f"-{build_configuration.platforms[0].split('/')[1]}"
 
         tag = f"{registry}:{build_configuration.version}{arch_suffix}"
         if build_configuration.skip_if_exists and builder.check_if_image_exists(tag):
@@ -90,8 +91,8 @@ def build_image(
     )
 
     if build_configuration.sign:
-        logger.info("Logging in MongoDB Artifactory for Garasign image")
-        mongodb_artifactory_login()
+        logger.info("Logging in to MongoDB DevProd Platforms ECR for Garasign image")
+        docker_login_to_ecr()
         logger.info("Signing image")
         for registry in registries:
             sign_image(registry, build_configuration.version)
@@ -338,13 +339,25 @@ def build_agent_pipeline(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
 
-    platform_build_args = generate_agent_build_args(
-        platforms=build_configuration_copy.platforms, agent_version=agent_version, tools_version=tools_version
-    )
+    custom_agent_url = build_configuration_copy.custom_agent_url or ""
+    if custom_agent_url:
+        # Custom agent URLs are single-arch (x86_64); multi-arch not supported.
+        agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
+        platform_build_args = {}
+        for platform in build_configuration_copy.platforms:
+            arch = platform.split("/")[-1]
+            platform_build_args[f"mongodb_agent_version_{arch}"] = agent_filename
+        platform_build_args.update(generate_tools_build_args(build_configuration_copy.platforms, tools_version))
+    else:
+        agent_base_url = (
+            "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
+        )
+        platform_build_args = generate_agent_build_args(
+            platforms=build_configuration_copy.platforms,
+            agent_version=agent_version,
+            tools_version=tools_version,
+        )
 
-    agent_base_url = (
-        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/automation-agent/prod"
-    )
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {

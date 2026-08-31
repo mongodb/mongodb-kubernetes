@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role
@@ -13,11 +12,11 @@ rules:
   - clustermongodbroles
   verbs:
   - '*'
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role
@@ -113,11 +112,11 @@ rules:
   verbs:
   - list
   - watch
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role-telemetry
@@ -140,12 +139,12 @@ rules:
   - /version
   verbs:
   - get
+
 ---
 # Central Cluster, cluster-scoped resources
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-central-namespace-multi-cluster-mongodb-role-binding
@@ -157,11 +156,11 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-cluster-role-binding
@@ -173,11 +172,11 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multi-telemetry-cluster-role-binding
@@ -189,15 +188,15 @@ subjects:
 - kind: ServiceAccount
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
+
 ---
 # Central Cluster, cluster-scoped resources
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  creationTimestamp: null
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-operator-multicluster
   namespace: central-namespace
----
 
+---

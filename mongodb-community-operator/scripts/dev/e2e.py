@@ -151,7 +151,7 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                         "bash",
                         "-c",
                         # Use pipefail to return go test's exit code instead of tee's
-                        f"set -o pipefail; go test -tags=community_e2e -v -timeout=45m -failfast ./mongodb-community-operator/test/e2e/{args.test} 2>&1 | tee -a /tmp/results/result.suite",
+                        f"set -o pipefail; go test -tags=community_e2e -v -timeout=45m ./mongodb-community-operator/test/e2e/{args.test} 2>&1 | tee -a /tmp/results/result.suite",
                     ],
                     "volumeMounts": [{"name": "results", "mountPath": "/tmp/results"}],
                     "securityContext": {

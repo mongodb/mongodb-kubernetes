@@ -5,6 +5,7 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
+source scripts/funcs/install
 
 usage() {
   echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.
@@ -186,7 +187,7 @@ function kind_wait_for_rbac_bootstrap() {
 function kind_install_metallb() {
   echo "installing metallb"
   kubectl get --kubeconfig "${kubeconfig_path}" nodes -owide
-  kubectl apply --kubeconfig "${kubeconfig_path}" --timeout=600s -f https://raw.githubusercontent.com/metallb/metallb/${metallb_version}/config/manifests/metallb-native.yaml
+  kubectl_apply_retry --kubeconfig "${kubeconfig_path}" --timeout=600s -f https://raw.githubusercontent.com/metallb/metallb/${metallb_version}/config/manifests/metallb-native.yaml
 
   echo "waiting metallb to be ready"
   kubectl wait --kubeconfig "${kubeconfig_path}" --timeout=3000s --namespace metallb-system \
@@ -213,7 +214,7 @@ EOF
 }
 
 kind_install_metrics_server() {
-  kubectl apply --kubeconfig "${kubeconfig_path}" -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${metrics_server_version}/components.yaml"
+  kubectl_apply_retry --kubeconfig "${kubeconfig_path}" -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${metrics_server_version}/components.yaml"
   kubectl patch --kubeconfig "${kubeconfig_path}" -n kube-system deployment metrics-server --type=json \
     -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
   kubectl patch --kubeconfig "${kubeconfig_path}" -n kube-system deployment metrics-server --type=json -p \

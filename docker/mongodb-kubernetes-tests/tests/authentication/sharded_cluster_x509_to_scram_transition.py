@@ -2,7 +2,7 @@ import subprocess
 
 import pytest
 from kubetester import kubetester, read_secret, try_load
-from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.automation_config_tester import SCRAM_AGENT_USER, AutomationConfigTester
 from kubetester.certs import (
     ISSUER_CA_NAME,
     create_mongodb_tls_certs,
@@ -16,8 +16,6 @@ from kubetester.mongotester import ShardedClusterTester
 from kubetester.omtester import get_sc_cert_names
 from kubetester.phase import Phase
 from opentelemetry import trace
-from pymongo import MongoClient
-from pymongo.errors import OperationFailure
 from pytest import fixture
 from tests import test_logger
 
@@ -58,7 +56,7 @@ def sharded_cluster(namespace: str, server_certs: str, agent_certs: str, issuer_
     return resource
 
 
-def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: str):
+def _create_automation_agent_user(resource: MongoDB):
     """
     CLOUDP-383102 workaround: create the automation agent user.
 
@@ -66,89 +64,73 @@ def _create_automation_agent_user(namespace: str, resource_name: str, ca_path: s
     previous auth phase blocks the localhost exception for external connections. This
     prevents the automation agent from bootstrapping its SCRAM user, causing a deadlock.
 
-    It's racy - sometimes it works, sometimes not. It depends whether the agent first
-    creates the user or first restarts mongos.
-
-    Uses pymongo to check if user exists (works from anywhere), uses kubectl exec
-    to create the user (requires localhost exception inside the container).
+    Creates the user via kubectl exec (localhost exception inside the container).
+    Tries each config server pod. When a pod is a secondary ("not primary"/
+    NotWritablePrimary), advances to the next pod. Stops immediately on success or
+    already-exists. Raises when every candidate fails so the caller does not silently
+    burn another 600s waiting for a phase that will never come.
     """
+    namespace = resource.namespace
+    resource_name = resource.name
     password = read_secret(namespace, f"{resource_name}-agent-auth-secret")["automation-agent-password"]
 
-    config_server_host = f"{resource_name}-config-0.{resource_name}-cs:27017"
-
-    # First, check if the user already exists by trying to authenticate via pymongo
-    try:
-        client: MongoClient = MongoClient(
-            config_server_host,
-            username="mms-automation-agent",
-            password=password,
-            authSource="admin",
-            tls=True,
-            tlsCAFile=ca_path,
-            tlsAllowInvalidHostnames=True,
-            directConnection=True,
-            serverSelectionTimeoutMS=5000,
-        )
-        client.admin.command("ping")
-        client.close()
-        logger.info("mms-automation-agent user already exists")
-        return
-    except OperationFailure as e:
-        if e.code == 18:
-            logger.info("mms-automation-agent user does not exist, will create")
-        else:
-            logger.warning(f"Unexpected error checking user: {e}")
-    except Exception as e:
-        logger.info(f"Could not verify user exists ({e}), will try to create")
-
-    # User doesn't exist - create via kubectl exec (needs localhost exception)
-    config_pod = f"{resource_name}-config-0"
     create_user_js = f"""
 db.createUser({{
-  user: 'mms-automation-agent',
+  user: '{SCRAM_AGENT_USER}',
   pwd: '{password}',
   roles: ['backup','clusterAdmin','dbAdminAnyDatabase','readWriteAnyDatabase','restore','userAdminAnyDatabase'].map(r=>({{role:r,db:'admin'}})),
   mechanisms: ['SCRAM-SHA-256']
 }})
 """
 
-    cmd = [
-        "kubectl",
-        "exec",
-        "-n",
-        namespace,
-        config_pod,
-        "-c",
-        "mongodb-enterprise-database",
-        "--",
-        "env",
-        "HOME=/tmp",
-        "/usr/bin/mongosh",
-        "--tls",
-        "--tlsCAFile",
-        "/mongodb-automation/tls/ca/ca-pem",
-        "--tlsAllowInvalidHostnames",
-        "--norc",
-        "mongodb://localhost:27017/admin",
-        "--eval",
-        create_user_js,
-    ]
+    config_pods = [resource.config_srv_pod_name(i) for i in range(resource["spec"]["configServerCount"])]
+    errors = []
+    for pod in config_pods:
+        cmd = [
+            "kubectl",
+            "exec",
+            "-n",
+            namespace,
+            pod,
+            "-c",
+            "mongodb-enterprise-database",
+            "--",
+            "env",
+            "HOME=/tmp",
+            "/usr/bin/mongosh",
+            "--tls",
+            "--tlsCAFile",
+            "/mongodb-automation/tls/ca/ca-pem",
+            "--tlsAllowInvalidHostnames",
+            "--norc",
+            "mongodb://localhost:27017/admin",
+            "--eval",
+            create_user_js,
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            errors.append(f"{pod}: timed out after 30s")
+            logger.warning(f"Timed out creating automation agent user on {pod}")
+            continue
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            logger.info("Pre-created mms-automation-agent user on config server")
-        elif "already exists" in result.stderr or "already exists" in result.stdout:
-            logger.info("mms-automation-agent user already exists, skipping")
-        elif "requires authentication" in result.stderr or "requires authentication" in result.stdout:
-            # Localhost exception not available (other users exist)
-            logger.info("Localhost exception unavailable, assuming user exists from previous run")
-        else:
-            logger.warning(f"Failed to create user: {result.stderr or result.stdout}")
-    except subprocess.TimeoutExpired:
-        logger.warning("Timed out creating automation agent user")
-    except Exception as e:
-        logger.warning(f"Error creating automation agent user: {e}")
+        # Never include raw mongosh stdout/stderr: create_user_js contains the
+        # password and mongosh may echo the eval'd script on error.
+        lower = f"{result.stdout}\n{result.stderr}".lower()
+        if result.returncode == 0 or "already exists" in lower:
+            logger.info(f"Pre-created {SCRAM_AGENT_USER} user on {pod}")
+            return
+        if "not primary" in lower or "notwritableprimary" in lower:
+            logger.info(f"{pod} is not primary, trying next config server pod")
+            continue
+        detail = f"returncode={result.returncode}"
+        errors.append(f"{pod}: {detail}")
+        logger.warning(f"Failed to create user on {pod}: {detail}")
+
+    raise RuntimeError(
+        f"CLOUDP-383102: Failed to create {SCRAM_AGENT_USER} user on any config server pod "
+        f"({', '.join(config_pods)}). Errors: {'; '.join(errors)}"
+    )
 
 
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
@@ -201,7 +183,7 @@ class TestShardedClusterDisableAuthentication(KubernetesTester):
 @pytest.mark.e2e_sharded_cluster_x509_to_scram_transition
 class TestCanEnableScramSha256:
     @TRACER.start_as_current_span("test_can_enable_scram_sha_256")
-    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB, ca_path: str, namespace: str):
+    def test_can_enable_scram_sha_256(self, sharded_cluster: MongoDB):
         kubetester.wait_processes_ready()
         sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1400)
 
@@ -228,7 +210,7 @@ class TestCanEnableScramSha256:
                 span.set_attribute("workaround.ticket", "CLOUDP-383102")
                 span.set_attribute("workaround.reason", "auth_transition_timeout")
                 span.set_attribute("workaround.action", "precreate_automation_agent_user")
-                _create_automation_agent_user(namespace, MDB_RESOURCE, ca_path)
+                _create_automation_agent_user(sharded_cluster)
             sharded_cluster.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_assert_connectivity(self, ca_path: str):

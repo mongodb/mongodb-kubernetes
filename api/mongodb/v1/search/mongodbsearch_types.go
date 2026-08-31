@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
+	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -24,10 +25,6 @@ import (
 const (
 	// ShardNamePlaceholder is the placeholder used in endpoint templates for sharded clusters
 	ShardNamePlaceholder = "{shardName}"
-
-	// LabelResourceOwner is the label key used to identify the MongoDBSearch CR that
-	// owns a resource. Used as part of GetOwnerLabels for StateStore ConfigMap selection.
-	LabelResourceOwner = "mongodb.com/v1.mongodbSearchResourceOwner"
 
 	MongotDefaultWireprotoPort      int32 = 27027
 	MongotDefaultGrpcPort           int32 = 27028
@@ -52,12 +49,6 @@ const (
 	EnvoyPreStopDrainSleepSeconds int64 = EnvoyTerminationGracePeriodSeconds - 10
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
-
-	// DisableReconciliationAnnotation, when set to "true" on a MongoDBSearch CR,
-	// short-circuits the reconciler: it returns Result{} + nil without
-	// mutating any owned objects. Useful for tests that need to mutate
-	// owned StatefulSets directly without the operator reverting them.
-	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
@@ -206,6 +197,7 @@ type MongoDBSearchSpec struct {
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c1, has(c1.name) && self.exists_one(c2, has(c2.name) && c2.name == c1.name))",message="clusters[].name must be set and unique when more than one cluster is specified"
 	// +kubebuilder:validation:XValidation:rule="self.all(c1, !has(c1.index) || self.exists_one(c2, has(c2.index) && c2.index == c1.index))",message="clusters[].index must be unique when set"
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 1 || self.all(c, has(c.index))",message="clusters[].index is required on every entry when more than one cluster is specified"
+	// +kubebuilder:validation:XValidation:rule="self.all(c, oldSelf.all(o, (has(o.index) ? o.index : 0) != (has(c.index) ? c.index : 0) || (has(o.name) ? o.name : '') == '' || (has(o.name) ? o.name : '') == (has(c.name) ? c.name : '')))",message="clusters[].name is immutable for an existing cluster index; remove and re-add the entry to change it"
 	Clusters []ClusterSpec `json:"clusters"`
 }
 
@@ -265,6 +257,10 @@ type ClusterSpec struct {
 	// Persistence configures this cluster's mongot persistent volume. Defaults to 10GB if unset.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// NodeAffinity can be used to configure mongot pod's node affinity or pod's spec.affinity.nodeAffinity field.
+	// A spec.clusters[].statefulSet override of nodeAffinity, takes precedence over this field.
+	// +optional
+	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
 	// StatefulSetConfiguration is applied to this cluster's mongot StatefulSet at the end of the
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
@@ -302,8 +298,8 @@ func (c ClusterSpec) ResolveIndex() int {
 }
 
 // ShardOverride sizes specific shards within the enclosing cluster differently
-// from the cluster default. Replicas, ResourceRequirements, Persistence and
-// JVMFlags replace the cluster value for the named shards when set;
+// from the cluster default. Replicas, ResourceRequirements, Persistence,
+// JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
 // StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
 // inherit the cluster value.
 type ShardOverride struct {
@@ -322,6 +318,9 @@ type ShardOverride struct {
 	// Persistence replaces the cluster's mongot persistent volume config for these shards.
 	// +optional
 	Persistence *v1.Persistence `json:"persistence,omitempty"`
+	// NodeAffinity replaces the cluster's mongot node affinity for these shards.
+	// +optional
+	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
@@ -594,6 +593,37 @@ type MetricsForwarderStatus struct {
 	Message string       `json:"message,omitempty"`
 }
 
+// ClusterStatus reports one member cluster's search + LB + metrics forwarder state.
+// +k8s:deepcopy-gen=true
+type ClusterStatus struct {
+	// Name is the member cluster name; empty in single-cluster deployments.
+	// +optional
+	Name string `json:"name,omitempty"`
+	// Index is the spec.clusters[] pinned index so the status entries map back to their spec
+	// entry independently of list order.
+	Index int `json:"index"`
+	// Search is the worst-of phase of this cluster's mongot StatefulSet(s).
+	// +optional
+	Search status.Phase `json:"search,omitempty"`
+	// SearchMessage contains the reason when Search is not Running.
+	// +optional
+	SearchMessage string `json:"searchMessage,omitempty"`
+	// LoadBalancer is this cluster's managed Envoy load balancer phase; empty when no managed LB.
+	// +optional
+	LoadBalancer status.Phase `json:"loadBalancer,omitempty"`
+	// LoadBalancerMessage contains reason when LoadBalancer is not Running.
+	// +optional
+	LoadBalancerMessage string `json:"loadBalancerMessage,omitempty"`
+	// MetricsForwarder is this cluster's Ops Manager metrics-forwarder Deployment phase;
+	// empty when the metrics forwarder is not enabled.
+	// +optional
+	MetricsForwarder status.Phase `json:"metricsForwarder,omitempty"`
+	// MetricsForwarderMessage contians the reason when metrics-forwarder is not Running.
+	// +optional
+	MetricsForwarderMessage string `json:"metricsForwarderMessage,omitempty"`
+}
+
+// Top level Phase field is considered `Running` only when Search STSs and LoadBalancer (status.LoadBalancer) is running.
 type MongoDBSearchStatus struct {
 	status.Common `json:",inline"`
 	Version       string           `json:"version,omitempty"`
@@ -605,6 +635,12 @@ type MongoDBSearchStatus struct {
 	// MetricsForwarder reports the state of the Ops Manager metrics forwarder.
 	// +optional
 	MetricsForwarder *MetricsForwarderStatus `json:"metricsForwarder,omitempty"`
+	// Clusters reports per-cluster search + load balancer + metrics forwarder state across the topology. In
+	// single-cluster and operator per cluster deployments the list has exactly one entry.
+	// +optional
+	// +listType=map
+	// +listMapKey=index
+	Clusters []ClusterStatus `json:"clusters,omitempty"`
 }
 
 // +k8s:deepcopy-gen=true
@@ -684,6 +720,13 @@ func (s *MongoDBSearch) UpdateStatus(phase status.Phase, statusOptions ...status
 	}
 	if option, exists := status.GetOption(statusOptions, MongoDBSearchVersionOption{}); exists {
 		s.Status.Version = option.(MongoDBSearchVersionOption).Version
+	}
+	// The search controller is the sole writer of status.clusters. Every reconcile it
+	// rebuilds the whole list by reading the current StatefulSet/Deployment objects and
+	// replaces status.clusters wholesale — it never read-modify-writes the previously
+	// persisted status. A nil slice is valid and clears stale entries.
+	if option, exists := status.GetOption(statusOptions, MongoDBSearchClusterStatusesOption{}); exists {
+		s.Status.Clusters = option.(MongoDBSearchClusterStatusesOption).Statuses
 	}
 }
 
@@ -810,7 +853,7 @@ func (s *MongoDBSearch) GetOwnerReferences() []metav1.OwnerReference {
 	ownerReference := *metav1.NewControllerRef(s, schema.GroupVersionKind{
 		Group:   v1.SchemeGroupVersion.Group,
 		Version: v1.SchemeGroupVersion.Version,
-		Kind:    s.Kind,
+		Kind:    s.GetKind(),
 	})
 	return []metav1.OwnerReference{ownerReference}
 }
@@ -995,6 +1038,10 @@ func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 	return ok && val == "true"
 }
 
+func (s *MongoDBSearch) IsReconciliationDisabled() bool {
+	return s.Annotations[util.DisableReconciliationAnnotation] == "true"
+}
+
 func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
 	if s.IsWireprotoEnabled() {
 		return s.GetMongotWireprotoPort()
@@ -1087,7 +1134,7 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 // ResolveSizingForClusterShard returns the effective sizing for one
 // (cluster, shard) cell: the named cluster's ClusterSpec with the matching
 // shardOverride (if any) layered on top. Replicas, ResourceRequirements,
-// Persistence and JVMFlags are replaced when the override sets them;
+// Persistence, NodeAffinity and JVMFlags are replaced when the override sets them;
 // StatefulSetConfiguration is deep-merged onto the cluster value. An empty
 // shardName (replica-set sources) or a cluster without a matching override
 // returns the cluster spec.
@@ -1115,6 +1162,9 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 	}
 	if override.Persistence != nil {
 		resolved.Persistence = override.Persistence
+	}
+	if override.NodeAffinity != nil {
+		resolved.NodeAffinity = override.NodeAffinity
 	}
 	if len(override.JVMFlags) > 0 {
 		resolved.JVMFlags = override.JVMFlags
@@ -1330,13 +1380,10 @@ func (s *MongoDBSearch) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(s.Namespace, s.Name)
 }
 
-// GetOwnerLabels implements v1.ResourceOwner. Returns labels used to identify
-// the state ConfigMap owned by this MongoDBSearch.
+// GetOwnerLabels implements v1.ResourceOwner. Returns the owner labels stamped
+// on every resource managed for this MongoDBSearch.
 func (s *MongoDBSearch) GetOwnerLabels() map[string]string {
-	return map[string]string{
-		util.OperatorLabelName: util.OperatorLabelValue,
-		LabelResourceOwner:     s.Name,
-	}
+	return khandler.SearchOwnershipLabels(s, "", "")
 }
 
 // GetKind implements v1.ObjectOwner.

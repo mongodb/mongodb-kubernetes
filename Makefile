@@ -38,11 +38,17 @@ usage:
 prerequisites:
 	@ scripts/dev/install.sh
 
-precommit:
-	@ source scripts/dev/set_env_context.sh && pre-commit run --all-files
+PREK := $(shell pwd)/bin/prek
 
-precommit-full:
-	@ source scripts/dev/set_env_context.sh && MDB_UPDATE_LICENSES=true MDB_REGENERATE_RBAC=true pre-commit run --all-files
+.PHONY: prek
+prek:
+	@[ -f "$(PREK)" ] || scripts/evergreen/setup_prek.sh
+
+precommit: prek
+	@ scripts/evergreen/check_precommit.sh
+
+precommit-full: prek
+	@ scripts/evergreen/check_precommit.sh --full
 
 switch:
 	@ scripts/dev/switch_context.sh $(context) $(additional_override)
@@ -256,6 +262,11 @@ test-race: generate fmt vet manifests golang-tests-race
 
 test: generate fmt vet manifests golang-tests
 
+# test-bash runs all bats integration tests under scripts/test/bash/.
+# Requires bats-core (brew install bats-core).
+test-bash:
+	@ scripts/test/bash/run.sh $(suite)
+
 # helm-tests will run helm chart unit tests
 helm-tests:
 	@echo "Running helm chart unit tests..."
@@ -275,10 +286,10 @@ all-tests: test python-tests helm-tests
 manager: generate fmt vet
 	GOOS=linux GOARCH=amd64 go build -o docker/mongodb-kubernetes-operator/content/mongodb-kubernetes-operator main.go
 
-# Build mckctl, the MCK developer-tooling binary (release automation, etc.).
-# Prefer `scripts/mckctl ...` for day-to-day use — it builds-if-stale and execs.
-mckctl:
-	go build -o bin/mckctl ./cmd/mckctl
+# Build mckci, the MCK developer-tooling binary (release automation, etc.).
+# Prefer `scripts/mckci ...` for day-to-day use — it builds-if-stale and execs.
+mckci:
+	go build -o bin/mckci ./ci/cmd/mckci
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
@@ -338,6 +349,29 @@ controller-gen:
 KUSTOMIZE ?= $(shell which kustomize 2>/dev/null || echo $(shell pwd)/bin/kustomize)
 kustomize:
 	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
+
+# envtest: local Kubernetes control plane (etcd + kube-apiserver) used by Go tests
+# (see test/envtest). ENVTEST_K8S_VERSION defaults to the minimum supported Kubernetes
+# version from kubernetes-versions.json, reduced to a minor-version wildcard (e.g.
+# 1.34.3 -> 1.34.x) so that setup-envtest resolves the latest available patch release.
+ENVTEST_K8S_VERSION ?= $(shell jq -r '.kubernetes.min' kubernetes-versions.json | cut -d. -f1-2).x
+SETUP_ENVTEST = $(shell pwd)/bin/setup-envtest
+ENVTEST_ASSETS_DIR = $(shell pwd)/bin/envtest
+# setup-envtest (a downloader for the envtest binaries) is versioned independently of
+# controller-runtime; the module only publishes tags since v0.24.0.
+SETUP_ENVTEST_VERSION ?= v0.24.1
+
+# Download setup-envtest locally if necessary
+setup-envtest:
+	$(call go-install-tool,$(SETUP_ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION))
+
+# Download the envtest binaries (etcd, kube-apiserver, kubectl); idempotent
+envtest-assets: setup-envtest
+	$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_ASSETS_DIR)
+
+# Print the envtest binaries path on stdout (used to set KUBEBUILDER_ASSETS)
+envtest-assets-path: setup-envtest
+	@$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_ASSETS_DIR) -p path
 
 # go-install-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

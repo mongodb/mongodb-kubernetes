@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -19,6 +18,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -35,8 +35,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scramcredentials"
-	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -45,7 +43,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func TestOpsManagerReconciler_watchedResources(t *testing.T) {
@@ -460,12 +457,26 @@ func TestOpsManagerGeneratesAppDBPassword_IfNotProvided(t *testing.T) {
 	assert.Len(t, password, 12, "auto generated password should have a size of 12")
 }
 
+func TestEnsureAppDbPassword_ErrorWhenPasswordSecretKeyRefNotFound(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
+	kubeManager, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+	appDBReconciler, err := newAppDbReconciler(ctx, kubeManager, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
+
+	assert.Error(t, err)
+	assert.Empty(t, password)
+	assert.Contains(t, err.Error(), "my-secret")
+	assert.Contains(t, err.Error(), "does not exist")
+}
+
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	ctx := context.Background()
-	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	_, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	s := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.PasswordSecretKeyRef.Name, Namespace: testOm.Namespace},
@@ -480,7 +491,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 
 	require.NoError(t, err)
 
-	appDBReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, log)
+	appDBReconciler, err := newAppDbReconciler(ctx, client, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
 	require.NoError(t, err)
 	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
 
@@ -611,12 +622,11 @@ func TestOpsManagerReconcileContainerImages(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 1)
-	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 2)
 
 	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-init-database@sha256:INIT_DATABASE_SHA", appDBSts.Spec.Template.Spec.InitContainers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-agent@sha256:AGENT_SHA", appDBSts.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
-	assert.NotContains(t, appDBSts.Spec.Template.Spec.Containers[2].Image, util.OperatorVersion)
 }
 
 func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) {
@@ -667,10 +677,8 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 4)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
-	// In static architecture this container is a copy of agent container
-	assert.Equal(t, appDBSts.Spec.Template.Spec.Containers[0].Image, appDBSts.Spec.Template.Spec.Containers[3].Image)
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
@@ -814,7 +822,7 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
 	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
 	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
@@ -847,7 +855,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
 	// then
 	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
@@ -873,7 +881,7 @@ func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 
 	// when
-	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, "", zap.S())
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
 	s3Configs, _ := mockedAdmin.ReadS3Configs()
 	// then
 	assert.Nil(t, s3Configs[0].ObjectLockEnabled)
@@ -919,7 +927,7 @@ func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue)
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -946,7 +954,7 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue)
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -1052,7 +1060,7 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue)
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -1114,116 +1122,6 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 	})
 }
 
-func TestEnsureResourcesForArchitectureChange(t *testing.T) {
-	ctx := context.Background()
-	opsManager := DefaultOpsManagerBuilder().Build()
-
-	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-
-	t.Run("When no automation config is present, there is no error", func(t *testing.T) {
-		client := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-		err := ensureResourcesForArchitectureChange(ctx, client, client, opsManager)
-		assert.NoError(t, err)
-	})
-
-	t.Run("If User is not present, there is an error", func(t *testing.T) {
-		client := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
-			Users: []automationconfig.MongoDBUser{
-				{
-					Username: "not-ops-manager-user",
-				},
-			},
-		}).Build()
-
-		assert.NoError(t, err)
-
-		acBytes, err := json.Marshal(ac)
-		assert.NoError(t, err)
-
-		// create the automation config secret
-		err = client.CreateSecret(ctx, secret.Builder().SetNamespace(opsManager.Namespace).SetName(opsManager.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
-		assert.NoError(t, err)
-
-		err = ensureResourcesForArchitectureChange(ctx, client, client, opsManager)
-		assert.Error(t, err)
-	})
-
-	t.Run("If an automation config is present, all secrets are created with the correct values", func(t *testing.T) {
-		client := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory)
-		ac, err := automationconfig.NewBuilder().SetAuth(automationconfig.Auth{
-			AutoPwd: "VrBQgsUZJJs",
-			Key:     "Z8PSBtvvjnvds4zcI6iZ",
-			Users: []automationconfig.MongoDBUser{
-				{
-					Username: util.OpsManagerMongoDBUserName,
-					ScramSha256Creds: &scramcredentials.ScramCreds{
-						Salt:      "sha256-salt-value",
-						ServerKey: "sha256-serverkey-value",
-						StoredKey: "sha256-storedkey-value",
-					},
-					ScramSha1Creds: &scramcredentials.ScramCreds{
-						Salt:      "sha1-salt-value",
-						ServerKey: "sha1-serverkey-value",
-						StoredKey: "sha1-storedkey-value",
-					},
-				},
-			},
-		}).Build()
-
-		assert.NoError(t, err)
-
-		acBytes, err := json.Marshal(ac)
-		assert.NoError(t, err)
-
-		// create the automation config secret
-		err = client.CreateSecret(ctx, secret.Builder().SetNamespace(opsManager.Namespace).SetName(opsManager.Spec.AppDB.AutomationConfigSecretName()).SetField(automationconfig.ConfigKey, string(acBytes)).Build())
-		assert.NoError(t, err)
-
-		// create the old ops manager user password
-		err = client.CreateSecret(ctx, secret.Builder().SetNamespace(opsManager.Namespace).SetName(opsManager.Spec.AppDB.Name()+"-password").SetField("my-password", "jrJP7eUeyn").Build())
-		assert.NoError(t, err)
-
-		err = ensureResourcesForArchitectureChange(ctx, client, client, opsManager)
-		assert.NoError(t, err)
-
-		t.Run("Scram credentials have been created", func(t *testing.T) {
-			ctx := context.Background()
-			scramCreds, err := client.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.OpsManagerUserScramCredentialsName()))
-			assert.NoError(t, err)
-
-			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.Salt, string(scramCreds.Data["sha256-salt"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.StoredKey, string(scramCreds.Data["sha-256-stored-key"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha256Creds.ServerKey, string(scramCreds.Data["sha-256-server-key"]))
-
-			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.Salt, string(scramCreds.Data["sha1-salt"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.StoredKey, string(scramCreds.Data["sha-1-stored-key"]))
-			assert.Equal(t, ac.Auth.Users[0].ScramSha1Creds.ServerKey, string(scramCreds.Data["sha-1-server-key"]))
-		})
-
-		t.Run("Ops Manager user password has been copied", func(t *testing.T) {
-			ctx := context.Background()
-			newOpsManagerUserPassword, err := client.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName()))
-			assert.NoError(t, err)
-			assert.Equal(t, string(newOpsManagerUserPassword.Data["my-password"]), "jrJP7eUeyn")
-		})
-
-		t.Run("Agent password has been created", func(t *testing.T) {
-			ctx := context.Background()
-			agentPasswordSecret, err := client.GetSecret(ctx, opsManager.Spec.AppDB.GetAgentPasswordSecretNamespacedName())
-			assert.NoError(t, err)
-			assert.Equal(t, ac.Auth.AutoPwd, string(agentPasswordSecret.Data[constants.AgentPasswordKey]))
-		})
-
-		t.Run("Keyfile has been created", func(t *testing.T) {
-			ctx := context.Background()
-			keyFileSecret, err := client.GetSecret(ctx, opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName())
-			assert.NoError(t, err)
-			assert.Equal(t, ac.Auth.Key, string(keyFileSecret.Data[constants.AgentKeyfileKey]))
-		})
-	})
-}
-
 func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().
@@ -1246,7 +1144,7 @@ func TestDependentResources_AreRemoved_WhenBackupIsDisabled(t *testing.T) {
 	// initially requeued as monitoring needs to be configured
 	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
 	assert.NoError(t, err)
-	assert.Equal(t, true, res.Requeue)
+	assert.True(t, res.RequeueAfter > 0)
 
 	// monitoring is configured successfully
 	res, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
@@ -1404,7 +1302,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 func DefaultOpsManagerBuilder() *omv1.OpsManagerBuilder {
 	spec := omv1.MongoDBOpsManagerSpec{
 		Version:     "7.0.0",
-		AppDB:       *omv1.DefaultAppDbBuilder().Build(),
+		AppDB:       omv1.DefaultAppDbBuilder().Build(),
 		AdminSecret: "om-admin",
 	}
 	resource := omv1.MongoDBOpsManager{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "test-om", Namespace: mock.TestNamespace}}
@@ -1515,6 +1413,168 @@ func addAppDBTLSResources(ctx context.Context, client client.Client, secretName 
 
 	certSecret.Data = certs
 	_ = client.Create(ctx, certSecret)
+}
+
+func withExternalAppDBRef(om *omv1.MongoDBOpsManager, ref *omv1.ExternalAppDBRef) *omv1.MongoDBOpsManager {
+	if ref.Namespace == "" {
+		ref.Namespace = om.Namespace
+	}
+	om.Spec.ExternalAppDBRef = ref
+	return om
+}
+
+func TestOpsManagerReconcile_ExternalAppDBRef_SkipsInternalAppDBReconciliation(t *testing.T) {
+	ctx := context.Background()
+
+	externalAppDB := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		Build()
+	externalAppDB.Spec.Role = mdbv1.RoleAppDB
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "test-om-db",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	appDBSts := appsv1.StatefulSet{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	assert.True(t, apiErrors.IsNotFound(err), "expected internal AppDB StatefulSet to not be created, got err=%v", err)
+}
+
+func TestOpsManagerReconcile_NoExternalAppDBRef_StillReconcilesInternalAppDB(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		AddOplogStoreConfig("oplog-store-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store-config-1", "my-user", types.NamespacedName{Name: "config-1-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	require.Nil(t, testOm.Spec.ExternalAppDBRef)
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+	appDBSts := appsv1.StatefulSet{}
+	err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	require.NoError(t, err, "internal AppDB StatefulSet should still be created when externalApplicationDatabaseRef is not set")
+}
+
+func TestOpsManagerReconcile_InvalidExternalAppDBRef_FailsReconcile(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "wrong-name",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{}, res)
+
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assert.Equal(t, status.PhaseFailed, testOm.GetPhase())
+
+	appDBSts := appsv1.StatefulSet{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+	assert.True(t, apiErrors.IsNotFound(err), "expected internal AppDB StatefulSet to not be created when validation fails")
+}
+
+func TestReconcile_ExternalAppDBRef_NeverCreatesInternalPasswordSecret(t *testing.T) {
+	ctx := context.Background()
+
+	externalAppDB := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		SetMembers(3).
+		Build()
+	externalAppDB.Spec.Role = mdbv1.RoleAppDB
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "test-om-db",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+	require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+		SetNamespace(testOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "test-password").
+		Build()))
+
+	_, _ = reconciler.Reconcile(ctx, requestFromObject(testOm))
+
+	// the shared password secret ("test-om-db-om-password") is the same secret
+	// GetOpsManagerUserPasswordSecretName() would compute for internal AppDB, since
+	// externalApplicationDatabaseRef.Name is required to equal AppDBSpec.Name(). If
+	// ensureAppDbPassword had run unconditionally, it would either overwrite this
+	// value or fail to find automation-config resources it expects — asserting the
+	// pre-seeded password is unchanged proves that internal path never ran.
+	assert.Equal(t, testOm.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), omv1.OpsManagerUserPasswordSecretName("test-om-db"),
+		"test assumption: internal and shared password secret names must coincide")
+
+	result := corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, omv1.OpsManagerUserPasswordSecretName("test-om-db")), &result))
+	assert.Equal(t, "test-password", string(result.Data[util.OpsManagerPasswordKey]))
+}
+
+func TestOpsManagerReconcile_ExternalAppDBRef_TLS_MountsAppDBCAVolume(t *testing.T) {
+	ctx := context.Background()
+
+	externalAppDB := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		SetMembers(3).
+		SetSecurityTLSEnabled().
+		Build()
+	externalAppDB.Spec.Role = mdbv1.RoleAppDB
+	externalAppDB.Spec.Security.TLSConfig.CA = "app-db-issuer-ca"
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "test-om-db",
+		Kind: "MongoDB",
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+	require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+		SetNamespace(testOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "test-password").
+		Build()))
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	omSts := appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Name), &omSts))
+
+	var caVolume *corev1.Volume
+	for i := range omSts.Spec.Template.Spec.Volumes {
+		if omSts.Spec.Template.Spec.Volumes[i].Name == "appdb-ca-certificate" {
+			caVolume = &omSts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, caVolume, "expected appdb-ca-certificate volume on OM StatefulSet when external AppDB has TLS enabled")
+	require.NotNil(t, caVolume.ConfigMap)
+	assert.Equal(t, "app-db-issuer-ca", caVolume.ConfigMap.Name)
 }
 
 func addOMTLSResources(ctx context.Context, client client.Client, secretName string) {

@@ -29,23 +29,16 @@ logger = test_logger.get_test_logger(__name__)
 
 SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
 SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
-SEARCH_CLUSTER_NAME_LABEL = "mongodb.com/cluster-name"
 
 
-def _assert_search_owner_labels(
-    obj_labels: Mapping[str, str], cluster_name: str, where: str, mdbs_resource_name: str
-) -> None:
-    """Strict ``mongodb.com/{search-name,search-namespace,cluster-name}`` check."""
+def _assert_search_owner_labels(obj_labels: Mapping[str, str], where: str, mdbs_resource_name: str) -> None:
+    """Strict ``mongodb.com/{search-name,search-namespace}`` check."""
     assert (
         obj_labels.get(SEARCH_OWNER_NAME_LABEL) == mdbs_resource_name
     ), f"{where}: missing/wrong {SEARCH_OWNER_NAME_LABEL!r}; got {obj_labels.get(SEARCH_OWNER_NAME_LABEL)!r}"
     # The operator stamps the search's namespace, not the central namespace —
     # equals the namespace under test in our e2e harness.
     assert obj_labels.get(SEARCH_OWNER_NAMESPACE_LABEL), f"{where}: missing {SEARCH_OWNER_NAMESPACE_LABEL!r}"
-    assert obj_labels.get(SEARCH_CLUSTER_NAME_LABEL) == cluster_name, (
-        f"{where}: missing/wrong {SEARCH_CLUSTER_NAME_LABEL!r}; got "
-        f"{obj_labels.get(SEARCH_CLUSTER_NAME_LABEL)!r}, want {cluster_name!r}"
-    )
 
 
 def _resolve_cluster_index(helper: Optional[MCSearchDeploymentHelper], mcc: MultiClusterClient) -> int:
@@ -285,16 +278,10 @@ def verify_per_cluster_mongot_resources(
         headless = mcc.read_namespaced_service(svc_name, namespace)
         proxy = mcc.read_namespaced_service(proxy_svc_name, namespace)
         cm = mcc.read_namespaced_config_map(cm_name, namespace)
-        _assert_search_owner_labels(sts.metadata.labels or {}, mcc.cluster_name, f"STS {sts_name}", mdbs_resource_name)
-        _assert_search_owner_labels(
-            headless.metadata.labels or {}, mcc.cluster_name, f"headless Service {svc_name}", mdbs_resource_name
-        )
-        _assert_search_owner_labels(
-            proxy.metadata.labels or {}, mcc.cluster_name, f"proxy Service {proxy_svc_name}", mdbs_resource_name
-        )
-        _assert_search_owner_labels(
-            cm.metadata.labels or {}, mcc.cluster_name, f"mongot CM {cm_name}", mdbs_resource_name
-        )
+        _assert_search_owner_labels(sts.metadata.labels or {}, f"STS {sts_name}", mdbs_resource_name)
+        _assert_search_owner_labels(headless.metadata.labels or {}, f"headless Service {svc_name}", mdbs_resource_name)
+        _assert_search_owner_labels(proxy.metadata.labels or {}, f"proxy Service {proxy_svc_name}", mdbs_resource_name)
+        _assert_search_owner_labels(cm.metadata.labels or {}, f"mongot CM {cm_name}", mdbs_resource_name)
 
         assert_mongot_sync_source_hosts(mcc, cm_name, namespace, expected_hosts, cm=cm)
 
@@ -321,14 +308,9 @@ def verify_per_cluster_envoy_deployment(
         envoy_deploy = apps.read_namespaced_deployment(name=envoy_deployment_name, namespace=namespace)
         envoy_cm = mcc.read_namespaced_config_map(envoy_cm_name, namespace)
         _assert_search_owner_labels(
-            envoy_deploy.metadata.labels or {},
-            mcc.cluster_name,
-            f"Envoy Deployment {envoy_deployment_name}",
-            mdbs_resource_name,
+            envoy_deploy.metadata.labels or {}, f"Envoy Deployment {envoy_deployment_name}", mdbs_resource_name
         )
-        _assert_search_owner_labels(
-            envoy_cm.metadata.labels or {}, mcc.cluster_name, f"Envoy CM {envoy_cm_name}", mdbs_resource_name
-        )
+        _assert_search_owner_labels(envoy_cm.metadata.labels or {}, f"Envoy CM {envoy_cm_name}", mdbs_resource_name)
 
         logger.info(f"Envoy Deployment {envoy_deployment_name} ready in cluster {mcc.cluster_name} (idx={cluster_idx})")
 
@@ -496,6 +478,33 @@ def patch_mongot_host_via_ac(
     ac["version"] = ac.get("version", 0) + 1
     _put_automation_config_past_lock(om_tester, ac_path, ac)
     log.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+    om_tester.wait_agents_ready(timeout=timeout)
+
+
+def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
+    """Pop mongotHost+searchIndexManagementHostAndPort from every AC process, then block
+    until every agent applies the new goal version.
+
+    The unwire counterpart of ``patch_mongot_host_via_ac``: on an external source these
+    keys are customer-owned AC state the operator never drains, so Search deletion ends
+    with the customer removing them.
+    """
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+    ac = om_tester.om_request("get", ac_path).json()
+    unwired: List[str] = []
+    for process in ac.get("processes", []):
+        sp = process.get("args2_6", {}).get("setParameter", {})
+        removed = [key for key in ("mongotHost", "searchIndexManagementHostAndPort") if sp.pop(key, None) is not None]
+        if removed:
+            unwired.append(f"{process.get('name', '')}: {removed}")
+    assert (
+        unwired
+    ), f"no AC process carried mongot routing keys; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    log.info(f"unwired {len(unwired)} processes: {unwired}")
+    ac["version"] = ac.get("version", 0) + 1
+    _put_automation_config_past_lock(om_tester, ac_path, ac)
+    log.info(f"PUT automation config v{ac['version']} without mongot routing keys")
     om_tester.wait_agents_ready(timeout=timeout)
 
 
@@ -667,22 +676,27 @@ def patch_per_cluster_sharded_mongot_host_via_om(
     cluster_indexes: List[int],
     envoy_proxy_port: int,
     multi_cluster: bool,
+    proxy_cluster_index: Optional[Callable[[int], int]] = None,
 ) -> None:
     """PUT the OM automation config so each sharded process targets its cluster-local proxy.
 
     Per (cluster, shard): shard mongod → ``shard_proxy_service_host`` (cluster-local per-shard
     proxy); per cluster: mongos → ``mc_proxy_svc_fqdn`` (cluster-level proxy). Cluster-generic:
     ``cluster_indexes=[0]`` + ``multi_cluster=False`` is the single-cluster sharded invocation.
+    ``proxy_cluster_index`` maps a process's cluster index to the cluster whose proxies it
+    targets (default: its own) — e.g. to repoint a removed cluster's still-running source
+    processes at a survivor's proxies.
     """
+    target = proxy_cluster_index or (lambda cluster_index: cluster_index)
     shard_proxy_host = {
         (cluster_index, shard_index): search_resource_names.shard_proxy_service_host(
-            mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, cluster_index
+            mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, target(cluster_index)
         )
         for cluster_index in cluster_indexes
         for shard_index in range(shard_count)
     }
     mongos_proxy_host = {
-        cluster_index: f"{search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, cluster_index)}:{envoy_proxy_port}"
+        cluster_index: f"{search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, target(cluster_index))}:{envoy_proxy_port}"
         for cluster_index in cluster_indexes
     }
     logger.info(f"sharded shard-proxy map: {shard_proxy_host}")
@@ -716,21 +730,24 @@ def assert_sharded_mongot_host_observed(
     envoy_proxy_port: int,
     multi_cluster: bool,
     member_api_client_by_cluster: Optional[Mapping[int, kubernetes.client.ApiClient]] = None,
+    proxy_cluster_index: Optional[Callable[[int], int]] = None,
     timeout: int = 300,
 ) -> None:
     """Poll each shard's first mongod on disk and confirm its cluster-local proxy host landed.
 
     Reads ``/data/automation-mongod.conf`` so we verify the agent applied the AC patch,
     not just that OM accepted it. ``member_api_client_by_cluster`` targets the cluster
-    hosting each pod (MC); SC leaves it None (default client).
+    hosting each pod (MC); SC leaves it None (default client). ``proxy_cluster_index``
+    mirrors ``patch_per_cluster_sharded_mongot_host_via_om``'s parameter of the same name.
     """
+    target = proxy_cluster_index or (lambda cluster_index: cluster_index)
     expected: Dict[str, str] = {}
     pod_to_cluster: Dict[str, int] = {}
     for cluster_index in cluster_indexes:
         for shard_index in range(shard_count):
             pod_name = f"{mdb.name}-{shard_index}-{cluster_index}-0" if multi_cluster else f"{mdb.name}-{shard_index}-0"
             expected[pod_name] = search_resource_names.shard_proxy_service_host(
-                mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, cluster_index
+                mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, target(cluster_index)
             )
             pod_to_cluster[pod_name] = cluster_index
 

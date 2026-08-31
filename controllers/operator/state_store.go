@@ -57,6 +57,11 @@ func (s *StateStore[S]) read(ctx context.Context) error {
 	}
 
 	s.data = cm.Data
+	// An empty or hand-edited ConfigMap can carry nil Data; setDataValue would
+	// panic writing into a nil map.
+	if s.data == nil {
+		s.data = map[string]string{}
+	}
 	return nil
 }
 

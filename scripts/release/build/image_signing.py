@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import subprocess
@@ -11,7 +12,7 @@ from opentelemetry import trace
 from lib.base_logger import logger
 
 SIGNING_IMAGE_URI = os.environ.get(
-    "SIGNING_IMAGE_URI", "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign"
+    "SIGNING_IMAGE_URI", "901841024863.dkr.ecr.us-east-1.amazonaws.com/release-infrastructure/garasign-cosign"
 )
 
 RETRYABLE_ERRORS = [500, 502, 503, 504, 429, "timeout", "WARNING"]
@@ -67,28 +68,32 @@ def run_command_with_retries(command, retries=6, base_delay=10):
                 raise
 
 
-def mongodb_artifactory_login() -> None:
-    command = [
-        "docker",
-        "login",
-        "--password-stdin",
-        "--username",
-        os.environ.get("ARTIFACTORY_USERNAME", "mongodb-enterprise-kubernetes-operator"),
-        "artifactory.corp.mongodb.com/release-tools-container-registry-local/garasign-cosign",
-    ]
-    subprocess.run(command, input=os.environ["ARTIFACTORY_PASSWORD"].encode("utf-8"), check=True)
+def docker_login_to_ecr(registry: str = "901841024863.dkr.ecr.us-east-1.amazonaws.com") -> None:
+    # Uses a named profile rather than the default credential chain. Other AWS calls in this same
+    # process (e.g. ecr_login_boto3 in image_build_process.py, which authenticates to a different
+    # ECR account) rely on ambient/instance credentials, so this must not be sourced from bare
+    # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_SESSION_TOKEN env vars, which would shadow those
+    # for the whole process.
+    region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+    password = get_ecr_login_password(region, profile="devprod-platforms-ecr")
+    if password is None:
+        raise RuntimeError(f"Failed to get ECR login password for {registry}")
+    command = ["docker", "login", "--username", "AWS", "--password-stdin", registry]
+    subprocess.run(command, input=password.encode("utf-8"), check=True)
 
 
-def get_ecr_login_password(region: str) -> Optional[str]:
+def get_ecr_login_password(region: str, profile: Optional[str] = None) -> Optional[str]:
     """
     Retrieves the login password from aws CLI, the secrets need to be stored in ~/.aws/credentials or equivalent.
     :param region: Registry's AWS region
+    :param profile: Optional named AWS profile to use instead of the default credential chain
     :return: The password as a string
     """
+    command = ["aws", "ecr", "get-login-password", "--region", region]
+    if profile:
+        command.extend(["--profile", profile])
     try:
-        result = subprocess.run(
-            ["aws", "ecr", "get-login-password", "--region", region], capture_output=True, text=True, check=True
-        )
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to get ECR login password: {e.stderr}")
@@ -97,6 +102,11 @@ def get_ecr_login_password(region: str) -> Optional[str]:
 
 def is_ecr_registry(image_name: str) -> bool:
     return "amazonaws.com" in image_name
+
+
+def _append_ecr_creds(command: List[str], image_name: str) -> None:
+    if is_ecr_registry(image_name):
+        command.append(f"--creds=AWS:{get_ecr_login_password(os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))}")
 
 
 def get_image_digest(image_name: str) -> Optional[str]:
@@ -119,10 +129,7 @@ def get_image_digest(image_name: str) -> Optional[str]:
     ]
 
     # Specify ECR credentials if necessary
-    if is_ecr_registry(image_name):
-        aws_region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-        ecr_password = get_ecr_login_password(aws_region)
-        digest_command.append(f"--creds=AWS:{ecr_password}")
+    _append_ecr_creds(digest_command, image_name)
 
     digest_command.append(f"{transport_protocol}{image_name}")
 
@@ -132,6 +139,48 @@ def get_image_digest(image_name: str) -> Optional[str]:
         return digest
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to get digest for {image_name}: {e.stderr}")
+
+
+def get_manifest_digests(image_name: str) -> List[str]:
+    """
+    Returns the per-platform manifest digests if image_name is a multi-arch manifest list/OCI index,
+    or an empty list otherwise.
+
+    :param image_name: The full image name with its tag or digest.
+    :return: A list of platform-specific manifest digests.
+    """
+
+    transport_protocol = "docker://"
+    raw_command = [
+        "docker",
+        "run",
+        "--rm",
+        f"--volume={os.path.expanduser('~')}/.aws:/root/.aws:ro",
+        "quay.io/skopeo/stable:latest",
+        "inspect",
+        "--raw",
+    ]
+
+    _append_ecr_creds(raw_command, image_name)
+
+    raw_command.append(f"{transport_protocol}{image_name}")
+
+    result = run_command_with_retries(raw_command)
+
+    manifest = json.loads(result.stdout)
+    manifest_list_media_types = (
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.oci.image.index.v1+json",
+    )
+    if manifest.get("mediaType") not in manifest_list_media_types:
+        # Single-arch image: nothing to recurse into.
+        return []
+
+    digests = []
+    for entry in manifest.get("manifests", []):
+        platform = entry.get("platform", {})
+        digests.append(entry["digest"])
+    return digests
 
 
 def build_cosign_docker_command(additional_args: List[str], cosign_command: List[str]) -> List[str]:
@@ -198,6 +247,7 @@ def sign_image(repository: str, tag: str) -> None:
         f"--use-signing-config=false",
         f"--new-bundle-format=false",
         f"--tlog-upload=false",
+        "--recursive",
         image_ref,
     ]
     command = build_cosign_docker_command(additional_args, cosign_command)
@@ -241,14 +291,34 @@ def verify_signature(repository: str, tag: str):
         "--env",
         f"{public_key_var_name}={kubernetes_operator_public_key}",
     ]
-    cosign_command = ["verify", "--insecure-ignore-tlog=true", f"--key=env://{public_key_var_name}", image]
-    command = build_cosign_docker_command(additional_args, cosign_command)
 
-    try:
+    def verify_ref(image_ref: str) -> None:
+        cosign_command = [
+            "verify",
+            "--insecure-ignore-tlog=true",
+            f"--key=env://{public_key_var_name}",
+            image_ref,
+        ]
+        command = build_cosign_docker_command(additional_args, cosign_command)
         run_command_with_retries(command, retries=10)
+
+    # The top-level image ref (the multi-arch index digest, if applicable) must always
+    # have a valid signature.
+    try:
+        verify_ref(image)
     except subprocess.CalledProcessError as e:
         # Fail the pipeline if verification fails
         raise Exception(f"Failed to verify signature for image {image}")
+
+    # cosign verify has no --recursive flag. Since sign_image signs the top-level
+    # multi-arch image index AND each per-platform image individually (via
+    # --recursive), also verify every platform digest here.
+    for digest in get_manifest_digests(image):
+        platform_ref = f"{repository}@{digest}"
+        try:
+            verify_ref(platform_ref)
+        except subprocess.CalledProcessError as e:
+            raise Exception(f"Failed to verify signature for platform image {platform_ref}: {e.stderr}")
 
     end_time = time.time()
     duration = end_time - start_time

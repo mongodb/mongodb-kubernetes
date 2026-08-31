@@ -73,6 +73,7 @@ const (
 	EnvVarDebug            = "MDB_AGENT_DEBUG"
 	EnvVarDebugImage       = "MDB_AGENT_DEBUG_IMAGE"
 	EnvVarAgentVersion     = "MDB_AGENT_VERSION"
+	EnvVarCustomAgentURL   = "MDB_CUSTOM_AGENT_URL"
 	EnvVarMultiClusterMode = "MULTI_CLUSTER_MODE"
 
 	// EnvVarSSLRequireValidMMSCertificates bla bla
@@ -227,10 +228,6 @@ const (
 	SearchVersionEnv         = "MDB_SEARCH_VERSION"
 	EnvoyImageEnv            = "MDB_ENVOY_IMAGE"
 	MetricsForwarderImageEnv = "MDB_SEARCH_METRICS_FORWARDER_IMAGE"
-	// SearchEnableMultiClusterEnv lets a single operator reconcile a MongoDBSearch with
-	// more than one spec.clusters entry; defaults to false (block on) when unset, so an
-	// accidentally-set or zero-value bool fails safe to blocking.
-	SearchEnableMultiClusterEnv = "MDB_SEARCH_ENABLE_MULTI_CLUSTER"
 
 	// VoyageAI environment variables
 	VoyageAIRepoURLEnv = "MDB_VOYAGEAI_REPO_URL"
@@ -260,16 +257,15 @@ const (
 	DefaultS3MaxConnections = 50
 
 	// Ops Manager related constants
-	OmPropertyPrefix                   = "OM_PROP_"
-	MmsJvmParamEnvVar                  = "CUSTOM_JAVA_MMS_UI_OPTS"
-	BackupDaemonJvmParamEnvVar         = "CUSTOM_JAVA_DAEMON_OPTS"
-	GenKeyPath                         = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion                    = "5.0"
-	AppDBAutomationConfigKey           = "cluster-config.json"
-	AppDBMonitoringAutomationConfigKey = "monitoring-cluster-config.json"
-	DefaultAppDbPasswordKey            = "password"
-	AppDbConnectionStringKey           = "connectionString"
-	AppDbProjectIdKey                  = "projectId"
+	OmPropertyPrefix           = "OM_PROP_"
+	MmsJvmParamEnvVar          = "CUSTOM_JAVA_MMS_UI_OPTS"
+	BackupDaemonJvmParamEnvVar = "CUSTOM_JAVA_DAEMON_OPTS"
+	GenKeyPath                 = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion            = "5.0"
+	AppDBAutomationConfigKey   = "cluster-config.json"
+	DefaultAppDbPasswordKey    = "password"
+	AppDbConnectionStringKey   = "connectionString"
+	AppDbProjectIdKey          = "projectId"
 	// Immutable backups were introduced in 8.0.19
 	// This variable is used for validating the OM version when an s3 store with object lock is configured
 	MinimumVersionImmutableBackup = "8.0.19"
@@ -318,6 +314,23 @@ const (
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
+
+	// DisableReconciliationAnnotation when set to "true" on a CR, short-circuits
+	// the reconciler: it returns Result{} + nil without mutating any owned objects.
+	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
+
+	// AppDBMigrationReadyAnnotation marks the internal AppDB StatefulSet as fully detached from
+	// the MongoDBOpsManager resource, allowing the referenced MongoDB resource to
+	// adopt it (see checkAdoptionGate).
+	AppDBMigrationReadyAnnotation = "mongodb.com/appdb-migration-ready"
+
+	// AppDBReverseMigrationReadyAnnotation is the reverse-migration release request: set by the
+	// internal AppDB reconciler on a StatefulSet still owned by a MongoDB CR, answered by the
+	// MongoDB controller stripping its OwnerReference, and removed at adoption
+	// (ensureAppDBStatefulSetOwnership). Removal happens at adoption (not at migration
+	// completion), symmetric with the forward direction's consumeAdoptionSignal: from adoption
+	// onward the OwnerReference is the authoritative state.
+	AppDBReverseMigrationReadyAnnotation = "mongodb.com/appdb-reverse-migration-ready"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"

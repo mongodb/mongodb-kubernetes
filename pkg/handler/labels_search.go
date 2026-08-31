@@ -6,19 +6,41 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Cross-cluster enqueue labels for search-owned member-cluster resources.
-// Owner references do not cross cluster boundaries; both the search controller
-// and the Envoy controller stamp these labels on every member-cluster write so
-// mappers / predicates can enqueue the central MongoDBSearch request.
+// Search resource identity labels used for routing and cleanup.
 const (
 	MongoDBSearchOwnerNameLabel      = "mongodb.com/search-name"
 	MongoDBSearchOwnerNamespaceLabel = "mongodb.com/search-namespace"
-	// MongoDBSearchClusterNameLabel records the owning member cluster on
-	// per-cluster member resources (Envoy Deployment + ConfigMap).
-	MongoDBSearchClusterNameLabel = "mongodb.com/cluster-name"
+	MongoDBSearchComponentLabel      = "component"
 )
+
+// SearchOwnershipLabels returns the labels tying a resource to its owning
+// MongoDBSearch: the search-name/search-namespace identity pair, plus the app
+// and component labels when non-empty. Writers apply them last so user label
+// overrides can never detach a resource from its owning MongoDBSearch.
+func SearchOwnershipLabels(search metav1.Object, app, component string) map[string]string {
+	labels := map[string]string{
+		MongoDBSearchOwnerNameLabel:      search.GetName(),
+		MongoDBSearchOwnerNamespaceLabel: search.GetNamespace(),
+	}
+	if app != "" {
+		labels["app"] = app
+	}
+	if component != "" {
+		labels[MongoDBSearchComponentLabel] = component
+	}
+	return labels
+}
+
+// HasSearchOwnership reports whether obj belongs to this MongoDBSearch: the
+// search-name and search-namespace labels must match.
+func HasSearchOwnership(obj metav1.Object, search metav1.Object) bool {
+	labels := obj.GetLabels()
+	return labels[MongoDBSearchOwnerNameLabel] == search.GetName() && labels[MongoDBSearchOwnerNamespaceLabel] == search.GetNamespace()
+}
 
 // MapMemberClusterObjectToSearch reads the search-owner labels off a watched
 // member-cluster object and returns the reconcile request for the central

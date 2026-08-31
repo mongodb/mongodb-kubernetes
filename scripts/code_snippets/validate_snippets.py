@@ -40,7 +40,8 @@ def verify_snippets_files_are_unique():
 
     file_map = defaultdict(list)
 
-    print(f"Checking for duplicate file names across code snippet directories:\n {"\t\n".join(dirs)}")
+    dirs_str = "\t\n".join(dirs)
+    print(f"Checking for duplicate file names across code snippet directories:\n{dirs_str}")
 
     # Scan all files in code_snippets subdirectories only
     for snippet_dir in dirs:

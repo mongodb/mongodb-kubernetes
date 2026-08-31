@@ -164,6 +164,70 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 	return workflow.OK()
 }
 
+// preserveExistingVolumeClaimTemplateMetadata copies metadata.labels and metadata.annotations
+// from the live StatefulSet's volumeClaimTemplates onto the desired ones, matching by claim name.
+
+// spec.volumeClaimTemplates is immutable in Kubernetes, so any divergence - adding, changing or
+// removing a label - makes the whole StatefulSet update fail (CLOUDP-208587).
+//
+// Divergences are dropped rather than failing the reconcile, and reported when a statefulSet
+// override explicitly asks for metadata which cannot be applied.
+func preserveExistingVolumeClaimTemplateMetadata(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+	existingStatefulSet, err := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
+	if err != nil {
+		// First reconciliation, the desired volume claim templates are used as they are.
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, existingClaim := range existingStatefulSet.Spec.VolumeClaimTemplates {
+		for i := range desiredSts.Spec.VolumeClaimTemplates {
+			desiredClaim := &desiredSts.Spec.VolumeClaimTemplates[i]
+			if desiredClaim.Name != existingClaim.Name {
+				continue
+			}
+
+			warnAboutIgnoredVolumeClaimTemplateMetadata(desiredSts.Name, *desiredClaim, existingClaim, log)
+
+			desiredClaim.Labels = existingClaim.Labels
+			desiredClaim.Annotations = existingClaim.Annotations
+		}
+	}
+
+	return nil
+}
+
+// warnAboutIgnoredVolumeClaimTemplateMetadata reports the labels and annotations which a statefulSet
+// override asks for but which cannot be applied to an already existing volume claim template.
+func warnAboutIgnoredVolumeClaimTemplateMetadata(stsName string, desiredClaim, existingClaim corev1.PersistentVolumeClaim, log *zap.SugaredLogger) {
+	if droppedLabels := droppedMetadataEntries(desiredClaim.Labels, existingClaim.Labels); len(droppedLabels) > 0 {
+		log.Warnf("Not applying the labels %v to the volume claim template %s of statefulset %s: spec.volumeClaimTemplates "+
+			"is immutable, so the existing labels %v are kept instead", droppedLabels, existingClaim.Name, stsName, existingClaim.Labels)
+	}
+
+	if droppedAnnotations := droppedMetadataEntries(desiredClaim.Annotations, existingClaim.Annotations); len(droppedAnnotations) > 0 {
+		log.Warnf("Not applying the annotations %v to the volume claim template %s of statefulset %s: spec.volumeClaimTemplates "+
+			"is immutable, so the existing annotations %v are kept instead", droppedAnnotations, existingClaim.Name, stsName, existingClaim.Annotations)
+	}
+}
+
+// droppedMetadataEntries returns the desired metadata entries which an update would have to change.
+//
+// Entries only present in the existing map are deliberately left out in order to not trigger a warning
+// on every single reconciliation.
+func droppedMetadataEntries(desired, existing map[string]string) map[string]string {
+	dropped := map[string]string{}
+	for key, desiredValue := range desired {
+		if existingValue, ok := existing[key]; !ok || existingValue != desiredValue {
+			dropped[key] = desiredValue
+		}
+	}
+
+	return dropped
+}
+
 func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, sleepDuration time.Duration, log *zap.SugaredLogger) bool {
 	// After deleting the statefulset it can take seconds to be reflected in kubernetes.
 	// In case it is still not reflected
@@ -355,6 +419,10 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, name
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
 func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	if err := preserveExistingVolumeClaimTemplateMetadata(ctx, client, &sts, log); err != nil {
+		return nil, err
+	}
+
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		return nil, err
@@ -384,6 +452,10 @@ func (s StatefulSetIsRecreating) Error() string {
 
 // BackupDaemonInKubernetes creates or updates the StatefulSet and Services required.
 func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	if err := preserveExistingVolumeClaimTemplateMetadata(ctx, client, &sts, log); err != nil {
+		return nil, err
+	}
+
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		// Check if it is a k8s error or a custom one

@@ -922,7 +922,7 @@ func checkReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reco
 
 func checkOMReconciliationSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager, client client.Client) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
-	expected := reconcile.Result{Requeue: true}
+	expected, _ := workflow.Pending("doesn't matter").Requeue().ReconcileResult()
 	assert.Equal(t, expected, res)
 	assert.NoError(t, err)
 
@@ -951,7 +951,7 @@ func checkOMReconciliationInvalid(ctx context.Context, t *testing.T, reconciler 
 func checkOMReconciliationPending(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, om *omv1.MongoDBOpsManager) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(om))
 	assert.NoError(t, err)
-	assert.True(t, res.Requeue || res.RequeueAfter == time.Duration(10000000000))
+	assert.True(t, res.RequeueAfter > 0)
 }
 
 func checkReconcileFailed(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, object *mdbv1.MongoDB, expectedRetry bool, expectedErrorMessage string, client client.Client) {
@@ -1082,6 +1082,46 @@ func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV stri
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("Version=%s", tc.version), func(t *testing.T) {
 			verifyFCV(tc.version, tc.expectedFCV, tc.fcvOverride, t)
+		})
+	}
+}
+
+func TestAgentVersionFromURL(t *testing.T) {
+	testCases := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "rhel8 x86_64",
+			url:      "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6a5f74111e6a450007f4f7a5/automation-agent/local/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz",
+			expected: "108.0.26.9047-1",
+		},
+		{
+			name:     "amzn2 aarch64",
+			url:      "https://example.com/mongodb-mms-automation-agent-107.0.23.8833-1.amzn2_aarch64.tar.gz",
+			expected: "107.0.23.8833-1",
+		},
+		{
+			name:     "linux x86_64",
+			url:      "https://example.com/mongodb-mms-automation-agent-11.0.5.6963-1.linux_x86_64.tar.gz",
+			expected: "11.0.5.6963-1",
+		},
+		{
+			name:     "rhel8 ppc64le",
+			url:      "https://example.com/mongodb-mms-automation-agent-13.10.0.8620-1.rhel8_ppc64le.tar.gz",
+			expected: "13.10.0.8620-1",
+		},
+		{
+			name:     "empty string",
+			url:      "",
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, agentVersionFromURL(tc.url))
 		})
 	}
 }

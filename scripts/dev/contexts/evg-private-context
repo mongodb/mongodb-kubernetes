@@ -77,7 +77,22 @@ export BUILD_ID="${build_id:-"unknown"}"
 export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
 export VERSION_ID="${version_id:-"unknown"}"
-export GIT_TAG="${triggered_by_git_tag:-}"
+# Strip the "old-"/"new-" release-trigger-tag prefix "new-" or "old-"
+# everything downstream expects GIT_TAG as "X.Y.Z" version
+GIT_TAG="${triggered_by_git_tag:-}"
+GIT_TAG="${GIT_TAG#old-}"
+GIT_TAG="${GIT_TAG#new-}"
+# A "test-" prefix (only ever paired with "new-") marks a dry-run release:
+# publish to an override registry instead of the real production one, and
+# never push/publish real-facing artifacts (tags, GH releases). Strip it so
+# GIT_TAG remains a plain "X.Y.Z" version everywhere downstream.
+IS_DRYRUN="false"
+if [[ "${GIT_TAG}" == test-* ]]; then
+    IS_DRYRUN="true"
+    GIT_TAG="${GIT_TAG#test-}"
+fi
+export IS_DRYRUN
+export GIT_TAG
 
 # var used in pipeline.py to determine if we're running on EVG host
 # used to discern between local pipeline image build and the build in pipeline

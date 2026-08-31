@@ -28,6 +28,21 @@ const (
 	ClusterTopologyMultiCluster = "MultiCluster"
 )
 
+// AppDBUserRoles defines required roles for the AppDB user that are outlined in the documentation
+// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
+var AppDBUserRoles = []authtypes.Role{
+	{Name: "readWriteAnyDatabase", Database: "admin"},
+	{Name: "dbAdminAnyDatabase", Database: "admin"},
+	{Name: "clusterMonitor", Database: "admin"},
+	// Allows user to do db.fsyncLock required by CLOUDP-78890
+	// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+	{Name: "backup", Database: "admin"},
+	{Name: "restore", Database: "admin"},
+	// Allows user to do db.fsyncLock required by CLOUDP-78890
+	// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
+	{Name: "hostManager", Database: "admin"},
+}
+
 type AppDBSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
 	Version string `json:"version"`
@@ -61,9 +76,10 @@ type AppDBSpec struct {
 	// specify configuration like startup flags and automation config settings for the AutomationAgent and MonitoringAgent
 	AutomationAgent mdbv1.AgentConfig `json:"agent,omitempty"`
 
-	// Specify configuration like startup flags just for the MonitoringAgent.
-	// These take precedence over
-	// the flags set in AutomationAgent
+	// Deprecated: this field has no effect. The monitoring agent now runs inside the
+	// automation agent. Configure agent options, including log level and rotation, via
+	// spec.appDB.agent. Remove this field from your configuration.
+	// +optional
 	MonitoringAgent mdbv1.MonitoringAgentConfig `json:"monitoringAgent,omitempty"`
 	ConnectionSpec  `json:",inline"`
 
@@ -197,8 +213,6 @@ func (m *AppDBSpec) GetAuthOptions() authtypes.Options {
 	}
 }
 
-// GetAuthUsers returns a list of all scram users for this deployment.
-// in this case it is just the Ops Manager user for the AppDB.
 func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	passwordSecretName := m.GetOpsManagerUserPasswordSecretName()
 	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Name != "" {
@@ -206,40 +220,9 @@ func (m *AppDBSpec) GetAuthUsers() []authtypes.User {
 	}
 	return []authtypes.User{
 		{
-			Username: util.OpsManagerMongoDBUserName,
-			Database: util.DefaultUserDatabase,
-			// required roles for the AppDB user are outlined in the documentation
-			// https://docs.opsmanager.mongodb.com/current/tutorial/prepare-backing-mongodb-instances/#replica-set-security
-			Roles: []authtypes.Role{
-				{
-					Name:     "readWriteAnyDatabase",
-					Database: "admin",
-				},
-				{
-					Name:     "dbAdminAnyDatabase",
-					Database: "admin",
-				},
-				{
-					Name:     "clusterMonitor",
-					Database: "admin",
-				},
-				// Enables backup and restoration roles
-				// https://docs.mongodb.com/manual/reference/built-in-roles/#backup-and-restoration-roles
-				{
-					Name:     "backup",
-					Database: "admin",
-				},
-				{
-					Name:     "restore",
-					Database: "admin",
-				},
-				// Allows user to do db.fsyncLock required by CLOUDP-78890
-				// https://docs.mongodb.com/manual/reference/built-in-roles/#hostManager
-				{
-					Name:     "hostManager",
-					Database: "admin",
-				},
-			},
+			Username:                   util.OpsManagerMongoDBUserName,
+			Database:                   util.DefaultUserDatabase,
+			Roles:                      AppDBUserRoles,
 			PasswordSecretKey:          m.GetOpsManagerUserPasswordSecretKey(),
 			PasswordSecretName:         passwordSecretName,
 			ScramCredentialsSecretName: m.OpsManagerUserScramCredentialsName(),
@@ -255,7 +238,13 @@ func (m *AppDBSpec) NamespacedName() types.NamespacedName {
 // GetOpsManagerUserPasswordSecretName returns the name of the secret
 // that will store the Ops Manager user's password.
 func (m *AppDBSpec) GetOpsManagerUserPasswordSecretName() string {
-	return m.Name() + "-om-password"
+	return OpsManagerUserPasswordSecretName(m.Name())
+}
+
+// OpsManagerUserPasswordSecretName returns the name of the secret that will
+// store the Ops Manager user's password, given the AppDB's effective name.
+func OpsManagerUserPasswordSecretName(omName string) string {
+	return omName + "-om-password"
 }
 
 // GetOpsManagerUserPasswordSecretKey returns the key that should be used to map to the Ops Manager user's
@@ -353,10 +342,6 @@ func (b *AppDbBuilder) Build() *AppDBSpec {
 	return b.appDb.DeepCopy()
 }
 
-func (m *AppDBSpec) GetSecretName() string {
-	return m.Name() + "-password"
-}
-
 func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
 	type MongoDBJSON *AppDBSpec
 	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
@@ -405,10 +390,6 @@ func (m *AppDBSpec) ServiceName() string {
 
 func (m *AppDBSpec) AutomationConfigSecretName() string {
 	return m.Name() + "-config"
-}
-
-func (m *AppDBSpec) MonitoringAutomationConfigSecretName() string {
-	return m.Name() + "-monitoring-config"
 }
 
 func (m *AppDBSpec) GetAgentLogFile() string {
@@ -466,10 +447,6 @@ func (m *AppDBSpec) NeedsAutomationConfigVolume() bool {
 
 func (m *AppDBSpec) AutomationConfigConfigMapName() string {
 	return fmt.Sprintf("%s-automation-config-version", m.Name())
-}
-
-func (m *AppDBSpec) MonitoringAutomationConfigConfigMapName() string {
-	return fmt.Sprintf("%s-monitoring-automation-config-version", m.Name())
 }
 
 // GetSecretsMountedIntoPod returns the list of strings mounted into the pod that we need to watch.

@@ -76,6 +76,10 @@ spec:
                   has the fields: "Username", "Password", "FirstName", "LastName"
                 type: string
               applicationDatabase:
+                description: |-
+                  AppDB configures the internally-managed Application Database. Required unless
+                  ExternalAppDBRef is set, in which case it may be omitted entirely.
+                  Ignored when ExternalAppDBRef is set.
                 properties:
                   additionalMongodConfig:
                     description: |-
@@ -581,9 +585,9 @@ spec:
                     type: integer
                   monitoringAgent:
                     description: |-
-                      Specify configuration like startup flags just for the MonitoringAgent.
-                      These take precedence over
-                      the flags set in AutomationAgent
+                      Deprecated: this field has no effect. The monitoring agent now runs inside the
+                      automation agent. Configure agent options, including log level and rotation, via
+                      spec.appDB.agent. Remove this field from your configuration.
                     properties:
                       startupOptions:
                         additionalProperties:
@@ -1622,6 +1626,27 @@ spec:
                 description: The configuration properties passed to Ops Manager/Backup
                   Daemon
                 type: object
+              externalApplicationDatabaseRef:
+                description: |-
+                  ExternalAppDBRef references a MongoDB resource
+                  to use as this Ops Manager's AppDB, instead of the internally-managed one.
+                  Takes precedence over AppDB when both are set.
+                properties:
+                  kind:
+                    description: Kind of the referenced resource.
+                    enum:
+                    - MongoDB
+                    type: string
+                  name:
+                    description: |-
+                      Name of the MongoDB resource to use as the external AppDB.
+                      Must be in the same namespace as the MongoDBOpsManager resource, and named
+                      <MongoDBOpsManager name>-db.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
               externalConnectivity:
                 description: |-
                   MongoDBOpsManagerExternalConnectivity if sets allows for the creation of a Service for
@@ -1786,9 +1811,12 @@ spec:
               version:
                 type: string
             required:
-            - applicationDatabase
             - version
             type: object
+            x-kubernetes-validations:
+            - message: at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef
+                must be set
+              rule: has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)
           status:
             properties:
               applicationDatabase:

@@ -140,6 +140,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcileResult, err
 	}
 
+	if mrs.IsReconciliationDisabled() {
+		log.Infof("MongoDBMultiCluster %s/%s reconciliation disabled by %s annotation; skipping",
+			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
+	}
+
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.client, SecretClient: r.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), true)
 	}
@@ -528,6 +534,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
 			WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
+			WithCustomAgentURL(r.customAgentURL),
+
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture)),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
@@ -1206,6 +1214,11 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 // OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
 func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	mrs := obj.(*mdbmultiv1.MongoDBMultiCluster)
+	if mrs.IsReconciliationDisabled() {
+		log.Infof("MongoDBMultiCluster %s/%s OnDelete skipped due to %s annotation",
+			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)
+		return nil
+	}
 	return r.deleteManagedResources(ctx, *mrs, log)
 }
 

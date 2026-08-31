@@ -450,10 +450,10 @@ def test_no_admin_key_secret_in_kubernetes(namespace: str, ops_manager: MongoDBO
 @mark.e2e_vault_setup_om_backup
 def test_appdb_reached_running_and_pod_count(ops_manager: MongoDBOpsManager, namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-    # check AppDB has 4 containers(+1 because of vault-agent)
+    # check AppDB has 3 containers: mongodb-agent, mongod, vault-agent
     for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-        assert_container_count_with_static(len(pod.spec.containers), 4)
+        assert_container_count_with_static(len(pod.spec.containers), 3)
 
 
 @mark.e2e_vault_setup_om_backup
