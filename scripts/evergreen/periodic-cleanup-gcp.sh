@@ -1,325 +1,197 @@
 #!/usr/bin/env bash
+# Periodically deletes everything in the test GCP project older than
+# AGE_THRESHOLD_HOURS, except a small denylist of shared infrastructure.
+#
+# The project is exclusively used by ephemeral e2e test infrastructure:
+# audit logs (verified Aug 2026) show all resource creation traces to the
+# k8s-operator-e2e-tests service account or the GKE control planes of the
+# clusters it creates. Age is therefore the only filter needed. Resources
+# still in use cannot be deleted by gcloud, so delete failures are tolerated
+# and retried on the next run. Clusters are deleted first so dependent
+# resources are released before their own delete is attempted.
 set -euo pipefail
 
-# Periodic GCP garbage collector for MongoDB Kubernetes code-snippet CI (KUBE-268).
-#
-# Deletes GKE clusters, DNS managed zones, global load-balancer resources, and
-# IAM service accounts that are older than AGE_THRESHOLD_HOURS and match the
-# code-snippet naming patterns. Reclaims resources leaked by failed or
-# interrupted CI runs without touching resources from in-flight runs.
-#
-# Env:
-#   AGE_THRESHOLD_HOURS  Hours of age after which a resource is eligible (default: 24).
-#   MDB_GKE_PROJECT      GCP project ID (required).
-
 AGE_THRESHOLD_HOURS="${AGE_THRESHOLD_HOURS:-24}"
+DRY_RUN="${DRY_RUN:-false}"
 : "${MDB_GKE_PROJECT:?MDB_GKE_PROJECT is required}"
-
-# Validate AGE_THRESHOLD_HOURS to prevent arithmetic injection / accidental
-# threshold of zero (which would mark every matching resource as stale).
 if ! [[ "${AGE_THRESHOLD_HOURS}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: AGE_THRESHOLD_HOURS must be a positive integer, got: '${AGE_THRESHOLD_HOURS}'" >&2
+    echo "ERROR: AGE_THRESHOLD_HOURS must be a positive integer" >&2
     exit 1
 fi
-
-# Require GNU date (for -d flag). On macOS/BSD, date -d fails and every
-# resource would be silently skipped — fail loudly instead.
-if ! date -u -d "2026-01-01T00:00:00Z" +%s >/dev/null 2>&1; then
-    echo "ERROR: GNU date is required (the -d flag is not supported on this system)." >&2
-    exit 1
-fi
-
-threshold_seconds=$(( $(date -u +%s) - AGE_THRESHOLD_HOURS * 3600 ))
+case "${DRY_RUN}" in true|false) ;; *) echo "ERROR: DRY_RUN must be 'true' or 'false'" >&2; exit 1 ;; esac
+threshold_epoch=$(( $(date -u +%s) - AGE_THRESHOLD_HOURS * 3600 ))
 overall_failed=0
 
-# Return 0 if the creation timestamp is older than the age threshold.
-# Unparseable timestamps are treated as "not stale" (skipped, not deleted).
-is_stale() {
-    local epoch
-    epoch=$(date -u -d "$1" +%s 2>/dev/null || true)
-    [[ "${epoch}" =~ ^[0-9]+$ ]] && (( epoch > 0 && epoch < threshold_seconds ))
-}
-
-# Attempt to delete a resource. Returns 0 on success or if the resource is
-# already gone (concurrent delete by a run's own teardown), 1 on genuine
-# failure. Prints captured stderr for diagnostics on failure.
 try_delete() {
-    local rc=0 stderr_capture
-    stderr_capture=$("$@" 2>&1 1>/dev/null) || rc=$?
-    if [[ ${rc} -eq 0 ]]; then
-        return 0
-    fi
-    if echo "${stderr_capture}" | grep -qiE "was not found|NOT_FOUND|notFound"; then
-        return 0  # already gone — concurrent delete, treat as success
-    fi
-    echo "  stderr: ${stderr_capture}" >&2
+    local stderr rc=0
+    if [[ "${DRY_RUN}" == true ]]; then printf '  dry-run:' >&2; printf ' %q' "$@" >&2; printf '\n' >&2; return 0; fi
+    printf '  running:' >&2; printf ' %q' "$@" >&2; printf '\n' >&2
+    stderr=$("$@" 2>&1 1>/dev/null) || rc=$?
+    (( rc == 0 )) && return 0
+    grep -qiE 'not found|NOT_FOUND|notFound|does not exist|not present' <<<"${stderr}" && return 0
+    printf '  stderr: %s\n' "${stderr}" >&2
     return 1
 }
 
-# Read "name<TAB>creationTimestamp" lines from stdin. Delete resources whose
-# name matches $1 (bash regex) and that are older than the threshold. Remaining
-# args are the delete command prefix (resource name and -q are appended).
-process_resource_list() {
-    local pattern="$1"
-    shift
-    local deleted=0
-    local skipped=0
+# gcloud emits empty fields for unset attributes (e.g. region/zone on global
+# resources); bash read would collapse the resulting consecutive tabs and
+# misalign positional fields. Normalize empties to "-" placeholders.
+denormalize_tsv() {
+    awk 'BEGIN{FS=OFS="\t"} {for(i=1;i<=NF;i++) if($i=="") $i="-"; print}'
+}
 
-    while IFS=$'\t' read -r name create_time; do
-        [[ -z "${name}" ]] && continue
-        [[ "${name}" =~ ${pattern} ]] || continue
-        if is_stale "${create_time}"; then
-            if try_delete "$@" "${name}" -q; then
-                echo "  deleted: ${name}"
-                deleted=$(( deleted + 1 ))
-            else
-                echo "  FAILED:  ${name}"
-                overall_failed=1
-            fi
-        else
-            echo "  skipped: ${name}"
-            skipped=$(( skipped + 1 ))
-        fi
+# filter_old: reads TSV rows whose LAST field is a creation epoch (as emitted
+# by gcloud's creationTimestamp.date('%s')) and emits only rows older than the
+# threshold. Fails closed: a blank row or a non-numeric epoch fails the whole
+# function, and the caller must not trust partial output (no deletions for
+# that class).
+filter_old() {
+    local line ts
+    while IFS= read -r line; do
+        ts=${line##*$'\t'}
+        ts=${ts%%.*}
+        [[ "${ts}" =~ ^[0-9]+$ ]] || return 1
+        (( ts <= threshold_epoch )) || continue
+        printf '%s\n' "${line}"
     done
-
-    echo "  summary: ${deleted} deleted, ${skipped} skipped"
 }
 
-# Delete a single GKE cluster with not-found tolerance and per-cluster logging.
-# Designed to be backgrounded (&) by the caller.
-delete_cluster() {
-    local name="$1" location="$2"
-    if try_delete gcloud container clusters delete "${name}" --project="${MDB_GKE_PROJECT}" --location="${location}" -q; then
-        echo "  deleted: ${name} (${location})"
-    else
-        echo "  FAILED:  ${name} (${location})"
-        return 1
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# 1. GKE clusters matching ^k8s-mdb- (parallel delete to stay within timeout)
-# ---------------------------------------------------------------------------
-echo "=== GKE clusters (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
-clusters_deleted=0
-clusters_skipped=0
-if ! cluster_list=$(gcloud container clusters list --project="${MDB_GKE_PROJECT}" --format="value(name,location,createTime)" 2>&1); then
-    echo "  ERROR listing clusters: ${cluster_list}"
-    overall_failed=1
-else
-    pids=()
-    while IFS=$'\t' read -r name location create_time; do
-        [[ -z "${name}" ]] && continue
-        [[ "${name}" =~ ^k8s-mdb- ]] || continue
-        if is_stale "${create_time}"; then
-            echo "  deleting: ${name} (${location})"
-            delete_cluster "${name}" "${location}" &
-            pids+=($!)
-        else
-            echo "  skipped: ${name} (${location})"
-            clusters_skipped=$(( clusters_skipped + 1 ))
+# Generic compute reaper: reap_compute <resource> <global kind>
+# kind is "global-flag" (unscoped resources need an explicit --global, e.g.
+# forwarding-rules) or "no-flag" (global by default, e.g. http-health-checks).
+# Zonal and regional resources are detected from the zone/region columns.
+reap_compute() {
+    local resource=$1 kind=$2 rows name region zone
+    if ! rows=$(gcloud compute "${resource}" list --project="${MDB_GKE_PROJECT}" --format="value(name,region,zone,creationTimestamp.date('%s'))" | denormalize_tsv | filter_old); then overall_failed=1; return 0; fi
+    [[ -n "${rows}" ]] || return 0
+    while IFS=$'\t' read -r name region zone _; do
+        local args=()
+        if [[ "${zone}" != "-" ]]; then args=(--zone="${zone##*/}")
+        elif [[ "${region}" != "-" ]]; then args=(--region="${region##*/}")
+        elif [[ "${kind}" == global-flag ]]; then args=(--global)
         fi
-    done <<< "${cluster_list}"
+        try_delete gcloud compute "${resource}" delete "${name}" ${args[@]+"${args[@]}"} --project="${MDB_GKE_PROJECT}" -q || overall_failed=1
+    done <<<"${rows}"
+}
 
-    # Wait for all parallel deletes; count successes and failures.
-    if [[ ${#pids[@]} -gt 0 ]]; then
-        for pid in "${pids[@]}"; do
-            if wait "${pid}" 2>/dev/null; then
-                clusters_deleted=$(( clusters_deleted + 1 ))
-            else
-                overall_failed=1
-            fi
+reap_clusters() {
+    local rows name location pid
+    local pids=()
+    if ! rows=$(gcloud container clusters list --project="${MDB_GKE_PROJECT}" --format="value(name,location,createTime.date('%s'))" | filter_old); then overall_failed=1; return 0; fi
+    [[ -n "${rows}" ]] || return 0
+    # Cluster deletes take minutes each; run them in parallel so a large
+    # backlog cannot push the task past its timeout before the dependent
+    # load-balancer resources are reached.
+    while IFS=$'\t' read -r name location _; do
+        try_delete gcloud container clusters delete "${name}" --project="${MDB_GKE_PROJECT}" --location="${location}" -q &
+        pids+=("$!")
+    done <<<"${rows}"
+    for pid in "${pids[@]}"; do
+        wait "${pid}" || overall_failed=1
+    done
+}
+
+# Firewall rules have no scope flag; the default-* VPC rules are shared
+# infrastructure and are never touched.
+reap_firewall_rules() {
+    local rows name
+    if ! rows=$(gcloud compute firewall-rules list --project="${MDB_GKE_PROJECT}" --format="value(name,creationTimestamp.date('%s'))" | filter_old); then overall_failed=1; return 0; fi
+    [[ -n "${rows}" ]] || return 0
+    while IFS=$'\t' read -r name _; do
+        [[ "${name}" == default-* ]] && continue
+        try_delete gcloud compute firewall-rules delete "${name}" --project="${MDB_GKE_PROJECT}" -q || overall_failed=1
+    done <<<"${rows}"
+}
+
+reap_dns_zones() {
+    local rows zones zone name type extra parse_failed zone_failed i
+    local record_names=() record_types=()
+    if ! zones=$(gcloud dns managed-zones list --project="${MDB_GKE_PROJECT}" --format="value(name,creationTime.date('%s'))" | filter_old); then overall_failed=1; return 0; fi
+    [[ -n "${zones}" ]] || return 0
+    while IFS=$'\t' read -r zone _; do
+        if ! rows=$(gcloud dns record-sets list --zone="${zone}" --project="${MDB_GKE_PROJECT}" --format='value(name,type)'); then
+            overall_failed=1
+            continue
+        fi
+        record_names=(); record_types=(); parse_failed=0
+        while IFS=$'\t' read -r name type extra; do
+            [[ -z "${extra}" && -n "${name}" && -n "${type}" ]] || { parse_failed=1; continue; }
+            [[ "${type}" == NS || "${type}" == SOA ]] || { record_names+=("${name}"); record_types+=("${type}"); }
+        done <<<"${rows}"
+        if (( parse_failed )); then
+            overall_failed=1
+            continue
+        fi
+        zone_failed=0
+        for i in "${!record_names[@]}"; do
+            try_delete gcloud dns record-sets delete "${record_names[i]}" --zone="${zone}" --project="${MDB_GKE_PROJECT}" --type="${record_types[i]}" -q || { overall_failed=1; zone_failed=1; }
         done
-    fi
-fi
-echo "  summary: ${clusters_deleted} deleted, ${clusters_skipped} skipped"
-
-# ---------------------------------------------------------------------------
-# 2. DNS managed zones matching ^mongodb-[a-z0-9] (any suffixed zone; the
-#    bare "mongodb" docs zone is preserved)
-# ---------------------------------------------------------------------------
-echo "=== DNS managed zones (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
-zones_deleted=0
-zones_skipped=0
-if ! zone_list=$(gcloud dns managed-zones list --project="${MDB_GKE_PROJECT}" --format="value(name,creationTime)" 2>&1); then
-    echo "  ERROR listing DNS zones: ${zone_list}"
-    overall_failed=1
-else
-    while IFS=$'\t' read -r zone_name create_time; do
-        [[ -z "${zone_name}" ]] && continue
-        [[ "${zone_name}" =~ ^mongodb-[a-z0-9] ]] || continue
-        if is_stale "${create_time}"; then
-            # Delete all record sets except NS/SOA (mirrors
-            # ra-09_9100_delete_dns_zone.sh). Use --format=value instead of
-            # jq to avoid an unverified dependency.
-            if ! rs_list=$(gcloud dns record-sets list --zone="${zone_name}" --project="${MDB_GKE_PROJECT}" --format="value(name,type)" 2>&1); then
-                echo "  ERROR listing record-sets for zone ${zone_name}: ${rs_list}"
-                overall_failed=1
-                continue
-            fi
-            while IFS=$'\t' read -r rs_name rs_type; do
-                [[ -z "${rs_name}" ]] && continue
-                if [[ "${rs_type}" != "NS" && "${rs_type}" != "SOA" ]]; then
-                    if ! try_delete gcloud dns record-sets delete "${rs_name}" --zone="${zone_name}" --project="${MDB_GKE_PROJECT}" --type="${rs_type}" -q; then
-                        echo "  FAILED record-set: ${rs_name} (${rs_type})"
-                        overall_failed=1
-                    fi
-                fi
-            done <<< "${rs_list}"
-            if try_delete gcloud dns managed-zones delete "${zone_name}" --project="${MDB_GKE_PROJECT}" -q; then
-                echo "  deleted: ${zone_name}"
-                zones_deleted=$(( zones_deleted + 1 ))
-            else
-                echo "  FAILED:  ${zone_name}"
-                overall_failed=1
-            fi
-        else
-            echo "  skipped: ${zone_name}"
-            zones_skipped=$(( zones_skipped + 1 ))
+        if (( zone_failed == 0 )); then
+            try_delete gcloud dns managed-zones delete "${zone}" --project="${MDB_GKE_PROJECT}" -q || overall_failed=1
         fi
-    done <<< "${zone_list}"
-fi
-echo "  summary: ${zones_deleted} deleted, ${zones_skipped} skipped"
-
-# ---------------------------------------------------------------------------
-# 3. Global LB resources (in dependency order)
-# ---------------------------------------------------------------------------
-# Helper: list, filter by pattern+age, delete with try_delete. $1=display,
-# $2=regex, $3=gcloud resource type, remaining args are extra gcloud flags
-# (e.g. --global) shared by both list and delete.
-reap_compute_resource() {
-    local display="$1" pattern="$2" resource="$3"
-    shift 3
-    echo "=== ${display} (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
-    if ! list_output=$(gcloud compute "${resource}" list "$@" --project="${MDB_GKE_PROJECT}" --format="value(name,creationTimestamp)" 2>&1); then
-        echo "  ERROR listing ${display}: ${list_output}"
-        overall_failed=1
-    else
-        process_resource_list "${pattern}" gcloud compute "${resource}" delete "$@" --project="${MDB_GKE_PROJECT}" <<< "${list_output}"
-    fi
+    done <<<"${zones}"
 }
 
-reap_compute_resource "Forwarding rules" '^om-forwarding-rule' forwarding-rules --global
-reap_compute_resource "Target HTTPS proxies" '^om-lb-proxy' target-https-proxies
-reap_compute_resource "URL maps" '^om-url-map' url-maps
-reap_compute_resource "Backend services" '^om-backend-service' backend-services --global
-reap_compute_resource "Health checks" '^om-healthcheck' health-checks
-reap_compute_resource "SSL certificates" '^om-certificate' ssl-certificates
-reap_compute_resource "Firewall rules" '^fw-ops-manager-hc' firewall-rules
+# sa_keys_all_old: reads single-column key validAfterTime epoch rows. Returns
+# 0 only when at least one user-managed key exists and every key is old;
+# 1 when the account is in use (no keys or a young key); 2 on a malformed
+# epoch (caller treats as failure).
+sa_keys_all_old() {
+    local ts count=0
+    while IFS= read -r ts; do
+        ts=${ts%%.*}
+        [[ -n "${ts}" ]] || continue
+        [[ "${ts}" =~ ^[0-9]+$ ]] || return 2
+        count=$((count + 1))
+        (( ts <= threshold_epoch )) || return 1
+    done
+    (( count > 0 )) || return 1
+    return 0
+}
 
-# ---------------------------------------------------------------------------
-# 3b. GKE LoadBalancer firewall rules (k8s-fw-*, k8s-*-hc). GKE auto-deletes
-#     its own managed rules on cluster delete, but LB Service rules are left
-#     behind and accumulate until the project FIREWALLS quota (500) is
-#     exhausted. These carry the node network tag gke-<cluster>-<hash>-node,
-#     so match on that prefix. The clusters they belonged to are already gone,
-#     so there's no creationTimestamp to age-check — delete all matching.
-# ---------------------------------------------------------------------------
-echo "=== GKE LB firewall rules (k8s-fw-*, k8s-*-hc) ==="
-fw_deleted=0
-if ! fw_list=$(gcloud compute firewall-rules list --project="${MDB_GKE_PROJECT}" --filter="name~^k8s-fw- OR name~^k8s-.*-hc$" --format="value(name)" 2>&1); then
-    echo "  ERROR listing GKE LB firewall rules: ${fw_list}"
-    overall_failed=1
-elif [[ -n "${fw_list}" ]]; then
-    while IFS= read -r fw_name; do
-        [[ -z "${fw_name}" ]] && continue
-        if try_delete gcloud compute firewall-rules delete "${fw_name}" --project="${MDB_GKE_PROJECT}" -q; then
-            echo "  deleted: ${fw_name}"
-            fw_deleted=$(( fw_deleted + 1 ))
-        else
-            echo "  FAILED:  ${fw_name}"
-            overall_failed=1
-        fi
-    done <<< "${fw_list}"
-else
-    echo "  none found"
-fi
-echo "  summary: ${fw_deleted} deleted"
-
-# ---------------------------------------------------------------------------
-# 3c. Orphaned persistent disks. PVCs with reclaimPolicy: Retain leave disks
-#     after cluster deletion. Match k8s-mdb cluster zones, age-check by
-#     creationTimestamp.
-# ---------------------------------------------------------------------------
-echo "=== Orphaned persistent disks (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
-disks_deleted=0
-disks_skipped=0
-if ! disk_list=$(gcloud compute disks list --project="${MDB_GKE_PROJECT}" --format="value(name,zone,creationTimestamp)" 2>&1); then
-    echo "  ERROR listing disks: ${disk_list}"
-    overall_failed=1
-else
-    while IFS=$'\t' read -r disk_name disk_zone create_time; do
-        [[ -z "${disk_name}" ]] && continue
-        if is_stale "${create_time}"; then
-            if try_delete gcloud compute disks delete "${disk_name}" --zone="${disk_zone}" --project="${MDB_GKE_PROJECT}" -q; then
-                echo "  deleted: ${disk_name} (${disk_zone})"
-                disks_deleted=$(( disks_deleted + 1 ))
-            else
-                echo "  FAILED:  ${disk_name} (${disk_zone})"
-                overall_failed=1
-            fi
-        else
-            echo "  skipped: ${disk_name} (${disk_zone})"
-            disks_skipped=$(( disks_skipped + 1 ))
-        fi
-    done <<< "${disk_list}"
-fi
-echo "  summary: ${disks_deleted} deleted, ${disks_skipped} skipped"
-
-# ---------------------------------------------------------------------------
-# 4. IAM service accounts matching ^ext-dns-sa- (created by ra-09_0100,
-#    granted project-wide roles/dns.admin by ra-09_0120, key created by
-#    ra-09_0130). Killed runs leak the SA, the IAM binding, and the key.
-# ---------------------------------------------------------------------------
-echo "=== IAM service accounts (threshold: ${AGE_THRESHOLD_HOURS}h) ==="
-sas_deleted=0
-sas_skipped=0
-if ! sa_list=$(gcloud iam service-accounts list --project="${MDB_GKE_PROJECT}" --format="value(email)" 2>&1); then
-    echo "  ERROR listing service accounts: ${sa_list}"
-    overall_failed=1
-else
-    while IFS= read -r sa_email; do
-        [[ -z "${sa_email}" ]] && continue
-        [[ "${sa_email}" =~ ^ext-dns-sa- ]] || continue
-        # Use the SA key's validAfterTime as a proxy for creation time.
-        # SAs with no user-managed keys are skipped (not treated as orphaned)
-        # to avoid a race where the reaper runs between SA creation
-        # (ra-09_0100) and key creation (ra-09_0130) during an in-flight run.
-        if ! sa_key_time=$(gcloud iam service-accounts keys list --iam-account="${sa_email}" --project="${MDB_GKE_PROJECT}" --filter="keyType=USER_MANAGED" --format="value(validAfterTime)" --sort-by="validAfterTime" --limit=1 2>&1); then
-            echo "  ERROR listing keys for ${sa_email}: ${sa_key_time}"
+# Service accounts have no creation timestamp; age is established by
+# requiring at least one user-managed key and all keys being old. The
+# e2e-infrastructure account itself is denied.
+# Known gap: an account with NO user-managed keys has no age signal and is
+# skipped forever (an interrupted ra-09 run can leave one behind — SA and key
+# are created in separate steps). Deleting keyless accounts blindly could hit
+# a test mid-setup, so they are left for manual cleanup.
+reap_service_accounts() {
+    local rows email key_rows rc
+    if ! rows=$(gcloud iam service-accounts list --project="${MDB_GKE_PROJECT}" --format='value(email)'); then overall_failed=1; return 0; fi
+    [[ -n "${rows}" ]] || return 0
+    while IFS= read -r email; do
+        [[ "${email}" == k8s-operator-e2e-tests@* || "${email}" == *@developer.gserviceaccount.com ]] && continue
+        if ! key_rows=$(gcloud iam service-accounts keys list --iam-account="${email}" --project="${MDB_GKE_PROJECT}" --managed-by=user --format="value(validAfterTime.date('%s'))"); then
             overall_failed=1
             continue
         fi
-        if [[ -z "${sa_key_time}" ]]; then
-            echo "  skipped: ${sa_email} (no user-managed keys)"
-            sas_skipped=$(( sas_skipped + 1 ))
-            continue
-        fi
-        # Validate timestamp shape — with 2>&1, gcloud stderr warnings on a
-        # successful list could pollute sa_key_time and cause is_stale to
-        # silently skip the SA forever.
-        if ! [[ "${sa_key_time}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T ]]; then
-            echo "  ERROR unparseable key time for ${sa_email}: ${sa_key_time}"
-            overall_failed=1
-            continue
-        fi
-        if is_stale "${sa_key_time}"; then
-            # Remove project IAM binding first (may already be gone).
-            gcloud projects remove-iam-policy-binding "${MDB_GKE_PROJECT}" \
-                --member serviceAccount:"${sa_email}" --role roles/dns.admin -q >/dev/null 2>&1 || true
-            if try_delete gcloud iam service-accounts delete "${sa_email}" --project="${MDB_GKE_PROJECT}" -q; then
-                echo "  deleted: ${sa_email}"
-                sas_deleted=$(( sas_deleted + 1 ))
-            else
-                echo "  FAILED:  ${sa_email}"
-                overall_failed=1
-            fi
+        rc=0; sa_keys_all_old <<<"${key_rows}" || rc=$?
+        if (( rc == 2 )); then overall_failed=1; continue; fi
+        (( rc == 1 )) && continue
+        if try_delete gcloud projects remove-iam-policy-binding "${MDB_GKE_PROJECT}" --member="serviceAccount:${email}" --role=roles/dns.admin -q; then
+            try_delete gcloud iam service-accounts delete "${email}" --project="${MDB_GKE_PROJECT}" -q || overall_failed=1
         else
-            echo "  skipped: ${sa_email}"
-            sas_skipped=$(( sas_skipped + 1 ))
+            overall_failed=1
         fi
-    done <<< "${sa_list}"
-fi
-echo "  summary: ${sas_deleted} deleted, ${sas_skipped} skipped"
+    done <<<"${rows}"
+}
 
+reap_clusters
+reap_compute forwarding-rules global-flag
+reap_compute target-pools global-flag
+reap_compute backend-services global-flag
+# Health checks are listed directly: after the pools and backend services
+# above are gone, nothing references them and age is the only check.
+reap_compute http-health-checks no-flag
+reap_compute health-checks global-flag
+reap_compute target-https-proxies global-flag
+reap_compute url-maps global-flag
+reap_compute ssl-certificates global-flag
+reap_compute addresses global-flag
+reap_compute network-endpoint-groups no-flag
+reap_firewall_rules
+reap_compute disks no-flag
+reap_dns_zones
+reap_service_accounts
 exit "${overall_failed}"

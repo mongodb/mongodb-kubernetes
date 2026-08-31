@@ -2,6 +2,7 @@
 
 set -eou pipefail
 source scripts/dev/set_env_context.sh
+source scripts/code_snippets/tests/cleanup_load_balancer_services.sh
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 
@@ -26,6 +27,8 @@ function cleanup() {
     wait ${pid1} || echo "Warning: ra-10-ops-manager-mc-no-mesh teardown failed"
     wait ${pid2} || echo "Warning: ra-09-setup-externaldns teardown failed"
 
+    cleanup_load_balancer_services
+
     ./public/architectures/setup-multi-cluster/ra-01-setup-gke/teardown.sh || echo "Warning: ra-01-setup-gke teardown failed"
   elif [ "${code_snippets_reset:-false}" = true ]; then
       echo "Deleting resources, keeping the clusters"
@@ -43,6 +46,8 @@ function cleanup() {
       wait ${pid2} || echo "Warning: ra-11-mongodb-sharded-mc-no-mesh teardown failed"
       wait ${pid3} || echo "Warning: ra-12-mongodb-replicaset-mc-no-mesh teardown failed"
       wait ${pid4} || echo "Warning: ra-09-setup-externaldns teardown failed"
+
+      cleanup_load_balancer_services
 
       ./public/architectures/setup-multi-cluster/ra-02-setup-operator/teardown.sh || echo "Warning: ra-02-setup-operator teardown failed"
   else
@@ -66,6 +71,7 @@ if [[ "${cmd}" == "dump_logs" ]]; then
   exit 0
 elif [[ "${cmd}" == "cleanup" ]]; then
   source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
   cleanup
   exit 0
 fi
