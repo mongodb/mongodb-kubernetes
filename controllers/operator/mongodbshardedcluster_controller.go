@@ -1997,9 +1997,9 @@ type deploymentOptions struct {
 	agentCertPath        string
 	agentCertHash        string
 
-	finalizing           bool
-	processNames         []string
-	prometheusCertHash   string
+	finalizing         bool
+	processNames       []string
+	prometheusCertHash string
 	// externalAgentVersion is set from OM when spec.externalMembers is non-empty (see updateOmDeploymentShardedCluster).
 	externalAgentVersion string
 }
