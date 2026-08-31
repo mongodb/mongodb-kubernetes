@@ -528,7 +528,7 @@ def test_vm_sharded_deployment_is_ready(om_tester: OMTester):
 
 @mark.e2e_vm_migration_shardedcluster_x509
 def test_install_operator(default_operator):
-    default_operator.assert_is_running()
+    default_operator.wait_for_operator_ready()
 
 
 @mark.e2e_vm_migration_shardedcluster_x509
