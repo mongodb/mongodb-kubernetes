@@ -2,6 +2,7 @@ package mdb_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -48,6 +49,19 @@ func withAppDBSecurity(rs *mdbv1.MongoDB) {
 			IgnoreUnknownUsers: true,
 		},
 	}
+}
+
+// externalMembersForCEL builds n external mongod members with distinct process names.
+func externalMembersForCEL(n int) []mdbv1.ExternalMember {
+	members := make([]mdbv1.ExternalMember, n)
+	for i := range members {
+		members[i] = mdbv1.ExternalMember{
+			ProcessName: fmt.Sprintf("ext-%d", i),
+			Hostname:    fmt.Sprintf("ext-%d:27017", i),
+			Type:        "mongod",
+		}
+	}
+	return members
 }
 
 func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
@@ -218,4 +232,55 @@ func TestMongoDBCELValidation_RoleImmutable(t *testing.T) {
 		err := k8sClient.Update(ctx, rs)
 		require.NoError(t, err)
 	})
+}
+
+// TestExternalMembersPruneRateCELValidation proves the CEL transition rule on spec is
+// enforced by a real API server. Plain Go unit tests cannot exercise oldSelf rules.
+func TestExternalMembersPruneRateCELValidation(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	const errMsg = "at most one external member may be removed per update"
+
+	tests := []struct {
+		name string
+		// createCount is how many external members the resource is created with.
+		createCount int
+		// updateCount is how many it is updated to. -1 means remove the field entirely.
+		updateCount int
+		// errorContains is the expected CEL message; empty means the update must succeed.
+		errorContains string
+	}{
+		{name: "removing one member is allowed", createCount: 4, updateCount: 3},
+		{name: "removing none is allowed", createCount: 4, updateCount: 4},
+		{name: "removing two is rejected", createCount: 4, updateCount: 2, errorContains: errMsg},
+		{name: "removing four is rejected", createCount: 4, updateCount: 0, errorContains: errMsg},
+		{name: "removing the last one is allowed", createCount: 1, updateCount: 0},
+		{name: "clearing the field from one member is allowed", createCount: 1, updateCount: -1},
+		{name: "clearing the field from three members is rejected", createCount: 3, updateCount: -1, errorContains: errMsg},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := newMongoDB(t, func(rs *mdbv1.MongoDB) {
+				rs.Spec.ExternalMembers = externalMembersForCEL(tc.createCount)
+			})
+			require.NoError(t, k8sClient.Create(ctx, rs), "create must succeed; the rule is a transition rule")
+
+			if tc.updateCount < 0 {
+				rs.Spec.ExternalMembers = nil
+			} else {
+				rs.Spec.ExternalMembers = externalMembersForCEL(tc.updateCount)
+			}
+			err := k8sClient.Update(ctx, rs)
+
+			if tc.errorContains == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got %T: %v", err, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
 }
