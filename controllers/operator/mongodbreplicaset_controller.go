@@ -55,6 +55,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -798,6 +799,10 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 		return ref.UID == mdb.UID
 	})
 
+	if validationStatus := r.validateAppDBForwardMigration(ctx, mdb, sts); !validationStatus.IsOK() {
+		return validationStatus
+	}
+
 	// Forward Migration, reclaim the AppDB Statefulset
 	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
 		if len(sts.OwnerReferences) == 0 {
@@ -829,6 +834,59 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 	}
 
 	return workflow.OK()
+}
+
+const appDBForwardMigrationViolationFmt = "cannot change AppDB configuration during forward migration: %s"
+
+// validateAppDBForwardMigration rejects spec changes that are unsafe to apply during
+// AppDB forward migration.
+//
+// There is a window of time during which some spec changes are not safe to reconcile.
+// The window runs from the start of forward migration until AppDBMigrationReadyAnnotation
+// becomes true, at which point this controller replaces the StatefulSet spec with the
+// enterprise form.
+//
+// Changes are unsafe during this window because, for some configurations, they could
+// create a situation where two mutually incompatible populations of pods are running
+// during the rolling update. Transitioning cluster-visible settings (TLS, CA, members)
+// from state A to state Z normally goes through intermediate states (A -> N1 -> N2 ->
+// ... -> Z); a population spanning two neighbouring states (e.g. A and N1) is fine, but
+// a population made up of both A and Z pods is not.
+//
+// In normal operation we handle this in the operator (see e.g. publishAutomationConfigFirst),
+// which has enough visibility to sequence the transition safely. But before
+// AppDBMigrationReadyAnnotation is true, the AppDB pods run headless agents that read
+// the automation config from a locally mounted file and never poll Ops Manager. Since
+// they never poll, the operator has no way to roll a cluster-visible config change out
+// pod-by-pod without creating an incompatible mixed population mid-rollout. The handover
+// must therefore be config-identical; changes apply once the migration completes.
+func (r *ReplicaSetReconcilerHelper) validateAppDBForwardMigration(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) workflow.Status {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
+		return workflow.OK()
+	}
+
+	if wasTLSSecretMounted(ctx, r.reconciler.SecretClient, sts, *mdb, r.log) {
+		if !mdb.Spec.Security.IsTLSEnabled() {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
+		}
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && specCAConfigMapName(mdb) != caVolume.ConfigMap.Name {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
+		}
+	}
+
+	if sts.Spec.Replicas != nil && mdb.Spec.Members != int(*sts.Spec.Replicas) {
+		return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.members must remain %d", *sts.Spec.Replicas))
+	}
+
+	return workflow.OK()
+}
+
+func specCAConfigMapName(mdb *mdbv1.MongoDB) string {
+	if mdb.Spec.Security.TLSConfig == nil {
+		return ""
+	}
+
+	return mdb.Spec.Security.TLSConfig.CA
 }
 
 func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) error {

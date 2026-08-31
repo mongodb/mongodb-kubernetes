@@ -732,6 +732,18 @@ func (r *ReconcileAppDbReplicaSet) reclaimAppDBSecret(ctx context.Context, opsMa
 }
 
 // ReconcileAppDB deploys the "headless" agent, and wait until it reaches the goal state
+//
+// Warning: this reconciler does not guarantee that AutomationConfig is pushed before
+// other actions (e.g. the StatefulSet spec) take effect. Do not assume publish ordering
+// here unless you've explicitly verified it (see e.g. publishAutomationConfigFirst).
+//
+// If a change you're adding here relies on AutomationConfig being pushed first to be
+// safe, it must also be rejected during AppDB forward migration: during that window
+// the AppDB pods run headless agents that never poll Ops Manager, so this operator
+// cannot ensure AutomationConfig is actually pushed first. Add the corresponding guard
+// to validateAppDBForwardMigration (mongodbreplicaset_controller.go) so the migration
+// window rejects the change too - otherwise it can silently create an unsafe mixed
+// population of pods mid-rollout.
 func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (res reconcile.Result, e error) {
 	rs := opsManager.Spec.AppDB
 	log := zap.S().With("ReplicaSet (AppDB)", kube.ObjectKey(opsManager.Namespace, rs.Name()))

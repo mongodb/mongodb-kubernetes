@@ -47,6 +47,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -1852,6 +1853,16 @@ func (b *StatefulSetBuilder) SetAnnotations(annotations map[string]string) *Stat
 	return b
 }
 
+func (b *StatefulSetBuilder) SetReplicas(replicas int32) *StatefulSetBuilder {
+	b.sts.Spec.Replicas = ptr.To(replicas)
+	return b
+}
+
+func (b *StatefulSetBuilder) SetVolumes(volumes []corev1.Volume) *StatefulSetBuilder {
+	b.sts.Spec.Template.Spec.Volumes = volumes
+	return b
+}
+
 func (b *StatefulSetBuilder) Build() appsv1.StatefulSet {
 	return b.sts
 }
@@ -2097,6 +2108,135 @@ func TestAdoptionGate_ForwardMigrationTakesPrecedence(t *testing.T) {
 
 	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.True(t, ownershipStatus.IsOK(), "forward migration takes precedence: reclaim ownership even if reverse is also requested")
+}
+
+func TestValidateAppDBForwardMigration(t *testing.T) {
+	const certSecretName = "my-om-db-cert-pem"
+	const appDBCAConfigMap = "my-om-db-ca"
+
+	tests := []struct {
+		name             string
+		tlsEnabled       bool
+		tlsCA            string
+		members          int
+		stsReplicas      int32
+		annotated        bool
+		certSecretExists bool
+		expectedError    string // exact Invalid message; empty = expect OK
+	}{
+		{
+			name:             "disabling TLS is blocked",
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
+		},
+		{
+			name:        "TLS-off spec against a non-TLS AppDB passes",
+			members:     3,
+			stsReplicas: 3,
+			annotated:   true,
+		},
+		{
+			name:             "changing the CA is blocked",
+			tlsEnabled:       true,
+			tlsCA:            "other-ca",
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    `cannot change AppDB configuration during forward migration: spec.security.tls.ca must reference ConfigMap "my-om-db-ca"`,
+		},
+		{
+			name:             "scaling down is blocked",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          3,
+			stsReplicas:      5,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.members must remain 5",
+		},
+		{
+			name:             "scaling up is blocked",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          5,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.members must remain 3",
+		},
+		{
+			name:             "first violation wins when several settings diverge",
+			members:          5,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
+		},
+		{
+			name:             "matching spec passes",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+		},
+		{
+			name:             "missing migration annotation closes the window",
+			members:          5,
+			stsReplicas:      3,
+			certSecretExists: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			builder := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).SetMembers(tt.members)
+			if tt.tlsEnabled {
+				builder.EnableTLS()
+			}
+			if tt.tlsCA != "" {
+				builder.SetTLSCA(tt.tlsCA)
+			}
+			mdb := builder.Build()
+
+			annotations := map[string]string{}
+			if tt.annotated {
+				annotations[util.AppDBMigrationReadyAnnotation] = "true"
+			}
+			// the AppDB pod template mounts the TLS volumes unconditionally (Optional=true),
+			// so the fixture always carries them regardless of whether TLS is enabled
+			sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+				SetAnnotations(annotations).
+				SetReplicas(tt.stsReplicas).
+				SetVolumes([]corev1.Volume{
+					{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: certSecretName}}},
+					{Name: tls.ConfigMapVolumeCAName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: appDBCAConfigMap}}}},
+				}).Build()
+
+			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			if tt.certSecretExists {
+				certSecret := secret.Builder().SetName(certSecretName).SetNamespace(mdb.Namespace).SetField("tls.crt", "cert").Build()
+				require.NoError(t, kubeClient.CreateSecret(ctx, certSecret))
+			}
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+			validationStatus := helper.validateAppDBForwardMigration(ctx, mdb, sts)
+
+			if tt.expectedError == "" {
+				assert.True(t, validationStatus.IsOK())
+				return
+			}
+			require.False(t, validationStatus.IsOK())
+			assert.Equal(t, status.PhaseFailed, validationStatus.Phase())
+			assert.Equal(t, tt.expectedError, statusMessage(validationStatus))
+		})
+	}
 }
 
 func TestEnsureAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
