@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/mongodb-forks/digest"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -74,7 +75,26 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 		Client: newDefaultHTTPClient(),
 	}
 
-	return applyOptions(client, options...)
+	client, err := applyOptions(client, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// If digest auth is configured, wrap the HTTP transport with the digest
+	// client, then wrap that with staleRetryTransport to retry on stale nonces
+	// (RFC 7616 §3.2). This runs after TLS options so they modify the
+	// *http.Transport first.
+	if client.username != "" && client.password != "" {
+		client.HTTPClient.Transport = &staleRetryTransport{
+			transport: &digest.Transport{
+				Username:  client.username,
+				Password:  client.password,
+				Transport: client.HTTPClient.Transport,
+			},
+		}
+	}
+
+	return client, nil
 }
 
 func newDefaultHTTPClient() *retryablehttp.Client {
@@ -167,15 +187,6 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
-
-	if client.username != "" && client.password != "" {
-		// Only add Digest auth when needed.
-		err = client.authorizeRequest(method, hostname, path, req)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
 	return client.sendRequest(method, url, path, req)
 }
 
@@ -195,48 +206,6 @@ func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentA
 	req.Header.Set("Authorization", agentAuth)
 
 	return client.sendRequest(method, url, path, req)
-}
-
-// authorizeRequest executes one request that's meant to be challenged by the
-// server in order to build the next one. The `request` parameter is aggregated
-// with the required `Authorization` header.
-func (client *Client) authorizeRequest(method, hostname, path string, request *retryablehttp.Request) error {
-	url := hostname + path
-
-	digestRequest, err := retryablehttp.NewRequest(method, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(digestRequest)
-	if err != nil {
-		return err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		return apierror.New(
-			xerrors.Errorf(
-				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
-				resp.StatusCode,
-				resp.Status,
-				http.StatusUnauthorized,
-				digestRequest.URL,
-			),
-		)
-	}
-	digestParts := digestParts(resp)
-	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)
-
-	request.Header.Set("Authorization", digestAuth)
-
-	return nil
 }
 
 // createHTTPRequest
