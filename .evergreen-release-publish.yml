@@ -183,8 +183,8 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
-  # Not tagged "release-publish" itself (it depends on every "release-publish"-
-  # tagged variant succeeding, which would otherwise create a self-dependency).
+  # Depends on release_publish only: the retag should proceed as soon as images
+  # are published to production, regardless of preflight/code-snippet/bundle results.
   - name: retag_new_release
     display_name: retag_new_release
     run_on:
@@ -192,8 +192,7 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
-        variant: ".release-publish"
-        status: "success"
+        variant: release_publish
     tasks:
       - name: retag_new_release
 

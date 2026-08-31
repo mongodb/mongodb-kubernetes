@@ -488,8 +488,8 @@ buildvariants:
     tasks:
       - name: release_chart_to_oci_registry
 
-  # Not tagged "deprecated-release" itself (it depends on every "deprecated-release"-tagged variant
-  # succeeding, which would otherwise create a self-dependency).
+  # Depends on release_images only: the retag should proceed as soon as images
+  # are published to production, regardless of test/preflight/code-snippet results.
   - name: retag_legacy_release
     display_name: retag_legacy_release
     run_on:
@@ -497,7 +497,6 @@ buildvariants:
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
-        variant: ".deprecated-release"
-        status: "success"
+        variant: release_images
     tasks:
       - name: retag_legacy_release
