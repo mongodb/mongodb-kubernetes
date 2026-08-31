@@ -179,7 +179,7 @@ func validateX509(auth *om.Auth) []ValidationResult {
 	if auth == nil || auth.Disabled {
 		return nil
 	}
-	if auth.AutoAuthMechanism != "MONGODB-X509" {
+	if auth.AutoAuthMechanism != util.AutomationConfigX509Option {
 		return nil
 	}
 	var results []ValidationResult
