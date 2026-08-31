@@ -602,7 +602,7 @@ func validateVotingLimitSharded(sc *mdbv1.MongoDB, deployment om.Deployment) wor
 	// Group external mongod process names by their AC replica set name.
 	externalByRS := map[string][]string{}
 	for _, m := range sc.Spec.GetExternalMembers() {
-		if m.Type == "mongos" || m.ReplicaSetName == "" {
+		if m.Type == mdbv1.ExternalMemberTypeMongos || m.ReplicaSetName == "" {
 			continue
 		}
 		externalByRS[m.ReplicaSetName] = append(externalByRS[m.ReplicaSetName], m.ProcessName)

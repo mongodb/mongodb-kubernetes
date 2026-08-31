@@ -2770,7 +2770,7 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 
 	mongosHostnames := make([]string, 0)
 	for _, m := range sc.Spec.GetExternalMembers() {
-		if m.Type == "mongos" {
+		if m.Type == mdbv1.ExternalMemberTypeMongos {
 			mongosHostnames = append(mongosHostnames, m.Hostname)
 		}
 	}

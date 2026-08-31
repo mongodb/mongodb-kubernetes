@@ -413,6 +413,12 @@ type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
 
+const (
+	// ExternalMemberTypeMongod and ExternalMemberTypeMongos are the allowed values of ExternalMember.Type.
+	ExternalMemberTypeMongod = "mongod"
+	ExternalMemberTypeMongos = "mongos"
+)
+
 type ExternalMember struct {
 	// ProcessName contains the name of the external process as it appears in the `processes` field in the AC.
 	// +kubebuilder:validation:Required
@@ -561,7 +567,7 @@ func (m *MongoDbSpec) GetExternalMemberProcessNames() []string {
 func (m *MongoDbSpec) GetExternalMembersForRS(rsName string) []ExternalMember {
 	var members []ExternalMember
 	for _, em := range m.ExternalMembers {
-		if em.Type == "mongod" && em.ReplicaSetName == rsName {
+		if em.Type == ExternalMemberTypeMongod && em.ReplicaSetName == rsName {
 			members = append(members, em)
 		}
 	}
@@ -584,7 +590,7 @@ func (m *MongoDB) GetExternalMemberProcessNamesForConfigRS() []string {
 func (m *MongoDbSpec) GetExternalMemberProcessNamesForMongos() []string {
 	var mongos []ExternalMember
 	for _, em := range m.ExternalMembers {
-		if em.Type == "mongos" {
+		if em.Type == ExternalMemberTypeMongos {
 			mongos = append(mongos, em)
 		}
 	}
@@ -957,9 +963,9 @@ func (m *MongoDB) GetExternalMembersHostnames() []string {
 	var allowed func(em ExternalMember) bool
 	switch m.Spec.ResourceType {
 	case ReplicaSet:
-		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == "mongod" }
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == ExternalMemberTypeMongod }
 	case ShardedCluster:
-		allowed = func(em ExternalMember) bool { return em.Type == "mongos" }
+		allowed = func(em ExternalMember) bool { return em.Type == ExternalMemberTypeMongos }
 	}
 	if allowed != nil {
 		for _, em := range m.Spec.ExternalMembers {
