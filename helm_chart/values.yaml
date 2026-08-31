@@ -42,6 +42,9 @@ operator:
 
   affinity: {}
 
+  # PriorityClass name to assign to the operator pod. Leave empty to not set any priorityClassName.
+  priorityClassName: ''
+
   # operator cpu requests and limits
   resources:
     requests:
