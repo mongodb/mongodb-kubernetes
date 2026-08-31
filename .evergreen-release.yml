@@ -126,6 +126,8 @@ tasks:
       - func: clone
       - func: python_venv
       - func: install_macos_notarization_service
+      - func: assume_devprod_platforms_ecr_role
+      - func: write_devprod_platforms_ecr_aws_profile
       - func: release_kubectl_mongodb_plugin
 
   - name: add_releaseinfo_to_github_assets
