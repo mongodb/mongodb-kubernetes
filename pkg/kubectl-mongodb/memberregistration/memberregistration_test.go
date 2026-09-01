@@ -16,6 +16,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const (
@@ -65,7 +66,7 @@ func wantCredentialSecret(memberClusterName string) corev1.Secret {
 			Namespace: testOperatorNamespace,
 		},
 		Type:       corev1.SecretTypeOpaque,
-		StringData: map[string]string{credentialSecretKey: ""},
+		StringData: map[string]string{util.MemberClusterCredentialSecretKubeconfigKey: ""},
 	}
 }
 
@@ -119,8 +120,8 @@ func TestGenerate(t *testing.T) {
 			gotSecret, gotMemberCluster := parseOutput(t, out)
 
 			// Contents checked in TestGenerate_KubeconfigContents; here just require it present, then blank for the compare.
-			require.NotEmpty(t, gotSecret.StringData[credentialSecretKey], "credential Secret must carry a kubeconfig")
-			gotSecret.StringData[credentialSecretKey] = ""
+			require.NotEmpty(t, gotSecret.StringData[util.MemberClusterCredentialSecretKubeconfigKey], "credential Secret must carry a kubeconfig")
+			gotSecret.StringData[util.MemberClusterCredentialSecretKubeconfigKey] = ""
 
 			assert.Equal(t, wantCredentialSecret(tc.memberClusterName), gotSecret)
 			assert.Equal(t, wantMemberCluster(tc.memberClusterName, tc.logicalName), gotMemberCluster)
@@ -143,8 +144,8 @@ func TestGenerate_KubeconfigContents(t *testing.T) {
 	require.NoError(t, err)
 
 	secret, _ := parseOutput(t, out)
-	rawKubeconfig, ok := secret.StringData[credentialSecretKey]
-	require.True(t, ok, "credential Secret must have a %q key", credentialSecretKey)
+	rawKubeconfig, ok := secret.StringData[util.MemberClusterCredentialSecretKubeconfigKey]
+	require.True(t, ok, "credential Secret must have a %q key", util.MemberClusterCredentialSecretKubeconfigKey)
 
 	cfg, err := clientcmd.Load([]byte(rawKubeconfig))
 	require.NoError(t, err)

@@ -9236,9 +9236,6 @@ spec:
     - jsonPath: .spec.clusterName
       name: Cluster Name
       type: string
-    - jsonPath: .status.conditions[?(@.type=="RBACValid")].status
-      name: RBAC Valid
-      type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -9309,11 +9306,7 @@ spec:
             description: MemberClusterStatus defines the observed state of MemberCluster.
             properties:
               conditions:
-                description: |-
-                  Conditions reflect the current status of the member cluster.
-                  The RBACValid condition reports whether the member-cluster RBAC version matches
-                  the running operator version. When RBACValid is False the operator stops reconciling
-                  workloads on the cluster until RBAC is regenerated and reapplied.
+                description: Conditions reflect the current status of the member cluster.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

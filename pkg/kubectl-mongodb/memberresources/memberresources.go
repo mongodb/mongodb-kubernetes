@@ -24,7 +24,8 @@ import (
 //   - member-cluster-rbac.yaml: the member-specific resources — the member ServiceAccount
 //     and token Secret (credentials), and mck-member-<cluster-name>-role-multicluster
 //     holding the rules the operator needs only because of multi-cluster operation
-//     (deletecollection cleanup, the rbac-version self-read).
+//     (deletecollection cleanup; the serviceaccounts get self-read for the parked
+//     rbac-version validation was removed with that scaffolding).
 //   - operator-roles-base.yaml: dual-mode; in member mode it renders
 //     mck-member-<cluster-name>-role-base — the operator's shared workload-management
 //     rules, identical to the base installation's role, from a single unconditional
