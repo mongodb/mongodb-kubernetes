@@ -16,8 +16,8 @@ export OPERATOR_LEADER_CLUSTER_NAME=kind-e2e-cluster-1
 export DECENTRALIZED_E2E=true
 export LOCAL_OPERATOR=false
 
-# In-pod runs (launch_e2e.sh): the tests image carries the branch chart, the clusters are
-# remote amd64 kind hosts, and the image with the harness changes lives in the private registry.
+# In-pod runs (EVG or launch_e2e.sh): the operators must install from the branch chart baked
+# into the tests image — the released OCI chart has neither clusterIdentity nor the directive
+# CRD. The arch suffix follows the amd64 test-pod nodes even when launched from an arm64 Mac.
 export TEST_POD_HELM_CHART_PATH=/tests/helm_chart
 export MEKO_TESTS_IMAGE_ARCH=x86_64
-export MEKO_TESTS_REGISTRY=268558157000.dkr.ecr.us-east-1.amazonaws.com/julienben

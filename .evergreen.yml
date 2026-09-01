@@ -1054,6 +1054,17 @@ task_groups:
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
 
+  # Decentralized regression harness (CLOUDP-420273): the variant name doubles as the dev
+  # context (switch_context), which pins the leader onto the status-read cluster and flips the
+  # operator fixture to one operator per member cluster.
+  - name: e2e_multi_cluster_decentralized_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks:
+      - e2e_multi_cluster_decentralized_replica_set_scale_up
+      - e2e_multi_cluster_decentralized_replica_set_scale_down
+      - e2e_multi_cluster_decentralized_scale_up_cluster
+
   - name: e2e_multi_cluster_kind_task_group
     max_hosts: -1
     <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
@@ -1805,6 +1816,15 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: e2e_multi_cluster_kind_task_group
+
+  # Untagged on purpose: patch-only while the decentralized POC lives on its branch.
+  - name: e2e_multi_cluster_decentralized_harness
+    display_name: e2e_multi_cluster_decentralized_harness
+    <<: *base_om7_dependency
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: e2e_multi_cluster_decentralized_task_group
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
