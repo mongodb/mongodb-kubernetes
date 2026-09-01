@@ -21,6 +21,7 @@ import yaml
 
 PROJECT_CONFIGMAP_NAME = "my-project"
 OM_CREDENTIALS_SECRET_NAME = "my-credentials"
+OM_CA_CONFIGMAP_NAME = "om-ca"
 DECENTRALIZED_OPERATOR_NAME = "mongodb-kubernetes-operator-decentralized"
 WORKLOAD_CR_FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "mongodb-multi-decentralized.yaml")
 
@@ -160,13 +161,31 @@ def build_member_cluster_cr(peer_name: str, namespace: str) -> dict:
 # never mint them.
 
 
-def build_project_config_map(namespace: str, base_url: str, org_id: str, project_name: str) -> dict:
+def build_project_config_map(
+    namespace: str, base_url: str, org_id: str, project_name: str, ssl_mms_ca_configmap: Optional[str] = None
+) -> dict:
     """The OM project ConfigMap (same shape as scripts/dev/configure_operator.sh renders)."""
+    data = {"baseUrl": base_url, "orgId": org_id, "projectName": project_name}
+    if ssl_mms_ca_configmap:
+        data["sslMMSCAConfigMap"] = ssl_mms_ca_configmap
     return {
         "apiVersion": "v1",
         "kind": "ConfigMap",
         "metadata": {"name": PROJECT_CONFIGMAP_NAME, "namespace": namespace},
-        "data": {"baseUrl": base_url, "orgId": org_id, "projectName": project_name},
+        "data": data,
+    }
+
+
+def build_om_ca_config_map(namespace: str, ca_pem: str) -> dict:
+    """The OM custom-CA ConfigMap. Whenever the project ConfigMap sets sslMMSCAConfigMap, the
+    database pods mount this ConfigMap by name — and in decentralized mode nothing else creates
+    it (the legacy operator replicated it central→member), so a missing copy wedges pods in
+    ContainerCreating. The installer ships it on every cluster."""
+    return {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {"name": OM_CA_CONFIGMAP_NAME, "namespace": namespace},
+        "data": {"mms-ca.crt": ca_pem},
     }
 
 
@@ -244,6 +263,9 @@ class InstallerSettings:
     om_user: str
     om_api_key: str
     project_name: str
+    # Set when Ops Manager sits behind a private CA: the plan then ships the OM CA ConfigMap on
+    # every cluster and the project ConfigMap references it. None (the default) for cloud-qa.
+    om_ca_pem: Optional[str] = None
     # Filled by the live path (OM pre-provisioning, token/IP reads); placeholders in dry-run.
     project_id: str = "PLACEHOLDER_PROJECT_ID"
     agent_api_key: str = "PLACEHOLDER_AGENT_API_KEY"
@@ -322,10 +344,18 @@ def plan_cluster_objects(cluster_name: str, settings: InstallerSettings) -> List
         build_peer_token_secret(cluster_name, settings.namespace),
         build_peer_role(cluster_name, settings.namespace),
         build_peer_role_binding(cluster_name, settings.namespace),
-        build_project_config_map(settings.namespace, settings.om_base_url, settings.om_org_id, settings.project_name),
+        build_project_config_map(
+            settings.namespace,
+            settings.om_base_url,
+            settings.om_org_id,
+            settings.project_name,
+            ssl_mms_ca_configmap=OM_CA_CONFIGMAP_NAME if settings.om_ca_pem else None,
+        ),
         build_om_credentials_secret(settings.namespace, settings.om_user, settings.om_api_key),
         build_agent_api_key_secret(settings.namespace, settings.project_id, settings.agent_api_key),
     ]
+    if settings.om_ca_pem:
+        objects.append(build_om_ca_config_map(settings.namespace, settings.om_ca_pem))
     for peer in peers_of(cluster_name, settings.clusters):
         token, ca_data = settings.peer_credential(peer)
         kubeconfig = build_peer_kubeconfig(

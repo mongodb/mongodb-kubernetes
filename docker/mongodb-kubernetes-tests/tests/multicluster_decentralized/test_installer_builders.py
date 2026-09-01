@@ -11,6 +11,7 @@ from tests.multicluster_decentralized.installer import (
     build_credential_secret,
     build_decentralized_settings,
     build_member_cluster_cr,
+    build_om_ca_config_map,
     build_om_credentials_secret,
     build_peer_kubeconfig,
     build_peer_role,
@@ -28,6 +29,23 @@ def test_project_config_map_shape():
     assert cm["kind"] == "ConfigMap"
     assert cm["metadata"] == {"name": "my-project", "namespace": "mdb-ns"}
     assert cm["data"] == {"baseUrl": "http://om:8080", "orgId": "org1", "projectName": "mdb-ns"}
+
+
+def test_om_ca_config_map_shape():
+    cm = build_om_ca_config_map("mdb-ns", "OM CA PEM")
+
+    # The single key must be mms-ca.crt: the database pods mount the ConfigMap named by the
+    # project's sslMMSCAConfigMap and the agent reads exactly that entry.
+    assert cm["metadata"] == {"name": "om-ca", "namespace": "mdb-ns"}
+    assert cm["data"] == {"mms-ca.crt": "OM CA PEM"}
+
+
+def test_project_config_map_references_the_om_ca_only_when_set():
+    with_ca = build_project_config_map("mdb-ns", "http://om:8080", "org1", "mdb-ns", ssl_mms_ca_configmap="om-ca")
+    without_ca = build_project_config_map("mdb-ns", "http://om:8080", "org1", "mdb-ns")
+
+    assert with_ca["data"]["sslMMSCAConfigMap"] == "om-ca"
+    assert "sslMMSCAConfigMap" not in without_ca["data"]
 
 
 def test_om_credentials_secret_shape():

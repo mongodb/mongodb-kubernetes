@@ -103,6 +103,20 @@ def test_the_workload_cr_and_om_inputs_are_identical_everywhere(tmp_path):
         assert operator_config["spec"]["watchedResources"] == ["mongodbdirectives"]
 
 
+def test_om_ca_ships_on_every_cluster_when_configured(tmp_path):
+    """With a private-CA OM, the OM CA ConfigMap must exist on every cluster (the pods mount it
+    by name and nothing else creates it in decentralized mode) and the project ConfigMap must
+    reference it."""
+    settings = make_settings()
+    settings.om_ca_pem = "OM CA PEM"
+    render_dry_run(settings, str(tmp_path))
+
+    for cluster in CLUSTERS:
+        config_maps = {cm["metadata"]["name"]: cm for cm in load_rendered(tmp_path / cluster, "configmap")}
+        assert config_maps["om-ca"]["data"] == {"mms-ca.crt": "OM CA PEM"}
+        assert config_maps["my-project"]["data"]["sslMMSCAConfigMap"] == "om-ca"
+
+
 def test_include_workload_cr_can_be_turned_off():
     """The fixture-swap path (tests create the workload CR themselves) sets
     include_workload_cr=False; every other object stays identical, in order."""
