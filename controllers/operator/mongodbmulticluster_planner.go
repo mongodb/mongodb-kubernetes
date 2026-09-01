@@ -174,9 +174,9 @@ func staleWorld(s plannerSnapshot) (planDecision, bool) {
 	return planDecision{}, false
 }
 
-// validate refuses specs the decentralized pair cannot deliver honestly (SpecViolations — an
-// unguarded TLS spec would wedge pods on a pem secret nobody creates), then any spec where one
-// cluster scales up while another scales down (relative to the granted counts): the scale
+// validate refuses specs the decentralized pair cannot deliver honestly (SpecViolations —
+// features with no decentralized counterpart, refused rather than half-applied), then any spec
+// where one cluster scales up while another scales down (relative to the granted counts): the scale
 // direction decides the whole pass ordering (AC-first vs grant-first), so a mixed direction is
 // unplannable. Scalers are built over spec clusters only — a removed-from-spec directive is the
 // next guard's job, with its own message.
@@ -188,17 +188,15 @@ func validate(s plannerSnapshot) error {
 }
 
 // decentralizedSpecViolations lists the spec features the decentralized pair must refuse rather
-// than half-apply. Each entry is receipt-backed: TLS would mount a pem secret nobody creates and
-// publish an empty certificateKeyFile; auth, internal-cluster auth and roles have no
-// updateOmAuthentication/ensureRoles counterpart; backup was cut from M3.8. Features the legacy
-// multi-cluster controller does not support either (prometheus, vault) are NOT refused — same
-// silent no-op as legacy.
+// than half-apply. Each entry is receipt-backed: auth, internal-cluster auth and roles have no
+// updateOmAuthentication/ensureRoles counterpart; backup was cut from M3.8. TLS is NOT refused
+// (M8): the materials are pre-provisioned byte-identically per cluster — the member collates its
+// PEM locally, the leader hashes its own copy for the AC, and both fail loud when the contract
+// is unmet. Features the legacy multi-cluster controller does not support either (prometheus,
+// vault) are NOT refused — same silent no-op as legacy.
 func decentralizedSpecViolations(spec mdbmultiv1.MongoDBMultiSpec) []string {
 	var violations []string
 	security := spec.GetSecurity()
-	if security.IsTLSEnabled() {
-		violations = append(violations, "spec.security.tls (also implied by certsSecretPrefix)")
-	}
 	if security.Authentication != nil && security.Authentication.Enabled {
 		violations = append(violations, "spec.security.authentication")
 	}

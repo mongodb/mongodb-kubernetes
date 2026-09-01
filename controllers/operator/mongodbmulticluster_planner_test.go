@@ -248,8 +248,6 @@ func TestDecentralizedSpecViolations(t *testing.T) {
 		spec mdbmultiv1.MongoDBMultiSpec
 		want string
 	}{
-		{"TLS enabled", specWithSecurity(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}), "spec.security.tls"},
-		{"certsSecretPrefix implies TLS", specWithSecurity(&mdbv1.Security{CertificatesSecretsPrefix: "prefix"}), "spec.security.tls"},
 		{"authentication enabled", specWithSecurity(&mdbv1.Security{Authentication: &mdbv1.Authentication{Enabled: true}}), "spec.security.authentication"},
 		{"internal cluster auth", specWithSecurity(&mdbv1.Security{Authentication: &mdbv1.Authentication{InternalCluster: "X509"}}), "internalCluster"},
 		{"roles", specWithSecurity(&mdbv1.Security{Roles: []mdbv1.MongoDBRole{{Role: "root"}}}), "roles"},
@@ -272,6 +270,14 @@ func TestDecentralizedSpecViolations(t *testing.T) {
 		}}
 		assert.Empty(t, decentralizedSpecViolations(spec))
 	})
+
+	t.Run("TLS is not refused: materials are pre-provisioned per cluster (M8)", func(t *testing.T) {
+		spec := specWithSecurity(&mdbv1.Security{
+			TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "issuer-ca"},
+			CertificatesSecretsPrefix: "prefix",
+		})
+		assert.Empty(t, decentralizedSpecViolations(spec))
+	})
 }
 
 func TestClusterStatusOptionReportsGrantedCounts(t *testing.T) {
@@ -290,14 +296,14 @@ func TestClusterStatusOptionReportsGrantedCounts(t *testing.T) {
 
 func TestPlanUnsupportedSpecRefused(t *testing.T) {
 	t.Run("A violation refuses even a converged world", func(t *testing.T) {
-		decision := plan(converged(2, 2, 2).withSpecViolations("spec.security.tls").build())
+		decision := plan(converged(2, 2, 2).withSpecViolations("spec.security.authentication").build())
 		assert.Equal(t, decisionInvalidSpec, decision.Kind)
 		assert.Contains(t, decision.Reason, "not supported in the decentralized POC")
-		assert.Contains(t, decision.Reason, "spec.security.tls")
+		assert.Contains(t, decision.Reason, "spec.security.authentication")
 	})
 
 	t.Run("Stale world still precedes the violation", func(t *testing.T) {
-		b := converged(2, 2, 2).withSpecViolations("spec.security.tls")
+		b := converged(2, 2, 2).withSpecViolations("spec.security.authentication")
 		b.s.AC.LeadershipTerm = testPlanTerm + 1
 		decision := plan(b.build())
 		assert.Equal(t, decisionNotProgressing, decision.Kind)
