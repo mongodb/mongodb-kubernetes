@@ -667,8 +667,13 @@ func advancement(s plannerSnapshot) (planDecision, bool) {
 			if wantCount < granted(s, clusterName) {
 				continue // a scale-down step is initiated by the AC write, never by the grant
 			}
-			if wantCount > granted(s, clusterName) && !memberCaughtUp(s, clusterName) {
-				continue // fence discipline: never advance a member past what it has seen
+			// fence discipline: never advance a member past what it has seen — but only a
+			// member that HAS a directive can have seen anything; gating the first write on
+			// memberCaughtUp (which requires the directive to exist) would deadlock a cluster
+			// newly added to a live deployment (found on the first EVG run of the scale-up-
+			// cluster fork: "no directive written yet", forever)
+			if wantCount > granted(s, clusterName) && s.Directives[clusterName].Exists && !memberCaughtUp(s, clusterName) {
+				continue
 			}
 		}
 		return planDecision{

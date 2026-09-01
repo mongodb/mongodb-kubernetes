@@ -460,6 +460,44 @@ func TestPlanExclusivity(t *testing.T) {
 	})
 }
 
+// TestPlanAddClusterToLiveDeploymentWritesFirstDirective pins a defect: a cluster added to the
+// spec of a live deployment can never get its first directive. memberCaughtUp requires
+// d.Exists, so advancement's fence — "never advance a member past what it has seen" — refuses
+// the one cluster that has never seen anything, and the up-ladder that would create its first
+// directive is the very thing gated on that fence. Unlike the "New cluster" case above, this
+// cluster has NEVER had a directive (not even one granted at 0); its allocation only becomes
+// durable once the two live clusters have both acked the extended map (found live: an EVG
+// scale_up_cluster run wedged the leader forever on "waiting for cluster ...: no directive
+// written yet").
+func TestPlanAddClusterToLiveDeploymentWritesFirstDirective(t *testing.T) {
+	b := converged(2, 1) // two clusters, steady state; the third is not in the spec yet
+	b.s.Targets = append(b.s.Targets, clusterTarget{ClusterName: clusters[2], Members: 2})
+
+	// pass 1: the allocation guard pushes the extended map to the first live cluster
+	decision := plan(b.build())
+	require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+	assert.Equal(t, clusters[0], decision.TargetCluster)
+	assert.Equal(t, map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}, decision.DirectiveSpec.IndexAllocations)
+	assert.Equal(t, 2, decision.DirectiveSpec.MemberCount, "allocation never touches the count")
+	b.withGrantedDirective(clusters[0], decision.DirectiveSpec.MemberCount)
+
+	// pass 2: the second live cluster acks the map too — durable at 2/2 copies
+	decision = plan(b.build())
+	require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+	assert.Equal(t, clusters[1], decision.TargetCluster)
+	assert.Equal(t, map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}, decision.DirectiveSpec.IndexAllocations)
+	assert.Equal(t, 1, decision.DirectiveSpec.MemberCount, "allocation never touches the count")
+	b.withGrantedDirective(clusters[1], decision.DirectiveSpec.MemberCount)
+
+	// pass 3: the allocation is fully acked; advancement must now create the new cluster's
+	// first directive, the ladder's first step (0 -> 1). Today the fence refuses it and the
+	// planner reports NotProgressing instead — this is the RED assertion.
+	decision = plan(b.build())
+	require.Equal(t, decisionWriteDirective, decision.Kind, decision.Reason)
+	assert.Equal(t, clusters[2], decision.TargetCluster)
+	assert.Equal(t, 1, decision.DirectiveSpec.MemberCount)
+}
+
 func TestPlanFenceDiscipline(t *testing.T) {
 	// the member's local CR copy still hashes to something older: it holds, and the planner
 	// never advances its count past what it has observed
