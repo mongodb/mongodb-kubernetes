@@ -272,7 +272,7 @@ func shardRSWithConfig(t *testing.T, processMap map[string]om.Process, rsName st
 	t.Helper()
 	host := rsName + "-0"
 	rs := om.NewReplicaSet(rsName, "7.0.12-ent")
-	rs["members"] = []interface{}{map[string]interface{}{"host": host, "_id": 0}}
+	rs["members"] = []interface{}{map[string]interface{}{"host": host, "_id": 0, "priority": 1, "votes": 1}}
 	if cacheSizeGB == nil {
 		processMap[host] = om.Process{"name": host}
 		return rs
@@ -300,27 +300,114 @@ func TestShardAdditionalMongodConfigs_ExtractsPerShard(t *testing.T) {
 		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
 	}
 
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	require.Len(t, configs, 2)
 	assert.Equal(t, 4, readCacheSizeGB(t, configs[0]))
 	assert.Equal(t, 8, readCacheSizeGB(t, configs[1]))
 }
 
-func TestShardAdditionalMongodConfigs_NilForMissingProcessOrEmptyMembers(t *testing.T) {
-	// A shard whose member is absent from the process map, and a shard with no members at
-	// all, both yield nil. Nil means "nothing to say about this shard".
+func TestShardAdditionalMongodConfigs_ErrorWhenNoSourceProcess(t *testing.T) {
+	// A shard with no usable source process is an inconsistent automation config: the
+	// settings exist in Ops Manager but cannot be read, so generation stops rather than
+	// producing a resource that silently omits them.
 	processMap := map[string]om.Process{}
 	orphan := om.NewReplicaSet("shard0", "7.0.12-ent")
-	orphan["members"] = []interface{}{map[string]interface{}{"host": "missing-host", "_id": 0}}
+	orphan["members"] = []interface{}{map[string]interface{}{"host": "missing-host", "_id": 0, "priority": 1, "votes": 1}}
+
+	_, err := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{orphan})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "shard0")
+}
+
+func TestShardAdditionalMongodConfigs_FallsBackToLaterMember(t *testing.T) {
+	// The first member missing a process is not fatal on its own: pickSourceProcess moves
+	// on to the next voting member, so the config is read from that one instead.
+	processMap := map[string]om.Process{
+		"shard0-1": {
+			"name": "shard0-1",
+			"args2_6": map[string]interface{}{
+				"storage": map[string]interface{}{
+					"wiredTiger": map[string]interface{}{
+						"engineConfig": map[string]interface{}{"cacheSizeGB": 7},
+					},
+				},
+			},
+		},
+	}
+	rs := om.NewReplicaSet("shard0", "7.0.12-ent")
+	rs["members"] = []interface{}{
+		map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1},
+		map[string]interface{}{"host": "shard0-1", "_id": 1, "priority": 1, "votes": 1},
+	}
+
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{rs})
+
+	require.NoError(t, err)
+	require.Len(t, configs, 1)
+	assert.Equal(t, 7, readCacheSizeGB(t, configs[0]))
+}
+
+func TestShardAdditionalMongodConfigs_SkipsNonVotingMember(t *testing.T) {
+	// A hidden or zero-vote member can carry deliberately different settings, so it must
+	// not be the source even when it comes first and resolves to a process.
+	mkProc := func(name string, cacheSizeGB int) om.Process {
+		return om.Process{
+			"name": name,
+			"args2_6": map[string]interface{}{
+				"storage": map[string]interface{}{
+					"wiredTiger": map[string]interface{}{
+						"engineConfig": map[string]interface{}{"cacheSizeGB": cacheSizeGB},
+					},
+				},
+			},
+		}
+	}
+	processMap := map[string]om.Process{
+		"shard0-0": mkProc("shard0-0", 1),
+		"shard0-1": mkProc("shard0-1", 9),
+	}
+	rs := om.NewReplicaSet("shard0", "7.0.12-ent")
+	rs["members"] = []interface{}{
+		map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 0, "votes": 0},
+		map[string]interface{}{"host": "shard0-1", "_id": 1, "priority": 1, "votes": 1},
+	}
+
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{rs})
+
+	require.NoError(t, err)
+	require.Len(t, configs, 1)
+	assert.Equal(t, 9, readCacheSizeGB(t, configs[0]), "config must come from the voting member")
+}
+
+func TestShardComponentConfig_NilIsOmittedFromTheGeneratedResource(t *testing.T) {
+	// A component with nothing but operator-managed fields must produce no
+	// additionalMongodConfig key at all. The field is an omitempty pointer, so only a nil
+	// config is dropped: an empty one would serialise as "additionalMongodConfig: {}".
+	processMap := map[string]om.Process{}
+	rs := shardRSWithConfig(t, processMap, "shard0", nil)
+
+	cfg, err := shardComponentConfig(nil, processMap, rs.Members())
+	require.NoError(t, err)
+	require.Nil(t, cfg, "a component with no user config must yield nil, not an empty config")
+
+	spec, err := buildShardedComponentSpec(nil, processMap, rs.Members())
+	require.NoError(t, err)
+	assert.Nil(t, spec, "a nil config must leave the component out of the resource entirely")
+}
+
+func TestShardAdditionalMongodConfigs_ErrorForEmptyMembers(t *testing.T) {
+	// A shard replica set with no members has no source process either, so it is rejected
+	// for the same reason: nothing to read the shard's mongod settings from.
 	empty := om.NewReplicaSet("shard1", "7.0.12-ent")
 	empty["members"] = []interface{}{}
 
-	configs := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{orphan, empty})
+	_, err := shardAdditionalMongodConfigs(nil, map[string]om.Process{}, []om.ReplicaSet{empty})
 
-	require.Len(t, configs, 2)
-	assert.Nil(t, configs[0])
-	assert.Nil(t, configs[1])
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "shard1")
 }
 
 func TestCommonShardConfig_AllIdentical(t *testing.T) {
@@ -331,7 +418,8 @@ func TestCommonShardConfig_AllIdentical(t *testing.T) {
 		shardRSWithConfig(t, processMap, "shard0", intPtr(4)),
 		shardRSWithConfig(t, processMap, "shard1", intPtr(4)),
 	}
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	common, uniform := commonShardConfig(configs)
 
@@ -353,7 +441,8 @@ func TestCommonShardConfig_Differing(t *testing.T) {
 		shardRSWithConfig(t, processMap, "shard0", intPtr(4)),
 		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
 	}
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	common, uniform := commonShardConfig(configs)
 
@@ -369,7 +458,8 @@ func TestCommonShardConfig_NilVersusSetIsNotUniform(t *testing.T) {
 		shardRSWithConfig(t, processMap, "shard0", nil),
 		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
 	}
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	_, uniform := commonShardConfig(configs)
 
@@ -380,7 +470,8 @@ func TestCommonShardConfig_SingleShard(t *testing.T) {
 	// A one-shard cluster is trivially uniform, so it keeps using spec.shard.
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{shardRSWithConfig(t, processMap, "shard0", intPtr(4))}
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	common, uniform := commonShardConfig(configs)
 
@@ -397,7 +488,8 @@ func TestBuildShardOverrides_OneEntryPerShardInIndexOrder(t *testing.T) {
 		shardRSWithConfig(t, processMap, "shard1", intPtr(4)),
 		shardRSWithConfig(t, processMap, "shard2", intPtr(8)),
 	}
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	overrides := buildShardOverrides("my-cluster", configs)
 
@@ -418,7 +510,8 @@ func TestBuildShardOverrides_SkipsShardsWithNilConfig(t *testing.T) {
 		shardRSWithConfig(t, processMap, "shard0", nil),
 		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
 	}
-	configs := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
+	require.NoError(t, err)
 
 	overrides := buildShardOverrides("my-cluster", configs)
 

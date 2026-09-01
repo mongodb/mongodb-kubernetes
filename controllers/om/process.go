@@ -44,15 +44,10 @@ const (
 //
 // MongoDB Search setParameters (mongotHost, searchIndexManagementHostAndPort,
 // searchTLSMode, useGrpcForSearch, skipAuthenticationToMongot,
-// skipAuthenticationToSearchIndexManagementServer) are deliberately NOT listed. They were
-// stripped originally on the assumption that the search controller always rewrites them from
-// the MongoDBSearch CR, but during a VM migration the MongoDBSearch usually still targets the
-// VM mongods through an external source, so applySearchOverrides returns early and nothing in
-// Kubernetes writes them. Ops Manager was expected to propagate them onto the new processes
-// and does not. The generated CR is therefore their carrier: they are extracted like any other
-// user setParameter. When a MongoDBSearch does target the migrated resource, the controller
-// overwrites the whole setParameter subtree, so the CR-side values are superseded rather than
-// in conflict.
+// skipAuthenticationToSearchIndexManagementServer) are deliberately NOT listed: they are
+// extracted like any other user setParameter, so the generated CR carries them. Nothing else
+// does during a migration. Once a MongoDBSearch targets the migrated resource, the search
+// controller overwrites the whole setParameter subtree and the CR-side values are superseded.
 var infrastructureFieldPaths = [][]string{
 	{"systemLog"},
 	{"storage", "dbPath"},

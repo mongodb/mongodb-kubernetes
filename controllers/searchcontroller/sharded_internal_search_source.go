@@ -40,9 +40,7 @@ func (r *ShardedInternalSearchSource) GetShardCount() int {
 // externalMembersForK8sShardName maps the Kubernetes shard name the search plan works with
 // (MongoDB.ShardName(i)) to the Automation Config replica set name that external members are
 // recorded under (MongoDB.ShardACRsName(i), which spec.shardNameOverrides can change), and
-// returns that shard's external mongod members. Filtering by the Kubernetes name directly
-// would silently return nothing whenever an override is set -- which is exactly what
-// migrate-to-mck emits when the VM replica set name differs from the Kubernetes shard name.
+// returns that shard's external mongod members.
 func (r *ShardedInternalSearchSource) externalMembersForK8sShardName(shardName string) []mdbv1.ExternalMember {
 	for i := 0; i < r.Spec.ShardCount; i++ {
 		if r.ShardName(i) == shardName {
@@ -52,9 +50,8 @@ func (r *ShardedInternalSearchSource) externalMembersForK8sShardName(shardName s
 	return nil
 }
 
-// HostSeeds returns the sync-source seed list for one shard: the Kubernetes mongods first, then
-// any external (VM) members still in the shard. During a VM migration mongodsPerShardCount may be
-// 0, in which case the external members are the only seeds.
+// HostSeeds returns the hosts mongot syncs one shard's data from. Kubernetes mongods come
+// first, then any external (VM) members still in the shard.
 func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, error) {
 	members := r.Spec.MongodsPerShardCount
 	clusterDomain := r.Spec.GetClusterDomain()
@@ -67,10 +64,27 @@ func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, err
 		seeds = append(seeds, fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
 			shardName, i, r.ShardServiceName(), r.Namespace, clusterDomain, port))
 	}
-	for _, m := range externalMembers {
-		seeds = append(seeds, m.Hostname)
+	return append(seeds, externalHostnames(externalMembers)...), nil
+}
+
+// externalHostnames returns the hostnames of the given external members.
+func externalHostnames(members []mdbv1.ExternalMember) []string {
+	hostnames := make([]string, 0, len(members))
+	for _, m := range members {
+		hostnames = append(hostnames, m.Hostname)
 	}
-	return seeds, nil
+	return hostnames
+}
+
+// externalMongosHostnames returns the hostnames of the given external members that are mongos.
+func externalMongosHostnames(members []mdbv1.ExternalMember) []string {
+	hostnames := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.Type == mdbv1.ExternalMemberTypeMongos {
+			hostnames = append(hostnames, m.Hostname)
+		}
+	}
+	return hostnames
 }
 
 // MongosHostsAndPorts returns the routers mongot should talk to: the Kubernetes mongos Service
@@ -84,12 +98,7 @@ func (r *ShardedInternalSearchSource) MongosHostsAndPorts() []string {
 	if r.Spec.MongosCount > 0 {
 		hosts = append(hosts, fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port))
 	}
-	for _, m := range r.Spec.ExternalMembers {
-		if m.Type == mdbv1.ExternalMemberTypeMongos {
-			hosts = append(hosts, m.Hostname)
-		}
-	}
-	return hosts
+	return append(hosts, externalMongosHostnames(r.Spec.ExternalMembers)...)
 }
 
 func (r *ShardedInternalSearchSource) TLSConfig() *TLSSourceConfig {

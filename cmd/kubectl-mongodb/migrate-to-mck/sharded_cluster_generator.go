@@ -58,22 +58,29 @@ func generateShardedCluster(ac *om.AutomationConfig, opts GenerateOptions) (clie
 		return nil, fmt.Errorf("failed to build MongoDB spec: %w", err)
 	}
 
-	overrides := buildShardedClusterOverrides(k8sResourceName, acClusterName, configRS, acShards)
-	overrides.ConfigSrvSpec = buildShardedComponentSpec(ac.AgentSSL, processMap, configRS.Members())
-	// Shards may differ in their mongod settings. When they all agree, that shared config
-	// belongs in spec.shard. When they differ, spec.shard is left absent — populating it
-	// from one shard would assert that shard's settings about all the others — and each
-	// shard states its own config in an override instead.
-	shardConfigs := shardAdditionalMongodConfigs(ac.AgentSSL, processMap, shardRSes)
+	shardedClusterSpec := buildShardedClusterOverrides(k8sResourceName, acClusterName, configRS, acShards)
+	shardedClusterSpec.ConfigSrvSpec, err = buildShardedComponentSpec(ac.AgentSSL, processMap, configRS.Members())
+	if err != nil {
+		return nil, fmt.Errorf("config server replica set %q: %w", configRS.Name(), err)
+	}
+	// Shard configs, on K8s, derive from one of two places: either the spec.shard field
+	// set once for the entire ShardedClusterSpec, or from a shard-specific override. We
+	// maintain the invariant that exactly one of these routes is used: either all shards
+	// are identical and spec.shard is present, or spec.shard is absent and there is an
+	// override for each shard.
+	shardConfigs, err := shardAdditionalMongodConfigs(ac.AgentSSL, processMap, shardRSes)
+	if err != nil {
+		return nil, err
+	}
 	if common, uniform := commonShardConfig(shardConfigs); uniform {
 		if common != nil {
-			overrides.ShardSpec = &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: common}
+			shardedClusterSpec.ShardSpec = &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: common}
 		}
 	} else {
-		overrides.ShardOverrides = buildShardOverrides(k8sResourceName, shardConfigs)
+		shardedClusterSpec.ShardOverrides = buildShardOverrides(k8sResourceName, shardConfigs)
 	}
-	overrides.MongosSpec = buildMongosComponentSpec(ac.AgentSSL, mongosProcs)
-	spec.ShardedClusterSpec = overrides
+	shardedClusterSpec.MongosSpec = buildMongosComponentSpec(ac.AgentSSL, mongosProcs)
+	spec.ShardedClusterSpec = shardedClusterSpec
 
 	cr := &mdbv1.MongoDB{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "mongodb.com/v1", Kind: "MongoDB"},
@@ -148,47 +155,60 @@ func buildShardedClusterOverrides(k8sResourceName, acClusterName string, configR
 	}
 }
 
-// shardComponentConfig extracts the additionalMongodConfig for one replica-set component,
-// using its first member as representative. Returns nil when the component has no members,
-// its first member is absent from the process map, or nothing survives stripping the
-// operator-managed infrastructure fields.
-func shardComponentConfig(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) *mdbv1.AdditionalMongodConfig {
-	if len(members) == 0 {
-		return nil
+// shardComponentConfig extracts representative additionalMongodConfig from one component's
+// replica set, using pickSourceProcess to choose the member it is read from so a component
+// of a sharded cluster and a plain replica set pick the same way.
+//
+// Returns a nil config, and no error, when nothing survives the filtering: every field was
+// operator-managed, so there is nothing for the generated resource to carry. Nil rather than
+// an empty config because the field is an omitempty pointer, and omitempty only drops a nil
+// one: returning an empty config would write "additionalMongodConfig: {}" into every
+// generated resource that configures nothing, and the operator fills the field in itself
+// when it is absent.
+//
+// A member list with no usable source process is an inconsistent automation config and
+// returns an error rather than being read as "no config": the settings do exist in Ops
+// Manager, and silently dropping them would generate a resource that quietly disagrees with
+// the deployment it is meant to reproduce.
+func shardComponentConfig(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) (*mdbv1.AdditionalMongodConfig, error) {
+	proc, err := pickSourceProcess(members, processMap)
+	if err != nil {
+		return nil, err
 	}
-	proc, ok := processMap[members[0].Name()]
-	if !ok {
-		return nil
-	}
-	return applyClientCertificateMode(agentSSL, proc.AdditionalMongodConfig())
+	return applyClientCertificateMode(agentSSL, proc.AdditionalMongodConfig()), nil
 }
 
 // buildShardedComponentSpec wraps shardComponentConfig in a component spec, or returns nil
-// when there is no config to carry.
-func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) *mdbv1.ShardedClusterComponentSpec {
-	cfg := shardComponentConfig(agentSSL, processMap, members)
-	if cfg == nil {
-		return nil
+// when there is no config to carry, so the component is left out of the generated resource
+// entirely rather than appearing as an empty section.
+func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) (*mdbv1.ShardedClusterComponentSpec, error) {
+	cfg, err := shardComponentConfig(agentSSL, processMap, members)
+	if err != nil {
+		return nil, err
 	}
-	return &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: cfg}
+	if cfg == nil {
+		return nil, nil
+	}
+	return &mdbv1.ShardedClusterComponentSpec{AdditionalMongodConfig: cfg}, nil
 }
 
 // shardAdditionalMongodConfigs returns each shard's additionalMongodConfig, index-aligned
-// with shardRSes. Entries are nil for shards whose config could not be determined.
-func shardAdditionalMongodConfigs(agentSSL *om.AgentSSL, processMap map[string]om.Process, shardRSes []om.ReplicaSet) []*mdbv1.AdditionalMongodConfig {
+// with shardRSes. Entries are nil for shards whose config is entirely operator-managed.
+func shardAdditionalMongodConfigs(agentSSL *om.AgentSSL, processMap map[string]om.Process, shardRSes []om.ReplicaSet) ([]*mdbv1.AdditionalMongodConfig, error) {
 	configs := make([]*mdbv1.AdditionalMongodConfig, 0, len(shardRSes))
 	for _, rs := range shardRSes {
-		configs = append(configs, shardComponentConfig(agentSSL, processMap, rs.Members()))
+		cfg, err := shardComponentConfig(agentSSL, processMap, rs.Members())
+		if err != nil {
+			return nil, fmt.Errorf("shard replica set %q: %w", rs.Name(), err)
+		}
+		configs = append(configs, cfg)
 	}
-	return configs
+	return configs, nil
 }
 
 // commonShardConfig reports whether every shard shares one additionalMongodConfig, and if
-// so returns it. Comparison is on the marshalled map rather than pointer identity, so two
-// independently built but equivalent configs count as identical and map key ordering cannot
-// manufacture a false difference. When shards agree the caller emits spec.shard; when they
-// differ, spec.shard is left absent because it would otherwise assert one shard's settings
-// about all the others.
+// so returns it. Equality is value-based on the AdditionalMongodConfig records, and
+// insensitive to key orderings.
 func commonShardConfig(configs []*mdbv1.AdditionalMongodConfig) (*mdbv1.AdditionalMongodConfig, bool) {
 	if len(configs) == 0 {
 		return nil, true
@@ -204,14 +224,9 @@ func commonShardConfig(configs []*mdbv1.AdditionalMongodConfig) (*mdbv1.Addition
 	return configs[0], true
 }
 
-// buildShardOverrides emits one ShardOverride per shard that has a config, in ascending
-// shard index. Shards are never grouped by identical config: an explicit entry per shard
-// keeps the reader from having to infer which grouping is the default. Each entry carries
-// the shard's complete config rather than a delta, because the operator replaces
-// additionalMongodConfig wholesale rather than merging it
-// (controllers/operator/mongodbshardedcluster_controller.go, processShardOverride).
-// Shards with a nil config are skipped: an override with no additionalMongodConfig is a
-// no-op in the operator.
+// buildShardOverrides returns one ShardOverride per shard that has a config, in ascending
+// shard index. Each entry carries the shard's complete config, not a delta. Shards with a
+// nil config are skipped.
 func buildShardOverrides(k8sResourceName string, configs []*mdbv1.AdditionalMongodConfig) []mdbv1.ShardOverride {
 	var overrides []mdbv1.ShardOverride
 	for i, cfg := range configs {
