@@ -63,7 +63,7 @@ def mongodb_multi(
 def test_create_kube_config_file(cluster_clients: Dict, central_cluster_name: str, member_cluster_names: str):
     clients = cluster_clients
 
-    assert len(clients) == 4
+    assert len(clients) == len({central_cluster_name, *member_cluster_names})
     for member_cluster_name in member_cluster_names:
         assert member_cluster_name in clients
     assert central_cluster_name in clients
