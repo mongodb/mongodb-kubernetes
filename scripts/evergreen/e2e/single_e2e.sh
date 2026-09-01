@@ -101,7 +101,7 @@ deploy_test_app() {
     fi
 
     if [[ "${DECENTRALIZED_E2E:-}" = "true" ]]; then
-        # Decentralized regression harness (CLOUDP-420273): the fixture swap and the leader pin
+        # Decentralized regression harness (KUBE-153): the fixture swap and the leader pin
         # are read from the pod's environment, and the operators must install from the branch
         # chart baked into the tests image, not the released OCI chart.
         helm_params+=("--set" "decentralizedE2E=${DECENTRALIZED_E2E}")

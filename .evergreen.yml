@@ -1054,7 +1054,7 @@ task_groups:
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
 
-  # Decentralized regression harness (CLOUDP-420273): the variant name doubles as the dev
+  # Decentralized regression harness (KUBE-153): the variant name doubles as the dev
   # context (switch_context), which pins the leader onto the status-read cluster and flips the
   # operator fixture to one operator per member cluster.
   - name: e2e_multi_cluster_decentralized_task_group

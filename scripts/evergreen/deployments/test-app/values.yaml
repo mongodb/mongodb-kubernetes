@@ -63,7 +63,7 @@ autoEmbedding:
     indexingKey: ""
     queryKey: ""
 
-# Decentralized regression harness (CLOUDP-420273): flips the operator fixture to one operator
+# Decentralized regression harness (KUBE-153): flips the operator fixture to one operator
 # per cluster, pins the leader, and points the in-pod operator installs at a chart directory
 # (the one baked into the tests image) instead of the released OCI chart.
 decentralizedE2E: ""

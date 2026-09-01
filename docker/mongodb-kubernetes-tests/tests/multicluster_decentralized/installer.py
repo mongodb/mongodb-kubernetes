@@ -1,5 +1,5 @@
 """
-Installer for the decentralized multi-cluster POC (CLOUDP-420273): one operator per cluster, no
+Installer for the decentralized multi-cluster POC (KUBE-153): one operator per cluster, no
 central cluster. Every cluster gets the same inputs (namespace, CRDs, OM project artifacts, the
 workload CR) plus, for each of its two peers, a narrowly scoped token-kubeconfig credential and a
 MemberCluster CR.

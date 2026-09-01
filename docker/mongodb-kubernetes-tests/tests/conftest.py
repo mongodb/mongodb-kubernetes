@@ -714,7 +714,7 @@ def get_multi_cluster_operator(
     operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
     if os.environ.get("DECENTRALIZED_E2E") == "true":
-        # Fixture swap (CLOUDP-420273): install one operator per cluster instead of the legacy
+        # Fixture swap (KUBE-153): install one operator per cluster instead of the legacy
         # central operator, so the legacy multicluster/ tests run unmodified. Imported lazily to
         # avoid an import cycle (installer.py's live-path helpers import kubetester.operator).
         from tests.multicluster_decentralized.installer import build_decentralized_settings, install_decentralized

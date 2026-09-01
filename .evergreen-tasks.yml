@@ -1019,7 +1019,7 @@ tasks:
     commands:
       - func: e2e_test
 
-  # Decentralized regression harness (CLOUDP-420273): TLS-free forks of the scaling tests,
+  # Decentralized regression harness (KUBE-153): TLS-free forks of the scaling tests,
   # run under the e2e_multi_cluster_decentralized_harness variant only.
   - name: e2e_multi_cluster_decentralized_replica_set_scale_up
     tags: [ "patch-run" ]

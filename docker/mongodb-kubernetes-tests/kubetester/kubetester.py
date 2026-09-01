@@ -318,7 +318,7 @@ skip_if_static_containers = pytest.mark.skipif(
 )
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
-# Deletion cleanup is cut from the decentralized POC (CLOUDP-420273, phase 2): CR deletion tears
+# Deletion cleanup is cut from the decentralized POC (KUBE-153, phase 2): CR deletion tears
 # down neither directives, StatefulSets nor the automation config.
 skip_if_decentralized = pytest.mark.skipif(
     os.getenv("DECENTRALIZED_E2E") == "true", reason="deletion cleanup is not part of the decentralized POC"
