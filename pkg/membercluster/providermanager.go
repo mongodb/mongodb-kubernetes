@@ -2,6 +2,8 @@ package membercluster
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -17,17 +19,19 @@ import (
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// credentialSecretKubeconfigKey is the Secret key holding the single-context kubeconfig.
-// It matches the key written by the `generate-member-registration` plugin command.
-const credentialSecretKubeconfigKey = "kubeconfig"
+// credentials holds everything derived from the MemberCluster CR's credential Secret.
+type credentials struct {
+	restConfig *restclient.Config
+	// kubeconfigHash detects credential rotation: a changed hash with an unchanged CR
+	// generation still rebuilds the entry.
+	kubeconfigHash string
+}
 
 // providerManager owns the lifecycle of the operator's member-cluster provider entries,
-// driven by the Reconciler. sync (re)builds the entry for a MemberCluster CR — rest.Config,
-// cluster.Cluster started with a per-entry context, provider registration, engage hooks —
-// and remove tears it down, cancelling the entry's context so its informers stop.
-// Membership changes are applied without restarting the operator.
+// driven by the Reconciler.
 type providerManager struct {
 	client        client.Reader
 	namespace     string
@@ -42,8 +46,9 @@ type providerManager struct {
 
 	mu sync.Mutex
 	// entries tracks the live entry per MemberCluster CR (keyed by metadata.name): its
-	// logical cluster name, its context cancel func, and the synced generation, so spec
-	// changes rebuild the entry while status writes and resyncs leave it untouched.
+	// logical cluster name, its context cancel func, and the synced generation and
+	// credential hash, so spec changes and credential rotation rebuild the entry while
+	// status writes and resyncs leave it untouched.
 	entries map[string]entryState
 	// wg tracks the running per-entry cluster goroutines so Start can drain them on
 	// manager shutdown.
@@ -51,9 +56,10 @@ type providerManager struct {
 }
 
 type entryState struct {
-	clusterName string
-	cancel      context.CancelFunc
-	generation  int64
+	clusterName    string
+	cancel         context.CancelFunc
+	generation     int64
+	kubeconfigHash string
 }
 
 func newProviderManager(baseCtx context.Context, c client.Reader, namespace string, clientTimeout time.Duration, provider *multicluster.Provider, newCluster func(restConfig *restclient.Config) (cluster.Cluster, error)) *providerManager {
@@ -68,13 +74,42 @@ func newProviderManager(baseCtx context.Context, c client.Reader, namespace stri
 	}
 }
 
-// sync registers the provider entry for mc, rebuilding it when the CR's generation changed.
-// A resync or a status-only update (which leaves the generation unchanged) is a no-op.
-func (m *providerManager) sync(ctx context.Context, mc *operatorv1.MemberCluster, log *zap.SugaredLogger) error {
+// loadCredentials reads the credential Secret referenced by the MemberCluster CR and
+// derives the member cluster's rest.Config and a hash of the raw kubeconfig for
+// rotation detection.
+func (m *providerManager) loadCredentials(ctx context.Context, mc *operatorv1.MemberCluster) (*credentials, error) {
+	secretName := mc.Spec.CredentialSecretRef.Name
+	secret := &corev1.Secret{}
+	if err := m.client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: m.namespace}, secret); err != nil {
+		return nil, fmt.Errorf("reading credential secret %q: %w", secretName, err)
+	}
+
+	kubeconfig, ok := secret.Data[util.MemberClusterCredentialSecretKubeconfigKey]
+	if !ok || len(kubeconfig) == 0 {
+		return nil, fmt.Errorf("credential secret %q has no %q key", secretName, util.MemberClusterCredentialSecretKubeconfigKey)
+	}
+
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("building REST config from credential secret %q: %w", secretName, err)
+	}
+	restConfig.Timeout = m.clientTimeout
+
+	sum := sha256.Sum256(kubeconfig)
+	return &credentials{
+		restConfig:     restConfig,
+		kubeconfigHash: hex.EncodeToString(sum[:]),
+	}, nil
+}
+
+// ensure registers the provider entry for mc, rebuilding it when the CR's generation or
+// the credential hash changed. A resync or a status-only update (both leaving generation
+// and hash unchanged) is a no-op.
+func (m *providerManager) ensure(ctx context.Context, mc *operatorv1.MemberCluster, creds *credentials, log *zap.SugaredLogger) error {
 	m.mu.Lock()
 	state, exists := m.entries[mc.Name]
 	m.mu.Unlock()
-	if exists && state.generation == mc.Generation {
+	if exists && state.generation == mc.Generation && state.kubeconfigHash == creds.kubeconfigHash {
 		return nil
 	}
 
@@ -90,16 +125,9 @@ func (m *providerManager) sync(ctx context.Context, mc *operatorv1.MemberCluster
 	}
 	m.mu.Unlock()
 
-	restConfig, err := restConfigFromMemberCluster(ctx, m.client, mc, m.namespace)
-	if err != nil {
-		// Requeue with backoff: the credential Secret may not exist yet.
-		return err
-	}
-	restConfig.Timeout = m.clientTimeout
-
 	// Build the replacement before tearing the old entry down: if construction fails, the
 	// old entry keeps serving.
-	memberCluster, err := m.newCluster(restConfig)
+	memberCluster, err := m.newCluster(creds.restConfig)
 	if err != nil {
 		return err
 	}
@@ -118,7 +146,7 @@ func (m *providerManager) sync(ctx context.Context, mc *operatorv1.MemberCluster
 	}()
 
 	m.mu.Lock()
-	m.entries[mc.Name] = entryState{clusterName: mc.Spec.ClusterName, cancel: cancel, generation: mc.Generation}
+	m.entries[mc.Name] = entryState{clusterName: mc.Spec.ClusterName, cancel: cancel, generation: mc.Generation, kubeconfigHash: creds.kubeconfigHash}
 	m.mu.Unlock()
 
 	m.provider.Set(ctx, mc.Spec.ClusterName, multicluster.Entry{
@@ -169,26 +197,4 @@ func (m *providerManager) Start(ctx context.Context) error {
 	}
 	m.wg.Wait()
 	return nil
-}
-
-// restConfigFromMemberCluster reads the credential Secret referenced by the MemberCluster CR
-// and builds a REST config from its single-context kubeconfig.
-func restConfigFromMemberCluster(ctx context.Context, c client.Reader, mc *operatorv1.MemberCluster, namespace string) (*restclient.Config, error) {
-	secretName := mc.Spec.CredentialSecretRef.Name
-	secret := &corev1.Secret{}
-	if err := c.Get(ctx, types.NamespacedName{Name: secretName, Namespace: namespace}, secret); err != nil {
-		return nil, fmt.Errorf("reading credential secret %q: %w", secretName, err)
-	}
-
-	kubeconfig, ok := secret.Data[credentialSecretKubeconfigKey]
-	if !ok || len(kubeconfig) == 0 {
-		return nil, fmt.Errorf("credential secret %q has no %q key", secretName, credentialSecretKubeconfigKey)
-	}
-
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("building REST config from credential secret %q: %w", secretName, err)
-	}
-
-	return restConfig, nil
 }

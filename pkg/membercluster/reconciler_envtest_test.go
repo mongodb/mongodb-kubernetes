@@ -25,6 +25,7 @@ import (
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
@@ -67,7 +68,8 @@ func TestReconcilerHotReload(t *testing.T) {
 		OnRemove: func(_ context.Context, _ string, _ multicluster.Entry) { removed.Add(1) },
 	})
 
-	r := NewReconciler(t.Context(), mgr.GetClient(), testNamespace, 10*time.Second, provider, func(restConfig *restclient.Config) (runtime_cluster.Cluster, error) {
+	// A short recheck interval keeps convergence fast.
+	r := NewReconciler(t.Context(), mgr.GetClient(), testNamespace, 10*time.Second, time.Second, provider, func(restConfig *restclient.Config) (runtime_cluster.Cluster, error) {
 		return runtime_cluster.New(restConfig, func(o *runtime_cluster.Options) { o.Scheme = scheme })
 	})
 	require.NoError(t, r.SetupWithManager(mgr))
@@ -85,7 +87,7 @@ func TestReconcilerHotReload(t *testing.T) {
 	}))
 	require.NoError(t, centralClient.Create(context.Background(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mck-credential-cluster-a", Namespace: testNamespace},
-		Data:       map[string][]byte{credentialSecretKubeconfigKey: []byte(envtestKubeconfig(cfg))},
+		Data:       map[string][]byte{util.MemberClusterCredentialSecretKubeconfigKey: []byte(envtestKubeconfig(cfg))},
 	}))
 	require.NoError(t, centralClient.Create(context.Background(), memberClusterCR("cluster-a", "cluster-a", "mck-credential-cluster-a")))
 

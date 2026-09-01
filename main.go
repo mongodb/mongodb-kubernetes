@@ -269,10 +269,8 @@ func run() error {
 	// startup-built snapshot.
 	memberClustersProvider := multicluster.NewProvider()
 
-	// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
-	// each member cluster's runtime entry (and tears it down on CR deletion) without an
-	// operator restart. The initial informer replay registers the CRs that already exist.
-	memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
+	const memberClusterRecheckInterval = time.Minute
+	memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClusterRecheckInterval, memberClustersProvider,
 		func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
 			return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
 				// Use the operator scheme so cross-cluster owner references
