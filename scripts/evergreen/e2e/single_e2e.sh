@@ -25,7 +25,9 @@ deploy_test_app() {
     meko_tests_version="${OPERATOR_VERSION}"
 
     local arch
-    arch=$(uname -m)
+    # The suffix must follow the test pod's node architecture, which is the local machine's
+    # unless the clusters are remote (e.g. an arm64 Mac driving amd64 kind hosts).
+    arch=${MEKO_TESTS_IMAGE_ARCH:-$(uname -m)}
 
     case "${arch}" in
         aarch64|arm64)
@@ -96,6 +98,15 @@ deploy_test_app() {
         helm_params+=("--set" "multiCluster.memberClusters=${MEMBER_CLUSTERS}")
         helm_params+=("--set" "multiCluster.centralCluster=${CENTRAL_CLUSTER}")
         helm_params+=("--set" "multiCluster.testPodCluster=${test_pod_cluster}")
+    fi
+
+    if [[ "${DECENTRALIZED_E2E:-}" = "true" ]]; then
+        # Decentralized regression harness (CLOUDP-420273): the fixture swap and the leader pin
+        # are read from the pod's environment, and the operators must install from the branch
+        # chart baked into the tests image, not the released OCI chart.
+        helm_params+=("--set" "decentralizedE2E=${DECENTRALIZED_E2E}")
+        helm_params+=("--set" "operatorLeaderClusterName=${OPERATOR_LEADER_CLUSTER_NAME:-}")
+        helm_params+=("--set" "helmChartPath=${TEST_POD_HELM_CHART_PATH:-}")
     fi
 
     if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then

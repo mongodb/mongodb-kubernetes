@@ -202,7 +202,13 @@ spec:
     - name: OCI_HELM_REPOSITORY
       value: "{{ .Values.helm.oci.repository }}"
     - name: DEFAULT_HELM_CHART_PATH
-      value: "oci://{{ .Values.helm.oci.repository }}/mongodb-kubernetes"
+      value: "{{ .Values.helmChartPath | default (printf "oci://%s/mongodb-kubernetes" .Values.helm.oci.repository) }}"
+    {{ if .Values.decentralizedE2E }}
+    - name: DECENTRALIZED_E2E
+      value: "{{ .Values.decentralizedE2E }}"
+    - name: OPERATOR_LEADER_CLUSTER_NAME
+      value: "{{ .Values.operatorLeaderClusterName }}"
+    {{ end }}
     - name: ops_manager_version
       value: "{{ .Values.opsManagerVersion }}"
     - name: cognito_user_pool_id
