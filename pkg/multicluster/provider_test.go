@@ -25,11 +25,11 @@ func TestProvider(t *testing.T) {
 	p.Set(ctx, "a", Entry{ResourceName: "cr-a2"})
 	assert.Equal(t, "cr-a2", p.Entries()["a"].ResourceName)
 
-	p.Delete(ctx, "a")
+	p.Delete(ctx, "a", "cr-a2")
 	assert.Equal(t, map[string]Entry{"b": {ResourceName: "cr-b"}}, p.Entries())
 
 	// Deleting an unknown cluster is a no-op.
-	p.Delete(ctx, "a")
+	p.Delete(ctx, "a", "cr-a")
 	assert.Len(t, p.Entries(), 1)
 }
 
@@ -48,13 +48,41 @@ func TestProviderHooks(t *testing.T) {
 	// Registration engages the hook for entries already present.
 	assert.Equal(t, []string{"a"}, added)
 
-	p.Set(ctx, "b", Entry{})
+	p.Set(ctx, "b", Entry{ResourceName: "cr-b"})
 	assert.Equal(t, []string{"a", "b"}, added)
 
-	p.Delete(ctx, "b")
+	p.Delete(ctx, "b", "cr-b")
 	assert.Equal(t, []string{"b"}, removed)
 
 	// OnRemove is not fired for unknown clusters.
-	p.Delete(ctx, "b")
+	p.Delete(ctx, "b", "cr-b")
 	assert.Equal(t, []string{"b"}, removed)
+}
+
+func TestProviderDeleteOwnership(t *testing.T) {
+	ctx := context.Background()
+	p := NewProvider()
+
+	var removed []string
+	p.RegisterHooks(ctx, Hooks{
+		OnRemove: func(_ context.Context, clusterName string, _ Entry) { removed = append(removed, clusterName) },
+	})
+
+	p.Set(ctx, "a", Entry{ResourceName: "cr-a"})
+
+	// A mismatching owner leaves the entry untouched and fires no hooks: ownership can
+	// transfer between the caller's check and the delete.
+	p.Delete(ctx, "a", "cr-b")
+	assert.Equal(t, "cr-a", p.Entries()["a"].ResourceName)
+	assert.Empty(t, removed)
+
+	// The matching owner deletes and fires OnRemove.
+	p.Delete(ctx, "a", "cr-a")
+	assert.Empty(t, p.Entries())
+	assert.Equal(t, []string{"a"}, removed)
+
+	// Deleting an unknown cluster is a no-op.
+	p.Delete(ctx, "a", "cr-a")
+	assert.Empty(t, p.Entries())
+	assert.Equal(t, []string{"a"}, removed)
 }
