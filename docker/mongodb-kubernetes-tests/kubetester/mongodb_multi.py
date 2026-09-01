@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+import copy
+import time
 from typing import Dict, List, Optional
 
 from kubernetes import client
-from kubetester import wait_until
+from kubetester import decentralized_fanout, wait_until
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester
 from kubetester.multicluster_client import MultiClusterClient
+
+# Keys that only make sense on the cluster that produced them; stripped when seeding a peer's
+# copy of the CR from the primary's backing_obj.
+_METADATA_KEYS_TO_STRIP_ON_CREATE = (
+    "resourceVersion",
+    "uid",
+    "creationTimestamp",
+    "generation",
+    "managedFields",
+    "ownerReferences",
+)
 
 
 class MongoDBMulti(MongoDB):
@@ -19,6 +32,133 @@ class MongoDBMulti(MongoDB):
         }
         with_defaults.update(kwargs)
         super(MongoDBMulti, self).__init__(*args, **with_defaults)
+
+    # --- Decentralized fan-out --------------------------------------------------------------
+    #
+    # Legacy tests write the CR through self.api, which is bound to a single (primary) cluster.
+    # In decentralized mode every cluster's member-spec fence only trusts its OWN copy of the CR,
+    # so create/update/patch/delete additionally replicate to every other cluster in the
+    # kubetester.decentralized_fanout registry when it is enabled. Delivery is best-effort-safe
+    # by construction (a fence miss self-heals once the leader re-drives), but this helper's
+    # contract is stricter: attempt every cluster and report every failure.
+
+    def create(self, dry_run: str = None) -> "MongoDBMulti":
+        if not decentralized_fanout.is_enabled():
+            return super().create(dry_run=dry_run)
+
+        result = super().create(dry_run=dry_run)
+        if not dry_run:
+            self._fanout_write("create")
+        return result
+
+    def update(self) -> "MongoDBMulti":
+        # The base update() dispatches to create_or_update(), which itself calls self.create()
+        # or self.patch() — both overridden below, so the fan-out already happens there. Doing it
+        # again here would deliver every write to every peer twice.
+        return super().update()
+
+    def patch(self):
+        if not decentralized_fanout.is_enabled():
+            return super().patch()
+
+        result = super().patch()
+        self._fanout_write("patch")
+        return result
+
+    def delete(self):
+        if not decentralized_fanout.is_enabled():
+            return super().delete()
+
+        errors: Dict[str, Exception] = {}
+
+        try:
+            super().delete()
+        except client.ApiException as e:
+            if e.status != 404:
+                errors[decentralized_fanout.primary_name()] = e
+
+        for cluster_name, api_client in decentralized_fanout.peer_clients().items():
+            peer_api = client.CustomObjectsApi(api_client=api_client)
+            try:
+                peer_api.delete_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
+            except client.ApiException as e:
+                if e.status != 404:
+                    errors[cluster_name] = e
+
+        if errors:
+            raise _fanout_error("delete", self.name, errors)
+
+        self._wait_for_absence_everywhere()
+
+    def _fanout_write(self, operation: str) -> None:
+        errors: Dict[str, Exception] = {}
+        for cluster_name, api_client in decentralized_fanout.peer_clients().items():
+            try:
+                self._replicate_to_peer(client.CustomObjectsApi(api_client=api_client))
+            except Exception as e:
+                errors[cluster_name] = e
+
+        if errors:
+            raise _fanout_error(operation, self.name, errors)
+
+    def _replicate_to_peer(self, api: client.CustomObjectsApi) -> None:
+        try:
+            peer_obj = api.get_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
+        except client.ApiException as e:
+            if e.status != 404:
+                raise
+            peer_obj = None
+
+        if peer_obj is None:
+            sanitized = copy.deepcopy(self.backing_obj)
+            metadata = sanitized.setdefault("metadata", {})
+            for key in _METADATA_KEYS_TO_STRIP_ON_CREATE:
+                metadata.pop(key, None)
+            sanitized.pop("status", None)
+            api.create_namespaced_custom_object(
+                self.group, self.version, self.namespace, self.plural, sanitized, field_validation="Strict"
+            )
+            return
+
+        # A merge-patch would leave fields removed from the source (e.g. a scaled-down
+        # clusterSpecList entry) untouched on the peer, so this replaces the whole object instead.
+        # The peer's own resourceVersion (already on peer_obj) is preserved for the PUT.
+        source_metadata = self.backing_obj.get("metadata", {})
+        peer_obj["spec"] = copy.deepcopy(self.backing_obj["spec"])
+        peer_metadata = peer_obj.setdefault("metadata", {})
+        if "annotations" in source_metadata:
+            peer_metadata["annotations"] = copy.deepcopy(source_metadata["annotations"])
+        if "labels" in source_metadata:
+            peer_metadata["labels"] = copy.deepcopy(source_metadata["labels"])
+
+        api.replace_namespaced_custom_object(
+            self.group, self.version, self.namespace, self.plural, self.name, peer_obj
+        )
+
+    def _wait_for_absence_everywhere(self, timeout: int = 60, interval: int = 3) -> None:
+        def still_present() -> List[str]:
+            remaining = []
+            for cluster_name, api_client in decentralized_fanout.all_clients().items():
+                api = client.CustomObjectsApi(api_client=api_client)
+                try:
+                    api.get_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
+                    remaining.append(cluster_name)
+                except client.ApiException as e:
+                    if e.status != 404:
+                        raise
+            return remaining
+
+        deadline = time.time() + timeout
+        remaining = still_present()
+        while remaining and time.time() < deadline:
+            time.sleep(interval)
+            remaining = still_present()
+
+        if remaining:
+            raise Exception(
+                f"delete of MongoDBMultiCluster {self.name} did not converge: "
+                f"still present on cluster(s) {', '.join(sorted(remaining))}"
+            )
 
     def read_statefulsets(self, clients: List[MultiClusterClient]) -> Dict[str, client.V1StatefulSet]:
         statefulsets = {}
@@ -113,3 +253,8 @@ class MongoDBMulti(MongoDB):
             ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
             ca_path=ca_path,
         )
+
+
+def _fanout_error(operation: str, name: str, errors: Dict[str, Exception]) -> Exception:
+    details = "; ".join(f"{cluster}: {error}" for cluster, error in sorted(errors.items()))
+    return Exception(f"decentralized fan-out {operation} failed for MongoDBMultiCluster {name} on cluster(s): {details}")
