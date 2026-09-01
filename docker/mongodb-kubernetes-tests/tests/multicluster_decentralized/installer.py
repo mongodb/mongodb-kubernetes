@@ -254,6 +254,9 @@ class InstallerSettings:
     # Debugging escape hatch: pins the StaticElector so this cluster always leads, bypassing
     # the quorum lease election. Leave None (the default) to exercise the real election.
     forced_leader_cluster: Optional[str] = None
+    # Regression-harness runs (fixture swap) create the workload CR from the tests themselves;
+    # the installer's own plan must not also apply one.
+    include_workload_cr: bool = True
 
     def api_server_url(self, cluster_name: str) -> str:
         # The in-pod address of a peer's API server: https://<its default/kubernetes Service
@@ -282,6 +285,33 @@ def settings_from_env() -> InstallerSettings:
     )
 
 
+def build_decentralized_settings(
+    namespace: str,
+    member_cluster_names: List[str],
+    central_cluster_name: str,
+    operator_config_extra_spec: Optional[dict] = None,
+) -> InstallerSettings:
+    """Settings for the fixture-swap path (tests/conftest.py's multi_cluster_operator under
+    DECENTRALIZED_E2E=true): the OM inputs come from the environment, everything else is pinned to
+    what the legacy test harness already decided. The leader is always forced onto
+    central_cluster_name — the legacy assertions read status from that cluster, so it must be the
+    one running the operator that wins the election."""
+    if central_cluster_name not in member_cluster_names:
+        raise ValueError(
+            f"central_cluster_name {central_cluster_name!r} must be one of member_cluster_names "
+            f"{member_cluster_names!r}: decentralized mode has no separate central cluster, so the "
+            "status-read cluster must run an operator"
+        )
+    settings = settings_from_env()
+    settings.namespace = namespace
+    settings.project_name = namespace
+    settings.clusters = list(member_cluster_names)
+    settings.include_workload_cr = False
+    settings.forced_leader_cluster = central_cluster_name
+    settings.operator_config_extra_spec = operator_config_extra_spec
+    return settings
+
+
 def plan_cluster_objects(cluster_name: str, settings: InstallerSettings) -> List[dict]:
     """Everything the installer creates on cluster_name, in apply order. Identical inputs on all
     clusters (namespace, OM artifacts, OperatorConfig, workload CR) plus this cluster's own peer
@@ -304,7 +334,8 @@ def plan_cluster_objects(cluster_name: str, settings: InstallerSettings) -> List
         objects.append(build_credential_secret(peer, settings.namespace, yaml.safe_dump(kubeconfig, sort_keys=False)))
         objects.append(build_member_cluster_cr(peer, settings.namespace))
     objects.append(build_operator_config(settings.namespace, settings.operator_config_extra_spec))
-    objects.append(load_workload_cr(settings.namespace, settings.clusters))
+    if settings.include_workload_cr:
+        objects.append(load_workload_cr(settings.namespace, settings.clusters))
     return objects
 
 

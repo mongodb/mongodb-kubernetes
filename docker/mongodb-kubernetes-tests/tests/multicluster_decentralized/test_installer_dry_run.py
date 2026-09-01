@@ -2,7 +2,7 @@
 
 import yaml
 
-from tests.multicluster_decentralized.installer import InstallerSettings, render_dry_run
+from tests.multicluster_decentralized.installer import InstallerSettings, plan_cluster_objects, render_dry_run
 
 CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 
@@ -101,6 +101,19 @@ def test_the_workload_cr_and_om_inputs_are_identical_everywhere(tmp_path):
     for operator_config in operator_configs:
         # mongodbdirectives is opt-in only; without it the member controllers are deaf.
         assert operator_config["spec"]["watchedResources"] == ["mongodbdirectives"]
+
+
+def test_include_workload_cr_can_be_turned_off():
+    """The fixture-swap path (tests create the workload CR themselves) sets
+    include_workload_cr=False; every other object stays identical, in order."""
+    settings = make_settings()
+    with_cr = plan_cluster_objects(CLUSTERS[0], settings)
+
+    settings.include_workload_cr = False
+    without_cr = plan_cluster_objects(CLUSTERS[0], settings)
+
+    assert without_cr == with_cr[:-1]
+    assert not any(o["kind"] == "MongoDBMultiCluster" for o in without_cr)
 
 
 def test_dry_run_lists_the_chart_crds(tmp_path):

@@ -3,11 +3,13 @@ live Ops Manager."""
 
 from unittest import mock
 
+import pytest
 from kubetester.kubetester import KubernetesTester
 
 from tests.multicluster_decentralized.installer import (
     build_agent_api_key_secret,
     build_credential_secret,
+    build_decentralized_settings,
     build_member_cluster_cr,
     build_om_credentials_secret,
     build_peer_kubeconfig,
@@ -125,6 +127,48 @@ def test_peers_of_excludes_self():
     clusters = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]
 
     assert peers_of("kind-e2e-cluster-2", clusters) == ["kind-e2e-cluster-1", "kind-e2e-cluster-3"]
+
+
+class TestBuildDecentralizedSettings:
+    """The fixture-swap path's settings builder (tests/conftest.py, DECENTRALIZED_E2E=true)."""
+
+    def test_overrides_pinned_by_the_harness(self, monkeypatch):
+        monkeypatch.setenv("OM_HOST", "http://om:8080")
+        monkeypatch.setenv("OM_USER", "jane.doe@example.com")
+        monkeypatch.setenv("OM_API_KEY", "api-key")
+        monkeypatch.setenv("OM_ORGID", "org1")
+        # The harness always overrides the leader to the status-read cluster, even if this is set.
+        monkeypatch.setenv("OPERATOR_LEADER_CLUSTER_NAME", "kind-e2e-cluster-3")
+        members = ["kind-e2e-cluster-1", "kind-e2e-cluster-2"]
+
+        settings = build_decentralized_settings("mdb-ns", members, "kind-e2e-cluster-1")
+
+        assert settings.namespace == "mdb-ns"
+        assert settings.project_name == "mdb-ns"
+        assert settings.clusters == members
+        assert settings.include_workload_cr is False
+        assert settings.forced_leader_cluster == "kind-e2e-cluster-1"
+        # OM inputs still flow through from the environment untouched.
+        assert settings.om_base_url == "http://om:8080"
+        assert settings.om_user == "jane.doe@example.com"
+        assert settings.om_api_key == "api-key"
+        assert settings.om_org_id == "org1"
+
+    def test_passes_through_operator_config_extra_spec(self, monkeypatch):
+        monkeypatch.setenv("OM_HOST", "http://om:8080")
+        extra_spec = {"foo": "bar"}
+
+        settings = build_decentralized_settings(
+            "mdb-ns", ["kind-e2e-cluster-1"], "kind-e2e-cluster-1", operator_config_extra_spec=extra_spec
+        )
+
+        assert settings.operator_config_extra_spec == extra_spec
+
+    def test_rejects_a_central_cluster_that_is_not_a_member(self, monkeypatch):
+        monkeypatch.setenv("OM_HOST", "http://om:8080")
+
+        with pytest.raises(ValueError):
+            build_decentralized_settings("mdb-ns", ["kind-e2e-cluster-1"], "kind-e2e-cluster-9")
 
 
 class TestEnsureGroupWithAgentKey:
