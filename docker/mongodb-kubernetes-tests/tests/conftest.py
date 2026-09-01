@@ -688,6 +688,20 @@ def multi_cluster_operator(
     )
 
 
+_decentralized_operators: dict[str, Dict[str, Operator]] = {}
+
+
+@fixture(scope="module")
+def decentralized_operators(namespace: str) -> Dict[str, Operator]:
+    """The full cluster -> Operator map from the fixture swap (DECENTRALIZED_E2E=true); the
+    multi_cluster_operator fixture must have run first to populate it."""
+    assert namespace in _decentralized_operators, (
+        "no decentralized operators cached for this namespace; depend on multi_cluster_operator "
+        "and run under DECENTRALIZED_E2E=true"
+    )
+    return _decentralized_operators[namespace]
+
+
 def get_multi_cluster_operator(
     namespace: str,
     central_cluster_name: str,
@@ -698,6 +712,20 @@ def get_multi_cluster_operator(
     apply_crds_first: bool = False,
     operator_config_extra_spec: Optional[dict] = None,
 ) -> Operator:
+    if os.environ.get("DECENTRALIZED_E2E") == "true":
+        # Fixture swap (CLOUDP-420273): install one operator per cluster instead of the legacy
+        # central operator, so the legacy multicluster/ tests run unmodified. Imported lazily to
+        # avoid an import cycle (installer.py's live-path helpers import kubetester.operator).
+        from tests.multicluster_decentralized.installer import build_decentralized_settings, install_decentralized
+
+        settings = build_decentralized_settings(
+            namespace, member_cluster_names, central_cluster_name, operator_config_extra_spec
+        )
+        cluster_clients = {mcc.cluster_name: mcc.api_client for mcc in member_cluster_clients}
+        operators = install_decentralized(cluster_clients, settings, dict(multi_cluster_operator_installation_config))
+        _decentralized_operators[namespace] = operators
+        return operators[central_cluster_name]
+
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
     helm_opts = {
