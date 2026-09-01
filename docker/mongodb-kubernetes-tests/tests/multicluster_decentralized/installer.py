@@ -401,6 +401,17 @@ def crd_files_from_chart() -> List[str]:
 # --- Live path (B6, gated): apply the plan through per-cluster clients ---
 
 
+def strip_restricted_pod_security(api_client, namespace: str) -> None:
+    """The harness namespace is mesh-enrolled, and istio-init needs NET_ADMIN/root — incompatible
+    with the restricted PodSecurity label that a pre-existing ensure_namespace-created namespace
+    carries. A merge-patch null removes the label; a namespace the installer created is a no-op."""
+    from kubernetes import client
+
+    client.CoreV1Api(api_client=api_client).patch_namespace(
+        namespace, {"metadata": {"labels": {"pod-security.kubernetes.io/enforce": None}}}
+    )
+
+
 def apply_objects(api_client, objects: List[dict], namespace: str) -> None:
     """kubectl-apply semantics for the plan's objects: built-in kinds go through the kubernetes
     create-or-patch helper, custom resources through CustomObjectsApi."""
@@ -488,6 +499,7 @@ def install_decentralized(cluster_clients: Dict[str, "object"], settings: Instal
         apply_crds(cluster)
         identity = plan_cluster_objects(cluster, settings)[:5]
         apply_objects(api_client, identity, settings.namespace)
+        strip_restricted_pod_security(api_client, settings.namespace)
 
     # Read back what registration needs: populated tokens and in-pod API server addresses.
     for cluster, api_client in cluster_clients.items():
