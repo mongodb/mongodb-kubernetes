@@ -96,7 +96,7 @@ func parseFlags() (memberregistration.Options, error) {
 		if err != nil {
 			return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-api-server %q: %v", memberClusterApiServer, err)
 		}
-		if u.Scheme == "" || u.Host == "" {
+		if u.Scheme == "" || u.Hostname() == "" {
 			return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-api-server %q: must be an absolute URL with scheme and host", memberClusterApiServer)
 		}
 	}
