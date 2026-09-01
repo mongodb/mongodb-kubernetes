@@ -269,6 +269,7 @@ func run() error {
 	// startup-built snapshot.
 	memberClustersProvider := multicluster.NewProvider()
 
+	// TODO(m1kola): This shouldn't be wrapped in this condtion anymore, probably.
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
 		// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
 		// each member cluster's runtime entry (and tears it down on CR deletion) without an
