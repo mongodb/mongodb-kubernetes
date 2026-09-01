@@ -26,6 +26,7 @@ import (
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	mconstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -204,6 +205,28 @@ func (r *ReconcileMongoDBDirective) materialize(ctx context.Context, mrs *mdbmul
 	apiKeySecret := corev1.Secret{}
 	if err := r.localClient.Get(ctx, kube.ObjectKey(mrs.Namespace, agents.ApiKeySecretName(target.projectID)), &apiKeySecret); err != nil {
 		return facts, err
+	}
+
+	// TLS materials are pre-provisioned on this cluster too (same contract): the pods mount the
+	// CA ConfigMap and the -pem secret by name, so both must exist before the StatefulSet does.
+	// The PEM collation is the exact legacy ensure with read = write = local — the central→member
+	// copy degenerates into a local collation; a missing or non-kubernetes.io/tls source secret
+	// fails it loud, never a wedged pod or a silently unencrypted deployment.
+	if security := mrs.Spec.GetSecurity(); security.IsTLSEnabled() {
+		if security.TLSConfig != nil && security.TLSConfig.CA != "" {
+			if _, err := r.localClient.GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, security.TLSConfig.CA)); err != nil {
+				return facts, xerrors.Errorf("the TLS CA ConfigMap %s is not pre-provisioned on this cluster: %w", security.TLSConfig.CA, err)
+			}
+		}
+		mrsConfig := certs.MultiReplicaSetConfig(*mrs, target.clusterIndex, target.clusterName, target.memberCount)
+		localSecretClient := secrets.SecretClient{KubeClient: r.localClient}
+		if status := certs.EnsureSSLCertsForStatefulSet(ctx, localSecretClient, localSecretClient, *mrs.Spec.Security, mrsConfig, log); !status.IsOK() {
+			msg := ""
+			if option, exists := mdbstatus.GetOption(status.StatusOptions(), mdbstatus.MessageOption{}); exists {
+				msg, _ = option.Value().(string)
+			}
+			return facts, xerrors.Errorf("failed ensuring the TLS PEM secret from the pre-provisioned source cert secret %s: %s", mrsConfig.CertSecretName, msg)
+		}
 	}
 
 	// construction performs no I/O with the connection; built before the StatefulSet so pod env

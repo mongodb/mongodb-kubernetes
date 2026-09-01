@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -366,7 +369,7 @@ func TestDecentralizedUnsupportedSpecRefused(t *testing.T) {
 	}
 
 	w.applySpecEverywhere(ctx, t, func(m *mdbmulti.MongoDBMultiCluster) {
-		m.Spec.Security = &mdb.Security{TLSConfig: &mdb.TLSConfig{Enabled: true}}
+		m.Spec.Security = &mdb.Security{Authentication: &mdb.Authentication{Enabled: true}}
 		m.Spec.ClusterSpecList[0].Members++
 	})
 	for i := 0; i < 3; i++ {
@@ -377,6 +380,159 @@ func TestDecentralizedUnsupportedSpecRefused(t *testing.T) {
 	for _, clusterName := range clusters {
 		assert.Equal(t, baselineGrants[clusterName], w.readDirective(ctx, t, clusterName).Spec.MemberCount, "no directive advancement on a refused spec")
 	}
+}
+
+// --- M8 static TLS: pre-provisioned per-cluster materials, consumed locally ---
+
+// seedTLSMaterialsEverywhere is the installer/fixture contract in the unit world: ONE cert is
+// minted and the same bytes land on every cluster (byte-identical by construction), alongside the
+// CA ConfigMap. Returns the source secret name.
+func seedTLSMaterialsEverywhere(ctx context.Context, t *testing.T, w *decentralizedWorld, caName string) string {
+	crt, key := createMockCertAndKeyBytes()
+	secretName := fmt.Sprintf("%s-%s-cert", w.m.Spec.Security.CertificatesSecretsPrefix, w.m.Name)
+	for _, clusterName := range clusters {
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: caName, Namespace: w.m.Namespace},
+			Data:       map[string]string{"ca-pem": "capublickey", "mms-ca.crt": "capublickey"},
+		}
+		require.NoError(t, w.clients[clusterName].Create(ctx, cm))
+		secret := &corev1.Secret{
+			Type:       corev1.SecretTypeTLS,
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: w.m.Namespace},
+			Data:       map[string][]byte{"tls.crt": crt, "tls.key": key},
+		}
+		require.NoError(t, w.clients[clusterName].Create(ctx, secret))
+	}
+	return secretName
+}
+
+func tlsMultiReplicaSet() *mdbmulti.MongoDBMultiCluster {
+	return mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetSecurity(&mdb.Security{
+		TLSConfig:                 &mdb.TLSConfig{Enabled: true, CA: "issuer-ca"},
+		CertificatesSecretsPrefix: "clustercert",
+	}).Build()
+}
+
+// reconcileAllTolerant is reconcileAll for worlds expected to hold: errors are collected instead
+// of failing the test — the M8 contract makes missing materials a loud backoff error.
+func (w *decentralizedWorld) reconcileAllTolerant(ctx context.Context) []error {
+	var errs []error
+	if _, err := w.leader.Reconcile(ctx, requestFromObject(w.m)); err != nil {
+		errs = append(errs, err)
+	}
+	for _, clusterName := range clusters {
+		if _, err := w.members[clusterName].Reconcile(ctx, requestFromObject(w.m)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
+}
+
+// TestDecentralizedTLSDeployReachesRunning is the M8 static-TLS proof in the unit world: with
+// the source cert secret and CA ConfigMap pre-provisioned byte-identically on every cluster, a
+// TLS-enabled spec deploys to Running, every member collates its own -pem secret locally, and
+// the AC's certificateKeyFile embeds the hash the leader computed from its own local copy.
+func TestDecentralizedTLSDeployReachesRunning(t *testing.T) {
+	ctx := context.Background()
+	w := newDecentralizedWorld(tlsMultiReplicaSet())
+	sourceSecretName := seedTLSMaterialsEverywhere(ctx, t, w, "issuer-ca")
+
+	w.driveToRunning(ctx, t, 30)
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+
+	// the -pem secret's latestHash bookkeeping key IS the shared hash (all copies byte-identical)
+	pemSecret := corev1.Secret{}
+	require.NoError(t, w.clients[clusters[0]].Get(ctx, kube.ObjectKey(w.m.Namespace, sourceSecretName+"-pem"), &pemSecret))
+	wantHash := string(pemSecret.Data["latestHash"])
+	require.NotEmpty(t, wantHash)
+
+	processes := w.factory.GetConnection().(*om.MockedOmConnection).GetProcesses()
+	require.NotEmpty(t, processes)
+	for _, p := range processes {
+		assert.True(t, p.IsTLSEnabled())
+		assert.Equal(t, "requireTLS", p.TLSConfig()["mode"])
+		assert.Equal(t, fmt.Sprintf("%s/%s", util.TLSCertMountPath, wantHash), p.TLSConfig()["certificateKeyFile"])
+	}
+
+	for _, clusterName := range clusters {
+		memberPem := corev1.Secret{}
+		require.NoError(t, w.clients[clusterName].Get(ctx, kube.ObjectKey(w.m.Namespace, sourceSecretName+"-pem"), &memberPem))
+		assert.Contains(t, memberPem.Data, wantHash, "each member collates its own PEM keyed by the shared hash")
+	}
+}
+
+// TestDecentralizedTLSHoldsUntilMaterialsArrive pins the contract-unmet behavior: a TLS spec
+// with no pre-provisioned materials holds loudly (errors naming the missing material, never a
+// StatefulSet), and converges to Running once the materials land — no operator restart needed.
+func TestDecentralizedTLSHoldsUntilMaterialsArrive(t *testing.T) {
+	ctx := context.Background()
+	w := newDecentralizedWorld(tlsMultiReplicaSet())
+
+	sawMissingMaterial := false
+	for i := 0; i < 6; i++ {
+		for _, err := range w.reconcileAllTolerant(ctx) {
+			if strings.Contains(err.Error(), "not pre-provisioned") {
+				sawMissingMaterial = true
+			}
+		}
+	}
+	assert.True(t, sawMissingMaterial, "the hold must name the missing material")
+	assert.NotEqual(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+	for _, clusterName := range clusters {
+		sts := appsv1.StatefulSet{}
+		err := w.clients[clusterName].Get(ctx, kube.ObjectKey(w.m.Namespace, fmt.Sprintf("%s-0", w.m.Name)), &sts)
+		assert.True(t, apiErrors.IsNotFound(err), "no StatefulSet before the TLS materials exist on %s", clusterName)
+	}
+
+	seedTLSMaterialsEverywhere(ctx, t, w, "issuer-ca")
+	w.driveToRunning(ctx, t, 40)
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+}
+
+// TestDecentralizedOMCAConfigMapMissingHoldsBeforePods pins the OM-CA wedge closure (poc-audit
+// §2's "unguarded twin"): the database pods mount the ConfigMap named by the project's
+// sslMMSCAConfigMap, so a member whose cluster lacks it must hold loudly BEFORE any StatefulSet
+// exists — never wedged-in-ContainerCreating pods. The hold comes from ReadProjectConfig reading
+// the ConfigMap contents through the local client; this test pins that path staying local and
+// loud.
+func TestDecentralizedOMCAConfigMapMissingHoldsBeforePods(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	w := newDecentralizedWorld(m)
+
+	projectCM := corev1.ConfigMap{}
+	require.NoError(t, w.clients[clusters[1]].Get(ctx, kube.ObjectKey(m.Namespace, mock.TestProjectConfigMapName), &projectCM))
+	projectCM.Data[util.SSLMMSCAConfigMap] = "om-ca"
+	require.NoError(t, w.clients[clusters[1]].Update(ctx, &projectCM))
+
+	sawMissingOMCA := false
+	for i := 0; i < 6; i++ {
+		for _, err := range w.reconcileAllTolerant(ctx) {
+			if strings.Contains(err.Error(), "om-ca") {
+				sawMissingOMCA = true
+			}
+		}
+	}
+	assert.True(t, sawMissingOMCA, "the hold must name the missing OM CA ConfigMap")
+	sts := appsv1.StatefulSet{}
+	err := w.clients[clusters[1]].Get(ctx, kube.ObjectKey(m.Namespace, fmt.Sprintf("%s-1", m.Name)), &sts)
+	assert.True(t, apiErrors.IsNotFound(err), "no StatefulSet on the cluster missing the OM CA ConfigMap")
+}
+
+// TestDecentralizedTLSLeaderRefusesEmptyHash pins the silent-fallback defusal:
+// pem.ReadHashFromSecret quietly returns "" when the source secret is missing (or Opaque), and
+// legacy would publish certificateKeyFile: "" — wrong-but-running. The leader must refuse the
+// publish outright, before any AC write.
+func TestDecentralizedTLSLeaderRefusesEmptyHash(t *testing.T) {
+	ctx := context.Background()
+	w := newDecentralizedWorld(tlsMultiReplicaSet())
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+
+	err := w.leader.publishAutomationConfig(ctx, conn, w.m, acPayload{MemberCounts: map[string]int{clusters[0]: 1}, LeadershipTerm: 1}, zap.S())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no PEM hash")
+	conn.CheckOperationsDidntHappen(t, reflect.ValueOf(conn.ReadUpdateDeployment))
 }
 
 // TestDecentralizedDirectiveDeletionIsASafeReset pins the seed rule end to end (backlog T2):

@@ -92,6 +92,7 @@ import (
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -274,8 +275,11 @@ func (r *ReconcileMongoDBMultiClusterLeader) saveLastAchievedSpec(ctx context.Co
 // updateOmDeploymentRs (mongodbmultireplicaset_controller.go): the same composition — existing
 // process ids reused by name, NewMultiClusterReplicaSetWithProcesses, ReconcileReplicaSetAC —
 // minus the blocking waits, which the staged directive facts replace (agentRegistered gates this
-// write, inGoalState gates the next step), and minus auth/TLS/log-rotation/backup (cut from the
-// POC; a nil Security makes their AC hooks no-op anyway).
+// write, inGoalState gates the next step), and minus auth/backup (cut from the POC; an auth-less
+// Security makes their AC hooks no-op anyway). TLS rides the legacy AC path unchanged:
+// ConfigureTLS consumes the spec, and the cert path embeds the PEM hash computed from the
+// leader's OWN pre-provisioned copy of the source secret — correct for every cluster because the
+// installer contract makes all copies byte-identical.
 func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context.Context, conn om.Connection, mrs *mdbmultiv1.MongoDBMultiCluster, payload acPayload, log *zap.SugaredLogger) error {
 	existingDeployment, err := conn.ReadDeployment()
 	if err != nil {
@@ -296,7 +300,19 @@ func (r *ReconcileMongoDBMultiClusterLeader) publishAutomationConfig(ctx context
 	}
 	sort.Slice(counts, func(i, j int) bool { return counts[i].ClusterIndex < counts[j].ClusterIndex })
 
-	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, *mrs, counts, "", r.defaultArchitecture)
+	// ReadHashFromSecret falls back to "" silently (missing secret, wrong type, Vault miss);
+	// publishing certificateKeyFile: "" with TLS on would be wrong-but-running, so it is an error
+	tlsCertPath := ""
+	if mrs.Spec.GetSecurity().IsTLSEnabled() {
+		certSecretName := mrs.Spec.GetSecurity().MemberCertificateSecretName(mrs.Name)
+		tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, secrets.SecretClient{KubeClient: r.localClient}, mrs.Namespace, certSecretName, "", log)
+		if tlsCertHash == "" {
+			return xerrors.Errorf("TLS is enabled but no PEM hash could be read from the source cert secret %s on this cluster: the secret is missing or not of type kubernetes.io/tls", certSecretName)
+		}
+		tlsCertPath = fmt.Sprintf("%s/%s", util.TLSCertMountPath, tlsCertHash)
+	}
+
+	processes := process.CreateMongodProcessesMultiFromCounts(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, *mrs, counts, tlsCertPath, r.defaultArchitecture)
 	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.Name, mrs.Spec.Version), processes, process.MemberOptionsFromCounts(*mrs, counts), processIds, mrs.Spec.Connectivity)
 
 	specHash, err := multiClusterSpecHash(mrs.Spec)
