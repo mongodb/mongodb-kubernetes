@@ -426,12 +426,6 @@ type BackupStatus struct {
 	StatusName string `json:"statusName"`
 }
 
-const (
-	// ExternalMemberTypeMongod and ExternalMemberTypeMongos are the allowed values of ExternalMember.Type.
-	ExternalMemberTypeMongod = "mongod"
-	ExternalMemberTypeMongos = "mongos"
-)
-
 type ExternalMember struct {
 	// ProcessName contains the name of the external process as it appears in the `processes` field in the AC.
 	// +kubebuilder:validation:Required
