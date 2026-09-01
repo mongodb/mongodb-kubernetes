@@ -1064,6 +1064,14 @@ task_groups:
       - e2e_multi_cluster_decentralized_replica_set_scale_up
       - e2e_multi_cluster_decentralized_replica_set_scale_down
       - e2e_multi_cluster_decentralized_scale_up_cluster
+      # M8: unforked legacy TLS tests over pre-provisioned per-cluster materials. The first two
+      # gate the milestone; the last three are wired for reconnaissance (enable_tls flips TLS on
+      # a running deployment — a coordinated transition the roadmap still marks unproven).
+      - e2e_multi_cluster_replica_set_scale_up
+      - e2e_multi_cluster_tls_no_mesh
+      - e2e_multi_cluster_enable_tls
+      - e2e_multi_cluster_replica_set_scale_down
+      - e2e_multi_cluster_scale_up_cluster
 
   - name: e2e_multi_cluster_kind_task_group
     max_hosts: -1
