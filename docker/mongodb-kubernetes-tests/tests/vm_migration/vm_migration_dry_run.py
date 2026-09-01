@@ -10,12 +10,53 @@ from cryptography.x509.oid import NameOID
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import create_or_update_configmap
+from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 
 # Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
-# Condition type the operator writes for the connectivity dry-run (api/v1/status ConditionNetworkConnectivityVerification).
-CONDITION_NETWORK_CONNECTIVITY_VERIFICATION = "NetworkConnectivityVerification"
+# Condition type the operator writes for the connectivity dry-run (api/v1/status ConditionNetworkConnectivityVerified).
+CONDITION_NETWORK_CONNECTIVITY_VERIFIED = "NetworkConnectivityVerified"
+# Top-level condition indicating whether VM-to-K8s migration is active.
+CONDITION_MIGRATING = "Migrating"
+# Literal status.conditions[Migrating].reason values while Migrating=True (api/v1/status MigratingReason*).
+MIGRATING_CONDITION_REASON_VALIDATING = "Validating"
+MIGRATING_CONDITION_REASON_EXTENDING = "Extending"
+MIGRATING_CONDITION_REASON_PRUNING = "Pruning"
+MIGRATING_CONDITION_REASON_IN_PROGRESS = "InProgress"
+MIGRATING_CONDITION_REASON_COMPLETE = "MigrationComplete"
+
+
+def _status_dict(mdb: MongoDB) -> dict:
+    try:
+        s = mdb["status"]
+    except (KeyError, AttributeError, TypeError):
+        return {}
+    return s if isinstance(s, dict) else {}
+
+
+def _get_condition(conditions, condition_type: str) -> dict | None:
+    """Find a condition by type in a list of conditions."""
+    if not conditions:
+        return None
+    for c in conditions:
+        if c.get("type") == condition_type:
+            return c
+    return None
+
+
+def _migration_observed_external_count(s: dict) -> int:
+    """Last reconciled externalMembers count from status (0 if unset / null / omitempty)."""
+    v = s.get("migrationObservedExternalMembersCount")
+    if isinstance(v, int):
+        return v
+    return 0
+
+
+def _network_connectivity_true_in_conditions(conditions) -> bool:
+    return _get_condition(conditions, CONDITION_NETWORK_CONNECTIVITY_VERIFIED) is not None and any(
+        c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFIED and c.get("status") == "True" for c in conditions
+    )
 
 
 def generate_wrong_ca_pem() -> str:
@@ -42,7 +83,7 @@ def create_wrong_ca_configmap(namespace: str, wrong_ca_name: str) -> None:
     create_or_update_configmap(namespace, wrong_ca_name, {"ca-pem": wrong_ca_pem, "mms-ca.crt": wrong_ca_pem})
 
 
-def _connectivity_condition_has_status(mdb: MongoDB, expected_status: str) -> bool:
+def _migration_connectivity_passed(mdb: MongoDB) -> bool:
     # MongoDB (CustomObject) supports [] but not .get(); status/conditions come from the API.
     try:
         status = mdb["status"]
@@ -50,20 +91,42 @@ def _connectivity_condition_has_status(mdb: MongoDB, expected_status: str) -> bo
         status = {}
     conditions = status.get("conditions", []) if isinstance(status, dict) else []
     for c in conditions:
-        if c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFICATION and c.get("status") == expected_status:
+        if c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFIED and c.get("status") == "True":
             return True
     return False
 
 
-def _migration_connectivity_passed(mdb: MongoDB) -> bool:
-    return _connectivity_condition_has_status(mdb, "True")
+def _assert_migration_status_after_dry_run_pass(mdb: MongoDB) -> None:
+    """After connectivity passes, the operator should have written migration conditions on status."""
+    mdb.load()
+    status = _status_dict(mdb)
+    conditions = status.get("conditions", [])
+    mig = _get_condition(conditions, CONDITION_MIGRATING)
+    assert mig is not None, "expected Migrating condition while migration-dry-run annotation is set"
+    assert mig.get("status") == "True", f"expected Migrating=True during dry-run, got {mig!r}"
+    assert mig.get("reason") == MIGRATING_CONDITION_REASON_VALIDATING, (
+        f"expected Migrating.reason {MIGRATING_CONDITION_REASON_VALIDATING!r} while dry-run annotation is set, "
+        f"got {mig.get('reason')!r}"
+    )
+    assert _network_connectivity_true_in_conditions(
+        conditions
+    ), "expected NetworkConnectivityVerified status True on status.conditions"
+    assert "migration" not in status or status.get("migration") in (
+        None,
+        {},
+    ), "status.migration must not be set; migration state lives under status.conditions"
 
 
-def _migration_connectivity_failed(mdb: MongoDB) -> bool:
-    return _connectivity_condition_has_status(mdb, "False")
+def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 600) -> None:
+    """Dry-run annotation → wait for connectivity → assert ``Validating`` → clear annotation.
 
+    While the annotation is present, ``Migrating`` is True with ``reason: Validating``; connectivity
+    progress is in ``NetworkConnectivityVerified`` on ``status.conditions``. Once the annotation is
+    removed, the operator recomputes the reason on the next reconcile and leaves ``Validating``.
 
-def _set_dry_run_annotation(mdb: MongoDB) -> None:
+    Removes the dry-run annotation so later tests reconcile normally. Uses backing_obj and JSON merge
+    patch (null) so the key is actually removed. Merge patch only drops keys when set to null.
+    """
     mdb.load()
     if "metadata" not in mdb:
         mdb["metadata"] = {}
@@ -72,31 +135,134 @@ def _set_dry_run_annotation(mdb: MongoDB) -> None:
     mdb["metadata"]["annotations"][MIGRATION_DRY_RUN_ANNOTATION] = "true"
     mdb.update()
 
-
-def run_migration_dry_run_connectivity_passes(mdb: MongoDB, *, timeout: int = 600) -> None:
-    """Set the dry-run annotation, wait for connectivity to pass, then clear the annotation.
-
-    Removes the dry-run annotation so later tests reconcile normally. Uses backing_obj and JSON merge
-    patch (null) so the key is actually removed. Merge patch only drops keys when set to null.
-    """
-    _set_dry_run_annotation(mdb)
-
     mdb.wait_for(_migration_connectivity_passed, timeout=timeout)
+
+    _assert_migration_status_after_dry_run_pass(mdb)
 
     mdb.load()
     ann = mdb.backing_obj.get("metadata").get("annotations")  # ty : ignore[unresolved-attribute]
     if ann is not None and MIGRATION_DRY_RUN_ANNOTATION in ann:
         ann[MIGRATION_DRY_RUN_ANNOTATION] = None
         mdb.update()
+    wait_until_migrating_reason_not_validating(mdb)
+
+
+def wait_until_migrating_reason_not_validating(mdb: MongoDB, *, timeout: int = 120) -> None:
+    """Poll until Migrating=True with a reason other than Validating.
+
+    Which reason follows the dry-run depends on how the CR was applied, not on the dry-run itself:
+    a VM-only import (all Kubernetes counts 0) settles straight to InProgress, while a
+    pre-provisioned import goes to Extending and stays there until the StatefulSet finishes
+    scaling — far longer than any reasonable dry-run timeout. Asserting a specific reason here
+    would encode the VM-only case; what the dry-run owns is that clearing the annotation un-pins
+    Validating, which happens on the next reconcile either way.
+    """
+
+    def _ok() -> bool:
+        mdb.load()
+        mig = _get_condition(_status_dict(mdb).get("conditions", []), CONDITION_MIGRATING)
+        return (
+            mig is not None
+            and mig.get("status") == "True"
+            and mig.get("reason") != MIGRATING_CONDITION_REASON_VALIDATING
+        )
+
+    KubernetesTester.wait_until(_ok, timeout=timeout)
+
+
+def wait_until_migrating_condition_reason(mdb: MongoDB, expected_reason: str, *, timeout: int = 120) -> None:
+    """Poll until Migrating=True and Migrating.reason matches expected_reason."""
+
+    def _ok() -> bool:
+        mdb.load()
+        mig = _get_condition(_status_dict(mdb).get("conditions", []), CONDITION_MIGRATING)
+        return mig is not None and mig.get("status") == "True" and mig.get("reason") == expected_reason
+
+    KubernetesTester.wait_until(_ok, timeout=timeout)
+
+
+def wait_until_phase_and_migrating_condition_reason(
+    mdb: MongoDB, phase: str, migrating_reason: str, *, timeout: int = 600
+) -> None:
+    """Poll until status.phase, Migrating=True, and Migrating.reason all match.
+
+    Migrating reasons (Extending, Pruning, …) are ephemeral — they're recomputed on every
+    reconcile and can flip on the very next one if counts stabilize. Checking status.phase and
+    Migrating.reason in a single poll avoids the race where a second reconcile runs between two
+    separate assertions.
+    """
+
+    def _ok() -> bool:
+        mdb.load()
+        s = _status_dict(mdb)
+        if s.get("phase") != phase:
+            return False
+        mig = _get_condition(s.get("conditions", []), CONDITION_MIGRATING)
+        return mig is not None and mig.get("status") == "True" and mig.get("reason") == migrating_reason
+
+    KubernetesTester.wait_until(_ok, timeout=timeout)
+
+
+def wait_until_running_and_migration_in_progress(mdb: MongoDB, *, timeout: int = 600) -> None:
+    """Poll until status.phase is Running and Migrating.reason is InProgress.
+
+    Used after operations where counts stabilize — externalMembers still exist but nothing is
+    actively extending or pruning.
+    """
+    wait_until_phase_and_migrating_condition_reason(
+        mdb, "Running", MIGRATING_CONDITION_REASON_IN_PROGRESS, timeout=timeout
+    )
+
+
+def wait_until_running_and_migration_complete(mdb: MongoDB, *, timeout: int = 600) -> None:
+    """Poll until status.phase is Running and migration is complete (Migrating=False).
+
+    When all externalMembers are removed the operator unsets ``migrationObservedExternalMembersCount``,
+    removes ``NetworkConnectivityVerified``, and sets ``Migrating=False, reason=MigrationComplete``.
+    """
+
+    def _ok() -> bool:
+        mdb.load()
+        s = _status_dict(mdb)
+        if s.get("phase") != "Running":
+            return False
+        if _migration_observed_external_count(s) != 0:
+            return False
+        cond = _get_condition(s.get("conditions", []), CONDITION_MIGRATING)
+        return (
+            cond is not None
+            and cond.get("status") == "False"
+            and cond.get("reason") == MIGRATING_CONDITION_REASON_COMPLETE
+        )
+
+    KubernetesTester.wait_until(_ok, timeout=timeout)
+
+
+def _migration_connectivity_failed(mdb: MongoDB) -> bool:
+    try:
+        status = mdb["status"]
+    except (KeyError, AttributeError, TypeError):
+        status = {}
+    conditions = status.get("conditions", []) if isinstance(status, dict) else []
+    for c in conditions:
+        if c.get("type") == CONDITION_NETWORK_CONNECTIVITY_VERIFIED and c.get("status") == "False":
+            return True
+    return False
 
 
 def run_migration_dry_run_connectivity_fails(mdb: MongoDB, *, timeout: int = 300) -> None:
-    """Set migration-dry-run annotation and wait for the connectivity condition to be False.
+    """Set migration-dry-run annotation and wait for NetworkConnectivityVerification to be False.
 
     Does not remove the annotation so the caller can fix the root cause and re-trigger validation
     by deleting the failed Job and updating the MDB resource.
     """
-    _set_dry_run_annotation(mdb)
+    mdb.load()
+    if "metadata" not in mdb:
+        mdb["metadata"] = {}
+    if "annotations" not in mdb["metadata"]:
+        mdb["metadata"]["annotations"] = {}
+    mdb["metadata"]["annotations"][MIGRATION_DRY_RUN_ANNOTATION] = "true"
+    mdb.update()
 
     mdb.wait_for(_migration_connectivity_failed, timeout=timeout)
 
