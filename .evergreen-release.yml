@@ -488,8 +488,9 @@ buildvariants:
     tasks:
       - name: release_chart_to_oci_registry
 
-  # Depends on release_images only: the retag should proceed as soon as images
-  # are published to production, regardless of test/preflight/code-snippet results.
+  # Not tagged "deprecated-release": tag selectors in depends_on don't
+  # auto-activate. Using the direct variant name "release_images" causes
+  # auto-activation and gates the retag only on image publish succeeding.
   - name: retag_legacy_release
     display_name: retag_legacy_release
     run_on:

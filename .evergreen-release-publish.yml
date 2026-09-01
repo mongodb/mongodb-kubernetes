@@ -183,8 +183,9 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
-  # Depends on release_publish only: the retag should proceed as soon as images
-  # are published to production, regardless of preflight/code-snippet/bundle results.
+  # Not tagged "release-publish": tag selectors in depends_on don't
+  # auto-activate. Using the direct variant name "release_publish" causes
+  # auto-activation and gates the retag only on image publish succeeding.
   - name: retag_new_release
     display_name: retag_new_release
     run_on:
