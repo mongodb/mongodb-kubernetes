@@ -64,6 +64,20 @@ func externalMembersForCEL(n int) []mdbv1.ExternalMember {
 	return members
 }
 
+// externalMongosForCEL returns n mongos entries, which the prune-rate rule does not count:
+// mongos routers are not replica set members, so removing several at once cannot cost a majority.
+func externalMongosForCEL(n int) []mdbv1.ExternalMember {
+	members := make([]mdbv1.ExternalMember, n)
+	for i := range members {
+		members[i] = mdbv1.ExternalMember{
+			ProcessName: fmt.Sprintf("mongos-%d", i),
+			Hostname:    fmt.Sprintf("mongos-%d:27017", i),
+			Type:        "mongos",
+		}
+	}
+	return members
+}
+
 func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
@@ -240,7 +254,7 @@ func TestExternalMembersPruneRateCELValidation(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
 
-	const errMsg = "at most one external member may be removed per update"
+	const errMsg = "at most one external mongod may be removed per update"
 
 	tests := []struct {
 		name string
@@ -283,4 +297,34 @@ func TestExternalMembersPruneRateCELValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.errorContains)
 		})
 	}
+}
+
+// TestExternalMongosPruneRateCELValidation proves mongos entries are exempt from the prune-rate
+// rule: they hold no votes, so removing all of them in one update cannot break a majority.
+func TestExternalMongosPruneRateCELValidation(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	t.Run("removing every mongos at once is allowed", func(t *testing.T) {
+		rs := newMongoDB(t, func(rs *mdbv1.MongoDB) {
+			rs.Spec.ExternalMembers = externalMongosForCEL(3)
+		})
+		require.NoError(t, k8sClient.Create(ctx, rs))
+
+		rs.Spec.ExternalMembers = nil
+		assert.NoError(t, k8sClient.Update(ctx, rs))
+	})
+
+	t.Run("mongos removals do not mask a mongod removal", func(t *testing.T) {
+		rs := newMongoDB(t, func(rs *mdbv1.MongoDB) {
+			rs.Spec.ExternalMembers = append(externalMembersForCEL(3), externalMongosForCEL(2)...)
+		})
+		require.NoError(t, k8sClient.Create(ctx, rs))
+
+		// Drops both mongos (allowed) and two of the three mongods (rejected).
+		rs.Spec.ExternalMembers = externalMembersForCEL(1)
+		err := k8sClient.Update(ctx, rs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "at most one external mongod may be removed per update")
+	})
 }

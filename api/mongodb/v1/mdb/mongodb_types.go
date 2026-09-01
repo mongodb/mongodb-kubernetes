@@ -536,7 +536,7 @@ type DbCommonSpec struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.externalMembers) || (has(self.externalMembers) ? size(self.externalMembers) : 0) >= size(oldSelf.externalMembers) - 1",message="at most one external member may be removed per update: remove entries from spec.externalMembers one at a time so the replica set keeps its voting majority"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.externalMembers) || (has(self.externalMembers) ? size(self.externalMembers.filter(m, m.type != 'mongos')) : 0) >= size(oldSelf.externalMembers.filter(m, m.type != 'mongos')) - 1",message="at most one external mongod may be removed per update: remove mongod entries from spec.externalMembers one at a time so the replica set keeps its voting majority"
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	DbCommonSpec                           `json:",inline"`
