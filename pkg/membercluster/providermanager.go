@@ -53,6 +53,8 @@ type providerManager struct {
 	// wg tracks the running per-entry cluster goroutines so Start can drain them on
 	// manager shutdown.
 	wg sync.WaitGroup
+	// stopped is set by Start before draining; ensure refuses new work once set.
+	stopped bool
 }
 
 type entryState struct {
@@ -106,49 +108,56 @@ func (m *providerManager) loadCredentials(ctx context.Context, mc *operatorv1.Me
 // the credential hash changed. A resync or a status-only update (both leaving generation
 // and hash unchanged) is a no-op.
 func (m *providerManager) ensure(ctx context.Context, mc *operatorv1.MemberCluster, creds *credentials, log *zap.SugaredLogger) error {
-	m.mu.Lock()
-	state, exists := m.entries[mc.Name]
-	m.mu.Unlock()
-	if exists && state.generation == mc.Generation && state.kubeconfigHash == creds.kubeconfigHash {
-		return nil
-	}
-
-	// spec.clusterName is unique per member cluster by contract, but nothing at the API
-	// level can enforce cross-object uniqueness. Refuse a second registration at runtime:
-	// first writer wins, and the conflicting CR's reconcile keeps failing loudly.
-	m.mu.Lock()
-	for resourceName, state := range m.entries {
-		if resourceName != mc.Name && state.clusterName == mc.Spec.ClusterName {
-			m.mu.Unlock()
-			return fmt.Errorf("clusterName %q is already registered by MemberCluster %q", mc.Spec.ClusterName, resourceName)
-		}
-	}
-	m.mu.Unlock()
-
-	// Build the replacement before tearing the old entry down: if construction fails, the
-	// old entry keeps serving.
+	// Build the replacement before touching any state: construction is local (the
+	// RESTMapper is lazy and the cache starts only at Start), and if it fails the old
+	// entry keeps serving.
 	memberCluster, err := m.newCluster(creds.restConfig)
 	if err != nil {
 		return err
 	}
 
-	if exists {
-		m.remove(ctx, mc.Name, log)
+	m.mu.Lock()
+	if m.stopped {
+		// We are shutting down, so no need to start a new cluster.
+		m.mu.Unlock()
+		return nil
 	}
-
+	state, exists := m.entries[mc.Name]
+	if exists && state.generation == mc.Generation && state.kubeconfigHash == creds.kubeconfigHash {
+		m.mu.Unlock()
+		return nil
+	}
+	// spec.clusterName is unique per member cluster by contract, but nothing at the API
+	// level can enforce cross-object uniqueness. Refuse a second registration at runtime:
+	// first writer wins, and the conflicting CR's reconcile keeps failing loudly.
+	for resourceName, other := range m.entries {
+		if resourceName != mc.Name && other.clusterName == mc.Spec.ClusterName {
+			m.mu.Unlock()
+			return fmt.Errorf("clusterName %q is already registered by MemberCluster %q", mc.Spec.ClusterName, resourceName)
+		}
+	}
+	if exists {
+		// Cancelling is cheap and non-blocking, so it is safe under the lock.
+		state.cancel()
+	}
 	entryCtx, cancel := context.WithCancel(m.baseCtx)
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
+	m.entries[mc.Name] = entryState{clusterName: mc.Spec.ClusterName, cancel: cancel, generation: mc.Generation, kubeconfigHash: creds.kubeconfigHash}
+	// wg.Go stays inside the critical section: its Add then happens-before the wg.Wait in
+	// Start's drain, which a WaitGroup Add racing a Wait at counter zero would panic.
+	m.wg.Go(func() {
 		if err := memberCluster.Start(entryCtx); err != nil {
 			log.Errorf("Member cluster %q stopped with error: %s", mc.Spec.ClusterName, err)
 		}
-	}()
-
-	m.mu.Lock()
-	m.entries[mc.Name] = entryState{clusterName: mc.Spec.ClusterName, cancel: cancel, generation: mc.Generation, kubeconfigHash: creds.kubeconfigHash}
+	})
 	m.mu.Unlock()
 
+	// Provider hooks (OnAdd/OnRemove) may block on channel sends, so they must fire
+	// outside the lock.
+	if exists {
+		// The old clusterName may have been re-registered by another CR since the commit;
+		// Delete's ownership comparison is atomic with the delete.
+		m.provider.Delete(ctx, state.clusterName, mc.Name)
+	}
 	m.provider.Set(ctx, mc.Spec.ClusterName, multicluster.Entry{
 		Cluster:      memberCluster,
 		Client:       memberCluster.GetClient(),
@@ -159,8 +168,9 @@ func (m *providerManager) ensure(ctx context.Context, mc *operatorv1.MemberClust
 }
 
 // remove deregisters the entry built from the MemberCluster CR named resourceName (if any)
-// and cancels its context, stopping the cluster's informers. The provider entry is removed
-// only if it is still owned by this CR.
+// and cancels its context, stopping the cluster's informers. The clusterName may have been
+// re-registered by another CR since the entry was removed under mu; Delete's ownership
+// comparison is atomic with the delete.
 func (m *providerManager) remove(ctx context.Context, resourceName string, log *zap.SugaredLogger) {
 	m.mu.Lock()
 	state, exists := m.entries[resourceName]
@@ -172,20 +182,21 @@ func (m *providerManager) remove(ctx context.Context, resourceName string, log *
 	if !exists {
 		return
 	}
-	if entry, ok := m.provider.Entries()[state.clusterName]; ok && entry.ResourceName == resourceName {
-		m.provider.Delete(ctx, state.clusterName)
-	}
+	m.provider.Delete(ctx, state.clusterName, resourceName)
 	state.cancel()
 	log.Infof("Member cluster %q deregistered", state.clusterName)
 }
 
 // Start implements manager.Runnable: it blocks until the manager stops, then stops every
 // live entry and waits for the per-entry cluster goroutines to drain, so the manager's
-// graceful shutdown covers member-cluster teardown.
+// graceful shutdown covers member-cluster teardown. stopped is set under the lock before
+// draining, so an ensure still building its cluster cannot register or start a goroutine
+// once the drain begins.
 func (m *providerManager) Start(ctx context.Context) error {
 	<-ctx.Done()
 
 	m.mu.Lock()
+	m.stopped = true
 	cancels := make([]context.CancelFunc, 0, len(m.entries))
 	for _, state := range m.entries {
 		cancels = append(cancels, state.cancel)
