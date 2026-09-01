@@ -312,6 +312,11 @@ const (
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
+	// MemberClusterCredentialSecretKubeconfigKey is the Secret key holding the
+	// single-context member-cluster kubeconfig: the contract between the
+	// `generate-member-registration` plugin command (writer) and the operator (reader).
+	MemberClusterCredentialSecretKubeconfigKey = "kubeconfig"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 
