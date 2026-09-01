@@ -93,7 +93,10 @@ func parseFlags() (memberregistration.Options, error) {
 	memberClusterApiServer := strings.TrimSpace(flags.memberClusterApiServer)
 	if memberClusterApiServer != "" {
 		u, err := url.Parse(memberClusterApiServer)
-		if err != nil || u.Scheme == "" || u.Host == "" {
+		if err != nil {
+			return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-api-server %q: %v", memberClusterApiServer, err)
+		}
+		if u.Scheme == "" || u.Host == "" {
 			return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-api-server %q: must be an absolute URL with scheme and host", memberClusterApiServer)
 		}
 	}
