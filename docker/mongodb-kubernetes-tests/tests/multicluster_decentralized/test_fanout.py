@@ -209,3 +209,159 @@ def test_delete_fails_naming_a_cluster_still_holding_the_object():
 def test_enable_rejects_primary_not_in_clients():
     with pytest.raises(ValueError):
         decentralized_fanout.enable({"a": object()}, primary="b")
+
+
+# --- Secret/ConfigMap fan-out: the pre-provisioning contract for issuance-time materials ---
+
+
+def patched_corev1(apis_by_client):
+    """Patches kubetester.decentralized_fanout.client.CoreV1Api so that constructing it against a
+    given ApiClient returns the mock pre-registered for that client."""
+
+    def side_effect(api_client=None):
+        return apis_by_client[api_client]
+
+    return mock.patch("kubetester.decentralized_fanout.client.CoreV1Api", side_effect=side_effect)
+
+
+def make_secret(data, type_="kubernetes.io/tls"):
+    secret = mock.Mock()
+    secret.data = data
+    secret.type = type_
+    return secret
+
+
+def make_config_map(data, binary_data=None):
+    config_map = mock.Mock()
+    config_map.data = data
+    config_map.binary_data = binary_data
+    return config_map
+
+
+def test_fan_out_secret_disabled_is_a_no_op():
+    with mock.patch("kubetester.decentralized_fanout.client.CoreV1Api") as corev1_cls:
+        decentralized_fanout.fan_out_secret("mdb-ns", "clustercert-mrs-cert")
+
+    corev1_cls.assert_not_called()
+
+
+def test_fan_out_secret_copies_data_and_type_to_every_peer():
+    primary, peer1, peer2 = object(), object(), object()
+    decentralized_fanout.enable({"primary": primary, "peer1": peer1, "peer2": peer2}, primary="primary")
+
+    source_data = {"tls.crt": "Y3J0", "tls.key": "a2V5"}
+    source_api = mock.Mock()
+    source_api.read_namespaced_secret.return_value = make_secret(source_data)
+
+    peer_apis = {}
+    for peer in (peer1, peer2):
+        peer_api = mock.Mock()
+        peer_api.read_namespaced_secret.return_value = make_secret(source_data)
+        peer_apis[peer] = peer_api
+
+    with patched_corev1({primary: source_api, **peer_apis}):
+        decentralized_fanout.fan_out_secret("mdb-ns", "clustercert-mrs-cert")
+
+    source_api.read_namespaced_secret.assert_called_once_with("clustercert-mrs-cert", "mdb-ns")
+    for peer_api in peer_apis.values():
+        peer_api.create_namespaced_secret.assert_called_once()
+        args, _ = peer_api.create_namespaced_secret.call_args
+        body = args[-1]
+        # The type must survive the copy: an Opaque copy of a kubernetes.io/tls source silently
+        # disables TLS downstream (pem.ReadHashFromSecret falls back to "").
+        assert body.type == "kubernetes.io/tls"
+        assert body.data == source_data
+
+
+def test_fan_out_secret_replaces_an_existing_copy():
+    primary, peer1 = object(), object()
+    decentralized_fanout.enable({"primary": primary, "peer1": peer1}, primary="primary")
+
+    source_data = {"tls.crt": "Y3J0"}
+    source_api = mock.Mock()
+    source_api.read_namespaced_secret.return_value = make_secret(source_data)
+
+    peer_api = mock.Mock()
+    peer_api.create_namespaced_secret.side_effect = client.ApiException(status=409)
+    peer_api.read_namespaced_secret.return_value = make_secret(source_data)
+
+    with patched_corev1({primary: source_api, peer1: peer_api}):
+        decentralized_fanout.fan_out_secret("mdb-ns", "clustercert-mrs-cert")
+
+    peer_api.replace_namespaced_secret.assert_called_once()
+
+
+def test_fan_out_secret_fails_loud_on_a_skewed_copy():
+    """The byte-identical contract: a corrupted copy must fail the run naming the cluster —
+    a silent skew would surface later as an AC cert path that is not a key in some member's
+    mounted -pem secret."""
+    primary, peer1 = object(), object()
+    decentralized_fanout.enable({"primary": primary, "peer1": peer1}, primary="primary")
+
+    source_api = mock.Mock()
+    source_api.read_namespaced_secret.return_value = make_secret({"tls.crt": "Y3J0"})
+
+    peer_api = mock.Mock()
+    peer_api.read_namespaced_secret.return_value = make_secret({"tls.crt": "c2tld2Vk"})
+
+    with patched_corev1({primary: source_api, peer1: peer_api}):
+        with pytest.raises(AssertionError) as excinfo:
+            decentralized_fanout.fan_out_secret("mdb-ns", "clustercert-mrs-cert")
+
+    assert "peer1" in str(excinfo.value)
+    assert "byte-identical" in str(excinfo.value)
+
+
+def test_fan_out_secret_one_failing_peer_does_not_block_the_other_and_names_the_failure():
+    primary, peer1, peer2 = object(), object(), object()
+    decentralized_fanout.enable({"primary": primary, "peer1": peer1, "peer2": peer2}, primary="primary")
+
+    source_data = {"tls.crt": "Y3J0"}
+    source_api = mock.Mock()
+    source_api.read_namespaced_secret.return_value = make_secret(source_data)
+
+    failing_api = mock.Mock()
+    failing_api.create_namespaced_secret.side_effect = Exception("peer1 unreachable")
+
+    healthy_api = mock.Mock()
+    healthy_api.read_namespaced_secret.return_value = make_secret(source_data)
+
+    with patched_corev1({primary: source_api, peer1: failing_api, peer2: healthy_api}):
+        with pytest.raises(Exception) as excinfo:
+            decentralized_fanout.fan_out_secret("mdb-ns", "clustercert-mrs-cert")
+
+    healthy_api.create_namespaced_secret.assert_called_once()
+    assert "peer1" in str(excinfo.value)
+    assert "peer1 unreachable" in str(excinfo.value)
+
+
+def test_fan_out_config_map_copies_and_verifies():
+    primary, peer1 = object(), object()
+    decentralized_fanout.enable({"primary": primary, "peer1": peer1}, primary="primary")
+
+    data = {"ca-pem": "CA", "mms-ca.crt": "CA"}
+    source_api = mock.Mock()
+    source_api.read_namespaced_config_map.return_value = make_config_map(data)
+
+    peer_api = mock.Mock()
+    peer_api.read_namespaced_config_map.return_value = make_config_map(data)
+
+    with patched_corev1({primary: source_api, peer1: peer_api}):
+        decentralized_fanout.fan_out_config_map("mdb-ns", "issuer-ca")
+
+    peer_api.create_namespaced_config_map.assert_called_once()
+    args, _ = peer_api.create_namespaced_config_map.call_args
+    assert args[-1].data == data
+
+
+def test_assert_copies_identical_is_order_insensitive_and_names_all_skewed_clusters():
+    source = {"data": {"k": "v"}, "type": "Opaque"}
+
+    decentralized_fanout.assert_copies_identical("Secret", "mdb-ns", "s", source, {"c1": dict(source)})
+
+    with pytest.raises(AssertionError) as excinfo:
+        decentralized_fanout.assert_copies_identical(
+            "Secret", "mdb-ns", "s", source, {"c2": {"data": {"k": "x"}, "type": "Opaque"}, "c1": dict(source)}
+        )
+    assert "c2" in str(excinfo.value)
+    assert "c1" not in str(excinfo.value)
