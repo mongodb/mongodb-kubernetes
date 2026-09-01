@@ -50,6 +50,7 @@ from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
     create_or_update_configmap,
+    decentralized_fanout,
     get_deployments,
     get_pod_when_ready,
     is_pod_ready,
@@ -724,6 +725,9 @@ def get_multi_cluster_operator(
         cluster_clients = {mcc.cluster_name: mcc.api_client for mcc in member_cluster_clients}
         operators = install_decentralized(cluster_clients, settings, dict(multi_cluster_operator_installation_config))
         _decentralized_operators[namespace] = operators
+        # Every member's spec fence trusts only its own cluster's CR copy, so the tests' single
+        # central-cluster CR writes must replicate everywhere from here on.
+        decentralized_fanout.enable(cluster_clients, primary=central_cluster_name)
         return operators[central_cluster_name]
 
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
