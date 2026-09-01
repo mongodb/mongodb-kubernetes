@@ -282,6 +282,14 @@ patch_aliases:
     description: "Run race detector variants"
     variant_tags: [ "race" ]
     task: ".*"
+  - alias: "deprecated-release"
+    description: "Legacy release process (rebuilds and retests before publishing)"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  - alias: "release-publish"
+    description: "New release process (publishes already-promoted images without rebuilding)"
+    variant_tags: [ "release-publish" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
@@ -296,21 +304,12 @@ github_checks_aliases:
   - variant: ".*"
     task: ".*"
 
-# Triggered on git tag. The plain "X.Y.Z" shape is intentionally NOT a trigger:
-# it's applied by the release pipelines themselves as the final, human-facing
-# tag once their trigger tag's pipeline succeeds, and must not re-trigger anything.
+# Triggered on git tag. A decider task inspects the tag annotation:
+# "[new]" → release-publish pipeline, otherwise → deprecated-release.
+# The decider creates an Evergreen patch via the matching alias.
 git_tag_aliases:
-  # Legacy process (deprecated, still supported): rebuilds and retests images
-  # before publishing. See .evergreen-release.yml.
-  - git_tag: "^old-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "deprecated-release" ]
-    task: ".*"
-  # New process: publishes the already-promoted images for the given commit
-  # without rebuilding or retesting. See .evergreen-release-publish.yml.
-  # The optional "test-" infix marks a dry run: targets an override registry
-  # instead of the real production one, still gated on the same tasks.
-  - git_tag: "^new-(test-)?(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release-publish" ]
+  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "release-decider" ]
     task: ".*"
 
 tasks:

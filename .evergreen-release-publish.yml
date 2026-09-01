@@ -1,6 +1,7 @@
-# New release process, triggered by tags shaped "new-X.Y.Z" (see .evergreen.yml
-# git_tag_aliases). Unlike the legacy process (.evergreen-release.yml, deprecated),
-# this does not rebuild or retest images: it publishes the images already
+# New release process. Triggered when the tag annotation starts with
+# "[new]" (see decide_release_process.sh). Unlike the legacy process
+# (.evergreen-release.yml, deprecated), this does not rebuild or retest
+# images: it publishes the images already
 # promoted for the tagged commit (via the mainline mckci_release_promote task)
 # straight to production. Everything else the legacy process does that is NOT
 # an image rebuild/retest — preflight+submit, OpenShift bundle prep + RH
@@ -11,6 +12,19 @@ include:
   - filename: .evergreen-functions.yml
 
 tasks:
+  # Reads the tag annotation to decide which release pipeline to run,
+  # then creates an Evergreen patch via the matching alias and waits for it.
+  - name: decide_release_process
+    commands:
+      - func: clone
+      - command: subprocess.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - triggered_by_git_tag
+          binary: scripts/evergreen/decide_release_process.sh ${triggered_by_git_tag}
+
   - name: mckci_release_publish_images
     allowed_requesters: [ "patch", "github_tag" ]
     commands:
@@ -33,26 +47,31 @@ tasks:
             fi
             scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
 
-  # Runs after the publish task succeeds: pushes the final "X.Y.Z" tag (which
-  # is not itself a trigger) and deletes "new-X.Y.Z", then triggers the public
-  # docs-snippet refresh.
-  - name: retag_new_release
+  # Trigger docs snippets refresh using the published images. Runs after
+  # the publish variant succeeds (order is enforced by the build variant
+  # dependency below).
+  - name: publish_doc_snippets
     commands:
       - func: clone
-      - func: push_release_tag
-        vars:
-          prefix: "new-"
-      - func: compute_release_version
       - command: subprocess.exec
         type: test
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           include_expansions_in_env:
             - revision
-            - RELEASE_VERSION
+            - triggered_by_git_tag
           binary: scripts/dev/trigger_public_docs_snippets.sh
 
 buildvariants:
+  - name: release_decider
+    display_name: release_decider
+    tags: [ "release-decider" ]
+    allowed_requesters: [ "github_tag" ]
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: decide_release_process
+
   - name: release_publish
     display_name: release_publish
     tags: [ "release-publish" ]
@@ -183,17 +202,16 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
-  # Not tagged "release-publish" itself (it depends on every "release-publish"-
-  # tagged variant succeeding, which would otherwise create a self-dependency).
-  - name: retag_new_release
-    display_name: retag_new_release
+  # Trigger docs snippets using the images just published.
+  - name: trigger_public_docs_snippets_publish
+    display_name: trigger_public_docs_snippets_publish
+    tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
-        variant: ".release-publish"
-        status: "success"
+        variant: release_publish
     tasks:
-      - name: retag_new_release
+      - name: publish_doc_snippets
 

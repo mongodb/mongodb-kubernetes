@@ -26,6 +26,7 @@ variables:
       - github_pr_head_branch
       - image_name
       - is_patch
+      - IS_DRYRUN
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_region
       - mms_eng_test_aws_secret
@@ -969,45 +970,6 @@ functions:
           unzip -u macos-notary.zip
           chmod 755 ./linux_amd64/macnotary
 
-  # Strips the "old-"/"new-" trigger-tag prefix (see .evergreen.yml
-  # git_tag_aliases) and publishes the bare version as the RELEASE_VERSION
-  # expansion, for tasks that need the real version rather than the literal
-  # trigger tag. A no-op (identity) for any other triggered_by_git_tag shape.
-  compute_release_version:
-    - command: shell.exec
-      type: setup
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        shell: bash
-        script: |
-          set -e
-          VERSION="${triggered_by_git_tag}"
-          VERSION="${VERSION#old-}"
-          VERSION="${VERSION#new-}"
-          echo "RELEASE_VERSION: ${VERSION}" > release_version_expansion.yaml
-    - command: expansions.update
-      params:
-        file: src/github.com/mongodb/mongodb-kubernetes/release_version_expansion.yaml
-
-  # Strips the trigger-tag prefix (${prefix}), pushes bare "X.Y.Z" at the
-  # triggering commit, and deletes the trigger tag. Runs after the release
-  # pipeline succeeds; "X.Y.Z" is not itself a git_tag_aliases trigger.
-  push_release_tag:
-    - command: github.generate_token
-      params:
-        expansion_name: GH_TOKEN
-    - command: subprocess.exec
-      type: test
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        include_expansions_in_env:
-          - GH_TOKEN
-          - triggered_by_git_tag
-          - revision
-        env:
-          GH_TOKEN: ${GH_TOKEN}
-        binary: scripts/evergreen/push_release_tag.sh ${prefix}
-
   create_chart_release_pr:
     - command: github.generate_token
       params:
@@ -1080,3 +1042,4 @@ functions:
           - HONEYCOMB_API_KEY
           - version_id
         binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py
+
