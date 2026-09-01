@@ -13,6 +13,7 @@ import kubernetes
 import pytest
 from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
@@ -22,6 +23,19 @@ from kubetester.phase import Phase
 from tests.multicluster.conftest import cluster_spec_list
 
 RESOURCE_NAME = "multi-replica-set"
+
+
+def assert_sts_ready_replicas(
+    mongodb_multi: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    expected: list,
+    timeout: int = 120,
+):
+    def ready_replicas_match() -> bool:
+        statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
+        return [statefulsets[c.cluster_name].status.ready_replicas for c in member_cluster_clients] == expected
+
+    KubernetesTester.wait_until(ready_replicas_match, timeout=timeout)
 
 
 @pytest.fixture(scope="module")
@@ -55,18 +69,10 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
-
-    cluster_three_client = member_cluster_clients[2]
-    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 2
+    # Divergence from the original's immediate read: decentralized Running keys on the OM
+    # witness (agents in goal state), not on pod readiness, so ready_replicas can lag the
+    # phase flip by a probe period.
+    assert_sts_ready_replicas(mongodb_multi, member_cluster_clients, [2, 1, 2])
 
 
 @pytest.mark.e2e_multi_cluster_decentralized_replica_set_scale_down
@@ -92,18 +98,7 @@ def test_statefulsets_have_been_scaled_down_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 1
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas is None
-
-    cluster_three_client = member_cluster_clients[2]
-    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 2
+    assert_sts_ready_replicas(mongodb_multi, member_cluster_clients, [1, None, 2])
 
 
 @pytest.mark.e2e_multi_cluster_decentralized_replica_set_scale_down
