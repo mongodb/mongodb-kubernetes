@@ -32,18 +32,25 @@ def project_name_prefix(namespace: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def new_project_configmap(namespace: str, project_name_prefix: str) -> str:
+def new_project_configmap(namespace: str, project_name_prefix: str, member_cluster_clients) -> str:
     cm = read_configmap(namespace=namespace, name="my-project")
     project_name = f"{project_name_prefix}-new-project"
-    return create_or_update_configmap(
-        namespace=namespace,
-        name=project_name,
-        data={
-            "baseUrl": cm["baseUrl"],
-            "projectName": project_name,
-            "orgId": cm["orgId"],
-        },
-    )
+    # Divergence from the original's single create: each member resolves referenced ConfigMaps
+    # from its OWN cluster (no cross-cluster RBAC by design), so the GitOps stand-in applies the
+    # new project ConfigMap everywhere — the referenced-resource half of the same contract the
+    # CR fan-out covers.
+    for mcc in member_cluster_clients:
+        create_or_update_configmap(
+            namespace=namespace,
+            name=project_name,
+            data={
+                "baseUrl": cm["baseUrl"],
+                "projectName": project_name,
+                "orgId": cm["orgId"],
+            },
+            api_client=mcc.api_client,
+        )
+    return project_name
 
 
 @pytest.fixture(scope="function")
