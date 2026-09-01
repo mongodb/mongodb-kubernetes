@@ -378,6 +378,9 @@ def create_issuer_ca_configmap(
     # an entry with a name of "mms-ca.crt"
     data = {"ca-pem": ca, "mms-ca.crt": ca}
     create_or_update_configmap(namespace, name, data, api_client=api_client)
+    # Decentralized operators mount this ConfigMap (TLS CA and OM CA alike) from their own
+    # cluster; replicate the central copy at creation time. No-op outside decentralized runs.
+    decentralized_fanout.fan_out_config_map(namespace, name, source_api_client=api_client)
     return name
 
 

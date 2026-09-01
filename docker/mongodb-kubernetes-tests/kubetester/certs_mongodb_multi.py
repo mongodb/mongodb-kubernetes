@@ -3,6 +3,7 @@ from typing import List, Optional
 
 import kubernetes
 from kubeobject import CustomObject
+from kubetester import decentralized_fanout
 from kubetester.certs import (
     SUBJECT,
     generate_cert,
@@ -176,5 +177,10 @@ def create_multi_cluster_tls_certs(
         spec=spec,
         clusterwide=clusterwide,
     )
+
+    # Decentralized operators collate the PEM from their own cluster's copy of this Secret; the
+    # mint stays central, the bytes travel once, here. No-op outside decentralized runs.
+    if secret_backend in (None, "Kubernetes"):
+        decentralized_fanout.fan_out_secret(namespace, secret_name, source_api_client=central_cluster_client)
 
     return secret_name
