@@ -2055,7 +2055,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 
 		updateStrategy := r.GetAppDBUpdateStrategyType(opsManager)
 
-		appdbOpts.ServiceAccountName = resourcenames.WorkloadAppDBServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)
+		appdbOpts.ServiceAccountName = resourcenames.WorkloadAppDBServiceAccount.Name(memberCluster.Legacy)
 		appDbSts, err := construct.AppDbStatefulSet(*opsManager, &podVars, appdbOpts, scaler, updateStrategy, r.defaultArchitecture, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))

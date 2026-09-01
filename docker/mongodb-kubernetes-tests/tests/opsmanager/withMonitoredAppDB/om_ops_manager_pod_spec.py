@@ -21,10 +21,13 @@ from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_de
 
 
 def expected_service_account_name(member_cluster_name: Optional[str], fixed_sa_name: str) -> str:
-    """Member clusters use member-scoped ServiceAccounts; single-cluster keeps the fixed base-install name."""
+    """Member clusters use member-scoped ServiceAccounts; single-cluster keeps the fixed base-install name.
+
+    Member-side names are unified (mck-member-<suffix>, identical on every member cluster),
+    so only the None-ness of member_cluster_name matters here: None means single-cluster."""
     if member_cluster_name is None:
         return fixed_sa_name
-    return f"mck-member-{member_cluster_name}-{fixed_sa_name.removeprefix('mongodb-kubernetes-')}"
+    return f"mck-member-{fixed_sa_name.removeprefix('mongodb-kubernetes-')}"
 
 
 @fixture(scope="module")

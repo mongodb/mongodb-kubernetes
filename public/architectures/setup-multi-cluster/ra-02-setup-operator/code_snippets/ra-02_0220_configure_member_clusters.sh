@@ -1,10 +1,9 @@
 # Render and apply member-cluster RBAC (ServiceAccount, token Secret, Roles and
-# bindings) to every member cluster.
+# bindings) to every member cluster. The rendered names are unified (mck-member-*),
+# so the output is identical for every cluster.
 for ctx in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8S_CLUSTER_2_CONTEXT_NAME}"; do
-  member_cluster_name="${ctx//_/-}"
-  echo "Applying member-cluster RBAC on ${ctx} (member name: ${member_cluster_name})"
+  echo "Applying member-cluster RBAC on ${ctx}"
   kubectl mongodb multicluster generate-member-resources \
-    --member-cluster="${member_cluster_name}" \
     --member-cluster-namespace="${OM_NAMESPACE}" \
     --workload-namespaces="${OM_NAMESPACE},${MDB_NAMESPACE}" \
     --image-pull-secrets=image-registries-secret \
