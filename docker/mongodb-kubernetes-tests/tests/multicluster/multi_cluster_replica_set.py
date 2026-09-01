@@ -14,7 +14,7 @@ from kubetester import (
 )
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import skip_if_decentralized, skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
@@ -237,6 +237,7 @@ def test_delete_member_cluster_sts(
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
 
 
+@skip_if_decentralized
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_cleanup_on_mdbm_delete(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
