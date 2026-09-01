@@ -178,19 +178,21 @@ def test_delete_cluster_role_and_binding(
         delete_cluster_role(name, central_cluster_client)
         delete_cluster_role_binding(name, central_cluster_client)
 
-    # Member-cluster RBAC (mck-member-<cluster>-*): the member roles are ClusterRoles in
-    # every render mode (bound per-namespace in the namespaced render).
+    # Member-cluster RBAC (mck-member-*, unified names identical on every member cluster):
+    # the member roles are ClusterRoles in this test's render (multiple workload namespaces;
+    # a single-namespace render would use namespaced Roles instead).
+    member_role_names = (
+        "mck-member-role-base",
+        "mck-member-role-base-binding",
+        "mck-member-role-multicluster",
+        "mck-member-role-multicluster-binding",
+        "mck-member-pvc-resize",
+        "mck-member-pvc-resize-binding",
+        "mck-member-cluster-telemetry",
+        "mck-member-cluster-telemetry-binding",
+    )
     for mcc in member_cluster_clients:
-        for name in (
-            f"mck-member-{mcc.cluster_name}-role-base",
-            f"mck-member-{mcc.cluster_name}-role-base-binding",
-            f"mck-member-{mcc.cluster_name}-role-multicluster",
-            f"mck-member-{mcc.cluster_name}-role-multicluster-binding",
-            f"mck-member-{mcc.cluster_name}-pvc-resize",
-            f"mck-member-{mcc.cluster_name}-pvc-resize-binding",
-            f"mck-member-{mcc.cluster_name}-cluster-telemetry",
-            f"mck-member-{mcc.cluster_name}-cluster-telemetry-binding",
-        ):
+        for name in member_role_names:
             delete_cluster_role(name, mcc.api_client)
             delete_cluster_role_binding(name, mcc.api_client)
 

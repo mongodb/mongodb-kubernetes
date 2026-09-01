@@ -9,13 +9,14 @@ Operator RBAC for the clusters the operator manages workloads on. Dual-mode temp
 
   - Member mode (memberCluster.enabled=true, set exclusively by
     `kubectl mongodb multicluster generate-member-resources`): renders
-    mck-member-<cluster-name>-role-base — ONLY the shared workload-management rules,
+    mck-member-role-base — ONLY the shared workload-management rules,
     identical to the base-mode set (hence "-role-base") — bound to the member
-    ServiceAccount mck-member-<cluster-name>-sa, additive to the base installation RBAC.
+    ServiceAccount mck-member-sa, additive to the base installation RBAC.
     The central-only rules are excluded: Custom Resources live on the central cluster
     only. Rules the operator needs only because of multi-cluster operation
     (deletecollection cleanup) live in
-    member-cluster-rbac.yaml as mck-member-<cluster-name>-role-multicluster.
+    member-cluster-rbac.yaml as mck-member-role-multicluster. The mck-member-*
+    names are unified — identical on every member cluster.
 
 The shared workload-management rules are intentionally written once, unconditionally, so
 both modes render them identically. Only naming, annotations, central-only gating and
@@ -29,10 +30,10 @@ the binding namespace source branch on the mode.
 {{- $bindingName := .Values.operator.name -}}
 {{- $saName := .Values.operator.name -}}
 {{- if $memberMode -}}
-{{- $memberName := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" $memberCluster.name) -}}
-{{- $name = printf "%s-role-base" $memberName -}}
-{{- $bindingName = printf "%s-role-base-binding" $memberName -}}
-{{- $saName = printf "%s-sa" $memberName -}}
+{{- $memberPrefix := "mck-member" -}}
+{{- $name = printf "%s-role-base" $memberPrefix -}}
+{{- $bindingName = printf "%s-role-base-binding" $memberPrefix -}}
+{{- $saName = printf "%s-sa" $memberPrefix -}}
 {{- end -}}
 
 {{- $watchNamespace := list $operatorNamespace -}}

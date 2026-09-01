@@ -5,12 +5,13 @@
 {{- $saName := .Values.operator.name }}
 {{- if $memberMode }}
 {{- /* Member mode (rendered only by `kubectl mongodb multicluster generate-member-resources`):
-       same rules bound to the member ServiceAccount, using the mck-member-<cluster-name>-*
-       naming so they are additive to the base installation RBAC. */}}
-{{- $memberName := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled is true" .Values.memberCluster.name) }}
-{{- $clusterRoleName = printf "%s-cluster-telemetry" $memberName }}
-{{- $bindingName = printf "%s-cluster-telemetry-binding" $memberName }}
-{{- $saName = printf "%s-sa" $memberName }}
+       same rules bound to the member ServiceAccount, using the unified mck-member-*
+       naming (identical on every member cluster) so they are additive to the base
+       installation RBAC. */}}
+{{- $memberPrefix := "mck-member" }}
+{{- $clusterRoleName = printf "%s-cluster-telemetry" $memberPrefix }}
+{{- $bindingName = printf "%s-cluster-telemetry-binding" $memberPrefix }}
+{{- $saName = printf "%s-sa" $memberPrefix }}
 {{- end }}
 
 {{/* Whether telemetry is enabled/disabled is a runtime setting on the OperatorConfig CR, so the RBAC

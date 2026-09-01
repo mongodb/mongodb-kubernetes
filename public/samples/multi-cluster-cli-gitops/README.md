@@ -17,14 +17,14 @@ Each member cluster needs RBAC that lets the operator manage workloads on it. Th
 
 ``` shell
 kubectl mongodb multicluster generate-member-resources \
-  --member-cluster member-cluster --member-cluster-namespace mongodb | kubectl apply -f -
+  --member-cluster-namespace mongodb | kubectl apply -f -
 ```
 
 For users who cannot run the plugin, the [rbac](./resources/rbac) directory contains the checked-in output of that command:
 - [namespace_scoped_member_cluster.yaml](./resources/rbac/namespace_scoped_member_cluster.yaml) — Role/RoleBinding for a member cluster watching a single namespace (the default).
 - [cluster_scoped_member_cluster.yaml](./resources/rbac/cluster_scoped_member_cluster.yaml) — ClusterRole/ClusterRoleBinding for a member cluster when the operator is installed cluster-wide (`--operator-cluster-scoped`).
 
-Adjust the names/namespaces for your clusters and apply (or commit) one file per member cluster.
+Adjust the namespaces for your clusters and apply (or commit) the file on each member cluster — the resource names are unified (`mck-member-*`), so the same file works on every member cluster.
 
 ### 3. Manage the credential Secret and MemberCluster CR per member cluster in Git
 The operator learns about each member cluster from a credential Secret (a single-context kubeconfig authenticating as the member ServiceAccount created in step 2) and a `MemberCluster` CR referencing it, both in the operator's namespace on the central cluster. Both can be managed in Git:
