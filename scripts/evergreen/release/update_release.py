@@ -35,6 +35,11 @@ def update_release_json():
     # Adds mapping between latest major version of OM and agent to the release.json
     update_latest_om_agent_mapping(data)
 
+    # Sync top-level agentVersion with the latest agent from OM mapping
+    latest_mapping = data["latestOpsManagerAgentMapping"]
+    latest = max(latest_mapping, key=lambda x: int(list(x.keys())[0]))
+    data["agentVersion"] = list(latest.values())[0]["agentVersion"]
+
     with open(release, "w") as f:
         json.dump(
             data,
