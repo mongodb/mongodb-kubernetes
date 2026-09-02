@@ -21,8 +21,6 @@ spec:
       slowOpThresholdMs: 200
     replication:
       oplogSizeMB: 2048
-    setParameter:
-      authenticationMechanisms: SCRAM-SHA-256
     storage:
       directoryPerDB: true
       engine: inMemory
@@ -32,8 +30,6 @@ spec:
         engineConfig:
           cacheSizeGB: 2
           journalCompressor: zlib
-  agent:
-    maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27018

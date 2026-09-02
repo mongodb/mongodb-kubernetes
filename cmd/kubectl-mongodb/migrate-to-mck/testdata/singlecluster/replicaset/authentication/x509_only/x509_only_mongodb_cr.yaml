@@ -11,8 +11,6 @@ spec:
     net:
       tls:
         allowConnectionsWithoutCertificates: false
-  agent:
-    maxLogFileDurationHours: 0
   credentials: my-credentials
   externalMembers:
   - hostname: vm-0.example.com:27017
@@ -36,6 +34,9 @@ spec:
       agents:
         autoPEMKeyFilePath: /mongodb-agent/agent.pem
         automationUserName: CN=mms-automation-agent,OU=ENG,O=MongoDB,L=NY,ST=NY,C=US
+        clientCertificateSecretRef:
+          key: tls.crt
+          name: mdb-x509only-rs-agent-certs
         mode: X509
       enabled: true
       modes:
