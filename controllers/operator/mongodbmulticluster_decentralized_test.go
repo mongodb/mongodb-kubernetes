@@ -856,3 +856,64 @@ func TestDecentralizedScalingBothWaysRefused(t *testing.T) {
 		assert.Equal(t, baselineGrants[clusterName], w.readDirective(ctx, t, clusterName).Spec.MemberCount, "no directive movement on a refused spec")
 	}
 }
+
+// TestDecentralizedAddClusterToLiveDeploymentReachesRunning pins M7 end to end: a cluster added
+// to the spec of a live two-cluster deployment gets its first directive and grows to Running one
+// member at a time, without disturbing either original cluster. Before the fix this wedged
+// forever — advancement's fence ("never advance a member past what it has seen") required
+// memberCaughtUp, which itself required the directive to exist, refusing the one cluster that had
+// never had a directive to see anything (found live: an EVG scale_up_cluster run stuck on
+// "waiting for cluster ...: no directive written yet").
+func TestDecentralizedAddClusterToLiveDeploymentReachesRunning(t *testing.T) {
+	ctx := context.Background()
+	m := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters[:2]).Build()
+	w := newDecentralizedWorld(m)
+	w.driveToRunning(ctx, t, 30)
+	baseline, ok := w.acCounts()
+	require.True(t, ok)
+
+	replicasBefore := map[string]int32{}
+	for i, clusterName := range clusters[:2] {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, w.clients[clusterName].Get(ctx, kube.ObjectKey(w.m.Namespace, fmt.Sprintf("%s-%d", w.m.Name, i)), &sts))
+		require.NotNil(t, sts.Spec.Replicas)
+		replicasBefore[clusterName] = *sts.Spec.Replicas
+	}
+
+	w.applySpecEverywhere(ctx, t, func(m *mdbmulti.MongoDBMultiCluster) {
+		m.Spec.ClusterSpecList = append(m.Spec.ClusterSpecList, mdb.ClusterSpecItem{ClusterName: clusters[2], Members: 2})
+	})
+	history := w.driveToRunning(ctx, t, 40)
+
+	assert.Equal(t, status.PhaseRunning, w.leaderPhase(ctx, t))
+
+	// one-at-a-time: the new cluster's index climbs 0 -> 1 -> 2 (its allocated index is the
+	// third), nothing else's count ever moves in the same AC write
+	previous := baseline
+	for _, counts := range history {
+		changed := 0
+		for idx, count := range counts {
+			delta := count - previous[idx]
+			if delta != 0 {
+				changed++
+				assert.Equal(t, 1, delta, "membership only ever grows one member per AC write: %v -> %v", previous, counts)
+			}
+		}
+		assert.LessOrEqual(t, changed, 1, "never two clusters mid-change: %v -> %v", previous, counts)
+		previous = counts
+	}
+	assert.Equal(t, map[int]int{0: baseline[0], 1: baseline[1], 2: 2}, previous)
+
+	fullAllocations := map[string]int{clusters[0]: 0, clusters[1]: 1, clusters[2]: 2}
+	for _, clusterName := range clusters {
+		directive := w.readDirective(ctx, t, clusterName)
+		assert.Equal(t, fullAllocations, directive.Spec.IndexAllocations, "the extended map rides every copy")
+	}
+	assert.Equal(t, 2, w.readDirective(ctx, t, clusters[2]).Spec.MemberCount)
+
+	for i, clusterName := range clusters[:2] {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, w.clients[clusterName].Get(ctx, kube.ObjectKey(w.m.Namespace, fmt.Sprintf("%s-%d", w.m.Name, i)), &sts))
+		assert.Equal(t, replicasBefore[clusterName], *sts.Spec.Replicas, "the addition moves only the new cluster's StatefulSet")
+	}
+}
