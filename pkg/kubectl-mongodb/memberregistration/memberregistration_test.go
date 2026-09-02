@@ -171,6 +171,31 @@ func TestGenerate_KubeconfigContents(t *testing.T) {
 	assert.Equal(t, testToken, authInfo.Token)
 }
 
+func TestGenerate_KubeconfigContents_ApiServerOverride(t *testing.T) {
+	client := fake.NewSimpleClientset(tokenSecret("cluster-east", testNamespace, map[string][]byte{
+		corev1.ServiceAccountTokenKey:  []byte(testToken),
+		corev1.ServiceAccountRootCAKey: []byte(testCA),
+	}))
+
+	const apiServerOverride = "https://member-api.internal:6443"
+	out, err := Generate(context.Background(), client, testServerURL, Options{
+		MemberClusterName:        "cluster-east",
+		MemberClusterNamespace:   testNamespace,
+		OperatorNamespace:        testOperatorNamespace,
+		MemberClusterLogicalName: "cluster-east",
+		MemberClusterApiServer:   apiServerOverride,
+	})
+	require.NoError(t, err)
+
+	secret, _ := parseOutput(t, out)
+	cfg, err := clientcmd.Load([]byte(secret.StringData[credentialSecretKey]))
+	require.NoError(t, err)
+
+	cluster := cfg.Clusters[cfg.Contexts[cfg.CurrentContext].Cluster]
+	require.NotNil(t, cluster)
+	assert.Equal(t, apiServerOverride, cluster.Server)
+}
+
 func TestGenerate_Errors(t *testing.T) {
 	tests := map[string]struct {
 		objects     []*corev1.Secret
