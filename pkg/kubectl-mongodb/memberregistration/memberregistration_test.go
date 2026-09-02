@@ -5,15 +5,18 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/clientcmd"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
+	clienttesting "k8s.io/client-go/testing"
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 )
@@ -191,6 +194,10 @@ func TestGenerate_Errors(t *testing.T) {
 		},
 	}
 
+	originalPollInterval := tokenPollInterval
+	tokenPollInterval = time.Millisecond
+	defer func() { tokenPollInterval = originalPollInterval }()
+
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			client := fake.NewSimpleClientset()
@@ -204,9 +211,96 @@ func TestGenerate_Errors(t *testing.T) {
 				MemberClusterNamespace:   testNamespace,
 				OperatorNamespace:        testOperatorNamespace,
 				MemberClusterLogicalName: "cluster-east",
+				TokenWaitTimeout:         50 * time.Millisecond,
 			})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErrText)
+		})
+	}
+}
+
+func TestGenerate_WaitsForTokenPopulation(t *testing.T) {
+	originalPollInterval := tokenPollInterval
+	tokenPollInterval = time.Millisecond
+	defer func() { tokenPollInterval = originalPollInterval }()
+
+	populated := tokenSecret("cluster-east", testNamespace, map[string][]byte{
+		corev1.ServiceAccountTokenKey:  []byte(testToken),
+		corev1.ServiceAccountRootCAKey: []byte(testCA),
+	})
+	client := fake.NewSimpleClientset(populated)
+
+	// Simulate Kubernetes's token controller being slow: the first two reads see the Secret with
+	// no data, subsequent reads fall through to the tracker (which holds the populated Secret).
+	getCalls := 0
+	client.PrependReactor("get", "secrets", func(_ clienttesting.Action) (bool, runtime.Object, error) {
+		getCalls++
+		if getCalls <= 2 {
+			empty := populated.DeepCopy()
+			empty.Data = nil
+			return true, empty, nil
+		}
+		return false, nil, nil
+	})
+
+	out, err := Generate(context.Background(), client, testServerURL, Options{
+		MemberClusterName:        "cluster-east",
+		MemberClusterNamespace:   testNamespace,
+		OperatorNamespace:        testOperatorNamespace,
+		MemberClusterLogicalName: "cluster-east",
+		TokenWaitTimeout:         10 * time.Second,
+	})
+	require.NoError(t, err)
+
+	gotSecret, gotMemberCluster := parseOutput(t, out)
+	assert.Equal(t, "mck-credential-cluster-east", gotSecret.Name)
+	assert.Equal(t, "cluster-east", gotMemberCluster.Name)
+}
+
+func TestGenerate_TokenWaitTimeout(t *testing.T) {
+	tests := map[string]struct {
+		objects     []*corev1.Secret
+		wantErrText []string
+	}{
+		"secret never created": {
+			objects: nil,
+			wantErrText: []string{
+				"timed out after 50ms",
+				"was 'generate-member-resources' applied to it?",
+			},
+		},
+		"secret never populated": {
+			objects: []*corev1.Secret{tokenSecret("cluster-east", testNamespace, nil)},
+			wantErrText: []string{
+				"timed out after 50ms",
+				`has no "token" key`,
+			},
+		},
+	}
+
+	originalPollInterval := tokenPollInterval
+	tokenPollInterval = time.Millisecond
+	defer func() { tokenPollInterval = originalPollInterval }()
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			client := fake.NewSimpleClientset()
+			for _, o := range tc.objects {
+				_, err := client.CoreV1().Secrets(o.Namespace).Create(context.Background(), o, metav1.CreateOptions{})
+				require.NoError(t, err)
+			}
+
+			_, err := Generate(context.Background(), client, testServerURL, Options{
+				MemberClusterName:        "cluster-east",
+				MemberClusterNamespace:   testNamespace,
+				OperatorNamespace:        testOperatorNamespace,
+				MemberClusterLogicalName: "cluster-east",
+				TokenWaitTimeout:         50 * time.Millisecond,
+			})
+			require.Error(t, err)
+			for _, want := range tc.wantErrText {
+				assert.Contains(t, err.Error(), want)
+			}
 		})
 	}
 }
