@@ -1,8 +1,10 @@
 import json
 import os
+from unittest.mock import patch
 
 from scripts.release.build.build_info import load_build_info
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_process import DockerImageBuilder
 from scripts.release.release_info import convert_to_release_info_json
 
 OPERATOR_VERSION = "1.6.0"
@@ -85,6 +87,22 @@ def test_create_release_info_json():
     # test release_info.py. If we directly used release.json, we will have to change the expected output `expected_json`
     # because content of release.json changes after every MCK/OM/Agent release.
     test_release_json_path = os.path.join(os.getcwd(), "scripts/release/tests/testdata/release_test.json")
-    release_info_asset = convert_to_release_info_json(build_info, test_release_json_path, OPERATOR_VERSION)
 
+    mock_digests = [
+        "sha256:317a7f2d40807629b1df78e7ef81790bcaeb09993d88b476ec3a33ee44cbb78d",  # operator
+        "sha256:ce10a711a6e6a31d20deecbe0ef15b5f82c2ca24d495fb832f5199ac327ee8ec",  # init-database
+        "sha256:62825c8edcd45e26586cce5b4062d6930847db0c58a76c168312be8cdc934707",  # init-ops-manager
+        "sha256:382248da5bdd90c8dbb0a1571b5f9ec90c10931c7e0974f4563a522963304b58",  # database
+        "sha256:ca4aad523f14d68fccb60256f9ce8909c66ebb5b321ee15e5abf9ac5738947f9",  # ops-manager
+        "sha256:793ae31c0d328fb3df1d3aa526f94e466cc2ed3410dd865548ce38fa3859cbaa",  # agent
+        "sha256:f321ec1d25d6e98805b8be9321f2a926d702835136dde88d5fffe917c2df1d0a",  # upgrade-hook
+        "sha256:436fc328f3887f022a4760afd03da1a7091d285baf3d627a17d80bbdaab0ee47",  # readiness-probe
+        "sha256:c1e636119aa206ff98cefed37ee4b488d75c6a5e6025dcb71f44275a8f3f546a",  # search
+        "sha256:7a93a0276531ff9be4c90bb8fe8d104e0a9e930c29792aafe03cc6a76a9fa89c",  # mongodb-enterprise-server
+    ]
+
+    with patch.object(DockerImageBuilder, "get_manfiest_list_digest", side_effect=mock_digests) as mock_digest:
+        release_info_asset = convert_to_release_info_json(build_info, test_release_json_path, OPERATOR_VERSION)
+
+    assert mock_digest.call_count == 10
     assert release_info_asset == expected_json
