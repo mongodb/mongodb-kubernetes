@@ -5,7 +5,7 @@ from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import create_or_update_configmap, read_configmap, try_load
 from kubetester.certs import create_sharded_cluster_certs
-from kubetester.kubetester import ensure_nested_objects
+from kubetester.kubetester import KubernetesTester, ensure_nested_objects
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ShardedClusterTester
@@ -41,6 +41,15 @@ If the sharded cluster resource correctly reconciles after upgrade/downgrade and
 correctly.
 """
 # TODO CLOUDP-318100: this test should eventually be updated and not pinned to 1.27 anymore
+
+
+# AC process names recorded while the legacy operator owns the deployment. The new operator must
+# keep the legacy bare pod names on existing deployments instead of renaming to k8s/{namespace}/{pod}.
+process_names_before_upgrade: set = set()
+
+
+def get_ac_process_names() -> set:
+    return {p["name"] for p in KubernetesTester.get_automation_config()["processes"]}
 
 
 def log_state_configmap(namespace: str):
@@ -111,6 +120,10 @@ class TestShardedClusterDeployment:
         sharded_cluster.update()
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=300)
 
+    def test_record_process_names_before_upgrade(self):
+        process_names_before_upgrade.update(get_ac_process_names())
+        assert process_names_before_upgrade
+
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
 class TestOperatorUpgrade:
@@ -135,6 +148,11 @@ class TestOperatorUpgrade:
         logger.debug("State configmap after upgrade")
         log_state_configmap(namespace)
 
+    def test_process_names_unchanged_after_upgrade(self):
+        current = get_ac_process_names()
+        assert current == process_names_before_upgrade
+        assert not any(name.startswith("k8s/") for name in current)
+
     def test_assert_connectivity(self, ca_path: str):
         ShardedClusterTester(MDB_RESOURCE, 1, ssl=True, ca_path=ca_path).assert_connectivity()
 
@@ -147,6 +165,13 @@ class TestOperatorUpgrade:
         sharded_cluster.assert_reaches_phase(phase=Phase.Running, timeout=450)
         logger.debug("State configmap after upgrade and scaling")
         log_state_configmap(namespace)
+
+    def test_process_names_still_legacy_after_scale_down(self):
+        current = get_ac_process_names()
+        assert current
+        assert not any(name.startswith("k8s/") for name in current)
+        # Scaling down removes members but must never rename the remaining ones.
+        assert current.issubset(process_names_before_upgrade)
 
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
