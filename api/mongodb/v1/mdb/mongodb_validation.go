@@ -572,27 +572,26 @@ func externalDomainClusterNames(spec MongoDbSpec, component *ShardedClusterCompo
 func externalDomainsByLocation(spec MongoDbSpec) map[externalDomainLocation]*string {
 	domains := map[externalDomainLocation]*string{}
 
-	if spec.ResourceType == ShardedCluster {
-		tiers := []struct {
-			component *ShardedClusterComponentSpec
-			tier      ShardedClusterTier
-		}{
-			{spec.MongosSpec, TierMongos},
-			{spec.ConfigSrvSpec, TierConfigSrv},
-			{spec.ShardSpec, TierShard},
-		}
-		for _, t := range tiers {
-			for _, cluster := range externalDomainClusterNames(spec, t.component) {
-				loc := externalDomainLocation{tier: t.tier, cluster: cluster}
-				domains[loc] = spec.EffectiveExternalDomain(t.component, t.tier, cluster)
-			}
-		}
+	if spec.ResourceType != ShardedCluster {
+		// Replica sets and standalones only ever read the top level field, see MongoDbSpec.GetExternalDomain.
+		domains[externalDomainLocation{}] = spec.GetExternalDomain()
 		return domains
 	}
 
-	// Replica sets and standalones only ever read the top level field, see MongoDbSpec.GetExternalDomain.
-	domains[externalDomainLocation{}] = spec.GetExternalDomain()
-
+	tiers := []struct {
+		component *ShardedClusterComponentSpec
+		tier      ShardedClusterTier
+	}{
+		{spec.MongosSpec, TierMongos},
+		{spec.ConfigSrvSpec, TierConfigSrv},
+		{spec.ShardSpec, TierShard},
+	}
+	for _, t := range tiers {
+		for _, cluster := range externalDomainClusterNames(spec, t.component) {
+			loc := externalDomainLocation{tier: t.tier, cluster: cluster}
+			domains[loc] = spec.EffectiveExternalDomain(t.component, t.tier, cluster)
+		}
+	}
 	return domains
 }
 
