@@ -81,6 +81,13 @@ type ShardedClusterComponentSpec struct {
 	// Please use the most top level resource fields for this; spec.Agent
 	Agent           AgentConfig     `json:"agent,omitempty"`
 	ClusterSpecList ClusterSpecList `json:"clusterSpecList,omitempty"`
+
+	// ExternalAccessConfiguration exposes this component's members outside the Kubernetes cluster.
+	// In SingleCluster this is the only way to give config servers and shards external hostnames:
+	// the top-level spec.externalAccess applies to mongos only. Leaving this unset preserves the
+	// previous behaviour exactly.
+	// +optional
+	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 }
 
 type ShardedClusterComponentOverrideSpec struct {

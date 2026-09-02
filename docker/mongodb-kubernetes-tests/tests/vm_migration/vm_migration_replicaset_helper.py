@@ -137,7 +137,22 @@ def connection_string_tester(
     return MongoTester(conn_str, use_ssl, ca_path)
 
 
+def external_domain_of(mdb_migration: MongoDB) -> Optional[str]:
+    """External domain configured on the resource, or None when addressing members internally."""
+    return mdb_migration["spec"].get("externalAccess", {}).get("externalDomain")
+
+
 def k8s_hostnames(mdb_migration: MongoDB) -> list[str]:
+    """Hostnames and ports the operator publishes for the Kubernetes-hosted members.
+
+    With an external domain configured the operator publishes <pod>.<domain>, because the internal
+    service FQDN is not reachable from outside the cluster. See GetRSHostnamesAndPorts in
+    api/v1/mdb/mongodb_types.go.
+    """
+    external_domain = external_domain_of(mdb_migration)
+    if external_domain:
+        return [f"{mdb_migration.name}-{i}.{external_domain}:27017" for i in range(mdb_migration.get_members())]
+
     service_name = f"{mdb_migration.name}-svc"
     return [
         f"{mdb_migration.name}-{i}.{service_name}.{mdb_migration.namespace}.svc.cluster.local:27017"
@@ -165,7 +180,13 @@ def assert_connection_string_after_full_migration(mdb_migration: MongoDB) -> Non
     assert f"replicaSet={replica_set_name}" in conn_str
 
     assert conn_srv.startswith("mongodb+srv://"), "SRV connection string must use mongodb+srv:// scheme"
-    assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in conn_srv
+    external_domain = external_domain_of(mdb_migration)
+    if external_domain:
+        assert (
+            f"mongodb+srv://{external_domain}/" in conn_srv
+        ), f"SRV connection string must use the external domain, got: {conn_srv}"
+    else:
+        assert f"{mdb_migration.get_service()}.{mdb_migration.namespace}.svc.cluster.local" in conn_srv
     assert f"replicaSet={replica_set_name}" in conn_srv
 
 
@@ -286,3 +307,41 @@ def assert_common_generated_cr_shape(
     assert_migration_tool_version_annotation(generated_cr, version_id)
     assert_generated_external_members(generated_cr, expected_count=expected_external_members)
     assert_generated_member_config_omitted(generated_cr)
+
+
+def assert_connection_string_uses_external_domain(mdb_migration: MongoDB, fully_migrated: bool = False) -> None:
+    """Both connection strings address the Kubernetes members through the external domain.
+
+    Before pruning, the VM members' internal hostnames are legitimately still present in the
+    standard string, so the "no internal hostnames" check only applies once fully migrated.
+    """
+    external_domain = external_domain_of(mdb_migration)
+    assert external_domain, "resource has no externalAccess.externalDomain configured"
+
+    conn_str, conn_srv = migration_connection_strings(mdb_migration)
+
+    for hostname in k8s_hostnames(mdb_migration):
+        assert hostname in conn_str, f"external hostname {hostname!r} missing from standard connection string"
+
+    assert (
+        f"mongodb+srv://{external_domain}/" in conn_srv
+    ), f"SRV connection string must use the external domain, got: {conn_srv}"
+    assert (
+        ".svc.cluster.local" not in conn_srv
+    ), f"SRV connection string must not contain an internal service FQDN, got: {conn_srv}"
+
+    if fully_migrated:
+        assert (
+            ".svc.cluster.local" not in conn_str
+        ), f"standard connection string must not contain internal hostnames, got: {conn_str}"
+
+
+def external_replica_set_tester(mdb_migration: MongoDB) -> MongoTester:
+    """MongoTester connecting through the external domain rather than internal service DNS.
+
+    Connecting through internal DNS here would prove nothing: internal DNS still resolves in the
+    test cluster, so such a test would pass even if externalAccess were misconfigured.
+    """
+    replica_set_name = mdb_migration["spec"].get("replicaSetNameOverride", mdb_migration.name)
+    hosts = ",".join(k8s_hostnames(mdb_migration))
+    return MongoTester(f"mongodb://{hosts}/?replicaSet={replica_set_name}", use_ssl=False)

@@ -104,6 +104,18 @@ type DatabaseStatefulSetOptions struct {
 	StsType                 StsType
 	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
 
+	// ExternalAccessConfiguration is the external access configuration in force for this
+	// StatefulSet's tier and member cluster. Nil means this tier is not externally exposed.
+	//
+	// It differs from spec.externalAccess, which is only one of the places a tier's
+	// configuration can come from. MongoDbSpec.EffectiveExternalAccessConfiguration picks
+	// between them, preferring the per-member-cluster entry in the tier's clusterSpecList,
+	// then the per-tier spec.<tier>.externalAccess, and falling back to the top-level
+	// spec.externalAccess only for multi-cluster and for mongos. Callers set this field from
+	// that function, and consumers read it rather than mdb.Spec.ExternalAccessConfiguration,
+	// which would be wrong for a sharded cluster's config server and shards.
+	ExternalAccessConfiguration *mdbv1.ExternalAccessConfiguration
+
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
@@ -201,6 +213,11 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			// create.DatabaseInKubernetes creates or deletes the per-pod external services based on
+			// opts.ExternalAccessConfiguration, so leaving it unset would delete the external
+			// service of a standalone that configures spec.externalAccess. A standalone has no
+			// tiers, so the top-level field is the only source, as it is for a replica set.
+			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
 			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
 			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
 		}
@@ -222,20 +239,21 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 		}
 
 		opts := DatabaseStatefulSetOptions{
-			Replicas:                scale.ReplicasThisReconciliation(&mdb),
-			Name:                    mdb.Name,
-			ServiceName:             mdb.ServiceName(),
-			Annotations:             map[string]string{"type": "Replicaset"},
-			PodSpec:                 NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
-			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
-			Persistent:              mdb.Spec.Persistent,
-			OwnerReference:          kube.BaseOwnerReference(&mdb),
-			AgentConfig:             &mdb.Spec.Agent,
-			StatefulSetSpecOverride: stsSpec,
-			Labels:                  mdb.Labels,
-			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
-			StsType:                 ReplicaSet,
-			DownloadBase:            mdb.Spec.GetDownloadBase(),
+			Replicas:                    scale.ReplicasThisReconciliation(&mdb),
+			Name:                        mdb.Name,
+			ServiceName:                 mdb.ServiceName(),
+			Annotations:                 map[string]string{"type": "Replicaset"},
+			PodSpec:                     NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
+			ServicePort:                 mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+			Persistent:                  mdb.Spec.Persistent,
+			OwnerReference:              kube.BaseOwnerReference(&mdb),
+			AgentConfig:                 &mdb.Spec.Agent,
+			StatefulSetSpecOverride:     stsSpec,
+			Labels:                      mdb.Labels,
+			MultiClusterMode:            mdb.Spec.IsMultiCluster(),
+			StsType:                     ReplicaSet,
+			DownloadBase:                mdb.Spec.GetDownloadBase(),
+			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -285,7 +303,14 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
-	if cfg.mdb.Spec.IsMultiCluster() {
+	opts.ExternalAccessConfiguration = cfg.mdb.Spec.EffectiveExternalAccessConfiguration(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
+
+	// Multi-cluster always needs the override because processes are addressed by per-pod service
+	// FQDN rather than by pod name. Single-cluster needs it for any tier published under an external
+	// domain, so the process self-identifies as its external hostname rather than its internal one.
+	// This subsumes the mongos-only case that MongosOptions used to handle.
+	externalDomain := cfg.mdb.Spec.EffectiveExternalDomain(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
+	if cfg.mdb.Spec.IsMultiCluster() || externalDomain != nil {
 		opts.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
 	}
 	for _, opt := range additionalOpts {
@@ -305,8 +330,15 @@ type shardedOptionCfg struct {
 	persistent        *bool
 }
 
-func (c shardedOptionCfg) hasExternalDomain() bool {
-	return c.mdb.Spec.DbCommonSpec.GetExternalDomain() != nil
+func shardedClusterTierForStsType(stsType StsType) mdbv1.ShardedClusterTier {
+	switch stsType {
+	case Config:
+		return mdbv1.TierConfigSrv
+	case Mongos:
+		return mdbv1.TierMongos
+	default:
+		return mdbv1.TierShard
+	}
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
@@ -355,12 +387,6 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 			stsType:           Mongos,
 			persistent:        ptr.To(false),
 		}
-
-		additionalOpts = append(additionalOpts, func(options *DatabaseStatefulSetOptions) {
-			if !cfg.mdb.Spec.IsMultiCluster() && cfg.hasExternalDomain() {
-				options.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
-			}
-		})
 
 		return shardedOptions(cfg, additionalOpts...)
 	}

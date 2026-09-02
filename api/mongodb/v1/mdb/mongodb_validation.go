@@ -3,7 +3,9 @@ package mdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -525,6 +527,119 @@ func noReplicaSetNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationRe
 	return nameOverrideImmutable("replicaSetNameOverride", oldObj.ReplicaSetNameOverride, newObj.ReplicaSetNameOverride)
 }
 
+// externalDomainLocation identifies one place where an external domain resolves: a tier of a
+// sharded cluster (empty for replica sets and standalones) inside one member cluster (empty in
+// single cluster topology).
+type externalDomainLocation struct {
+	tier    ShardedClusterTier
+	cluster string
+}
+
+// describe renders the location as a suffix for an error message, empty for the single, top level
+// location of a single cluster replica set.
+func (l externalDomainLocation) describe() string {
+	switch {
+	case l.tier != "" && l.cluster != "":
+		return fmt.Sprintf(" for %s in member cluster %q", l.tier, l.cluster)
+	case l.tier != "":
+		return fmt.Sprintf(" for %s", l.tier)
+	case l.cluster != "":
+		return fmt.Sprintf(" for member cluster %q", l.cluster)
+	default:
+		return ""
+	}
+}
+
+// externalDomainClusterNames lists the member clusters a sharded cluster tier resolves its external
+// access configuration in. A single cluster deployment has exactly one, unnamed, location.
+func externalDomainClusterNames(spec MongoDbSpec, component *ShardedClusterComponentSpec) []string {
+	if !spec.IsMultiCluster() || component == nil || len(component.ClusterSpecList) == 0 {
+		return []string{""}
+	}
+
+	names := make([]string, 0, len(component.ClusterSpecList))
+	for _, item := range component.ClusterSpecList {
+		names = append(names, item.ClusterName)
+	}
+
+	return names
+}
+
+// externalDomainsByLocation resolves the external domain in force at every location of a spec. It
+// deliberately compares effective domains rather than raw fields, so that moving the same value
+// between spec.externalAccess and spec.<tier>.externalAccess, which the operator resolves
+// identically, is not reported as a change.
+func externalDomainsByLocation(spec MongoDbSpec) map[externalDomainLocation]*string {
+	domains := map[externalDomainLocation]*string{}
+
+	if spec.ResourceType != ShardedCluster {
+		// Replica sets and standalones only ever read the top level field, see MongoDbSpec.GetExternalDomain.
+		domains[externalDomainLocation{}] = spec.GetExternalDomain()
+		return domains
+	}
+
+	tiers := []struct {
+		component *ShardedClusterComponentSpec
+		tier      ShardedClusterTier
+	}{
+		{spec.MongosSpec, TierMongos},
+		{spec.ConfigSrvSpec, TierConfigSrv},
+		{spec.ShardSpec, TierShard},
+	}
+	for _, t := range tiers {
+		for _, cluster := range externalDomainClusterNames(spec, t.component) {
+			loc := externalDomainLocation{tier: t.tier, cluster: cluster}
+			domains[loc] = spec.EffectiveExternalDomain(t.component, t.tier, cluster)
+		}
+	}
+	return domains
+}
+
+// noExternalDomainChanges rejects adding, changing or removing an external domain on an already
+// deployed resource. This operation modifies all hostnames in the automation config.
+// This is seen by OM as adding / modifying multiple processes at once and is rejected.
+//
+// Locations absent from the old spec are skipped: a member cluster being added to a multi cluster
+// deployment has no existing pods and must be able to bring its own external domain. The converse
+// is an accepted escape: renaming a member cluster, or dropping a component's clusterSpecList so its
+// locations collapse onto the unnamed one, changes the keys and lets a simultaneous domain change
+// through. Both already reshape the deployment far beyond its external domains.
+func noExternalDomainChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	oldDomains := externalDomainsByLocation(oldObj)
+	newDomains := externalDomainsByLocation(newObj)
+
+	locations := make([]externalDomainLocation, 0, len(newDomains))
+	for loc := range newDomains {
+		locations = append(locations, loc)
+	}
+	sort.Slice(locations, func(i, j int) bool {
+		if locations[i].tier != locations[j].tier {
+			return locations[i].tier < locations[j].tier
+		}
+		return locations[i].cluster < locations[j].cluster
+	})
+
+	for _, loc := range locations {
+		oldDomain, existed := oldDomains[loc]
+		if !existed {
+			continue
+		}
+		newDomain := newDomains[loc]
+
+		switch {
+		case oldDomain == nil && newDomain == nil:
+		case oldDomain == nil:
+			return v1.ValidationError("Cannot add externalDomain%s to an existing MongoDB resource.", loc.describe())
+		case newDomain == nil:
+			return v1.ValidationError("Cannot remove externalDomain%s from an existing MongoDB resource.", loc.describe())
+		case *oldDomain != *newDomain:
+			return v1.ValidationError("Cannot change externalDomain%s once set (%q -> %q).", loc.describe(), *oldDomain, *newDomain)
+		}
+	}
+
+	return v1.ValidationSuccess()
+}
+
 // specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
 // is configured, doing the "oneOf" validation in the webhook.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
@@ -713,6 +828,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		noConfigServerNameOverrideChanges,
 		noShardedClusterNameOverrideChanges,
 		noReplicaSetNameOverrideChanges,
+		noExternalDomainChanges,
 	}
 
 	var validationResults []v1.ValidationResult
