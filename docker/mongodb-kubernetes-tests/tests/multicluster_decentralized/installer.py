@@ -15,7 +15,7 @@ import glob
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 import yaml
 
@@ -99,9 +99,7 @@ def build_peer_role_binding(cluster_name: str, namespace: str) -> dict:
             "kind": "Role",
             "name": f"mck-member-{cluster_name}-peer-role",
         },
-        "subjects": [
-            {"kind": "ServiceAccount", "name": f"mck-member-{cluster_name}-sa", "namespace": namespace}
-        ],
+        "subjects": [{"kind": "ServiceAccount", "name": f"mck-member-{cluster_name}-sa", "namespace": namespace}],
     }
 
 
@@ -121,9 +119,7 @@ def build_peer_kubeconfig(cluster_name: str, server_url: str, namespace: str, ca
     return {
         "apiVersion": "v1",
         "kind": "Config",
-        "clusters": [
-            {"name": cluster_name, "cluster": {"server": server_url, "certificate-authority-data": ca_data}}
-        ],
+        "clusters": [{"name": cluster_name, "cluster": {"server": server_url, "certificate-authority-data": ca_data}}],
         "users": [{"name": "mck-operator", "user": {"token": token}}],
         "contexts": [
             {"name": cluster_name, "context": {"cluster": cluster_name, "user": "mck-operator", "namespace": namespace}}
@@ -288,15 +284,15 @@ class InstallerSettings:
         return self.api_server_urls.get(cluster_name, f"https://placeholder-cluster-ip.{cluster_name}")
 
     def peer_credential(self, cluster_name: str) -> Tuple[str, str]:
-        return self.peer_credentials.get(cluster_name, ("PLACEHOLDER_TOKEN", base64.b64encode(b"PLACEHOLDER_CA").decode()))
+        return self.peer_credentials.get(
+            cluster_name, ("PLACEHOLDER_TOKEN", base64.b64encode(b"PLACEHOLDER_CA").decode())
+        )
 
 
 def settings_from_env() -> InstallerSettings:
     namespace = os.environ.get("NAMESPACE", "mongodb-test")
     return InstallerSettings(
-        clusters=os.environ.get(
-            "MEMBER_CLUSTERS", "kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
-        ).split(),
+        clusters=os.environ.get("MEMBER_CLUSTERS", "kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3").split(),
         namespace=namespace,
         om_base_url=os.environ.get("OM_HOST", "https://placeholder-om"),
         om_org_id=os.environ.get("OM_ORGID", ""),
@@ -358,9 +354,7 @@ def plan_cluster_objects(cluster_name: str, settings: InstallerSettings) -> List
         objects.append(build_om_ca_config_map(settings.namespace, settings.om_ca_pem))
     for peer in peers_of(cluster_name, settings.clusters):
         token, ca_data = settings.peer_credential(peer)
-        kubeconfig = build_peer_kubeconfig(
-            peer, settings.api_server_url(peer), settings.namespace, ca_data, token
-        )
+        kubeconfig = build_peer_kubeconfig(peer, settings.api_server_url(peer), settings.namespace, ca_data, token)
         objects.append(build_credential_secret(peer, settings.namespace, yaml.safe_dump(kubeconfig, sort_keys=False)))
         objects.append(build_member_cluster_cr(peer, settings.namespace))
     objects.append(build_operator_config(settings.namespace, settings.operator_config_extra_spec))
@@ -459,12 +453,10 @@ def apply_objects(api_client, objects: List[dict], namespace: str) -> None:
             customv1 = client.CustomObjectsApi(api_client)
             try:
                 customv1.create_namespaced_custom_object(group, version, namespace, plural, obj)
-            except client.rest.ApiException as e:
+            except client.ApiException as e:
                 if e.status != 409:
                     raise
-                customv1.patch_namespaced_custom_object(
-                    group, version, namespace, plural, obj["metadata"]["name"], obj
-                )
+                customv1.patch_namespaced_custom_object(group, version, namespace, plural, obj["metadata"]["name"], obj)
         else:
             create_or_patch_from_dict(api_client, obj, namespace=namespace)
 
@@ -502,7 +494,9 @@ def read_api_server_url(api_client) -> str:
     return f"https://{svc.spec.cluster_ip}"
 
 
-def install_operator_on_cluster(cluster_name: str, api_client, settings: InstallerSettings, base_helm_args: Dict[str, str]):
+def install_operator_on_cluster(
+    cluster_name: str, api_client, settings: InstallerSettings, base_helm_args: Dict[str, str]
+):
     from kubetester.operator import Operator
 
     os.environ["HELM_KUBECONTEXT"] = cluster_name
@@ -516,7 +510,9 @@ def install_operator_on_cluster(cluster_name: str, api_client, settings: Install
     ).upgrade(multi_cluster=True)
 
 
-def install_decentralized(cluster_clients: Dict[str, "object"], settings: InstallerSettings, base_helm_args: Dict[str, str]):
+def install_decentralized(
+    cluster_clients: Mapping[str, object], settings: InstallerSettings, base_helm_args: Dict[str, str]
+):
     """The full live installation over already-running clusters. Order matters only in the
     obvious ways: CRDs and identities before tokens can be read, everything before the operators
     start reconciling."""

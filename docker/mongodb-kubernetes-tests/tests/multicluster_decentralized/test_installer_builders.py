@@ -5,7 +5,6 @@ from unittest import mock
 
 import pytest
 from kubetester.kubetester import KubernetesTester
-
 from tests.multicluster_decentralized.installer import (
     build_agent_api_key_secret,
     build_credential_secret,
@@ -102,7 +101,9 @@ def test_peer_identity_shapes():
     # long-lived token into it — the shape memberregistration.Generate polls for.
     assert token["type"] == "kubernetes.io/service-account-token"
     assert token["metadata"]["name"] == "mck-member-kind-e2e-cluster-1-token"
-    assert token["metadata"]["annotations"] == {"kubernetes.io/service-account.name": "mck-member-kind-e2e-cluster-1-sa"}
+    assert token["metadata"]["annotations"] == {
+        "kubernetes.io/service-account.name": "mck-member-kind-e2e-cluster-1-sa"
+    }
     assert binding["roleRef"]["name"] == "mck-member-kind-e2e-cluster-1-peer-role"
     assert binding["subjects"] == [
         {"kind": "ServiceAccount", "name": "mck-member-kind-e2e-cluster-1-sa", "namespace": "mdb-ns"}

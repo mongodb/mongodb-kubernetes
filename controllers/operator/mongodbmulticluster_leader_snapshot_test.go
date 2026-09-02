@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 

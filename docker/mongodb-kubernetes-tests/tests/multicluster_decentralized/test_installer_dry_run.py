@@ -1,7 +1,6 @@
 """Unit tests over the installer's dry-run rendering: the B5 receipt. No cluster, no OM."""
 
 import yaml
-
 from tests.multicluster_decentralized.installer import InstallerSettings, plan_cluster_objects, render_dry_run
 
 CLUSTERS = ["kind-e2e-cluster-1", "kind-e2e-cluster-2", "kind-e2e-cluster-3"]

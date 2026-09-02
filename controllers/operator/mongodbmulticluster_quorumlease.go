@@ -144,7 +144,7 @@ func newQuorumLeaseCore(self string, leaseDuration time.Duration) *quorumLeaseCo
 	return &quorumLeaseCore{
 		self:          self,
 		leaseDuration: leaseDuration,
-		randomDelay:   func() time.Duration { return rand.N(leaseDuration / 3) },
+		randomDelay:   func() time.Duration { return rand.N(leaseDuration / 3) }, //nolint:gosec // candidacy jitter, not a secret
 		records:       map[string]*observationRecord{},
 	}
 }
@@ -440,7 +440,7 @@ func (s *quorumLeaseCore) heldContent(term int64, now time.Time) leaseContent {
 		Exists:          true,
 		Holder:          s.self,
 		Term:            term,
-		DurationSeconds: int32(s.leaseDuration / time.Second),
+		DurationSeconds: int32(s.leaseDuration / time.Second), //nolint:gosec // lease durations are seconds-scale, far below int32
 		RenewGeneration: renewGeneration(now),
 	}
 }

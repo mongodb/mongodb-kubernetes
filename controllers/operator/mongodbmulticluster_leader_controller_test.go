@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -16,8 +17,6 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"

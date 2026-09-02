@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"

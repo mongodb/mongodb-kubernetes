@@ -8,7 +8,6 @@ from typing import Dict
 import pytest
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester
-
 from tests.conftest import get_multi_cluster_operator_installation_config
 from tests.multicluster_decentralized.installer import (
     DECENTRALIZED_OPERATOR_NAME,

@@ -91,11 +91,11 @@ type processFactView struct {
 type planDecisionKind int
 
 const (
-	decisionNoop planDecisionKind = iota
-	decisionWriteDirective // create-or-update ONE directive's spec (allocation push or advancement)
-	decisionWriteAC        // publish membership at these counts, term attached
-	decisionInvalidSpec    // terminal until the USER edits the spec -> workflow.Failed
-	decisionNotProgressing // legal spec, waiting on the world -> workflow.Pending
+	decisionNoop           planDecisionKind = iota
+	decisionWriteDirective                  // create-or-update ONE directive's spec (allocation push or advancement)
+	decisionWriteAC                         // publish membership at these counts, term attached
+	decisionInvalidSpec                     // terminal until the USER edits the spec -> workflow.Failed
+	decisionNotProgressing                  // legal spec, waiting on the world -> workflow.Pending
 )
 
 func (k planDecisionKind) String() string {

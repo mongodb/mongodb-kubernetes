@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )

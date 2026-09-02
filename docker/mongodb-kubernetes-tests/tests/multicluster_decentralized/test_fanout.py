@@ -1,13 +1,19 @@
 """Unit tests over the decentralized CR fan-out in MongoDBMulti. Pure mocks only: no cluster,
 no live operator."""
 
+from typing import cast
 from unittest import mock
 
 import pytest
 from kubernetes import client
-
 from kubetester import decentralized_fanout
 from kubetester.mongodb_multi import MongoDBMulti
+
+
+def _client() -> client.ApiClient:
+    # The registry only ever uses these as opaque dict values handed to mocked API classes; a
+    # sentinel typed as an ApiClient keeps the fixture honest without building one.
+    return cast(client.ApiClient, object())
 
 
 @pytest.fixture(autouse=True)
@@ -57,8 +63,8 @@ def test_registry_disabled_update_touches_no_peer_client():
 
 
 def test_update_replaces_peer_copy_and_drops_removed_field():
-    peer_client = object()
-    decentralized_fanout.enable({"primary": object(), "peer1": peer_client}, primary="primary")
+    peer_client = _client()
+    decentralized_fanout.enable({"primary": _client(), "peer1": peer_client}, primary="primary")
 
     # The source drops "extraField" that the peer's existing copy still has: this is the
     # scale-down case a merge-patch would silently no-op.
@@ -89,8 +95,8 @@ def test_update_does_not_double_deliver_to_peers():
     """Regression guard: update() must not fan out twice. The base update() dispatches to
     create_or_update(), which itself calls self.patch() (bound resource) — already overridden
     with its own fan-out."""
-    peer_client = object()
-    decentralized_fanout.enable({"primary": object(), "peer1": peer_client}, primary="primary")
+    peer_client = _client()
+    decentralized_fanout.enable({"primary": _client(), "peer1": peer_client}, primary="primary")
 
     resource = make_resource(bound=True)
     resource.api = mock.Mock()
@@ -109,8 +115,8 @@ def test_update_does_not_double_deliver_to_peers():
 
 
 def test_create_seeds_absent_peer_with_sanitized_metadata():
-    peer_client = object()
-    decentralized_fanout.enable({"primary": object(), "peer1": peer_client}, primary="primary")
+    peer_client = _client()
+    decentralized_fanout.enable({"primary": _client(), "peer1": peer_client}, primary="primary")
 
     resource = make_resource(bound=False)
     resource.backing_obj["metadata"].update(
@@ -138,8 +144,8 @@ def test_create_seeds_absent_peer_with_sanitized_metadata():
 
 
 def test_one_failing_peer_does_not_block_the_other_and_names_the_failure():
-    peer1, peer2 = object(), object()
-    decentralized_fanout.enable({"primary": object(), "peer1": peer1, "peer2": peer2}, primary="primary")
+    peer1, peer2 = _client(), _client()
+    decentralized_fanout.enable({"primary": _client(), "peer1": peer1, "peer2": peer2}, primary="primary")
 
     resource = make_resource(bound=True)
     resource.api = mock.Mock()
@@ -162,7 +168,7 @@ def test_one_failing_peer_does_not_block_the_other_and_names_the_failure():
 
 
 def test_delete_removes_from_primary_and_peers_tolerating_404():
-    primary_client, peer1, peer2 = object(), object(), object()
+    primary_client, peer1, peer2 = _client(), _client(), _client()
     decentralized_fanout.enable({"primary": primary_client, "peer1": peer1, "peer2": peer2}, primary="primary")
 
     resource = make_resource(bound=True)
@@ -178,7 +184,7 @@ def test_delete_removes_from_primary_and_peers_tolerating_404():
     peer2_api = mock.Mock()  # delete succeeds outright.
     peer2_api.get_namespaced_custom_object.side_effect = client.ApiException(status=404)
 
-    apis_by_client = {primary_client: primary_api, peer1: peer1_api, peer2: peer2_api}
+    apis_by_client: dict[object, mock.Mock] = {primary_client: primary_api, peer1: peer1_api, peer2: peer2_api}
 
     with mock.patch(
         "kubetester.mongodb_multi.client.CustomObjectsApi",
@@ -190,9 +196,9 @@ def test_delete_removes_from_primary_and_peers_tolerating_404():
     peer2_api.delete_namespaced_custom_object.assert_called_once()
 
 
-def test_delete_fails_naming_a_cluster_still_holding_the_object():
-    peer1 = object()
-    decentralized_fanout.enable({"primary": object(), "peer1": peer1}, primary="primary")
+def test_delete_fails_naming_a_cluster_still_holding_the__client():
+    peer1 = _client()
+    decentralized_fanout.enable({"primary": _client(), "peer1": peer1}, primary="primary")
 
     resource = make_resource(bound=True)
 
@@ -208,7 +214,7 @@ def test_delete_fails_naming_a_cluster_still_holding_the_object():
 
 def test_enable_rejects_primary_not_in_clients():
     with pytest.raises(ValueError):
-        decentralized_fanout.enable({"a": object()}, primary="b")
+        decentralized_fanout.enable({"a": _client()}, primary="b")
 
 
 # --- Secret/ConfigMap fan-out: the pre-provisioning contract for issuance-time materials ---
@@ -246,7 +252,7 @@ def test_fan_out_secret_disabled_is_a_no_op():
 
 
 def test_fan_out_secret_copies_data_and_type_to_every_peer():
-    primary, peer1, peer2 = object(), object(), object()
+    primary, peer1, peer2 = _client(), _client(), _client()
     decentralized_fanout.enable({"primary": primary, "peer1": peer1, "peer2": peer2}, primary="primary")
 
     source_data = {"tls.crt": "Y3J0", "tls.key": "a2V5"}
@@ -274,7 +280,7 @@ def test_fan_out_secret_copies_data_and_type_to_every_peer():
 
 
 def test_fan_out_secret_replaces_an_existing_copy():
-    primary, peer1 = object(), object()
+    primary, peer1 = _client(), _client()
     decentralized_fanout.enable({"primary": primary, "peer1": peer1}, primary="primary")
 
     source_data = {"tls.crt": "Y3J0"}
@@ -295,7 +301,7 @@ def test_fan_out_secret_fails_loud_on_a_skewed_copy():
     """The byte-identical contract: a corrupted copy must fail the run naming the cluster —
     a silent skew would surface later as an AC cert path that is not a key in some member's
     mounted -pem secret."""
-    primary, peer1 = object(), object()
+    primary, peer1 = _client(), _client()
     decentralized_fanout.enable({"primary": primary, "peer1": peer1}, primary="primary")
 
     source_api = mock.Mock()
@@ -313,7 +319,7 @@ def test_fan_out_secret_fails_loud_on_a_skewed_copy():
 
 
 def test_fan_out_secret_one_failing_peer_does_not_block_the_other_and_names_the_failure():
-    primary, peer1, peer2 = object(), object(), object()
+    primary, peer1, peer2 = _client(), _client(), _client()
     decentralized_fanout.enable({"primary": primary, "peer1": peer1, "peer2": peer2}, primary="primary")
 
     source_data = {"tls.crt": "Y3J0"}
@@ -336,7 +342,7 @@ def test_fan_out_secret_one_failing_peer_does_not_block_the_other_and_names_the_
 
 
 def test_fan_out_config_map_copies_and_verifies():
-    primary, peer1 = object(), object()
+    primary, peer1 = _client(), _client()
     decentralized_fanout.enable({"primary": primary, "peer1": peer1}, primary="primary")
 
     data = {"ca-pem": "CA", "mms-ca.crt": "CA"}

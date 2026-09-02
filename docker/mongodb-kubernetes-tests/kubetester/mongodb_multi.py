@@ -80,7 +80,9 @@ class MongoDBMulti(MongoDB):
         for cluster_name, api_client in decentralized_fanout.peer_clients().items():
             peer_api = client.CustomObjectsApi(api_client=api_client)
             try:
-                peer_api.delete_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
+                peer_api.delete_namespaced_custom_object(
+                    self.group, self.version, self.namespace, self.plural, self.name
+                )
             except client.ApiException as e:
                 if e.status != 404:
                     errors[cluster_name] = e
@@ -103,7 +105,9 @@ class MongoDBMulti(MongoDB):
 
     def _replicate_to_peer(self, api: client.CustomObjectsApi) -> None:
         try:
-            peer_obj = api.get_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
+            peer_obj = api.get_namespaced_custom_object(
+                self.group, self.version, self.namespace, self.plural, self.name
+            )
         except client.ApiException as e:
             if e.status != 404:
                 raise
@@ -131,9 +135,7 @@ class MongoDBMulti(MongoDB):
         if "labels" in source_metadata:
             peer_metadata["labels"] = copy.deepcopy(source_metadata["labels"])
 
-        api.replace_namespaced_custom_object(
-            self.group, self.version, self.namespace, self.plural, self.name, peer_obj
-        )
+        api.replace_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name, peer_obj)
 
     def _wait_for_absence_everywhere(self, timeout: int = 60, interval: int = 3) -> None:
         def still_present() -> List[str]:
@@ -257,4 +259,6 @@ class MongoDBMulti(MongoDB):
 
 def _fanout_error(operation: str, name: str, errors: Dict[str, Exception]) -> Exception:
     details = "; ".join(f"{cluster}: {error}" for cluster, error in sorted(errors.items()))
-    return Exception(f"decentralized fan-out {operation} failed for MongoDBMultiCluster {name} on cluster(s): {details}")
+    return Exception(
+        f"decentralized fan-out {operation} failed for MongoDBMultiCluster {name} on cluster(s): {details}"
+    )

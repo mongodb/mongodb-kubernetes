@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/leaderelection"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	toolscache "k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/tools/leaderelection"
 
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 )

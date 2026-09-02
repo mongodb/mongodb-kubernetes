@@ -9,12 +9,12 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	coordinationv1 "k8s.io/api/coordination/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
 
 // quorumLock is the majority lease as a client-go resourcelock.Interface backend: client-go's

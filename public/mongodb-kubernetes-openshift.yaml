@@ -97,6 +97,27 @@ rules:
       - get
       - list
       - watch
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - mongodbdirectives
+    verbs:
+      - '*'
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - mongodbdirectives/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
