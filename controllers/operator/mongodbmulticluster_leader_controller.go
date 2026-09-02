@@ -55,7 +55,7 @@ Checks:
 - Takeover hold-off: after winning an election, wait one lease DURATION (wall clock, ~10s) before the first guarded write.
   Not "a term": term = version number of leadership (44th, 45th president), duration = timeout (the parking meter). The wait is sized so a zombie's in-flight write lands before our first fresh read.
 
-Leader election / renewal machinery: full protocol in .spike/poc/leader-election-protocol.md (2026-08-19).
+Leader election / renewal machinery: the majority-lease protocol lives in mongodbmulticluster_quorumlease.go.
 Shape: elector as a separate manager.Runnable (own ticker — heartbeats never queue behind a slow OM PUT).
 Talks to this controller via: elector.Current() (term, isLeader) read once at snapshot time (a term, never a bare bool),
 GenericEvent into a source.Channel to wake us on transitions, optional ctx cancel on loss.

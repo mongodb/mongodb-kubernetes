@@ -22,7 +22,7 @@ import (
 
 // directiveTransport is the delivery seam: every cross-cluster interaction in this design is
 // "place a small fact in cluster X" / "read the facts back" — who executes the local write is a
-// free variable (.spike/design/transport-seam-tcp-vs-apiserver.md). It covers the only two
+// free variable (API server today, an RPC between operators would fit the same seam). It covers the only two
 // cross-cluster interaction families, directive delivery and vote acquisition (the majority
 // lease's read/CAS). The API-server transport is the POC's only implementation; an RPC variant
 // stays selectable by field data.

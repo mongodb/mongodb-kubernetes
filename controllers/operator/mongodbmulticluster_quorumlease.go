@@ -43,8 +43,7 @@ func setLeaseTerm(lease *coordinationv1.Lease, term int64) {
 
 // ---- pure protocol core ----
 //
-// quorumLeaseCore below is the whole majority-lease protocol
-// (.spike/poc/leader-election-protocol.md) with time as a parameter and zero I/O: observations
+// quorumLeaseCore below is the whole majority-lease protocol with time as a parameter and zero I/O: observations
 // are pushed in, CAS intents come out, write results are pushed back. The resourcelock backend
 // owns the I/O; client-go's LeaderElector owns the timing loop. Everything is paced by ONE
 // constant, leaseDuration: renewal cadence and the randomized candidacy delay are duration/3,
