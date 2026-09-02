@@ -6,6 +6,7 @@ deploy primitive. Replica-set-specific helpers live in vm_migration_replicaset_h
 sharded-cluster-specific helpers in vm_migration_sharded_helper.
 """
 
+import copy
 import os
 import subprocess
 import tempfile
@@ -383,3 +384,160 @@ def assert_ca_file_present_in_pod(namespace: str, pod_name: str, ca_file_path: s
     assert (
         "-----BEGIN CERTIFICATE-----" in output
     ), f"CA file at {ca_file_path} in pod {pod_name} is missing or not PEM content, got: {output!r}"
+
+
+# Operator-managed processes are named "k8s/<namespace>/<pod-name>" in the automation config;
+# VM processes registered by a plain agent carry the bare hostname-derived name.
+K8S_PROCESS_NAME_PREFIX = "k8s/"
+
+# Fields Ops Manager or the agents mutate on their own schedule. They must be excluded from any
+# "the automation config did not change" comparison, otherwise the assertion is a flake: `version`
+# is bumped by every AC write from any source, and the agent/tools version fields drift as agents
+# check in and as OM decides to roll agents forward.
+_VOLATILE_AC_TOP_LEVEL_KEYS = (
+    "version",
+    "agentVersion",
+    "backupVersions",
+    "mongoDbVersions",
+    "mongosqldVersions",
+    "mongotVersions",
+)
+
+# Per-entry agent-version fields inside monitoringVersions/backupVersions. Ops Manager rolls these
+# forward on its own schedule, so they must not count as a change, but the entries themselves must
+# stay compared: losing one is exactly the destructive outcome being guarded against.
+_VOLATILE_AC_ENTRY_KEYS = ("name",)
+
+
+def k8s_process_name(namespace: str, resource_name: str, index: int) -> str:
+    """Automation-config process name the operator assigns to pod <resource_name>-<index>."""
+    return f"{K8S_PROCESS_NAME_PREFIX}{namespace}/{resource_name}-{index}"
+
+
+def normalize_automation_config(ac: dict) -> dict:
+    """Return a deep copy of the automation config with fields that drift on their own removed.
+
+    Everything that survives is state the operator would have had to deliberately write, so any
+    difference between two normalized snapshots is a real change to the deployment.
+    """
+    normalized = copy.deepcopy(ac)
+    for key in _VOLATILE_AC_TOP_LEVEL_KEYS:
+        normalized.pop(key, None)
+    for list_key in ("monitoringVersions", "backupVersions"):
+        for entry in normalized.get(list_key, []):
+            for entry_key in _VOLATILE_AC_ENTRY_KEYS:
+                entry.pop(entry_key, None)
+    return normalized
+
+
+def wait_for_automation_config_quiescence(
+    om_tester: OMTester,
+    *,
+    stable_for: int = 20,
+    interval: int = 5,
+    timeout: int = 300,
+) -> dict:
+    """Poll until the automation config's version stops changing, then return the settled config.
+
+    Snapshotting the AC while a reconcile is still in flight makes the later "nothing changed"
+    assertion race an operator write that is legitimate rather than the regression it hunts.
+    Waiting for the version to hold steady turns that race into a deterministic precondition.
+    """
+    deadline = time.time() + timeout
+    # A missing "version" key reads as None, so seed with a sentinel no config can equal —
+    # otherwise the first poll would look stable before anything had been observed.
+    last_version = object()
+    stable_since = time.time()
+    while True:
+        ac = om_tester.api_get_automation_config()
+        version = ac.get("version")
+        now = time.time()
+        if version != last_version:
+            last_version, stable_since = version, now
+        elif now - stable_since >= stable_for:
+            return ac
+        if now >= deadline:
+            raise AssertionError(
+                f"automation config version still changing after {timeout}s "
+                f"(last version {last_version!r}); refusing to snapshot a moving target"
+            )
+        time.sleep(interval)
+
+
+def assert_automation_config_unchanged(
+    om_tester: OMTester,
+    snapshot: dict,
+    *,
+    duration: int = 90,
+    interval: int = 10,
+) -> None:
+    """Assert the automation config stays equal to ``snapshot`` for ``duration`` seconds.
+
+    A single comparison is not enough here. Deletion cleanup runs from a watch event handler
+    (controllers/operator/mongodbresource_event_handler.go), not a finalizer, so there is no
+    "cleanup finished" signal to wait on and no phase to poll: the CR is already gone. Checking
+    repeatedly over a window is what makes a late or slow cleanup call visible instead of racing
+    past the assertion.
+    """
+    expected = normalize_automation_config(snapshot)
+    deadline = time.time() + duration
+    while True:
+        actual = normalize_automation_config(om_tester.api_get_automation_config())
+        if actual != expected:
+            expected_processes = sorted(p["name"] for p in expected.get("processes", []))
+            actual_processes = sorted(p["name"] for p in actual.get("processes", []))
+            raise AssertionError(
+                "automation config changed after the MongoDB resource was deleted; the operator "
+                "must leave Ops Manager alone while spec.externalMembers is set.\n"
+                f"processes before: {expected_processes}\n"
+                f"processes after:  {actual_processes}\n"
+                f"full before: {expected}\n"
+                f"full after:  {actual}"
+            )
+        if time.time() >= deadline:
+            return
+        time.sleep(interval)
+
+
+def remove_k8s_member_from_automation_config(
+    om_tester: OMTester,
+    namespace: str,
+    resource_name: str,
+    index: int,
+) -> dict:
+    """Hand-edit the automation config to drop ONE operator-managed process, then PUT it.
+
+    The operator deliberately leaves its own K8s processes in the automation config when a
+    mid-migration resource is deleted -- removing them would take the VM-hosted processes with
+    them -- so somebody has to take them out afterwards. Removes the process, its replica-set
+    member entry, its monitoring entry, and its backup entry. Returns the config that was PUT.
+
+    Deliberately single-member. Dropping several replica set members in one automation config push
+    makes them leave in a single reconfig, which can take the replica set below a majority while it
+    is still applying. Removing them one at a time -- letting each reconfig settle before the next
+    -- is what a human does by hand, so a helper that batches them would be the wrong tool to reach
+    for. Call this once per member, lowest index last if any of them vote.
+
+    Note this is the repair for a CR that was already deleted, not the recommended way to roll a
+    migration back. Rolling back properly means stopping the operator and making these same edits
+    while the StatefulSets are still running, so the members being removed stay available and the
+    replica set never loses its majority.
+    """
+    ac = om_tester.api_get_automation_config()
+    process_name = k8s_process_name(namespace, resource_name, index)
+
+    matching = [p for p in ac.get("processes", []) if p["name"] == process_name]
+    assert len(matching) == 1, (
+        f"expected exactly one process named {process_name} in the automation config, found "
+        f"{len(matching)}. processes: {[p['name'] for p in ac.get('processes', [])]}"
+    )
+    hostname = matching[0]["hostname"]
+
+    ac["processes"] = [p for p in ac.get("processes", []) if p["name"] != process_name]
+    for replica_set in ac.get("replicaSets", []):
+        replica_set["members"] = [m for m in replica_set.get("members", []) if m["host"] != process_name]
+    ac["monitoringVersions"] = [mv for mv in ac.get("monitoringVersions", []) if mv.get("hostname") != hostname]
+    ac["backupVersions"] = [bv for bv in ac.get("backupVersions", []) if bv.get("hostname") != hostname]
+
+    om_tester.api_put_automation_config(ac)
+    return ac

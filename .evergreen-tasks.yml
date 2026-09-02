@@ -314,6 +314,66 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_replicaset_scram_sha256
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha1
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_no_auth
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_manual_rollback
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_mck_to_mck
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_statefulset_status
     tags: [ "patch-run" ]
     commands:
@@ -375,6 +435,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_scale_shards
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scale_shards_name_overrides
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -500,6 +565,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_require
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_require_custom_ca_path
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1410,6 +1480,57 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_vm_migration_shardedcluster_no_auth
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha256
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha1
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+
   - name: e2e_search_sharded_internal_mongodb_multi_mongot_unmanaged_lb
     tags: [ "patch-run" ]
     commands:
@@ -1583,3 +1704,4 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
