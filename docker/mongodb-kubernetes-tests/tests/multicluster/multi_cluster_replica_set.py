@@ -237,7 +237,7 @@ def test_delete_member_cluster_sts(
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=400)
 
 
-@skip_if_decentralized
+@skip_if_decentralized  # POC cut: deletion cleanup
 @pytest.mark.e2e_multi_cluster_replica_set
 def test_cleanup_on_mdbm_delete(mongodb_multi: MongoDBMulti, member_cluster_clients: List[MultiClusterClient]):
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
