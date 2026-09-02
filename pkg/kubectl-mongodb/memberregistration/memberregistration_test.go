@@ -2,7 +2,13 @@ package memberregistration
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +19,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/clientcmd"
 
+	cryptorand "crypto/rand"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
@@ -194,6 +201,56 @@ func TestGenerate_KubeconfigContents_ApiServerOverride(t *testing.T) {
 	cluster := cfg.Clusters[cfg.Contexts[cfg.CurrentContext].Cluster]
 	require.NotNil(t, cluster)
 	assert.Equal(t, apiServerOverride, cluster.Server)
+}
+
+func TestGenerate_KubeconfigContents_CertificateAuthorityOverride(t *testing.T) {
+	client := fake.NewSimpleClientset(tokenSecret("cluster-east", testNamespace, map[string][]byte{
+		corev1.ServiceAccountTokenKey:  []byte(testToken),
+		corev1.ServiceAccountRootCAKey: []byte(testCA),
+	}))
+
+	caOverride := generateTestCAPEM(t, "member-cluster-ca-override")
+	out, err := Generate(context.Background(), client, testServerURL, Options{
+		MemberClusterName:        "cluster-east",
+		MemberClusterNamespace:   testNamespace,
+		OperatorNamespace:        testOperatorNamespace,
+		MemberClusterLogicalName: "cluster-east",
+		MemberClusterApiServerCA: caOverride,
+	})
+	require.NoError(t, err)
+
+	secret, _ := parseOutput(t, out)
+	cfg, err := clientcmd.Load([]byte(secret.StringData[credentialSecretKey]))
+	require.NoError(t, err)
+
+	cluster := cfg.Clusters[cfg.Contexts[cfg.CurrentContext].Cluster]
+	require.NotNil(t, cluster)
+	assert.Equal(t, caOverride, cluster.CertificateAuthorityData)
+}
+
+// generateTestCAPEM returns a self signed, PEM encoded CA certificate. It is generated rather than
+// hardcoded so the fixture is always accepted by x509.CertPool.AppendCertsFromPEM, which is what
+// the CLI's --member-cluster-api-server-ca validation relies on.
+func generateTestCAPEM(t *testing.T, commonName string) []byte {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour * 24),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	der, err := x509.CreateCertificate(cryptorand.Reader, &template, &template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 func TestGenerate_Errors(t *testing.T) {
