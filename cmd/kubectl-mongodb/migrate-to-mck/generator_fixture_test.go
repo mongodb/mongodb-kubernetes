@@ -187,6 +187,14 @@ func TestFixtureMatch_ShardedCluster(t *testing.T) {
 			fixture: "singlecluster/shardedcluster/default_config_rs/default_config_rs",
 		},
 		{
+			name:    "sharded cluster — heterogeneous shards: spec.shard omitted, one shardOverride per shard",
+			fixture: "singlecluster/shardedcluster/heterogeneous_shards/heterogeneous_shards",
+		},
+		{
+			name:    "sharded cluster — per-shard mongot endpoints land in shardOverrides, mongos keeps its own",
+			fixture: "singlecluster/shardedcluster/search_per_shard_mongot/search_per_shard_mongot",
+		},
+		{
 			name:     "sharded cluster — LDAP: ldap section + agent password secret generated, external agent skipped, app user CR generated",
 			fixture:  "singlecluster/shardedcluster/authentication/ldap/ldap",
 			hasUsers: true,

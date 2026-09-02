@@ -55,6 +55,7 @@ func ValidateMigration(ac *om.AutomationConfig, processMap map[string]om.Process
 	results = append(results, validatePrometheus(ac.Deployment)...)
 	results = append(results, validateProjectOptions(ac.Deployment)...)
 	results = append(results, validateMemberPreservedFields(ac.Deployment)...)
+	results = append(results, validateSourceProcessPerReplicaSet(ac.Deployment, processMap)...)
 	for _, r := range results {
 		if r.Severity == SeverityError {
 			return results, nil
@@ -196,6 +197,23 @@ func validateReplicaSetsExist(d om.Deployment) []ValidationResult {
 		}}
 	}
 	return nil
+}
+
+// validateSourceProcessPerReplicaSet checks that every replica set has a member the generator
+// can read spec.additionalMongodConfig from. Generation reads one per shard and one for the
+// config server, so checking only the first replica set would let a problem in any of the
+// others surface as a generation failure after validation had already passed.
+func validateSourceProcessPerReplicaSet(d om.Deployment, processMap map[string]om.Process) []ValidationResult {
+	var results []ValidationResult
+	for _, rs := range d.GetReplicaSets() {
+		if _, err := pickSourceProcess(rs.Members(), processMap); err != nil {
+			results = append(results, ValidationResult{
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Replica set %q: %s.", rs.Name(), err),
+			})
+		}
+	}
+	return results
 }
 
 // validateAuth checks autoUser, keyFile, and keyFileWindows against operator defaults.

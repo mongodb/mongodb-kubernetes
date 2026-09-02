@@ -46,7 +46,7 @@ type ShardedClusterSpec struct {
 	// It replaces deprecated spec.shard.shardSpecificPodSpec field. When spec.shard.shardSpecificPodSpec is still defined then
 	// spec.shard.shardSpecificPodSpec is applied first to the particular shard and then spec.shardOverrides is applied on top
 	// of that (if defined for the same shard).
-	// +kubebuilder:pruning:PreserverUnknownFields
+	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
 
@@ -109,7 +109,7 @@ type ShardOverride struct {
 
 	// Number of member nodes in this shard. Used only in SingleCluster. For MultiCluster the number of members is specified in ShardOverride.ClusterSpecList.
 	// +optional
-	Members *int `json:"members"`
+	Members *int `json:"members,omitempty"`
 	// Process configuration override for this shard. Used in SingleCluster only. The number of items specified must be >= spec.mongodsPerShardCount or spec.shardOverride.members.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional

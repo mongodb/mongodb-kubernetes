@@ -37,24 +37,76 @@ func (r *ShardedInternalSearchSource) GetShardCount() int {
 	return r.Spec.ShardCount
 }
 
-func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, error) {
-	members := r.Spec.MongodsPerShardCount
-	clusterDomain := r.Spec.GetClusterDomain()
-	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
-
-	seeds := make([]string, members)
-	for i := 0; i < members; i++ {
-		// Format: <shardName>-<memberIdx>.<shardServiceName>.<namespace>.svc.<clusterDomain>:<port>
-		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
-			shardName, i, r.ShardServiceName(), r.Namespace, clusterDomain, port)
+// externalMembersForK8sShardName maps the Kubernetes shard name the search plan works with
+// (MongoDB.ShardName(i)) to the Automation Config replica set name that external members are
+// recorded under (MongoDB.ShardACRsName(i), which spec.shardNameOverrides can change), and
+// returns that shard's external mongod members.
+func (r *ShardedInternalSearchSource) externalMembersForK8sShardName(shardName string) []mdbv1.ExternalMember {
+	for i := 0; i < r.Spec.ShardCount; i++ {
+		if r.ShardName(i) == shardName {
+			return r.Spec.GetExternalMembersForRS(r.ShardACRsName(i))
+		}
 	}
-	return seeds, nil
+	return nil
 }
 
-func (r *ShardedInternalSearchSource) MongosHostsAndPorts() []string {
+// HostSeeds returns the hosts mongot syncs one shard's data from. Kubernetes mongods come
+// first, then any external (VM) members still in the shard.
+func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, error) {
+	externalMembers := r.externalMembersForK8sShardName(shardName)
+	return append(r.kubernetesMongodHosts(shardName), externalHostnames(externalMembers)...), nil
+}
+
+// kubernetesMongodHosts returns the pod FQDNs of the Kubernetes mongods in one shard, in the
+// form <shardName>-<memberIdx>.<shardServiceName>.<namespace>.svc.<clusterDomain>:<port>.
+func (r *ShardedInternalSearchSource) kubernetesMongodHosts(shardName string) []string {
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
-	return []string{fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port)}
+
+	hosts := make([]string, 0, r.Spec.MongodsPerShardCount)
+	for i := 0; i < r.Spec.MongodsPerShardCount; i++ {
+		hosts = append(hosts, fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
+			shardName, i, r.ShardServiceName(), r.Namespace, clusterDomain, port))
+	}
+	return hosts
+}
+
+// externalHostnames returns the hostnames of the given external members.
+func externalHostnames(members []mdbv1.ExternalMember) []string {
+	hostnames := make([]string, 0, len(members))
+	for _, m := range members {
+		hostnames = append(hostnames, m.Hostname)
+	}
+	return hostnames
+}
+
+// externalMongosHostnames returns the hostnames of the given external members that are mongos.
+func externalMongosHostnames(members []mdbv1.ExternalMember) []string {
+	hostnames := make([]string, 0, len(members))
+	for _, m := range members {
+		if m.Type == mdbv1.ExternalMemberTypeMongos {
+			hostnames = append(hostnames, m.Hostname)
+		}
+	}
+	return hostnames
+}
+
+// MongosHostsAndPorts returns the routers mongot should talk to. The Kubernetes mongos
+// Service comes first, then any external (VM) mongos still in the cluster.
+func (r *ShardedInternalSearchSource) MongosHostsAndPorts() []string {
+	return append(r.kubernetesMongosHosts(), externalMongosHostnames(r.Spec.ExternalMembers)...)
+}
+
+// kubernetesMongosHosts returns the Kubernetes mongos Service, or an empty slice while
+// mongosCount is 0, in which case the Service resolves to no endpoints.
+func (r *ShardedInternalSearchSource) kubernetesMongosHosts() []string {
+	hosts := make([]string, 0, 1)
+	if r.Spec.MongosCount == 0 {
+		return hosts
+	}
+	clusterDomain := r.Spec.GetClusterDomain()
+	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+	return append(hosts, fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port))
 }
 
 func (r *ShardedInternalSearchSource) TLSConfig() *TLSSourceConfig {

@@ -825,3 +825,36 @@ func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 	}
 	assert.True(t, hasWarning, "expected warning when per-process logRotate differs from project-level setting")
 }
+
+func TestValidateSourceProcessPerReplicaSet_ChecksEveryReplicaSet(t *testing.T) {
+	// Generation reads a source process per shard and one for the config server, so a
+	// problem in any replica set other than the first must still be caught by validation
+	// rather than surfacing later as a generation failure.
+	shard0 := om.NewReplicaSet("shard0", "7.0.12-ent")
+	shard0["members"] = []interface{}{map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1}}
+	shard1 := om.NewReplicaSet("shard1", "7.0.12-ent")
+	shard1["members"] = []interface{}{map[string]interface{}{"host": "shard1-0", "_id": 0, "priority": 1, "votes": 1}}
+	// Only shard0's member has a process, so shard1 has no source process.
+	processMap := map[string]om.Process{"shard0-0": {"name": "shard0-0"}}
+
+	results := validateSourceProcessPerReplicaSet(om.Deployment{
+		"replicaSets": []interface{}{map[string]interface{}(shard0), map[string]interface{}(shard1)},
+	}, processMap)
+
+	require.Len(t, results, 1)
+	assert.Equal(t, SeverityError, results[0].Severity)
+	assert.Contains(t, results[0].Message, "shard1")
+	assert.NotContains(t, results[0].Message, "shard0-0")
+}
+
+func TestValidateSourceProcessPerReplicaSet_NoErrorWhenAllResolve(t *testing.T) {
+	rs := om.NewReplicaSet("shard0", "7.0.12-ent")
+	rs["members"] = []interface{}{map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1}}
+	processMap := map[string]om.Process{"shard0-0": {"name": "shard0-0"}}
+
+	results := validateSourceProcessPerReplicaSet(om.Deployment{
+		"replicaSets": []interface{}{map[string]interface{}(rs)},
+	}, processMap)
+
+	assert.Empty(t, results)
+}

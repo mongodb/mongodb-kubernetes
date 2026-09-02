@@ -68,9 +68,16 @@ cp -rf helm_chart docker/mongodb-kubernetes-tests/helm_chart
 
 # shellcheck disable=SC2154
 if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
+  # The multi-cluster setup below (and prepare_multi_cluster_e2e_run in launch_e2e.sh) builds
+  # the kubectl-mongodb plugin itself, so we don't build it again here.
   go build -o "${PROJECT_DIR}/bin/prepare_multi_cluster" "${PROJECT_DIR}/scripts/dev/prepare-multi-cluster/"
   "${PROJECT_DIR}/bin/prepare_multi_cluster" 2>&1 | prepend "prepare_multi_cluster_e2e_run"
   run_multi_cluster_kube_config_creator 2>&1 | prepend "run_multi_cluster_kube_config_creator"
+else
+  # Single-cluster runs still need the plugin (e.g. VM migration tests use it), and nothing
+  # else builds it, so build it here.
+  echo "Building kubectl-mongodb plugin"
+  build_kubectl_mongodb_plugin 2>&1 | prepend "build_kubectl_mongodb"
 fi
 
 # Wait for background operations before deploy step (which needs CRDs from make install)

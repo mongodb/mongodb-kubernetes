@@ -41,6 +41,13 @@ const (
 // arguments present on the mongod config level. AdditionalMongodConfig
 // strips these to isolate user-supplied config. When a new
 // infrastructure-managed field is introduced, add its path here.
+//
+// MongoDB Search setParameters (mongotHost, searchIndexManagementHostAndPort,
+// searchTLSMode, useGrpcForSearch, skipAuthenticationToMongot,
+// skipAuthenticationToSearchIndexManagementServer) are deliberately NOT listed: they are
+// extracted like any other user setParameter, so the generated CR carries them. Nothing else
+// does during a migration. Once a MongoDBSearch targets the migrated resource, the search
+// controller overwrites the whole setParameter subtree and the CR-side values are superseded.
 var infrastructureFieldPaths = [][]string{
 	{"systemLog"},
 	{"storage", "dbPath"},

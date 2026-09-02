@@ -510,6 +510,80 @@ func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
 	assert.Equal(t, "SCRAM-SHA-256", sp["authenticationMechanisms"])
 }
 
+func TestExtractAdditionalMongodConfig_SearchParametersExtracted(t *testing.T) {
+	// Ops Manager does not propagate search setParameters onto newly added Kubernetes
+	// processes, so the generated CR has to carry them. They are extracted alongside ordinary
+	// user setParameters rather than stripped as operator-managed infrastructure.
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"net": map[string]interface{}{
+					"port": 27017,
+				},
+				"setParameter": map[string]interface{}{
+					"mongotHost":                                      "mdb-search-svc.ns.svc.cluster.local:27027",
+					"searchIndexManagementHostAndPort":                "mdb-search-svc.ns.svc.cluster.local:27027",
+					"skipAuthenticationToSearchIndexManagementServer": false,
+					"skipAuthenticationToMongot":                      false,
+					"searchTLSMode":                                   "disabled",
+					"useGrpcForSearch":                                true,
+					"authenticationMechanisms":                        "SCRAM-SHA-256",
+				},
+			},
+		},
+	}
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
+	}
+
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
+	require.NotNil(t, config)
+	sp, ok := config.ToMap()["setParameter"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, map[string]interface{}{
+		"mongotHost":                                      "mdb-search-svc.ns.svc.cluster.local:27027",
+		"searchIndexManagementHostAndPort":                "mdb-search-svc.ns.svc.cluster.local:27027",
+		"skipAuthenticationToSearchIndexManagementServer": false,
+		"skipAuthenticationToMongot":                      false,
+		"searchTLSMode":                                   "disabled",
+		"useGrpcForSearch":                                true,
+		"authenticationMechanisms":                        "SCRAM-SHA-256",
+	}, sp)
+}
+
+func TestExtractAdditionalMongodConfig_OnlySearchParameters(t *testing.T) {
+	// A process carrying nothing but search setParameters now yields a config rather than nil,
+	// which is what lets a search-only VM mongod produce a component spec at all.
+	processMap := map[string]om.Process{
+		"host-0": {
+			"args2_6": map[string]interface{}{
+				"net": map[string]interface{}{
+					"port": 27017,
+				},
+				"setParameter": map[string]interface{}{
+					"mongotHost":                                      "mdb-search-svc.ns.svc.cluster.local:27027",
+					"searchIndexManagementHostAndPort":                "mdb-search-svc.ns.svc.cluster.local:27027",
+					"skipAuthenticationToSearchIndexManagementServer": false,
+					"skipAuthenticationToMongot":                      false,
+					"searchTLSMode":                                   "disabled",
+					"useGrpcForSearch":                                true,
+				},
+			},
+		},
+	}
+	members := []om.ReplicaSetMember{
+		{"host": "host-0"},
+	}
+
+	config := sourceProc(processMap, members).AdditionalMongodConfig()
+	require.NotNil(t, config)
+	sp, ok := config.ToMap()["setParameter"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "mdb-search-svc.ns.svc.cluster.local:27027", sp["mongotHost"])
+	assert.Equal(t, true, sp["useGrpcForSearch"])
+	assert.Len(t, sp, 6, "all six search keys must survive extraction")
+}
+
 func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {

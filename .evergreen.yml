@@ -915,6 +915,7 @@ task_groups:
       - e2e_vm_migration_replicaset_manual_rollback
       - e2e_vm_migration_replicaset_mck_to_mck
       - e2e_vm_migration_replicaset_external_access
+      - e2e_vm_migration_replicaset_search
       - e2e_vm_migration_shardedcluster_no_auth
       - e2e_vm_migration_shardedcluster_x509
       - e2e_vm_migration_shardedcluster_scram_sha256
@@ -926,6 +927,7 @@ task_groups:
       - e2e_vm_migration_shardedcluster_oidc_workforce
       - e2e_vm_migration_shardedcluster_prometheus
       - e2e_vm_migration_shardedcluster_external_access
+      - e2e_vm_migration_shardedcluster_search
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
   # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to cloudqa-large variants.
