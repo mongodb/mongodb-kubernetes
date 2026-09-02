@@ -1,19 +1,20 @@
 # DEPRECATED: this is the legacy release process (rebuilds and retests every
-# image before publishing), triggered by tags shaped "old-X.Y.Z". It is kept
-# running alongside the new publish-only process (.evergreen-release-publish.yml,
-# triggered by "new-X.Y.Z") until the new process fully replaces it. Do not
-# add new functionality here — add it to the new process instead.
+# image before publishing). Triggered when the tag annotation does NOT
+# start with "[new]" (see .evergreen.yml git_tag_aliases and
+# .evergreen-release-publish.yml). It is kept running alongside the new
+# publish-only process until that process fully replaces it. Do not add
+# new functionality here — add it to the new process instead.
 #
 # Cleanup once retired:
 # 1. Delete this file; rename .evergreen-release-publish.yml to
 #    .evergreen-release.yml in its place. Also remove redundant "_publish"
 #    suffixes.
-# 2. In .evergreen.yml: remove the "old-*" git_tag_aliases entry, remove the
-#    "deprecated-release" patch alias, remove this file from the include:
-#    block, and update the remaining git_tag_aliases entry/comment to point
-#    at the renamed file. Every buildvariant tagged "deprecated-release" in
-#    this file goes away with it — nothing tagged "deprecated-release" is
-#    used anywhere else, so there is nothing else to clean up.
+# 2. In .evergreen.yml: remove the "deprecated-release" patch alias,
+#    remove this file from the include: block, and update git_tag_aliases
+#    to point directly at "release-publish" (drop the decider).
+# 3. In .evergreen-release-publish.yml: remove the release_decider variant,
+#    its decide_release_process task, and the release-decider tag.
+# 4. Delete scripts/evergreen/decide_release_process.sh.
 include:
   - filename: .evergreen-functions.yml
 
@@ -133,7 +134,6 @@ tasks:
   - name: add_releaseinfo_to_github_assets
     commands:
       - func: clone
-      - func: compute_release_version
       - func: python_venv
       - func: add_releaseinfo_to_github_assets
 
@@ -141,18 +141,23 @@ tasks:
     tags: [ "helm_chart_release_pr" ]
     commands:
       - func: clone
-      - func: compute_release_version
       - func: python_venv
       - func: create_chart_release_pr
 
-  # Runs after every task in a "deprecated-release"-tagged variant succeeds: pushes the
-  # final "X.Y.Z" tag (which is not itself a trigger) and deletes "old-X.Y.Z".
-  - name: retag_legacy_release
+  # Trigger docs snippets refresh using the published images. Runs after
+  # the release_images variant succeeds (order is enforced by the build
+  # variant dependency below).
+  - name: trigger_public_docs_snippets
     commands:
       - func: clone
-      - func: push_release_tag
-        vars:
-          prefix: "old-"
+      - command: subprocess.exec
+        type: test
+        params:
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - revision
+            - triggered_by_git_tag
+          binary: scripts/dev/trigger_public_docs_snippets.sh
 
   - name: release_chart_to_oci_registry
     tags: [ "release_chart_to_oci_registry" ]
@@ -488,16 +493,15 @@ buildvariants:
     tasks:
       - name: release_chart_to_oci_registry
 
-  # Not tagged "deprecated-release" itself (it depends on every "deprecated-release"-tagged variant
-  # succeeding, which would otherwise create a self-dependency).
-  - name: retag_legacy_release
-    display_name: retag_legacy_release
+  # Trigger docs snippets using the images just published.
+  - name: trigger_public_docs_snippets
+    display_name: trigger_public_docs_snippets
+    tags: [ "deprecated-release" ]
     run_on:
       - ubuntu2404-small
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
-        variant: ".deprecated-release"
-        status: "success"
+        variant: release_images
     tasks:
-      - name: retag_legacy_release
+      - name: trigger_public_docs_snippets

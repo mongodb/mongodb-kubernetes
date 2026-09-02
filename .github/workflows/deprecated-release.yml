@@ -1,9 +1,8 @@
 # DEPRECATED: legacy release process (rebuilds and retests before publishing).
-# To be deleted soon
+# To be deleted once the publish-only process fully replaces it.
 #
-# Pushes an "old-X.Y.Z" tag, which Evergreen's git_tag_aliases (.evergreen.yml)
-# routes to the legacy pipeline (.evergreen-release.yml).
-# That pipeline's own retag_legacy_release task also pushes the final "X.Y.Z"
+# Pushes an "X.Y.Z" git tag with no special annotation.
+# Evergreen inspects the annotation: no "[new]" prefix → deprecated-release.
 name: Deprecated Legacy Release MCK version (slow with rebuild and retesting)
 
 on:
@@ -63,8 +62,8 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git tag -a "old-$VERSION" -m "Release of MCK $VERSION" $COMMIT_SHA
-          git push origin "old-$VERSION"
+          git tag -a "$VERSION" -m "Release of MCK $VERSION" $COMMIT_SHA
+          git push origin "$VERSION"
         env:
           VERSION: ${{ github.event.inputs.version }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}

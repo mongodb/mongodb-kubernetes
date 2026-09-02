@@ -1,7 +1,8 @@
-# Release process: publishes the images already promoted for a given commit
+# Release process: publishes the images already promoted for a given commit.
 #
-# Pushes a "new-X.Y.Z" tag, which Evergreen's git_tag_aliases (.evergreen.yml)
-# routes to the publish-only pipeline (.evergreen-release-publish.yml).
+# Pushes an "X.Y.Z" git tag with a "[new]" annotation prefix.
+# Evergreen inspects the annotation: "[new]" → release-publish pipeline,
+# otherwise → deprecated-release (legacy rebuild-and-retest).
 name: Release MCK version (publish-only)
 
 permissions:
@@ -20,7 +21,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: 'Dry run: publish to an override test registry instead of the real production one, tag "new-test-X.Y.Z" instead of "new-X.Y.Z", draft the GitHub release under "test-X.Y.Z", and never publish it. Requires the Evergreen project var "dryrun_registry_override" to be set.'
+        description: 'Dry run: creates a draft GitHub release (never published) and triggers the EVG pipeline with IS_DRYRUN=true. The tag annotation includes "[dry-run]". Requires the Evergreen project var "dryrun_registry_override" to be set.'
         required: false
         type: boolean
         default: false
@@ -70,13 +71,11 @@ jobs:
 
       - name: Generate draft release
         run: |
-          release_tag="$VERSION"
           release_title="Release of MCK $VERSION"
           if [[ "${DRY_RUN}" == "true" ]]; then
-            release_tag="test-$VERSION"
             release_title="[TEST] Release of MCK $VERSION"
           fi
-          gh release create "$release_tag" --target "$COMMIT_SHA" --draft --latest --notes-file release_notes_final.md --title "$release_title"
+          gh release create "$VERSION" --target "$COMMIT_SHA" --draft --latest --notes-file release_notes_final.md --title "$release_title"
         env:
           VERSION: ${{ steps.verify_release_commit.outputs.version }}
           COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
@@ -87,13 +86,12 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
+          annotation="[new] Release of MCK $VERSION"
           if [[ "${DRY_RUN}" == "true" ]]; then
-            tag="new-test-$VERSION"
-          else
-            tag="new-$VERSION"
+            annotation="[new][dry-run] Release of MCK $VERSION"
           fi
-          git tag -a "$tag" -m "Release of MCK $VERSION" "$COMMIT_SHA"
-          git push origin "$tag"
+          git tag -a "$VERSION" -m "${annotation}" "$COMMIT_SHA"
+          git push origin "$VERSION"
         env:
           VERSION: ${{ steps.verify_release_commit.outputs.version }}
           COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
