@@ -43,6 +43,12 @@ class AutomationConfigTester:
     def get_auth_key(self):
         return self.automation_config["auth"].get("key", "")
 
+    def get_monitoring_versions(self):
+        return self.automation_config["monitoringVersions"]
+
+    def get_backup_versions(self):
+        return self.automation_config["backupVersions"]
+
     def assert_expected_users(self, expected_users: int):
         automation_config_users = 0
 

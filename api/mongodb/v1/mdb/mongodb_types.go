@@ -27,6 +27,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -112,6 +113,12 @@ func isAgentImageOverriden(containers []corev1.Container) bool {
 }
 
 func (m *MongoDB) ForcedIndividualScaling() bool {
+	// This is so that we don't deploy all kube members at once if there are external members
+	// This allows the migration to begin with voting members from the get-go
+	// Without this, the deployment will fail if kube members are not set to 0 votes 0 priority
+	if len(m.Spec.GetExternalMembers()) > 0 {
+		return true
+	}
 	return false
 }
 
@@ -164,6 +171,10 @@ func (m *MongoDB) GetBackupSpec() *Backup {
 
 func (m *MongoDB) GetResourceType() ResourceType {
 	return m.Spec.ResourceType
+}
+
+func (m *MongoDB) IsReplicaSet() bool {
+	return m.GetResourceType() == ReplicaSet
 }
 
 func (m *MongoDB) IsShardedCluster() bool {
@@ -228,6 +239,16 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
 
 func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
 	return fmt.Sprintf("%s-hostname-override", m.Name)
+}
+
+func (m *MongoDB) GetReplicaSetName() string {
+	if !m.IsReplicaSet() {
+		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
+	}
+	if m.Spec.ReplicaSetNameOverride != "" {
+		return m.Spec.ReplicaSetNameOverride
+	}
+	return m.GetName()
 }
 
 func (m *MongoDB) IsRoleAppDB() bool {
@@ -484,15 +505,10 @@ type DbCommonSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == '' || self == 'AppDB'",message="spec.role must be 'AppDB' when set"
 	Role string `json:"role,omitempty"`
-
-	// +optional
-	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
-
-	// +optional
-	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.externalMembers) || (has(self.externalMembers) ? size(self.externalMembers) : 0) >= size(oldSelf.externalMembers) - 1",message="at most one external member may be removed per update: remove entries from spec.externalMembers one at a time so the replica set keeps its voting majority"
 type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	DbCommonSpec                           `json:",inline"`
@@ -510,6 +526,12 @@ type MongoDbSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +optional
 	MemberConfig []automationconfig.MemberOptions `json:"memberConfig,omitempty"`
+
+	// +optional
+	ExternalMembers []ExternalMember `json:"externalMembers,omitempty"`
+
+	// +optional
+	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
@@ -525,6 +547,18 @@ func (m *MongoDbSpec) GetHorizonConfig() []MongoDBHorizonConfig {
 
 func (m *MongoDbSpec) GetMemberOptions() []automationconfig.MemberOptions {
 	return m.MemberConfig
+}
+
+func (m *MongoDbSpec) GetExternalMembers() []ExternalMember {
+	return m.ExternalMembers
+}
+
+func (m *MongoDbSpec) GetExternalMemberProcessNames() []string {
+	var processNames []string
+	for _, em := range m.ExternalMembers {
+		processNames = append(processNames, em.ProcessName)
+	}
+	return processNames
 }
 
 type SnapshotSchedule struct {
@@ -859,7 +893,7 @@ func (d *DbCommonSpec) GetExternalDomain() *string {
 	return nil
 }
 
-func (d DbCommonSpec) GetAgentConfig() AgentConfig {
+func (d *DbCommonSpec) GetAgentConfig() AgentConfig {
 	return d.Agent
 }
 
@@ -875,16 +909,45 @@ func (d *DbCommonSpec) GetRole() string {
 	return d.Role
 }
 
-func (d *DbCommonSpec) GetExternalMembers() []ExternalMember {
-	return d.ExternalMembers
+// GetExternalMembersHostnames returns the hostname list (host:port) the
+// caller should embed in this MongoDB resource's connection string:
+func (m *MongoDB) GetExternalMembersHostnames() []string {
+	var hostnames []string
+
+	// External members, filtered by Type.
+	var allowed func(em ExternalMember) bool
+	switch m.Spec.ResourceType {
+	case ReplicaSet:
+		allowed = func(em ExternalMember) bool { return em.Type == "" || em.Type == "mongod" }
+	case ShardedCluster:
+		allowed = func(em ExternalMember) bool { return em.Type == "mongos" }
+	}
+	if allowed != nil {
+		for _, em := range m.Spec.ExternalMembers {
+			if allowed(em) {
+				hostnames = append(hostnames, em.Hostname)
+			}
+		}
+	}
+
+	return hostnames
 }
 
-func (d *DbCommonSpec) GetExternalMemberProcessNames() []string {
-	var processNames []string
-	for _, m := range d.ExternalMembers {
-		processNames = append(processNames, m.ProcessName)
+// GetRSHostnamesAndPorts returns all hostnames and ports for each member of the replicaset, not including external members
+// This function is only used for replica sets.
+// It can't be used for sharded clusters due to dependencies on the cluster mapping. Use the reconciler helper object in that case.
+func (m *MongoDB) GetRSHostnamesAndPorts() []string {
+	if !m.IsReplicaSet() {
+		return nil
 	}
-	return processNames
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(m), m.Spec.DbCommonSpec.GetExternalDomain())
+	portOrDefault := m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
+
+	hostnamePorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+	return hostnamePorts
 }
 
 func (s *Security) IsTLSEnabled() bool {
@@ -1876,8 +1939,10 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 
 func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	name := m.Name
-	if m.Spec.ResourceType == ShardedCluster {
+	if m.IsShardedCluster() {
 		name = m.MongosRsName()
+	} else if m.IsReplicaSet() {
+		name = m.GetReplicaSetName()
 	}
 
 	builder := connectionstring.Builder().
