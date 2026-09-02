@@ -956,6 +956,14 @@ func (s Security) ShouldUseClientCertificates() bool {
 	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
 }
 
+// GetAgentAutoPEMKeyFilePath returns security.authentication.agents.autoPEMKeyFilePath when set (trimmed).
+func (s *Security) GetAgentAutoPEMKeyFilePath() string {
+	if s == nil || s.Authentication == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.Authentication.Agents.AutoPEMKeyFilePath)
+}
+
 func (s Security) InternalClusterAuthSecretName(defaultName string) string {
 	secretName := fmt.Sprintf("%s-clusterfile", defaultName)
 	if s.CertificatesSecretsPrefix != "" {
@@ -1083,6 +1091,16 @@ type MongoDBRole struct {
 type AgentAuthentication struct {
 	// Mode is the desired Authentication mode that the agents will use
 	Mode string `json:"mode"`
+	// AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+	// database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+	// and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+	// that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+	// hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+	// This field is meant to be used only in the context of a migration into MCK where the existing project is already configured with a non-default path for the PEM file.
+	// In all other cases, this field should be left empty and the operator will use the default path.
+	// This field will not be used for MongoDBMultiCluster, AppDB or MongoDB standalone resource.
+	// +optional
+	AutoPEMKeyFilePath string `json:"autoPEMKeyFilePath,omitempty"`
 	// +optional
 	AutomationUserName string `json:"automationUserName"`
 	// +optional
