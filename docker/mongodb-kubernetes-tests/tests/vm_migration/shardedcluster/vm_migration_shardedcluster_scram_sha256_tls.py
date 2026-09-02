@@ -472,12 +472,13 @@ def test_install_operator(operator: Operator):
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
-def test_common_generated_cr_shape(generated_cr: dict):
+def test_common_generated_cr_shape(generated_cr: dict, version_id: str):
     assert_common_generated_sharded_cr_shape(
         generated_cr,
         expected_config_count=MIN_VM_CONFIGSRV,
         expected_shard_count=MIN_VM_SHARD,
         expected_mongos_count=MIN_VM_MONGOS,
+        version_id=version_id,
     )
 
 

@@ -944,7 +944,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	r.automationAgentVersion = automationAgentVersion
 
 	// Connectivity dry-run: handle before any reconciliation that modifies state.
-	if sc.Annotations[opMigration.AnnotationDryRun] == trueString {
+	if sc.Annotations[util.MigrationDryRunAnnotation] == trueString {
 		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
