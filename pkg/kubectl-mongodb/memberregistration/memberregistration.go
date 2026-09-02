@@ -7,8 +7,10 @@ package memberregistration
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
@@ -24,7 +26,15 @@ import (
 const (
 	// credentialSecretKey is the single key in the credential Secret holding the kubeconfig.
 	credentialSecretKey = "kubeconfig"
+
+	// DefaultTokenWaitTimeout is the default budget the CLI gives Kubernetes's token controller
+	// to populate the ServiceAccount token Secret before Generate fails.
+	DefaultTokenWaitTimeout = time.Minute
 )
+
+// tokenPollInterval is how often Generate re-reads the token Secret while waiting for Kubernetes
+// to populate it. It is a var, not a const, so tests in this package can shorten it (restore with defer).
+var tokenPollInterval = 2 * time.Second
 
 // Options carries the resolved flag values for a single member-cluster registration.
 type Options struct {
@@ -40,6 +50,10 @@ type Options struct {
 	// OperatorNamespace is the namespace on the operator's cluster where the emitted CR and
 	// credential Secret are placed.
 	OperatorNamespace string
+	// TokenWaitTimeout is how long Generate waits for the token Secret to be populated by
+	// Kubernetes's token controller before failing. It must be positive; the CLI passes
+	// DefaultTokenWaitTimeout.
+	TokenWaitTimeout time.Duration
 }
 
 // Generate reads the member ServiceAccount token Secret via client and builds the output using
@@ -47,23 +61,15 @@ type Options struct {
 // builds client and serverURL from the member cluster's kubeconfig context.
 func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, memberClusterServerURL string, opts Options) (string, error) {
 	tokenSecretName := resourcenames.MemberClusterTokenSecretName(opts.MemberClusterName)
-	tokenSecret, err := memberClusterClient.CoreV1().Secrets(opts.MemberClusterNamespace).Get(ctx, tokenSecretName, metav1.GetOptions{})
-	if err != nil {
-		return "", xerrors.Errorf("reading token secret %s/%s on the member cluster (was 'generate-member-resources' applied to it?): %w", opts.MemberClusterNamespace, tokenSecretName, err)
-	}
 
-	token, ok := tokenSecret.Data[corev1.ServiceAccountTokenKey]
-	if !ok || len(token) == 0 {
-		return "", xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", opts.MemberClusterNamespace, tokenSecretName, corev1.ServiceAccountTokenKey)
-	}
-	ca, ok := tokenSecret.Data[corev1.ServiceAccountRootCAKey]
-	if !ok || len(ca) == 0 {
-		return "", xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", opts.MemberClusterNamespace, tokenSecretName, corev1.ServiceAccountRootCAKey)
+	token, ca, err := waitForTokenSecret(ctx, memberClusterClient, tokenSecretName, opts)
+	if err != nil {
+		return "", err
 	}
 
 	kubeconfig, err := buildKubeConfig(opts.MemberClusterName, memberClusterServerURL, opts.MemberClusterNamespace, ca, token)
 	if err != nil {
-		return "", xerrors.Errorf("building kubeconfig: %w", err)
+		return "", xerrors.Errorf("building kubeconfig: %v", err)
 	}
 
 	credentialSecretName := resourcenames.MemberClusterCredentialSecretName(opts.MemberClusterName)
@@ -91,14 +97,50 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 
 	secretYAML, err := yaml.Marshal(secret)
 	if err != nil {
-		return "", xerrors.Errorf("marshalling credential secret: %w", err)
+		return "", xerrors.Errorf("marshalling credential secret: %v", err)
 	}
 	memberClusterYAML, err := yaml.Marshal(memberCluster)
 	if err != nil {
-		return "", xerrors.Errorf("marshalling MemberCluster CR: %w", err)
+		return "", xerrors.Errorf("marshalling MemberCluster CR: %v", err)
 	}
 
 	return string(secretYAML) + "---\n" + string(memberClusterYAML), nil
+}
+
+// readTokenSecret Gets the token Secret once and returns the complete, user-facing error for a
+// failed read: a Get error (including NotFound) or a missing/empty token or ca.crt data key.
+// waitForTokenSecret's poll condition uses the error verbatim.
+func readTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interface, namespace, name string) (token, ca []byte, err error) {
+	secret, err := memberClusterClient.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, nil, xerrors.Errorf("reading token secret %s/%s on the member cluster (was 'generate-member-resources' applied to it?): %v", namespace, name, err)
+	}
+	if token = secret.Data[corev1.ServiceAccountTokenKey]; len(token) == 0 {
+		return nil, nil, xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", namespace, name, corev1.ServiceAccountTokenKey)
+	}
+	if ca = secret.Data[corev1.ServiceAccountRootCAKey]; len(ca) == 0 {
+		return nil, nil, xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", namespace, name, corev1.ServiceAccountRootCAKey)
+	}
+	return token, ca, nil
+}
+
+// waitForTokenSecret polls the token Secret until Kubernetes has populated both its token and
+// ca.crt data keys or opts.TokenWaitTimeout elapses. It retries on all errors: the Secret may
+// not exist yet, and transient API errors should not abort the wait.
+func waitForTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interface, tokenSecretName string, opts Options) ([]byte, []byte, error) {
+	var token, ca []byte
+	var lastErr error
+	cond := func(ctx context.Context) (bool, error) {
+		var err error
+		token, ca, err = readTokenSecret(ctx, memberClusterClient, opts.MemberClusterNamespace, tokenSecretName)
+		lastErr = err
+		return err == nil, nil
+	}
+
+	if err := wait.PollUntilContextTimeout(ctx, tokenPollInterval, opts.TokenWaitTimeout, true, cond); err != nil {
+		return nil, nil, xerrors.Errorf("timed out after %s waiting for the member ServiceAccount token: %v", opts.TokenWaitTimeout, lastErr)
+	}
+	return token, ca, nil
 }
 
 // buildKubeConfig returns a serialised single-context kubeconfig with bearer-token auth.
