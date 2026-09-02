@@ -36,6 +36,7 @@ func CreateFromReplicaSet(mongoDBImage string, forceEnterprise bool, rs *mdb.Mon
 		replicaset.BuildFromStatefulSet(mongoDBImage, forceEnterprise, sts, rs.GetSpec(), rs.Status.FeatureCompatibilityVersion, "", architectures.NonStatic),
 		rs.Spec.AdditionalMongodConfig.ToMap(),
 		lastConfig.ToMap(),
+		nil,
 		zap.S(),
 	)
 	d.ConfigureMonitoringAndBackup(zap.S(), rs.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
