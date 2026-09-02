@@ -1488,39 +1488,6 @@ def _kubectl_apply_to_context(context: str, manifests: bytes):
     )
 
 
-def _wait_for_member_sa_token(cluster: str, member_namespace: str, timeout: int = 120, interval: int = 5):
-    """Wait until the member ServiceAccount's token Secret (`mck-member-<cluster>-token`, per
-    pkg/resourcenames) is populated, so a subsequent read of it succeeds on the first try."""
-    secret_name = f"mck-member-{cluster}-token"
-    deadline = time.time() + timeout
-    while True:
-        token = subprocess.run(
-            [
-                "kubectl",
-                "--context",
-                cluster,
-                "-n",
-                member_namespace,
-                "get",
-                "secret",
-                secret_name,
-                "-o",
-                "jsonpath={.data.token}",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        ).stdout
-        if token:
-            return
-        if time.time() >= deadline:
-            raise TimeoutError(
-                f"ServiceAccount token Secret {secret_name} on {cluster} was not populated after {timeout}s"
-            )
-        print(f"Waiting for {secret_name} token on {cluster} to be populated...")
-        time.sleep(interval)
-
-
 def generate_and_apply_member_resources(
     member_clusters: List[str],
     member_namespace: str,
@@ -1575,8 +1542,6 @@ def generate_and_apply_member_registration(
             "--operator-namespace",
             operator_namespace,
         ]
-        # Wait for the SA token Secret to be populated before reading it.
-        _wait_for_member_sa_token(cluster, member_namespace)
         print(f"Generating member registration for {cluster}: {' '.join(args)}")
         manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
         _kubectl_apply_to_context(central_cluster, manifests)
