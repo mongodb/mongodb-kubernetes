@@ -1825,10 +1825,12 @@ buildvariants:
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
-  # Untagged on purpose: patch-only while the decentralized POC lives on its branch.
+  # Runs on PR pushes only (pr_patch_e2e); not part of the staging/periodic suites while the
+  # decentralized POC lives on its branch.
   - name: e2e_multi_cluster_decentralized_harness
     display_name: e2e_multi_cluster_decentralized_harness
-    <<: *base_om7_dependency
+    tags: [ "pr_patch_e2e" ]
+    <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
     tasks:
