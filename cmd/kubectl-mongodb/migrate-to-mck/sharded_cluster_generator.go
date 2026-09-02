@@ -159,17 +159,12 @@ func buildShardedClusterOverrides(k8sResourceName, acClusterName string, configR
 // replica set, using pickSourceProcess to choose the member it is read from so a component
 // of a sharded cluster and a plain replica set pick the same way.
 //
-// Returns a nil config, and no error, when nothing survives the filtering: every field was
-// operator-managed, so there is nothing for the generated resource to carry. Nil rather than
-// an empty config because the field is an omitempty pointer, and omitempty only drops a nil
-// one: returning an empty config would write "additionalMongodConfig: {}" into every
-// generated resource that configures nothing, and the operator fills the field in itself
-// when it is absent.
+// The result is nil when there is no config for the generated additionalMongodConfig
+// resource to carry. This can happen if all fields were operator-managed, and results in
+// additionalMongodConfig being omitted, in preference to "additionalMongodConfig: {}".
 //
-// A member list with no usable source process is an inconsistent automation config and
-// returns an error rather than being read as "no config": the settings do exist in Ops
-// Manager, and silently dropping them would generate a resource that quietly disagrees with
-// the deployment it is meant to reproduce.
+// Inconsistent automation configs result in a non-nil error being returned, in particular
+// if there is no usable source process for the member list.
 func shardComponentConfig(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) (*mdbv1.AdditionalMongodConfig, error) {
 	proc, err := pickSourceProcess(members, processMap)
 	if err != nil {
@@ -179,8 +174,7 @@ func shardComponentConfig(agentSSL *om.AgentSSL, processMap map[string]om.Proces
 }
 
 // buildShardedComponentSpec wraps shardComponentConfig in a component spec, or returns nil
-// when there is no config to carry, so the component is left out of the generated resource
-// entirely rather than appearing as an empty section.
+// when there is no config to carry.
 func buildShardedComponentSpec(agentSSL *om.AgentSSL, processMap map[string]om.Process, members []om.ReplicaSetMember) (*mdbv1.ShardedClusterComponentSpec, error) {
 	cfg, err := shardComponentConfig(agentSSL, processMap, members)
 	if err != nil {

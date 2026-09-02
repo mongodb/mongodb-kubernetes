@@ -142,6 +142,21 @@ func TestShardedInternalSearchSource_MongosHostsAndPorts_Mixed(t *testing.T) {
 		NewShardedInternalSearchSource(sc, nil).MongosHostsAndPorts())
 }
 
+// Both host lists feed mongot's hostAndPort field, which has no omitempty, so an empty
+// result must marshal as [] rather than null.
+func TestShardedInternalSearchSource_HostListsAreEmptyNotNil(t *testing.T) {
+	sc := newShardedSourceMDB(1, 0, 0)
+
+	seeds, err := NewShardedInternalSearchSource(sc, nil).HostSeeds("sc-0")
+	require.NoError(t, err)
+	assert.NotNil(t, seeds, "HostSeeds must return an empty slice, not nil")
+	assert.Empty(t, seeds)
+
+	routers := NewShardedInternalSearchSource(sc, nil).MongosHostsAndPorts()
+	assert.NotNil(t, routers, "MongosHostsAndPorts must return an empty slice, not nil")
+	assert.Empty(t, routers)
+}
+
 // mongodsPerShardCount == 0 is legal mid-migration and must not fail validation.
 func TestShardedInternalSearchSource_Validate_AllowsZeroMongodsPerShardDuringMigration(t *testing.T) {
 	sc := newShardedSourceMDB(1, 0, 0)

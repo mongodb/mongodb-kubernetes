@@ -53,18 +53,22 @@ func (r *ShardedInternalSearchSource) externalMembersForK8sShardName(shardName s
 // HostSeeds returns the hosts mongot syncs one shard's data from. Kubernetes mongods come
 // first, then any external (VM) members still in the shard.
 func (r *ShardedInternalSearchSource) HostSeeds(shardName string) ([]string, error) {
-	members := r.Spec.MongodsPerShardCount
+	externalMembers := r.externalMembersForK8sShardName(shardName)
+	return append(r.kubernetesMongodHosts(shardName), externalHostnames(externalMembers)...), nil
+}
+
+// kubernetesMongodHosts returns the pod FQDNs of the Kubernetes mongods in one shard, in the
+// form <shardName>-<memberIdx>.<shardServiceName>.<namespace>.svc.<clusterDomain>:<port>.
+func (r *ShardedInternalSearchSource) kubernetesMongodHosts(shardName string) []string {
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
 
-	externalMembers := r.externalMembersForK8sShardName(shardName)
-	seeds := make([]string, 0, members+len(externalMembers))
-	for i := 0; i < members; i++ {
-		// Format: <shardName>-<memberIdx>.<shardServiceName>.<namespace>.svc.<clusterDomain>:<port>
-		seeds = append(seeds, fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
+	hosts := make([]string, 0, r.Spec.MongodsPerShardCount)
+	for i := 0; i < r.Spec.MongodsPerShardCount; i++ {
+		hosts = append(hosts, fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
 			shardName, i, r.ShardServiceName(), r.Namespace, clusterDomain, port))
 	}
-	return append(seeds, externalHostnames(externalMembers)...), nil
+	return hosts
 }
 
 // externalHostnames returns the hostnames of the given external members.
@@ -87,18 +91,22 @@ func externalMongosHostnames(members []mdbv1.ExternalMember) []string {
 	return hostnames
 }
 
-// MongosHostsAndPorts returns the routers mongot should talk to: the Kubernetes mongos Service
-// plus any external (VM) mongos still in the cluster. The Service entry is omitted while
-// mongosCount is 0 (a valid mid-migration state) because it would resolve to no endpoints.
+// MongosHostsAndPorts returns the routers mongot should talk to. The Kubernetes mongos
+// Service comes first, then any external (VM) mongos still in the cluster.
 func (r *ShardedInternalSearchSource) MongosHostsAndPorts() []string {
+	return append(r.kubernetesMongosHosts(), externalMongosHostnames(r.Spec.ExternalMembers)...)
+}
+
+// kubernetesMongosHosts returns the Kubernetes mongos Service, or an empty slice while
+// mongosCount is 0, in which case the Service resolves to no endpoints.
+func (r *ShardedInternalSearchSource) kubernetesMongosHosts() []string {
+	hosts := make([]string, 0, 1)
+	if r.Spec.MongosCount == 0 {
+		return hosts
+	}
 	clusterDomain := r.Spec.GetClusterDomain()
 	port := r.Spec.GetAdditionalMongodConfig().GetPortOrDefault()
-
-	hosts := make([]string, 0, 1+len(r.Spec.ExternalMembers))
-	if r.Spec.MongosCount > 0 {
-		hosts = append(hosts, fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port))
-	}
-	return append(hosts, externalMongosHostnames(r.Spec.ExternalMembers)...)
+	return append(hosts, fmt.Sprintf("%s.%s.svc.%s:%d", r.ServiceName(), r.Namespace, clusterDomain, port))
 }
 
 func (r *ShardedInternalSearchSource) TLSConfig() *TLSSourceConfig {
