@@ -214,6 +214,18 @@ func ConvertCrdLogRotateToAC(lr *CrdLogRotate) *AcLogRotate {
 	}
 }
 
+// ConvertACLogRotateToCrd converts an AcLogRotate to a CrdLogRotate representation.
+func ConvertACLogRotateToCrd(lr *AcLogRotate) *CrdLogRotate {
+	if lr == nil {
+		return nil
+	}
+	return &CrdLogRotate{
+		LogRotate:          lr.LogRotate,
+		SizeThresholdMB:    cast.ToString(lr.SizeThresholdMB),
+		PercentOfDiskspace: cast.ToString(lr.PercentOfDiskspace),
+	}
+}
+
 func (p *Process) SetWiredTigerCache(cacheSizeGb *float32) *Process {
 	if cacheSizeGb == nil {
 		return p
