@@ -2,6 +2,7 @@ package generatememberregistration
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -19,6 +20,7 @@ var flags struct {
 	memberClusterNamespace   string
 	operatorNamespace        string
 	memberClusterLogicalName string
+	memberClusterApiServer   string
 }
 
 func init() {
@@ -27,6 +29,7 @@ func init() {
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
+	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
 }
 
 // GenerateMemberRegistrationCmd reads a member cluster's ServiceAccount token and emits the
@@ -39,6 +42,7 @@ token that 'generate-member-resources' created on it, and writes a credential Se
 single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdout.
 
 If the token Secret is not populated yet, the command waits up to a minute for Kubernetes to provision it.
+By default the credential kubeconfig uses the API server address from --member-cluster-context; pass --member-cluster-api-server to override it.
 
 Apply the output to the operator's cluster with kubectl, or commit it to Git for GitOps.
 
@@ -86,11 +90,23 @@ func parseFlags() (memberregistration.Options, error) {
 		memberClusterLogicalName = flags.memberCluster
 	}
 
+	memberClusterApiServer := strings.TrimSpace(flags.memberClusterApiServer)
+	if memberClusterApiServer != "" {
+		u, err := url.Parse(memberClusterApiServer)
+		if err != nil {
+			return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-api-server %q: %v", memberClusterApiServer, err)
+		}
+		if u.Scheme == "" || u.Hostname() == "" {
+			return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-api-server %q: must be an absolute URL with scheme and host", memberClusterApiServer)
+		}
+	}
+
 	return memberregistration.Options{
 		MemberClusterName:        flags.memberCluster,
 		MemberClusterNamespace:   flags.memberClusterNamespace,
 		OperatorNamespace:        flags.operatorNamespace,
 		MemberClusterLogicalName: memberClusterLogicalName,
+		MemberClusterApiServer:   memberClusterApiServer,
 		TokenWaitTimeout:         memberregistration.DefaultTokenWaitTimeout,
 	}, nil
 }
