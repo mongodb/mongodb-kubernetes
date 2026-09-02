@@ -39,6 +39,7 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 	databaseClusters := 5
 	appDBClusters := 3
 	omClusters := 2
+	externalMembersCount := 2
 
 	props := SearchDeploymentUsageSnapshotProperties{
 		DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
@@ -58,6 +59,10 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 			CustomRoles:              "ClusterSpecific",
 			AuthenticationAgentMode:  "SCRAM",
 			AuthenticationModes:      []string{"SCRAM", "X509"},
+			MigrationPhase:           "InProgress",
+			ExternalMembersCount:     &externalMembersCount,
+			MigrationStartedAt:       "2026-01-01T00:00:00Z",
+			MigrationCompletedAt:     "2026-01-01T01:00:00Z",
 		},
 		IsAutoEmbeddingEnabled: true,
 	}

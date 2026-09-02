@@ -52,8 +52,9 @@ func testTemplate() *batchv1.Job {
 }
 
 // conditionFromResult returns the condition that would be set on the MongoDB status for this result.
-func conditionFromResult(r ConnectivityJobResult) mdbstatus.Option {
-	return mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(r.Phase, r.Reason, r.Message))
+func conditionFromResult(r ConnectivityJobResult) mdbstatus.MigrationStatusOption {
+	cond := mdbstatus.MigrationCondition(r.Phase, r.Reason, r.Message)
+	return mdbstatus.NewMigrationStatusOptionWithCondition(cond)
 }
 
 func TestRunConnectivityJob_StateMachine_NoJobCreatesAndReturnsRunning(t *testing.T) {
@@ -67,8 +68,7 @@ func TestRunConnectivityJob_StateMachine_NoJobCreatesAndReturnsRunning(t *testin
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, result.Phase, "phase: Running when job was just created")
 	// Condition for Running is Unknown
-	opt := conditionFromResult(result)
-	c := opt.(mdbstatus.MigrationConditionOption).Condition
+	c := conditionFromResult(result).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c.Status, "condition status: Unknown while running")
 
 	// Job should exist in the cluster
@@ -92,8 +92,7 @@ func TestRunConnectivityJob_StateMachine_JobRunningReturnsRunning(t *testing.T) 
 
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, result.Phase)
-	opt := conditionFromResult(result)
-	c := opt.(mdbstatus.MigrationConditionOption).Condition
+	c := conditionFromResult(result).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c.Status)
 }
 
@@ -116,8 +115,7 @@ func TestRunConnectivityJob_StateMachine_JobSucceededReturnsPassed(t *testing.T)
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckPassed, result.Phase)
 	assert.Equal(t, "NetworkValidationPassed", result.Reason)
-	opt := conditionFromResult(result)
-	c := opt.(mdbstatus.MigrationConditionOption).Condition
+	c := conditionFromResult(result).Condition
 	assert.Equal(t, metav1.ConditionTrue, c.Status, "condition: True when passed")
 }
 
@@ -156,8 +154,7 @@ func TestRunConnectivityJob_StateMachine_JobFailedRecentReturnsFailedNoReplace(t
 	assert.NoError(t, result.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, result.Phase)
 	assert.Equal(t, "NetworkFailed", result.Reason)
-	opt := conditionFromResult(result)
-	c := opt.(mdbstatus.MigrationConditionOption).Condition
+	c := conditionFromResult(result).Condition
 	assert.Equal(t, metav1.ConditionFalse, c.Status, "condition: False when failed")
 
 	// Job should still exist (we did not delete/replace)
@@ -177,14 +174,14 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles(t *testing.T) {
 	r1 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r1.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r1.Phase, "reconcile 1: Running after create")
-	c1 := conditionFromResult(r1).(mdbstatus.MigrationConditionOption).Condition
+	c1 := conditionFromResult(r1).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c1.Status)
 
 	// Reconcile 2: Job still active (no status update in fake) → still Running
 	r2 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r2.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r2.Phase, "reconcile 2: Running while job active")
-	c2 := conditionFromResult(r2).(mdbstatus.MigrationConditionOption).Condition
+	c2 := conditionFromResult(r2).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c2.Status)
 
 	// Simulate job just succeeded with recent CreationTimestamp (fake may not allow updating CreationTimestamp, so replace)
@@ -206,7 +203,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles(t *testing.T) {
 	r3 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r3.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckPassed, r3.Phase, "reconcile 3: Passed after job succeeds")
-	c3 := conditionFromResult(r3).(mdbstatus.MigrationConditionOption).Condition
+	c3 := conditionFromResult(r3).Condition
 	assert.Equal(t, metav1.ConditionTrue, c3.Status)
 	assert.Equal(t, "NetworkValidationPassed", r3.Reason)
 }
@@ -223,7 +220,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	r1 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r1.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r1.Phase, "reconcile 1: Running after create")
-	c1 := conditionFromResult(r1).(mdbstatus.MigrationConditionOption).Condition
+	c1 := conditionFromResult(r1).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c1.Status)
 
 	// Mark job as failed and add a pod with recent finishedAt (1 min ago)
@@ -255,7 +252,7 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	r2 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r2.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckFailed, r2.Phase, "reconcile 2: Failed when job failed recently")
-	c2 := conditionFromResult(r2).(mdbstatus.MigrationConditionOption).Condition
+	c2 := conditionFromResult(r2).Condition
 	assert.Equal(t, metav1.ConditionFalse, c2.Status)
 	assert.Equal(t, "NetworkFailed", r2.Reason)
 
@@ -268,14 +265,14 @@ func TestRunConnectivityJob_StateMachine_MultipleReconciles_Failure(t *testing.T
 	r3 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r3.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r3.Phase, "reconcile 3: Running after TTL deleted job")
-	c3 := conditionFromResult(r3).(mdbstatus.MigrationConditionOption).Condition
+	c3 := conditionFromResult(r3).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c3.Status)
 
 	// Reconcile 4: New job still active → Running
 	r4 := RunConnectivityJob(ctx, kubeClient, template, testLog)
 	require.NoError(t, r4.Err)
 	assert.Equal(t, mdbstatus.MigrationPhaseConnectivityCheckRunning, r4.Phase, "reconcile 4: Running while new job active")
-	c4 := conditionFromResult(r4).(mdbstatus.MigrationConditionOption).Condition
+	c4 := conditionFromResult(r4).Condition
 	assert.Equal(t, metav1.ConditionUnknown, c4.Status)
 }
 

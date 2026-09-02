@@ -60,7 +60,7 @@ func TestResolveOperatorImage(t *testing.T) {
 			if cond, ok := o.Value().(metav1.Condition); ok {
 				if cond.Reason == "OperatorImageUnknown" {
 					found = true
-					assert.Equal(t, mdbstatus.ConditionNetworkConnectivityVerification, cond.Type)
+					assert.Equal(t, mdbstatus.ConditionNetworkConnectivityVerified, cond.Type)
 					assert.Equal(t, metav1.ConditionFalse, cond.Status)
 				}
 			}

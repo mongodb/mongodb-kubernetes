@@ -58,7 +58,7 @@ func ImageFromOperatorPod(ctx context.Context, reader client.Reader, namespace, 
 
 func operatorImageUnknown() workflow.Status {
 	return workflow.Failed(xerrors.Errorf("cannot run connectivity dry-run: the operator image is unknown; set %s explicitly", util.OperatorImageEnv)).
-		WithAdditionalOptions(mdbstatus.NewMigrationConditionOption(mdbstatus.MigrationCondition(
+		WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
 			mdbstatus.MigrationPhaseConnectivityCheckFailed, "OperatorImageUnknown",
 			"Could not determine the operator image from the operator pod and MDB_OPERATOR_IMAGE is empty.",
 		)))

@@ -30,11 +30,7 @@ from tests.vm_migration.vm_migration_common_helper import (
     rotate_password_and_verify,
     run_generate_cr,
 )
-from tests.vm_migration.vm_migration_dry_run import (
-    create_wrong_ca_configmap,
-    run_migration_dry_run_connectivity_passes,
-    run_wrong_ca_dry_run_fails_then_passes,
-)
+from tests.vm_migration.vm_migration_dry_run import create_wrong_ca_configmap, run_wrong_ca_dry_run_fails_then_passes
 from tests.vm_migration.vm_migration_sharded_helper import (
     MIN_K8S_CONFIGSRV,
     MIN_K8S_MONGOS,
@@ -310,14 +306,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
     ac["auth"] = {
         "usersWanted": [
             {
-                "user": "mms-automation-agent",
-                "db": "admin",
-                "roles": [{"role": "root", "db": "admin"}],
-                "mechanisms": ["SCRAM-SHA-256"],
-                "scramSha256Creds": build_sha256_creds("mms-automation-agent-password"),
-                "authenticationRestrictions": [],
-            },
-            {
                 "user": "app-user",
                 "db": "admin",
                 "roles": [{"role": "readWriteAnyDatabase", "db": "admin"}],
@@ -539,9 +527,11 @@ def test_migration_dry_run_wrong_ca_fails_then_passes(
     )
 
 
-@mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
-def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
-    run_migration_dry_run_connectivity_passes(mdb_migration)
+# The passing dry-run is covered by test_migration_dry_run_wrong_ca_fails_then_passes above, which ends
+# with a full run_migration_dry_run_connectivity_passes. A second standalone dry-run test cannot work
+# here: the first one clears the annotation, which releases the migration, so re-adding the annotation
+# afterwards asks the operator to re-enter a one-way gate it has already passed — the Migrating reason
+# is legitimately Extending by then.
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
