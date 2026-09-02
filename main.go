@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -46,6 +47,7 @@ import (
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                       //nolint:depguard
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
@@ -180,6 +182,14 @@ func run() error {
 			// Ensures every controller gets the trace and signal-aware context
 			return ctx
 		},
+		// Exclude batch/v1.Job from the cache: connectivity dry-run uses Get/List on Jobs infrequently.
+		// A cluster-wide Job informer would be heavier than a few direct API reads per reconcile;
+		// skipping the cache also avoids hanging on WaitForCacheSync when batch RBAC is missing (403 instead).
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&batchv1.Job{}},
+			},
+		},
 	}
 
 	namespacesToWatch := operator.GetWatchedNamespace()
@@ -213,6 +223,21 @@ func run() error {
 		return err
 	}
 	log.Info("Registering Components.")
+
+	// The migration dry-run Job runs the connectivity-validator binary from the operator image.
+	if imageUrls[util.OperatorImageEnv] == "" {
+		podClient, err := client.New(cfg, client.Options{})
+		if err != nil {
+			return err
+		}
+		operatorPodName := env.ReadOrDefault(util.OperatorPodNameEnv, "")
+		if image := opMigration.ImageFromOperatorPod(ctx, podClient, currentNamespace, operatorPodName, webhookSVCSelector); image != "" {
+			imageUrls[util.OperatorImageEnv] = image
+			log.Infof("Resolved operator image from pod %s/%s: %s", currentNamespace, operatorPodName, image)
+		} else {
+			log.Warnf("Could not resolve the operator image from pod %s/%s and %s is unset; migration dry-runs will fail until it is set", currentNamespace, operatorPodName, util.OperatorImageEnv)
+		}
+	}
 
 	// Setup Scheme for all resources
 	if err := apiv1.AddToScheme(scheme); err != nil {

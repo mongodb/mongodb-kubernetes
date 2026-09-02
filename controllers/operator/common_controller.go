@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
@@ -1355,4 +1357,77 @@ func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig
 		return workflow.Failed(err), err
 	}
 	return workflow.OK(), nil
+}
+
+// ensureAgentSubjectDN creates the agent PEM secret when X509 is in use and returns the
+// automation agent subject DN. Returns ("", workflow.OK()) for non-X509 deployments.
+// NOTE: this has a side effect - it creates the secret that ensureX509SecretAndCheckTLSType
+// would normally create, because the dry-run path skips that function.
+func (r *ReconcileCommonController) ensureAgentSubjectDN(
+	ctx context.Context,
+	mdb *mdbv1.MongoDB,
+	agentAuthMode string,
+	log *zap.SugaredLogger,
+) (string, workflow.Status) {
+	subjectDN := ""
+	if sec := mdb.GetSecurity(); sec != nil && sec.GetAgentMechanism(agentAuthMode) == util.X509 {
+		agentCertSecretName := sec.AgentClientCertificateSecretName(mdb.Name)
+		// The connectivity Job mounts the operator-generated agent PEM secret. The full reconcile
+		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
+		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
+		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
+			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
+				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),
+				)))
+		}
+		sel := corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
+			Key:                  corev1.TLSCertKey,
+		}
+		userOpts, err := r.readAgentSubjectsFromSecret(ctx, mdb.Namespace, sel, log)
+		if err != nil {
+			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: automation agent certificate subject: %w", err)).
+				WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSubject", err.Error(),
+				)))
+		}
+		subjectDN = userOpts.AutomationSubject
+	}
+
+	return subjectDN, workflow.OK()
+}
+
+// runConnectivityJob creates or polls the given Job and maps its outcome to a workflow.Status.
+// No StatefulSets or Ops Manager config are modified.
+func (r *ReconcileCommonController) runConnectivityJob(ctx context.Context, job *batchv1.Job, log *zap.SugaredLogger) workflow.Status {
+	result := opMigration.RunConnectivityJob(ctx, r.client, job, log)
+	if result.Err != nil {
+		return workflow.Failed(fmt.Errorf("connectivity dry run: %w", result.Err)).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				result.Phase, result.Reason, result.Message,
+			)))
+	}
+
+	log.Infow("[DRY-RUN CONNECTIVITY] Job status", "phase", result.Phase, "reason", result.Reason, "message", result.Message)
+
+	switch result.Phase {
+	case status.MigrationPhaseConnectivityCheckRunning:
+		return workflow.ConnectivityValidation("Connectivity validation in progress. Remove annotation %s to run full reconciliation", opMigration.AnnotationDryRun).
+			WithRetry(30).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckRunning, "Running", "Connectivity validation Job is in progress",
+			)))
+	case status.MigrationPhaseConnectivityCheckPassed:
+		return workflow.ConnectivityValidation("Connectivity validation passed. Remove annotation %s to continue with migration", opMigration.AnnotationDryRun).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckPassed, result.Reason, result.Message,
+			)))
+	default:
+		return workflow.Failed(fmt.Errorf("%s: %s", result.Reason, result.Message)).
+			WithRetry(300).
+			WithAdditionalOptions(status.NewMigrationConditionOption(status.MigrationCondition(
+				status.MigrationPhaseConnectivityCheckFailed, result.Reason, result.Message,
+			)))
+	}
 }
