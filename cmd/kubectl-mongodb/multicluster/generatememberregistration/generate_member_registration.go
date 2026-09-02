@@ -38,6 +38,8 @@ var GenerateMemberRegistrationCmd = &cobra.Command{
 token that 'generate-member-resources' created on it, and writes a credential Secret (a
 single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdout.
 
+If the token Secret is not populated yet, the command waits up to a minute for Kubernetes to provision it.
+
 Apply the output to the operator's cluster with kubectl, or commit it to Git for GitOps.
 
 Example:
@@ -89,5 +91,6 @@ func parseFlags() (memberregistration.Options, error) {
 		MemberClusterNamespace:   flags.memberClusterNamespace,
 		OperatorNamespace:        flags.operatorNamespace,
 		MemberClusterLogicalName: memberClusterLogicalName,
+		TokenWaitTimeout:         memberregistration.DefaultTokenWaitTimeout,
 	}, nil
 }
