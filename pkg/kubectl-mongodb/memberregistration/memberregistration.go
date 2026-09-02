@@ -49,7 +49,8 @@ type Options struct {
 	MemberClusterNamespace string
 	// OperatorNamespace is the namespace on the operator's cluster where the emitted CR and
 	// credential Secret are placed.
-	OperatorNamespace string
+	OperatorNamespace      string
+	MemberClusterApiServer string
 	// TokenWaitTimeout is how long Generate waits for the token Secret to be populated by
 	// Kubernetes's token controller before failing. It must be positive; the CLI passes
 	// DefaultTokenWaitTimeout.
@@ -65,6 +66,10 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 	token, ca, err := waitForTokenSecret(ctx, memberClusterClient, tokenSecretName, opts)
 	if err != nil {
 		return "", err
+	}
+
+	if opts.MemberClusterApiServer != "" {
+		memberClusterServerURL = opts.MemberClusterApiServer
 	}
 
 	kubeconfig, err := buildKubeConfig(opts.MemberClusterName, memberClusterServerURL, opts.MemberClusterNamespace, ca, token)
