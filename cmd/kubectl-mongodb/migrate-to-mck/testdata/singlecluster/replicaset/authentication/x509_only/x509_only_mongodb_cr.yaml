@@ -44,5 +44,6 @@ spec:
     certsSecretPrefix: mdb
     tls:
       ca: x509only-rs-ca
+      caFilePath: /mongodb-ca/ca.pem
   type: ReplicaSet
   version: 7.0.12

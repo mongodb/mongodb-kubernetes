@@ -21,6 +21,7 @@ from kubetester.scram import build_sha256_creds
 from pytest import fixture, mark
 from tests.vm_migration.vm_migration_common_helper import (
     apply_user_crs_and_verify_ac,
+    assert_ca_file_present_in_pod,
     assert_max_voting_members_validation,
     assert_migration_data_exists,
     generated_mongodb_doc,
@@ -64,6 +65,9 @@ MONGOS_SVC_NAME = "vm-sharded-mongos"
 MDB_RESOURCE_NAME = "sharded-migration"
 VM_CONFIG_RS_NAME = "vm-config"
 VM_SHARD_RS_NAME = "vm-shard-0"
+
+# Non-default CA file path: exercises spec.security.tls.caFilePath end to end.
+CUSTOM_CA_FILE_PATH = "/etc/mongodb-custom-ca/ca.pem"
 VM_MONGOS_NAME = "vm-mongos"
 
 CONFIGSRV_CERT_SECRET = "vm-sharded-configsrv-cert"
@@ -204,7 +208,7 @@ def _tls_extra_volume_mounts() -> list[dict]:
         },
         {
             "name": "mongod-certs",
-            "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+            "mountPath": CUSTOM_CA_FILE_PATH,
             "subPath": "ca.pem",
             "readOnly": True,
         },
@@ -252,7 +256,7 @@ def vm_sharded_mongos_sts(namespace: str, om_tester: OMTester, vm_mongos_tls_pem
             },
             {
                 "name": "mongos-certs",
-                "mountPath": "/mongodb-automation/tls/ca/ca-pem",
+                "mountPath": CUSTOM_CA_FILE_PATH,
                 "subPath": "ca.pem",
                 "readOnly": True,
             },
@@ -297,9 +301,10 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
         tls=True,
+        ca_cert_path=CUSTOM_CA_FILE_PATH,
     )
     ac["ssl"] = {
-        "CAFilePath": "/mongodb-automation/tls/ca/ca-pem",
+        "CAFilePath": CUSTOM_CA_FILE_PATH,
         "clientCertificateMode": "OPTIONAL",
     }
     ac["auth"] = {
@@ -508,6 +513,12 @@ def test_security_auth_present(generated_cr: dict):
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
+def test_ca_file_path_in_cr(generated_cr: dict):
+    """The generated CR must carry the non-default CA file path from the AC."""
+    assert generated_cr["spec"]["security"]["tls"]["caFilePath"] == CUSTOM_CA_FILE_PATH
+
+
+@mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_user_cr_emitted(generated_cr_yaml: str):
     user_docs = generated_user_docs(generated_cr_yaml)
     assert len(user_docs) == 1, f"Expected 1 user CR, got {len(user_docs)}"
@@ -536,6 +547,12 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
     mdb_migration.assert_reaches_phase(Phase.Running, timeout=1800)
+
+
+@mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
+def test_ca_file_mounted_at_custom_path(namespace: str, mdb_migration: MongoDB):
+    """The operator mounts the CA ConfigMap at the custom caFilePath in a migrated shard pod."""
+    assert_ca_file_present_in_pod(namespace, f"{mdb_migration.name}-0-0", CUSTOM_CA_FILE_PATH)
 
 
 @mark.e2e_vm_migration_shardedcluster_scram_sha256_tls
