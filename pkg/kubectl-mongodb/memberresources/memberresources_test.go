@@ -154,16 +154,14 @@ func telemetryResources(n resourceNames) []resourceID {
 
 // operatorResources returns the resourceIDs of the three operator member roles
 // (role-base, role-multicluster, pvc-resize) and their bindings for the given scope. The
-// three roles always share the same scope: roleKind is "Role" (narrowed to the single
-// member namespace) or "ClusterRole" (multi-namespace narrowed or cluster-scoped). In
-// Role mode the roles and one binding each live in namespaces[0]; in ClusterRole mode the
-// roles are cluster-scoped and one RoleBinding each lands in every given namespace — a
-// single empty namespace denotes the cluster-scoped ClusterRoleBinding instead.
+// three roles always share the same scope: roleKind is "Role" (narrowed) or
+// "ClusterRole" (cluster-scoped). In Role mode each role appears once per given
+// namespace — same name, different namespace, because a RoleBinding cannot reference a
+// Role in another namespace — with one RoleBinding per namespace pointing at the
+// co-located Role. In ClusterRole mode the roles are cluster-scoped and one RoleBinding
+// each lands in every given namespace — a single empty namespace denotes the
+// cluster-scoped ClusterRoleBinding instead.
 func operatorResources(n resourceNames, roleKind string, namespaces ...string) []resourceID {
-	roleNamespace := ""
-	if roleKind == "Role" {
-		roleNamespace = namespaces[0]
-	}
 	roles := []struct{ role, binding string }{
 		{n.roleMulticluster, n.roleMulticlusterBinding},
 		{n.roleBase, n.roleBaseBinding},
@@ -171,7 +169,16 @@ func operatorResources(n resourceNames, roleKind string, namespaces ...string) [
 	}
 	var out []resourceID
 	for _, r := range roles {
-		out = append(out, resourceID{Kind: roleKind, Name: r.role, Namespace: roleNamespace})
+		if roleKind == "Role" {
+			for _, ns := range namespaces {
+				out = append(out,
+					resourceID{Kind: "Role", Name: r.role, Namespace: ns},
+					resourceID{Kind: "RoleBinding", Name: r.binding, Namespace: ns},
+				)
+			}
+			continue
+		}
+		out = append(out, resourceID{Kind: roleKind, Name: r.role, Namespace: ""})
 		for _, ns := range namespaces {
 			bindingKind := "RoleBinding"
 			if ns == "" {
@@ -213,27 +220,28 @@ func TestRender(t *testing.T) {
 			}, operatorResources(n, "Role", memberNs)...), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
-			// A single workload namespace that differs from the member namespace unions to
-			// {ns1, mongodb} (size 2), so the operator roles become ClusterRoles with
-			// RoleBindings in both namespaces, while the workload RBAC lands in ns1 only.
+			// A single workload namespace that differs from the member namespace unions the
+			// binding set to {ns1, mongodb}: each operator role is rendered as a Role once
+			// per binding namespace with a RoleBinding per namespace, while the workload
+			// RBAC lands in ns1 only.
 			name:              "single workload namespace differs from member namespace",
 			workload:          []string{"ns1"},
 			operatorTelemetry: true,
-			wantRoleKind:      "ClusterRole",
+			wantRoleKind:      "Role",
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "ClusterRole", memberNs, "ns1")...), telemetryResources(n)...), workloadResources(n, "ns1")...),
+			}, operatorResources(n, "Role", "ns1", memberNs)...), telemetryResources(n)...), workloadResources(n, "ns1")...),
 		},
 		{
 			name:              "multiple workload namespaces",
 			workload:          []string{"ns1", "ns2"},
 			operatorTelemetry: true,
-			wantRoleKind:      "ClusterRole",
+			wantRoleKind:      "Role",
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "ClusterRole", memberNs, "ns1", "ns2")...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
+			}, operatorResources(n, "Role", "ns1", "ns2", memberNs)...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
 			name:                  "cluster-scoped with default workload namespaces",

@@ -3,9 +3,9 @@ Operator RBAC for the clusters the operator manages workloads on. Dual-mode temp
 
   - Base mode (helm install / OLM; memberCluster.enabled unset): renders the operator's
     own role <operator.name> — the shared workload-management rules below plus the
-    central-only rules (CRD groups, operatorconfigs/memberclusters, cluster-wide
-    namespaces list/watch) — bound to the operator ServiceAccount across
-    operator.watchNamespace.
+    central-only rules (CRD groups, operatorconfigs/memberclusters) — bound to the
+    operator ServiceAccount across operator.watchNamespace. The cluster-wide
+    namespaces list/watch rule is added only when watching all namespaces ("*").
 
   - Member mode (memberCluster.enabled=true, set exclusively by
     `kubectl mongodb multicluster generate-member-resources`): renders
@@ -55,17 +55,20 @@ the binding namespace source branch on the mode.
 {{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
 {{- end -}}
 
+{{- /* One Role per watched namespace: only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
 {{- $roleScope := "Role" -}}
-{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
-{{- $roleScope = "ClusterRole" }}
-{{- end }}
+{{- if has "*" $watchNamespace -}}
+{{- $roleScope = "ClusterRole" -}}
+{{- $watchNamespace = list "*" -}}
+{{- end -}}
+{{- range $idx, $namespace := $watchNamespace }}
 ---
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ $operatorNamespace }}
+  namespace: {{ $namespace }}
 {{- end }}
 {{- if $memberMode }}
   annotations:
@@ -183,6 +186,7 @@ rules:
       - list
       - watch
 {{- end}}
+{{- end }}
 {{- end }}
 {{- range $idx, $namespace := $watchNamespace }}
 

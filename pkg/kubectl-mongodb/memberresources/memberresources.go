@@ -53,13 +53,17 @@ var memberTemplates = []string{
 // member-cluster values and returns the concatenated YAML.
 //
 //   - workloadNamespaces: namespaces where workloads run on the member cluster; workload
-//     ServiceAccounts/Roles are seeded in each, and (unless operatorClusterScoped) the member SA is
-//     bound in each. The caller (the CLI) is expected to have normalised and validated the
-//     list — the templates reject "*" as a backstop.
+//     ServiceAccounts/Roles are seeded in each, and (unless operatorClusterScoped) each operator
+//     role is rendered as a namespaced Role once per binding namespace — the union of the
+//     workload namespaces and the member namespace — with a RoleBinding per namespace pointing
+//     at the co-located Role (a RoleBinding cannot reference a Role in another namespace).
+//     The caller (the CLI) is expected to have normalised and validated the list — the
+//     templates reject "*" as a backstop.
 //   - operatorClusterScoped: grant the member SA cluster-wide permissions (ClusterRole + a single
-//     ClusterRoleBinding); use when the operator watches all namespaces.
-//   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding
-//     (the only cluster-scoped resources in a narrowed render).
+//     ClusterRoleBinding); use when the operator watches all namespaces. This is the only mode
+//     that renders cluster-scoped operator-permission resources.
+//   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding (cluster-scoped
+//     regardless of the mode above).
 //   - imagePullSecrets: when non-empty, set as the workload ServiceAccounts' imagePullSecrets.
 func Render(namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
 	chrt, err := loadEmbeddedChart()
