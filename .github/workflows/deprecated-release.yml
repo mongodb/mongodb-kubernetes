@@ -1,8 +1,8 @@
 # DEPRECATED: legacy release process (rebuilds and retests before publishing).
 # To be deleted once the publish-only process fully replaces it.
 #
-# Pushes an "X.Y.Z" git tag with no special annotation.
-# Evergreen inspects the annotation: no "[new]" prefix → deprecated-release.
+# The undecorated version tag annotation message signals that this version 
+# should go through the legacy release process
 name: Deprecated Legacy Release MCK version (slow with rebuild and retesting)
 
 on:
