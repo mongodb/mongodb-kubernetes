@@ -417,6 +417,22 @@ def delete_cluster_role_binding(name: str, api_client: Optional[client.ApiClient
             raise e
 
 
+def delete_role(namespace: str, name: str, api_client: Optional[client.ApiClient] = None):
+    try:
+        client.RbacAuthorizationV1Api(api_client=api_client).delete_namespaced_role(name, namespace)
+    except client.rest.ApiException as e:
+        if e.status != 404:
+            raise e
+
+
+def delete_role_binding(namespace: str, name: str, api_client: Optional[client.ApiClient] = None):
+    try:
+        client.RbacAuthorizationV1Api(api_client=api_client).delete_namespaced_role_binding(name, namespace)
+    except client.rest.ApiException as e:
+        if e.status != 404:
+            raise e
+
+
 def random_k8s_name(prefix=""):
     return prefix + "".join(random.choice(string.ascii_lowercase) for _ in range(10))
 

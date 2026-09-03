@@ -1,0 +1,99 @@
+suite: test operator base role scope (Role per namespace vs ClusterRole)
+templates:
+  - operator-roles-base.yaml
+tests:
+  - it: default install renders a single namespaced Role and RoleBinding
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 0
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 1
+
+  - it: multi-namespace watchNamespace renders one Role per namespace and no ClusterRole
+    set:
+      operator.watchNamespace: "ns1,ns2"
+    asserts:
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - isKind:
+          of: Role
+        documentIndex: 1
+      - isKind:
+          of: Role
+        documentIndex: 2
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 2
+      - isKind:
+          of: RoleBinding
+        documentIndex: 3
+      - isKind:
+          of: RoleBinding
+        documentIndex: 4
+      - isKind:
+          of: RoleBinding
+        documentIndex: 5
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 3
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 4
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 5
+      # namespaces list/watch is only granted when watching all namespaces
+      - notExists:
+          path: rules[8]
+        documentIndex: 0
+
+  - it: cluster-wide watchNamespace renders a ClusterRole with the namespaces rule
+    set:
+      operator.watchNamespace: "*"
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - equal:
+          path: rules[8].resources[0]
+          value: namespaces
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      - isKind:
+          of: RoleBinding
+        documentIndex: 2
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+        documentIndex: 2

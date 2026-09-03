@@ -35,11 +35,12 @@ flag, not a user-facing install option, so guard the access with `default dict`.
 Scope model (set exclusively by the plugin):
   - memberCluster.clusterScoped (bool): the operator watches all namespaces; the member
     ServiceAccount gets ClusterRoles and single ClusterRoleBindings instead of
-    per-namespace RoleBindings.
+    per-namespace Roles and RoleBindings.
   - memberCluster.workloadNamespaces (list): namespaces where workloads run on the member
     cluster; in narrowed mode the member ServiceAccount is bound in each of them plus the
-    operator namespace (which holds the SA and the token Secret). "*" is never a valid
-    entry — cluster-wide permission is expressed only via clusterScoped.
+    operator namespace (which holds the SA and the token Secret), with one Role per
+    namespace — narrowed renders contain no cluster-scoped resources. "*" is never a
+    valid entry — cluster-wide permission is expressed only via clusterScoped.
 */ -}}
 {{- if (.Values.memberCluster | default dict).enabled }}
 {{- $name := "mck-member" }}
@@ -51,9 +52,12 @@ Scope model (set exclusively by the plugin):
 {{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" }}
 {{- end }}
 {{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
-{{- $roleScope := "Role" -}}
-{{- if or $clusterScoped (gt (len $bindingNamespaces) 1) }}
-{{- $roleScope = "ClusterRole" }}
+{{- /* Narrowed mode renders one Role per binding namespace (a RoleBinding cannot
+       reference a Role in another namespace; MCK 1.x plugin parity); only
+       clusterScoped renders a ClusterRole + a single ClusterRoleBinding. */ -}}
+{{- $roleNamespaces := $bindingNamespaces -}}
+{{- if $clusterScoped }}
+{{- $roleNamespaces = list "*" }}
 {{- end }}
 {{- $rbacVersion := .Chart.Version | quote }}
 ---
@@ -76,13 +80,18 @@ metadata:
     kubernetes.io/service-account.name: {{ $name }}-sa
     mongodb.com/rbac-version: {{ $rbacVersion }}
 type: kubernetes.io/service-account-token
+{{- range $idx, $ns := $roleNamespaces }}
+{{- $roleScope := "Role" -}}
+{{- if eq $ns "*" }}
+{{- $roleScope = "ClusterRole" }}
+{{- end }}
 ---
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}-role-multicluster
 {{- if eq $roleScope "Role" }}
-  namespace: {{ $namespace }}
+  namespace: {{ $ns }}
 {{- end }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
@@ -107,40 +116,31 @@ rules:
       - deployments
     verbs:
       - deletecollection
-{{- if $clusterScoped }}
----
-kind: ClusterRoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ $name }}-role-multicluster-binding
-  annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ $name }}-role-multicluster
-subjects:
-  - kind: ServiceAccount
-    name: {{ $name }}-sa
-    namespace: {{ $namespace }}
-{{- else }}
-{{- range $idx, $ns := $bindingNamespaces }}
----
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ $name }}-role-multicluster-binding
-  namespace: {{ $ns }}
-  annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: {{ $roleScope }}
-  name: {{ $name }}-role-multicluster
-subjects:
-  - kind: ServiceAccount
-    name: {{ $name }}-sa
-    namespace: {{ $namespace }}
 {{- end }}
+{{- range $idx, $ns := $roleNamespaces }}
+{{- $bindingKind := "RoleBinding" -}}
+{{- $roleRefKind := "Role" -}}
+{{- if eq $ns "*" }}
+{{- $bindingKind = "ClusterRoleBinding" }}
+{{- $roleRefKind = "ClusterRole" }}
+{{- end }}
+---
+kind: {{ $bindingKind }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-multicluster-binding
+{{- if ne $ns "*" }}
+  namespace: {{ $ns }}
+{{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $roleRefKind }}
+  name: {{ $name }}-role-multicluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-sa
+    namespace: {{ $namespace }}
 {{- end }}
 {{- end }}
