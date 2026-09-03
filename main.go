@@ -269,31 +269,28 @@ func run() error {
 	// startup-built snapshot.
 	memberClustersProvider := multicluster.NewProvider()
 
-	// TODO(m1kola): This shouldn't be wrapped in this condtion anymore, probably.
-	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
-		// each member cluster's runtime entry (and tears it down on CR deletion) without an
-		// operator restart. The initial informer replay registers the CRs that already exist.
-		memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
-			func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
-				return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
-					// Use the operator scheme so cross-cluster owner references
-					// can resolve our CRD types (default scheme lacks them).
-					options.Scheme = scheme
-					if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
-						defaultNamespaces := make(map[string]cache.Config)
-						for _, namespace := range namespacesToWatch {
-							defaultNamespaces[namespace] = cache.Config{}
-						}
-						options.Cache = cache.Options{
-							DefaultNamespaces: defaultNamespaces,
-						}
+	// MemberCluster CRs drive the provider reactively: the reconciler builds and starts
+	// each member cluster's runtime entry (and tears it down on CR deletion) without an
+	// operator restart. The initial informer replay registers the CRs that already exist.
+	memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
+		func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
+			return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
+				// Use the operator scheme so cross-cluster owner references
+				// can resolve our CRD types (default scheme lacks them).
+				options.Scheme = scheme
+				if len(namespacesToWatch) > 1 || namespacesToWatch[0] != "" {
+					defaultNamespaces := make(map[string]cache.Config)
+					for _, namespace := range namespacesToWatch {
+						defaultNamespaces[namespace] = cache.Config{}
 					}
-				})
+					options.Cache = cache.Options{
+						DefaultNamespaces: defaultNamespaces,
+					}
+				}
 			})
-		if err := memberClusterReconciler.SetupWithManager(mgr); err != nil {
-			return err
-		}
+		})
+	if err := memberClusterReconciler.SetupWithManager(mgr); err != nil {
+		return err
 	}
 
 	// Setup all Controllers
