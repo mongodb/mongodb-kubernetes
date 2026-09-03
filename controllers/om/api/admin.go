@@ -143,7 +143,7 @@ func NewOmAdmin(baseUrl, user, privateKey string, ca *string) OpsManagerAdmin {
 }
 
 func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error) {
-	ans, _, apiErr := a.get("admin/backup/daemon/configs/%s/%s", hostName, url.QueryEscape(headDbDir))
+	ans, _, apiErr := a.get("admin/backup/daemon/configs/%s/%s", hostName, headDbDir)
 	if apiErr != nil {
 		return backup.DaemonConfig{}, apiErr
 	}
@@ -156,7 +156,7 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Da
 }
 
 func (a *DefaultOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
-	_, _, err := a.put("admin/backup/daemon/configs/%s/%s", config, url.QueryEscape(config.Machine.MachineHostName), url.QueryEscape(config.Machine.HeadRootDirectory))
+	_, _, err := a.put("admin/backup/daemon/configs/%s/%s", config, config.Machine.MachineHostName, config.Machine.HeadRootDirectory)
 	if err != nil {
 		return err
 	}
@@ -398,8 +398,16 @@ func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...
 		return nil, nil, apierror.New(err)
 	}
 
+	// Path parameters are caller-supplied (backup store ids originate in the OpsManager CR and in
+	// Ops Manager API responses) and must stay a single URL path segment: an unescaped '/', '..',
+	// '?' or '#' would retarget this global-owner-authenticated request to another OM endpoint.
+	escaped := make([]interface{}, len(params))
+	for i, p := range params {
+		escaped[i] = url.PathEscape(fmt.Sprint(p))
+	}
+
 	path = fmt.Sprintf("/api/public/v1.0/%s", path)
-	path = fmt.Sprintf(path, params...)
+	path = fmt.Sprintf(path, escaped...)
 
 	return client.Request(method, a.BaseURL, path, v)
 }
