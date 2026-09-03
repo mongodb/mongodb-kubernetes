@@ -46,14 +46,6 @@ rules:
       - deployments
     verbs:
       - deletecollection
-  # get on serviceaccounts lets the operator read the mck-member-<cluster-name>-sa
-  # mongodb.com/rbac-version annotation to validate this cluster's RBAC.
-  - apiGroups:
-      - ''
-    resources:
-      - serviceaccounts
-    verbs:
-      - get
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
