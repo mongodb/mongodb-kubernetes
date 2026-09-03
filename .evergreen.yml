@@ -1301,7 +1301,6 @@ task_groups:
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
       - e2e_om_external_appdb_fresh
-      - e2e_om_external_appdb_backup_and_restore
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_migration
@@ -1347,7 +1346,6 @@ task_groups:
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
       - e2e_om_external_appdb_fresh
-      - e2e_om_external_appdb_backup_and_restore
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_weak_password
@@ -1427,6 +1425,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_backup_object_lock
+      - e2e_om_external_appdb_backup_and_restore
 
   # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
   - name: e2e_ops_manager_upgrade_only_task_group
