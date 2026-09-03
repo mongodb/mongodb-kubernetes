@@ -341,6 +341,11 @@ const (
 	// onward the OwnerReference is the authoritative state.
 	AppDBReverseMigrationReadyAnnotation = "mongodb.com/appdb-reverse-migration-ready"
 
+	// MemberClusterCredentialSecretKubeconfigKey is the Secret key holding the
+	// single-context member-cluster kubeconfig: the contract between the
+	// `generate-member-registration` plugin command (writer) and the operator (reader).
+	MemberClusterCredentialSecretKubeconfigKey = "kubeconfig"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 

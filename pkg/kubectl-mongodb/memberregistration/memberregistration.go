@@ -21,12 +21,10 @@ import (
 
 	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 const (
-	// credentialSecretKey is the single key in the credential Secret holding the kubeconfig.
-	credentialSecretKey = "kubeconfig"
-
 	// DefaultTokenWaitTimeout is the default budget the CLI gives Kubernetes's token controller
 	// to populate the ServiceAccount token Secret before Generate fails.
 	DefaultTokenWaitTimeout = time.Minute
@@ -89,7 +87,7 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 			Namespace: opts.OperatorNamespace,
 		},
 		Type:       corev1.SecretTypeOpaque,
-		StringData: map[string]string{credentialSecretKey: string(kubeconfig)},
+		StringData: map[string]string{util.MemberClusterCredentialSecretKubeconfigKey: string(kubeconfig)},
 	}
 
 	memberCluster := &operatorv1.MemberCluster{
