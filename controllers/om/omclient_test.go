@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/pkg/test/httprecorder"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -244,49 +245,6 @@ func automationConfig(groupId string, responses ...automationConfigResponse) (ha
 	return handle, counters
 }
 
-type requestInfo struct {
-	method     string
-	path       string // r.URL.Path (percent-decoded by the server)
-	rawQuery   string // r.URL.RawQuery
-	requestURI string // raw request-target exactly as received on the wire
-	count      int
-}
-
-type requestRecorder struct {
-	mu   sync.Mutex
-	last requestInfo
-}
-
-func (rec *requestRecorder) record(r *http.Request) {
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	rec.last.count++
-	rec.last.method = r.Method
-	rec.last.path = r.URL.Path
-	rec.last.rawQuery = r.URL.RawQuery
-	rec.last.requestURI = r.RequestURI
-}
-
-func (rec *requestRecorder) get() requestInfo {
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	return rec.last
-}
-
-// capturingServer records the raw request-target of every request and replies with the
-// given status and body. It deliberately uses a bare http.HandlerFunc (not http.ServeMux)
-// so that path traversal (`..`) and escaped separators are observed exactly as sent,
-// without the mux's path-cleaning/redirects masking the injection.
-func capturingServer(status int, body []byte) (*httptest.Server, *requestRecorder) {
-	rec := &requestRecorder{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rec.record(r)
-		w.WriteHeader(status)
-		_, _ = w.Write(body)
-	}))
-	return srv, rec
-}
-
 func TestReadOrganization_OrgIDIsPathEscaped(t *testing.T) {
 	orgJSON, err := json.Marshal(&Organization{ID: "real-org", Name: "real-org"})
 	require.NoError(t, err)
@@ -302,7 +260,7 @@ func TestReadOrganization_OrgIDIsPathEscaped(t *testing.T) {
 
 	for _, payload := range payloads {
 		t.Run(payload, func(t *testing.T) {
-			srv, rec := capturingServer(http.StatusOK, orgJSON)
+			srv, rec := httprecorder.NewServer(http.StatusOK, orgJSON)
 			defer srv.Close()
 
 			conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL}, OptionRetryConfig(0, 0, 1))
@@ -310,16 +268,16 @@ func TestReadOrganization_OrgIDIsPathEscaped(t *testing.T) {
 			_, err := conn.ReadOrganization(payload)
 			require.NoError(t, err)
 
-			got := rec.get()
+			got := rec.Last()
 			t.Logf("ReadOrganization(%q) -> OM received: %s %s (RawQuery=%q)",
-				payload, got.method, got.requestURI, got.rawQuery)
+				payload, got.Method, got.RequestURI, got.RawQuery)
 
 			want := "/api/public/v1.0/orgs/" + url.PathEscape(payload)
-			assert.Equalf(t, want, got.requestURI,
+			assert.Equalf(t, want, got.RequestURI,
 				"orgID must remain a single URL-escaped path segment; a different request-target means "+
 					"the authenticated request was forged to an attacker-chosen OM endpoint")
-			assert.Emptyf(t, got.rawQuery,
-				"orgID must not be able to inject query parameters into the OM request); got %q", got.rawQuery)
+			assert.Emptyf(t, got.RawQuery,
+				"orgID must not be able to inject query parameters into the OM request); got %q", got.RawQuery)
 		})
 	}
 }
@@ -333,7 +291,7 @@ func TestReadProjectsInOrganization_OrgIDIsPathEscaped(t *testing.T) {
 	const orgID = "inject/agentapikeys?itemsPerPage=1"
 
 	t.Run("ReadProjectsInOrganizationByName", func(t *testing.T) {
-		srv, rec := capturingServer(http.StatusOK, projectsJSON)
+		srv, rec := httprecorder.NewServer(http.StatusOK, projectsJSON)
 		defer srv.Close()
 
 		conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL}, OptionRetryConfig(0, 0, 1))
@@ -341,17 +299,17 @@ func TestReadProjectsInOrganization_OrgIDIsPathEscaped(t *testing.T) {
 		_, err := conn.ReadProjectsInOrganizationByName(orgID, "The Project")
 		require.NoError(t, err)
 
-		got := rec.get()
-		t.Logf("ReadProjectsInOrganizationByName -> OM received: %s %s", got.method, got.requestURI)
+		got := rec.Last()
+		t.Logf("ReadProjectsInOrganizationByName -> OM received: %s %s", got.Method, got.RequestURI)
 
 		want := "/api/public/v1.0/orgs/" + url.PathEscape(orgID) + "/groups?name=" + url.QueryEscape("The Project")
-		assert.Equalf(t, want, got.requestURI,
+		assert.Equalf(t, want, got.RequestURI,
 			"orgID must remain a single escaped path segment so the request stays on the intended "+
 				"/orgs/{orgID}/groups endpoint")
 	})
 
 	t.Run("ReadProjectsInOrganization", func(t *testing.T) {
-		srv, rec := capturingServer(http.StatusOK, projectsJSON)
+		srv, rec := httprecorder.NewServer(http.StatusOK, projectsJSON)
 		defer srv.Close()
 
 		conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL}, OptionRetryConfig(0, 0, 1))
@@ -359,11 +317,11 @@ func TestReadProjectsInOrganization_OrgIDIsPathEscaped(t *testing.T) {
 		_, err := conn.ReadProjectsInOrganization(orgID, 0)
 		require.NoError(t, err)
 
-		got := rec.get()
-		t.Logf("ReadProjectsInOrganization -> OM received: %s %s", got.method, got.requestURI)
+		got := rec.Last()
+		t.Logf("ReadProjectsInOrganization -> OM received: %s %s", got.Method, got.RequestURI)
 
 		want := "/api/public/v1.0/orgs/" + url.PathEscape(orgID) + "/groups?itemsPerPage=500&pageNum=0"
-		assert.Equalf(t, want, got.requestURI,
+		assert.Equalf(t, want, got.RequestURI,
 			"orgID must remain a single escaped path segment so the request stays on the intended "+
 				"/orgs/{orgID}/groups endpoint")
 	})
