@@ -107,8 +107,8 @@ func TestBackupDaemonStatefulSet_ServiceAccount(t *testing.T) {
 		assert.Equal(t, util.OpsManagerServiceAccount, sts.Spec.Template.Spec.ServiceAccountName)
 	})
 
-	t.Run("member cluster uses the member-scoped service account", func(t *testing.T) {
-		sts := buildWithMemberCluster(t, multicluster.MemberCluster{Name: "cluster-a", ResourceName: "cluster-a", Legacy: false, Replicas: 1})
-		assert.Equal(t, "mck-member-cluster-a-ops-manager", sts.Spec.Template.Spec.ServiceAccountName)
+	t.Run("member cluster uses the fixed member-scoped service account", func(t *testing.T) {
+		sts := buildWithMemberCluster(t, multicluster.MemberCluster{Name: "cluster-a", Legacy: false, Replicas: 1})
+		assert.Equal(t, "mck-member-ops-manager", sts.Spec.Template.Spec.ServiceAccountName)
 	})
 }
