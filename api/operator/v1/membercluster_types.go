@@ -26,9 +26,6 @@ type MemberClusterSpec struct {
 // MemberClusterStatus defines the observed state of MemberCluster.
 type MemberClusterStatus struct {
 	// Conditions reflect the current status of the member cluster.
-	// The RBACValid condition reports whether the member-cluster RBAC version matches
-	// the running operator version. When RBACValid is False the operator stops reconciling
-	// workloads on the cluster until RBAC is regenerated and reapplied.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -45,7 +42,6 @@ type MemberClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=memberclusters,scope=Namespaced,shortName=mc
 // +kubebuilder:printcolumn:name="Cluster Name",type="string",JSONPath=".spec.clusterName"
-// +kubebuilder:printcolumn:name="RBAC Valid",type="string",JSONPath=".status.conditions[?(@.type==\"RBACValid\")].status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type MemberCluster struct {
 	metav1.TypeMeta   `json:",inline"`
