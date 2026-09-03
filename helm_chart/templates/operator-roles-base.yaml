@@ -3,9 +3,11 @@ Operator RBAC for the clusters the operator manages workloads on. Dual-mode temp
 
   - Base mode (helm install / OLM; memberCluster.enabled unset): renders the operator's
     own role <operator.name> — the shared workload-management rules below plus the
-    central-only rules (CRD groups, operatorconfigs/memberclusters, cluster-wide
-    namespaces list/watch) — bound to the operator ServiceAccount across
-    operator.watchNamespace.
+    central-only rules (CRD groups, operatorconfigs/memberclusters) — bound to the
+    operator ServiceAccount across operator.watchNamespace. The cluster-wide
+    namespaces list/watch rule is added only when watching all namespaces ("*"):
+    it backs the agents-upgrade path that enumerates namespaces, which narrowed
+    installs never exercise.
 
   - Member mode (memberCluster.enabled=true, set exclusively by
     `kubectl mongodb multicluster generate-member-resources`): renders
@@ -55,8 +57,17 @@ the binding namespace source branch on the mode.
 {{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
 {{- end -}}
 
+{{- /* One Role per watched namespace in narrowed mode: a RoleBinding cannot reference
+       a Role in another namespace, so the role is duplicated per namespace (MCK 1.x
+       plugin parity). Only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
+{{- $clusterWide := has "*" $watchNamespace -}}
+{{- $roleNamespaces := $watchNamespace -}}
+{{- if $clusterWide -}}
+{{- $roleNamespaces = list "*" -}}
+{{- end -}}
+{{- range $idx, $namespace := $roleNamespaces }}
 {{- $roleScope := "Role" -}}
-{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
+{{- if eq $namespace "*" }}
 {{- $roleScope = "ClusterRole" }}
 {{- end }}
 ---
@@ -65,7 +76,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ $operatorNamespace }}
+  namespace: {{ $namespace }}
 {{- end }}
 {{- if $memberMode }}
   annotations:
@@ -174,9 +185,14 @@ rules:
       - watch
 {{- end}}
 {{- end }}
+{{- end }}
 {{- range $idx, $namespace := $watchNamespace }}
 
 {{- $namespaceBlock := "" }}
+{{- $roleRefKind := "Role" }}
+{{- if $clusterWide }}
+{{- $roleRefKind = "ClusterRole" }}
+{{- end }}
 {{- if not (eq $namespace "*") }}
 {{- $namespaceBlock = printf "namespace: %s" $namespace }}
 {{- end }}
@@ -197,7 +213,7 @@ metadata:
 {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: {{ $roleScope }}
+  kind: {{ $roleRefKind }}
   name: {{ $name }}
 subjects:
   - kind: ServiceAccount

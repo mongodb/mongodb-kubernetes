@@ -48,8 +48,16 @@ retention policy), never by the operator.
 {{- end -}}
 
 
+{{- /* One Role per watched namespace in narrowed mode (see operator-roles-base.yaml);
+       only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
+{{- $clusterWide := has "*" $watchNamespace -}}
+{{- $roleNamespaces := $watchNamespace -}}
+{{- if $clusterWide -}}
+{{- $roleNamespaces = list "*" -}}
+{{- end -}}
+{{- range $idx, $namespace := $roleNamespaces }}
 {{- $roleScope := "Role" -}}
-{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
+{{- if eq $namespace "*" }}
 {{- $roleScope = "ClusterRole" }}
 {{- end }}
 ---
@@ -58,7 +66,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ $operatorNamespace }}
+  namespace: {{ $namespace }}
 {{- end }}
 {{- if $memberMode }}
   annotations:
@@ -73,9 +81,14 @@ rules:
       - list
       - watch
       - update
+{{- end }}
 {{- range $idx, $namespace := $watchNamespace }}
 
 {{- $namespaceBlock := "" }}
+{{- $roleRefKind := "Role" }}
+{{- if $clusterWide }}
+{{- $roleRefKind = "ClusterRole" }}
+{{- end }}
 {{- if not (eq $namespace "*") }}
 {{- $namespaceBlock = printf "namespace: %s" $namespace }}
 {{- end }}
@@ -96,7 +109,7 @@ metadata:
 {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: {{ $roleScope }}
+  kind: {{ $roleRefKind }}
   name: {{ $name }}
 subjects:
   - kind: ServiceAccount

@@ -22,7 +22,7 @@ var flags struct {
 func init() {
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster for the operator's credentials. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --member-cluster-namespace]")
-	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). [optional]")
+	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). Without this flag, the rendered operator permissions are namespaced Roles bound in each workload namespace. [optional]")
 	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorTelemetry, "operator-telemetry", true, "Allow the operator to collect cluster-level telemetry on this member cluster. Set to false to opt out. [optional]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "Name of an existing image pull Secret to set on the member-cluster workload ServiceAccounts, for pulling images from a private registry. The Secret must already exist in the workload namespace on the member cluster. [optional]")
 }
@@ -36,6 +36,11 @@ multi-cluster operation. It is purely local: it contacts no cluster and writes t
 manifests as YAML to stdout.
 
 Apply the output to the member cluster with kubectl, or commit it to Git for GitOps.
+
+By default the operator's permissions are namespaced: each operator role is rendered
+as a Role in every workload namespace (plus the member-cluster namespace) with a
+RoleBinding alongside it. --operator-cluster-scoped switches to a ClusterRole with a
+single ClusterRoleBinding for a cluster-wide operator.
 
 Example (operator watching a single namespace):
 
