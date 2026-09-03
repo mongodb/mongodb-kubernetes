@@ -365,7 +365,6 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	assert.ElementsMatch(t, []rbacRule{
 		{apiGroups: []string{""}, resources: []string{"configmaps", "secrets", "services"}, verbs: []string{"deletecollection"}},
 		{apiGroups: []string{"apps"}, resources: []string{"deployments", "statefulsets"}, verbs: []string{"deletecollection"}},
-		{apiGroups: []string{""}, resources: []string{"serviceaccounts"}, verbs: []string{"get"}},
 	}, rulesOf(t, byName[n.roleMulticluster]), "role-multicluster rules")
 
 	baseRules := rulesOf(t, byName[n.roleBase])

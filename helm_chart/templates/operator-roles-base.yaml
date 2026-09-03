@@ -14,7 +14,7 @@ Operator RBAC for the clusters the operator manages workloads on. Dual-mode temp
     ServiceAccount mck-member-<cluster-name>-sa, additive to the base installation RBAC.
     The central-only rules are excluded: Custom Resources live on the central cluster
     only. Rules the operator needs only because of multi-cluster operation
-    (deletecollection cleanup, the rbac-version self-read) live in
+    (deletecollection cleanup) live in
     member-cluster-rbac.yaml as mck-member-<cluster-name>-role-multicluster.
 
 The shared workload-management rules are intentionally written once, unconditionally, so
