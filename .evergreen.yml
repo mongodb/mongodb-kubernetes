@@ -460,13 +460,13 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: build_multi_cluster_binary
+      - func: build_kubectl_plugin
 
   - name: build_test_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/amd64
       - func: quay_staging_login
@@ -478,7 +478,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/arm64
       - func: quay_staging_login

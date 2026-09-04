@@ -8,7 +8,7 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: python_venv
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/amd64
     teardown_task:
@@ -55,7 +55,7 @@ variables:
       - func: setup_building_host
       - func: setup_kubernetes_environment
       - func: setup_cloud_qa
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/amd64
     teardown_task:

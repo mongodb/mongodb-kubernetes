@@ -99,4 +99,8 @@ COPY release.json /tests/release.json
 # we use the public directory to automatically test resources samples
 COPY public /mongodb-kubernetes/public
 
-ADD "docker/mongodb-kubernetes-tests/kubectl-mongodb_${TARGETARCH}" /usr/local/bin/kubectl-mongodb
+# Only the VM migration tests use the plugin, and it is not built for every
+# architecture, so install it when the binary is present in the build context.
+RUN if [ -f "/tests/kubectl-mongodb_${TARGETARCH}" ]; then \
+    install -m 755 "/tests/kubectl-mongodb_${TARGETARCH}" /usr/local/bin/kubectl-mongodb; \
+    fi
