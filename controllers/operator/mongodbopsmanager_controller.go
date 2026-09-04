@@ -1392,7 +1392,9 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 				SetNamespace(adminKeySecretName.Namespace).
 				SetName(adminKeySecretName.Name).
 				SetStringMapToData(secretData).
-				SetLabels(map[string]string{}).Build()
+				SetLabels(map[string]string{
+					omv1.OpsManagerNamespaceLabel: opsManager.Namespace,
+				}).Build()
 
 			if err := r.PutSecret(ctx, adminSecret, operatorVaultPath); err != nil {
 				return workflow.Failed(xerrors.Errorf("failed to create a secret for admin public api key. %s. The error : %w",

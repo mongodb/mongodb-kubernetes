@@ -42,6 +42,10 @@ const (
 	queryableBackupDefaultPort int32  = 25999
 
 	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+
+	// OpsManagerNamespaceLabel is set on the admin API key Secret to record
+	// the namespace of the MongoDBOpsManager CR that owns the key.
+	OpsManagerNamespaceLabel = "mongodb.com/v1.opsManagerNamespace"
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -924,23 +928,40 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 }
 
 // APIKeySecretName returns the secret object name to store the API key to communicate to ops-manager.
-// To ensure backward compatibility, it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
-// if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
-// with the same name.
+// It first tries the namespace-qualified name ({$namespace}-{$name}-admin-key).
+// If not found, it falls back to the legacy name ({$name}-admin-key) only when the legacy
+// Secret carries a matching OpsManagerNamespaceLabel that equals the CR's namespace.
 func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
-	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
+	qualifiedName := fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
-	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
 
-	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
-	if err != nil {
-		if secret.SecretNotExist(err) {
-			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil
-		}
-
+	// 1. Check namespace-qualified name first.
+	qualifiedNamespacedName := types.NamespacedName{Name: qualifiedName, Namespace: operatorNamespace}
+	_, err := client.ReadSecret(ctx, qualifiedNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, qualifiedName))
+	if err == nil {
+		return qualifiedName, nil
+	}
+	if !secret.SecretNotExist(err) {
 		return "", err
 	}
-	return oldAPISecretName, nil
+
+	// 2. Fall back to legacy name only if it carries a matching namespace label.
+	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
+	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
+
+	labels, err := client.ReadSecretLabels(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
+	if err != nil {
+		if secret.SecretNotExist(err) {
+			return qualifiedName, nil
+		}
+		return "", err
+	}
+
+	if ns, ok := labels[OpsManagerNamespaceLabel]; ok && ns == om.Namespace {
+		return oldAPISecretName, nil
+	}
+
+	return qualifiedName, nil
 }
 
 func (om *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
