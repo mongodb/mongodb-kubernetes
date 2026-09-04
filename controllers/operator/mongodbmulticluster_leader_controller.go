@@ -52,7 +52,7 @@ What goes in snapshot (feeds the plan function):
 
 Checks:
 - Ensuring it is the leader before anything
-- Takeover hold-off: after winning an election, wait one lease DURATION (wall clock, ~10s) before the first guarded write.
+- Takeover hold-off: after winning an election, wait one lease DURATION before the first guarded write.
   Not "a term": term = version number of leadership (44th, 45th president), duration = timeout (the parking meter). The wait is sized so a zombie's in-flight write lands before our first fresh read.
 
 Leader election / renewal machinery: the majority-lease protocol lives in mongodbmulticluster_quorumlease.go.

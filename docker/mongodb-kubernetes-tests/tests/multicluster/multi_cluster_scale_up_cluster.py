@@ -8,7 +8,7 @@ from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_local
+from kubetester.kubetester import skip_if_decentralized, skip_if_local
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongotester import with_tls
 from kubetester.multicluster_client import MultiClusterClient
@@ -170,6 +170,7 @@ class TestNonSequentialMemberIdsInReplicaSet(KubernetesTester):
         mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
         mongodb_multi.assert_reaches_phase(Phase.Running, timeout=600)
 
+    @skip_if_decentralized  # POC cut: OM project switching
     def test_change_project(self, mongodb_multi: MongoDBMulti, new_project_configmap: str):
         oldRsMembers = mongodb_multi.get_automation_config_tester().get_replica_set_members(mongodb_multi.name)
 

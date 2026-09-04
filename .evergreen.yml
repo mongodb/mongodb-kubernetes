@@ -1072,6 +1072,37 @@ task_groups:
       - e2e_multi_cluster_enable_tls
       - e2e_multi_cluster_replica_set_scale_down
       - e2e_multi_cluster_scale_up_cluster
+      # Regression sweep: every legacy MongoDBMultiCluster task whose only operator dependency is
+      # the swap-aware multi_cluster_operator fixture, run unmodified. Not listed on purpose:
+      # tasks that reinstall the operator mid-test or run it cluster-wide (the installer has no
+      # path for either), disaster recovery (the planner has no failover), in-cluster Ops
+      # Manager + backup (pre-provisioning assumes an existing project), replica_set_deletion
+      # (deletion cleanup is a POC cut) and validation (the webhook is not registered).
+      - e2e_multi_cluster_replica_set
+      - e2e_multi_cluster_replica_set_migration
+      - e2e_multi_cluster_replica_set_member_options
+      - e2e_multi_cluster_scale_down_cluster
+      - e2e_multi_cluster_scram
+      - e2e_multi_cluster_tls_with_scram
+      - e2e_multi_cluster_tls_with_x509
+      - e2e_multi_cluster_mtls_test
+      - e2e_multi_sts_override
+      - e2e_multi_cluster_pvc_resize
+      - e2e_multi_cluster_upgrade_downgrade
+      - e2e_multi_cluster_agent_flags
+      - e2e_multi_cluster_replica_set_ignore_unknown_users
+      - e2e_multi_cluster_oidc_m2m_group
+      - e2e_multi_cluster_oidc_m2m_user
+
+  # Two-member twin of the sweep above (MEMBER_CLUSTERS narrowed by the variant's context).
+  - name: e2e_multi_cluster_decentralized_2_clusters_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks:
+      - e2e_multi_cluster_2_clusters_replica_set
+      - e2e_search_q2_mc_rs_steady
+      - e2e_search_connectivity_tool_mc_rs
+      - e2e_search_ext_mc_rs_x509_enc_mtls
 
   - name: e2e_multi_cluster_kind_task_group
     max_hosts: -1
@@ -1835,6 +1866,15 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: e2e_multi_cluster_decentralized_task_group
+
+  - name: e2e_multi_cluster_decentralized_harness_2_clusters
+    display_name: e2e_multi_cluster_decentralized_harness_2_clusters
+    tags: [ "pr_patch_e2e" ]
+    <<: [*production_code_paths, *base_om7_dependency]
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: e2e_multi_cluster_decentralized_2_clusters_task_group
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
