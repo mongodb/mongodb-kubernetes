@@ -614,13 +614,13 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
 
-  build_multi_cluster_binary:
+  build_kubectl_plugin:
     - command: subprocess.exec
       params:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/kubectl_mongodb/build_kubectl_plugin.sh
 
-  download_multi_cluster_binary:
+  download_kubectl_plugin:
     - command: subprocess.exec
       params:
         include_expansions_in_env:
