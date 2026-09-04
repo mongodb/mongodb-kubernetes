@@ -108,6 +108,25 @@ type VaultConfiguration struct {
 type VaultClient struct {
 	client      *api.Client
 	VaultConfig VaultConfiguration
+	// skipLogin bypasses the Kubernetes auth flow in Login. It is only set by
+	// NewVaultClientForTesting, where no service account token is mounted.
+	skipLogin bool
+}
+
+// NewVaultClientForTesting returns a VaultClient talking to an arbitrary Vault address
+// (typically an httptest server) with a fixed token, skipping the Kubernetes auth flow.
+// It is only intended for use from tests.
+func NewVaultClientForTesting(address string, token string, config VaultConfiguration) (*VaultClient, error) {
+	apiConfig := api.DefaultConfig()
+	apiConfig.Address = address
+
+	vclient, err := api.NewClient(apiConfig)
+	if err != nil {
+		return nil, err
+	}
+	vclient.SetToken(token)
+
+	return &VaultClient{client: vclient, VaultConfig: config, skipLogin: true}, nil
 }
 
 func readVaultConfig(ctx context.Context, client *kubernetes.Clientset) VaultConfiguration {
@@ -186,6 +205,9 @@ func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultC
 }
 
 func (v *VaultClient) Login() error {
+	if v.skipLogin {
+		return nil
+	}
 	// Read the service-account token from the path where the token's Kubernetes Secret is mounted.
 	jwt, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
 	if err != nil {
