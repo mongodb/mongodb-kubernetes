@@ -19,6 +19,8 @@ import (
 
 type SecretClientInterface interface {
 	ReadSecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error)
+	// ReadSecretLabels returns the labels of the Secret. For Vault-backed secrets, it returns an empty map.
+	ReadSecretLabels(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error)
 }
 
 var _ SecretClientInterface = (*SecretClient)(nil)
@@ -70,6 +72,18 @@ func (r SecretClient) ReadSecret(ctx context.Context, secretName types.Namespace
 		}
 	}
 	return secrets, nil
+}
+
+func (r SecretClient) ReadSecretLabels(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error) {
+	if vault.IsVaultSecretBackend() {
+		// Vault secrets do not carry Kubernetes labels.
+		return nil, nil
+	}
+	s, err := r.KubeClient.GetSecret(ctx, secretName)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetLabels(), nil
 }
 
 func (r SecretClient) ReadBinarySecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string][]byte, error) {
