@@ -839,15 +839,21 @@ func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, a
 }
 
 type MongoDBUserBuilder struct {
-	project                  string
-	passwordRef              userv1.SecretKeyRef
-	roles                    []userv1.Role
-	username                 string
-	database                 string
-	connectionStringDatabase string
-	resourceName             string
-	mongodbResourceName      string
-	namespace                string
+	project                    string
+	passwordRef                userv1.SecretKeyRef
+	roles                      []userv1.Role
+	username                   string
+	database                   string
+	connectionStringDatabase   string
+	connectionStringSecretName string
+	resourceName               string
+	mongodbResourceName        string
+	namespace                  string
+}
+
+func (b *MongoDBUserBuilder) SetConnectionStringSecretName(name string) *MongoDBUserBuilder {
+	b.connectionStringSecretName = name
+	return b
 }
 
 func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
@@ -933,11 +939,12 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 			Namespace: b.namespace,
 		},
 		Spec: userv1.MongoDBUserSpec{
-			Roles:                    b.roles,
-			PasswordSecretKeyRef:     b.passwordRef,
-			Username:                 b.username,
-			Database:                 b.database,
-			ConnectionStringDatabase: b.connectionStringDatabase,
+			Roles:                      b.roles,
+			PasswordSecretKeyRef:       b.passwordRef,
+			Username:                   b.username,
+			Database:                   b.database,
+			ConnectionStringDatabase:   b.connectionStringDatabase,
+			ConnectionStringSecretName: b.connectionStringSecretName,
 			MongoDBResourceRef: userv1.MongoDBResourceRef{
 				Name: b.mongodbResourceName,
 			},
@@ -1113,4 +1120,52 @@ func TestEnqueueUsersForMongoDBRef_CrossNamespace(t *testing.T) {
 	assert.ElementsMatch(t, []reconcile.Request{
 		{NamespacedName: kube.ObjectKey("user-ns", "decoy-u")},
 	}, gotUserNs)
+}
+
+func TestUpdateConnectionStringSecret_RejectsUnownedPreExistingSecret(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().
+		SetMongoDBResourceName("my-rs").
+		SetConnectionStringSecretName("victim-app-secret").
+		Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// Pre-create a Secret with the custom name, no controller owner at all,
+	// containing canary data that should NOT be overwritten.
+	preExistingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "victim-app-secret",
+			Namespace: mock.TestNamespace,
+		},
+		Data: map[string][]byte{
+			"original-data": []byte("do-not-overwrite"),
+		},
+	}
+	require.NoError(t, client.Create(ctx, preExistingSecret))
+
+	// Set up the usual reconciliation prerequisites.
+	require.NoError(t, client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build()))
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	// The reconciliation MUST fail: the pre-existing secret has no owner
+	// (existingController == nil), so the guard at line 322-327 passes
+	// through, and the controller attempts to adopt it — this is the bug.
+	// With the fix, the controller should reject unowned pre-existing secrets.
+	// Note: Failed status is surfaced via the resource status, not the return error.
+	require.NoError(t, err)
+	assert.True(t, result.RequeueAfter > 0, "expected requeue after failure")
+	updatedUser := &userv1.MongoDBUser{}
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), updatedUser))
+	assert.Equal(t, status.PhaseFailed, updatedUser.Status.Phase)
+	assert.Contains(t, updatedUser.Status.Message, "Connection string secret")
+
+	// Verify the canary data was not overwritten.
+	secretAfter := &corev1.Secret{}
+	_ = client.Get(ctx, kube.ObjectKey(mock.TestNamespace, "victim-app-secret"), secretAfter)
+	assert.Equal(t, []byte("do-not-overwrite"), secretAfter.Data["original-data"],
+		"the pre-existing secret should not have been overwritten")
 }

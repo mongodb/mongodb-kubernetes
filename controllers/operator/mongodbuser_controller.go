@@ -321,7 +321,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	}
 	if err == nil {
 		existingController := metav1.GetControllerOf(&existingSecret)
-		if existingController != nil && existingController.UID != user.UID {
+		if existingController == nil || existingController.UID != user.UID {
 			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 		}
 	}
