@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+# Shared helper: writes ~/.evergreen.yml for the evergreen CLI to authenticate.
+# Sources this script in any script that calls `evergreen patch` or other
+# evergreen CLI commands that require authentication.
+#
+# Requires EVERGREEN_USER and EVERGREEN_API_KEY environment variables.
+
+set -Eeuo pipefail
+
+: "${EVERGREEN_USER:?EVERGREEN_USER must be set}"
+: "${EVERGREEN_API_KEY:?EVERGREEN_API_KEY must be set}"
+
+cat <<EOF > ~/.evergreen.yml
+user: "${EVERGREEN_USER}"
+api_key: "${EVERGREEN_API_KEY}"
+api_server_host: "https://evergreen.mongodb.com/api"
+ui_server_host: "https://spruce.mongodb.com"
+EOF
+

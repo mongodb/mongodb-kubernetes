@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Reads the git tag annotation to decide which release pipeline to run
-# and creates an Evergreen patch via the matching alias, waiting for it.
+# and creates an Evergreen patch via the matching alias.
 # "[new]" MUST be the first token in the annotation; "[dry-run]" is optional.
 #
 # Usage: decide_release_process.sh <tag_name>
@@ -23,6 +23,8 @@ if [[ "${annotation}" == *"[dry-run]"* ]]; then
   echo "Dry run enabled: setting IS_DRYRUN=true"
 fi
 
+source scripts/funcs/evergreen_auth
+
 echo "Creating Evergreen patch with alias '${alias}' for release ${tag}"
 evergreen patch \
   -p mongodb-kubernetes \
@@ -30,5 +32,5 @@ evergreen patch \
   -d "Release ${tag}" \
   --param "triggered_by_git_tag=${tag}" \
   "${params[@]}" \
-  -f -y -w
+  -f -y
 

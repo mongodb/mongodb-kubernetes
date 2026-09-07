@@ -19,6 +19,7 @@ if ! git merge-base --is-ancestor "${revision}" origin/master; then
 fi
 
 echo "trigger_public_docs_snippets: triggering public snippet refresh for released version ${triggered_by_git_tag}"
+source scripts/funcs/evergreen_auth
 evergreen patch \
   -p mongodb-kubernetes \
   -v public_kind_code_snippets \

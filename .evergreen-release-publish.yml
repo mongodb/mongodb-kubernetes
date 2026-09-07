@@ -13,16 +13,21 @@ include:
 
 tasks:
   # Reads the tag annotation to decide which release pipeline to run,
-  # then creates an Evergreen patch via the matching alias and waits for it.
+  # then creates an Evergreen patch via the matching alias.
   - name: decide_release_process
     commands:
       - func: clone
+      - func: setup_evergreen_cli
       - command: subprocess.exec
         type: test
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/bin
           include_expansions_in_env:
             - triggered_by_git_tag
+            - EVERGREEN_USER
+            - EVERGREEN_API_KEY
           binary: scripts/evergreen/decide_release_process.sh ${triggered_by_git_tag}
 
   - name: mckci_release_publish_images
@@ -53,13 +58,18 @@ tasks:
   - name: publish_doc_snippets
     commands:
       - func: clone
+      - func: setup_evergreen_cli
       - command: subprocess.exec
         type: test
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/bin
           include_expansions_in_env:
             - revision
             - triggered_by_git_tag
+            - EVERGREEN_USER
+            - EVERGREEN_API_KEY
           binary: scripts/dev/trigger_public_docs_snippets.sh
 
 buildvariants:

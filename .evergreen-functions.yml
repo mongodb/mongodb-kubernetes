@@ -69,6 +69,18 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/setup_jq.sh
 
+  setup_evergreen_cli: &setup_evergreen_cli
+    command: subprocess.exec
+    type: setup
+    retry_on_failure: true
+    params:
+      include_expansions_in_env:
+        - workdir
+      add_to_path:
+        - ${workdir}/bin
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/setup_evergreen_cli.sh
+
   setup_context: &setup_context # Running the first switch is important to fill the workdir and other important initial env vars
     command: shell.exec
     type: setup

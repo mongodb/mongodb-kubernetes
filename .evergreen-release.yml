@@ -150,13 +150,18 @@ tasks:
   - name: trigger_public_docs_snippets
     commands:
       - func: clone
+      - func: setup_evergreen_cli
       - command: subprocess.exec
         type: test
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
+          add_to_path:
+            - ${workdir}/bin
           include_expansions_in_env:
             - revision
             - triggered_by_git_tag
+            - EVERGREEN_USER
+            - EVERGREEN_API_KEY
           binary: scripts/dev/trigger_public_docs_snippets.sh
 
   - name: release_chart_to_oci_registry
