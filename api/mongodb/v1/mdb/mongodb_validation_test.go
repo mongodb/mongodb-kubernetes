@@ -353,6 +353,44 @@ func TestScramSha1AuthValidation(t *testing.T) {
 	}
 }
 
+func TestLdapConfigIsSetIfLdapAuthModeIsEnabled(t *testing.T) {
+	tests := map[string]struct {
+		spec          DbCommonSpec
+		errorExpected bool
+	}{
+		"LDAP mode without an ldap block is rejected": {
+			spec:          NewReplicaSetBuilder().SetVersion("4.0.2-ent").EnableAuth([]AuthMode{util.LDAP}).Build().Spec.DbCommonSpec,
+			errorExpected: true,
+		},
+		"LDAP mode with an ldap block is accepted": {
+			spec: func() DbCommonSpec {
+				rs := NewReplicaSetBuilder().SetVersion("4.0.2-ent").EnableAuth([]AuthMode{util.LDAP}).Build()
+				rs.Spec.Security.Authentication.Ldap = &Ldap{}
+				return rs.Spec.DbCommonSpec
+			}(),
+			errorExpected: false,
+		},
+		"non-LDAP mode without an ldap block is accepted": {
+			spec:          NewReplicaSetBuilder().EnableAuth([]AuthMode{util.SCRAM}).Build().Spec.DbCommonSpec,
+			errorExpected: false,
+		},
+		"auth disabled with LDAP listed in modes is accepted": {
+			spec: func() DbCommonSpec {
+				rs := NewReplicaSetBuilder().EnableAuth([]AuthMode{util.LDAP}).Build()
+				rs.Spec.Security.Authentication.Enabled = false
+				return rs.Spec.DbCommonSpec
+			}(),
+			errorExpected: false,
+		},
+	}
+	for testName, testConfig := range tests {
+		t.Run(testName, func(t *testing.T) {
+			result := ldapConfigIsSetIfLdapAuthModeIsEnabled(testConfig.spec)
+			assert.Equal(t, testConfig.errorExpected, v1.ValidationSuccess() != result, "got %v", result)
+		})
+	}
+}
+
 func TestReplicasetMemberIsSpecified(t *testing.T) {
 	rs := NewDefaultReplicaSetBuilder().Build()
 	err := rs.ProcessValidationsOnReconcile(nil)
