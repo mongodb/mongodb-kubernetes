@@ -11,7 +11,7 @@ require (
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zapr v1.3.0
 	github.com/google/go-cmp v0.7.0
-	github.com/google/go-containerregistry v0.22.0
+	github.com/google/go-containerregistry v0.22.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/go-retryablehttp v0.7.8
@@ -35,7 +35,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
