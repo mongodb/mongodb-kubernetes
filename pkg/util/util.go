@@ -172,7 +172,7 @@ func RedactMongoURI(uri string) string {
 	if !strings.Contains(uri, "@") {
 		return uri
 	}
-	re := regexp.MustCompile("(mongodb://.*:)(.*)(@.*:.*)")
+	re := regexp.MustCompile(`(mongodb(?:\+srv)?://.*:)(.*)(@.*)`)
 	return re.ReplaceAllString(uri, "$1<redacted>$3")
 }
 
