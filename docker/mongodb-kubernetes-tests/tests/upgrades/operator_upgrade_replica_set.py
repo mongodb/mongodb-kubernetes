@@ -16,8 +16,8 @@ CERT_PREFIX = "prefix"
 
 logger = test_logger.get_test_logger(__name__)
 
-# AC process names recorded while the old operator owns the deployment. The new operator must
-# keep the legacy bare pod names on existing deployments instead of renaming to k8s/{namespace}/{pod}.
+# AC process names recorded while the old operator owns the deployment. The upgraded operator
+# must keep the existing process names unchanged instead of renaming them.
 process_names_before_upgrade: set = set()
 
 
@@ -130,7 +130,6 @@ def test_replicaset_reconciled(replica_set: MongoDB):
 def test_process_names_unchanged_after_upgrade():
     current = get_ac_process_names()
     assert current == process_names_before_upgrade
-    assert not any(name.startswith("k8s/") for name in current)
 
 
 @mark.e2e_operator_upgrade_replica_set
