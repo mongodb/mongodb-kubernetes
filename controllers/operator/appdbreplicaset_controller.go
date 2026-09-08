@@ -704,7 +704,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
 		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
-		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture),
+		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version),
 		CustomAgentURL: r.customAgentURL,
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {

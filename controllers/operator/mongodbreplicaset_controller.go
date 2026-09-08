@@ -570,7 +570,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.NonStaticDatabaseEnterpriseImage, reconciler.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(reconciler.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithCustomAgentURL(reconciler.customAgentURL),
-		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations(), reconciler.defaultArchitecture)),
+		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version)),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithDefaultArchitecture(reconciler.defaultArchitecture),

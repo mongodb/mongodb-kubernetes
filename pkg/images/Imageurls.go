@@ -114,7 +114,9 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 	return fmt.Sprintf("%s:%s", imageURL, version)
 }
 
-func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture) string {
+// GetOfficialImage builds the MongoDB image URL for a given version. Official enterprise images are
+// always resolved to the UBI9 variant, for every architecture and for both MongoDB and AppDB workloads.
+func GetOfficialImage(imageUrls ImageUrls, version string) string {
 	repoUrl := imageUrls[util.MongodbRepoUrlEnv]
 	imageType := string(architectures.ImageTypeUBI9)
 	imageURL := imageUrls[util.MongodbImageEnv]
@@ -133,10 +135,11 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 		if !r.MatchString(version) {
 			version = version + "-" + imageType
 		}
+		// 5.0.6-ubi8 -> 5.0.6-ubi9
 		if found, suffix := architectures.HasSupportedImageTypeSuffix(version); found {
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, suffix), imageType)
 		}
-		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
+		// any other suffix is left untouched: 5.0.6-ubuntu -> 5.0.6-ubuntu
 	}
 
 	mongoImageName := ContainerImage(imageUrls, util.MongodbImageEnv, version)
