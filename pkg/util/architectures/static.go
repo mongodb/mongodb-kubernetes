@@ -11,9 +11,8 @@ type DefaultArchitecture string
 type ImageType string
 
 const (
-	ImageTypeUBI8    ImageType = "ubi8"
-	ImageTypeUBI9    ImageType = "ubi9"
-	DefaultImageType ImageType = ImageTypeUBI8
+	ImageTypeUBI8 ImageType = "ubi8"
+	ImageTypeUBI9 ImageType = "ubi9"
 )
 
 func HasSupportedImageTypeSuffix(imageVersion string) (suffixFound bool, suffix string) {
