@@ -114,42 +114,32 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 	return fmt.Sprintf("%s:%s", imageURL, version)
 }
 
-func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture) string {
+// GetOfficialImage builds the MongoDB image URL for a given version. Official enterprise images are
+// always resolved to the UBI9 variant, for every architecture and for both MongoDB and AppDB workloads.
+func GetOfficialImage(imageUrls ImageUrls, version string) string {
 	repoUrl := imageUrls[util.MongodbRepoUrlEnv]
-	// TODO: rethink the logic of handling custom image types. We are currently only handling ubi9 and ubi8 and we never
-	// were really handling erroneus types, we just leave them be if specified (e.g. -ubuntu).
-	// env.ReadOrDefault(MongoDBImageType, string(architectures.DefaultImageType))
-	var imageType string
-
-	if architectures.IsRunningStaticArchitecture(annotations, defaultArchitecture) {
-		imageType = string(architectures.ImageTypeUBI9)
-	} else {
-		// For non-static architecture, we need to default to UBI8 to support customers running MongoDB versions < 6.0.4,
-		// which don't have UBI9 binaries.
-		imageType = string(architectures.ImageTypeUBI8)
-	}
-
+	imageType := string(architectures.ImageTypeUBI9)
 	imageURL := imageUrls[util.MongodbImageEnv]
 
 	if strings.HasSuffix(repoUrl, "/") {
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 
-	assumeOldFormat := env.ReadBoolOrDefault(util.MdbAppdbAssumeOldFormat, false) // nolint:forbidigo
-	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
-		// 5.0.6-ent -> 5.0.6-ubi8
+	if IsEnterpriseImage(imageURL) {
+		// 5.0.6-ent -> 5.0.6-ubi9
 		if strings.HasSuffix(version, "-ent") {
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
 		}
-		// 5.0.6 ->  5.0.6-ubi8
+		// 5.0.6 ->  5.0.6-ubi9
 		r := regexp.MustCompile("-.+$")
 		if !r.MatchString(version) {
 			version = version + "-" + imageType
 		}
+		// 5.0.6-ubi8 -> 5.0.6-ubi9
 		if found, suffix := architectures.HasSupportedImageTypeSuffix(version); found {
 			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, suffix), imageType)
 		}
-		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
+		// any other suffix is left untouched: 5.0.6-ubuntu -> 5.0.6-ubuntu
 	}
 
 	mongoImageName := ContainerImage(imageUrls, util.MongodbImageEnv, version)
