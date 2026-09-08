@@ -14,7 +14,7 @@
 #    to point directly at "release-publish" (drop the decider).
 # 3. In .evergreen-release-publish.yml: remove the release_decider variant,
 #    its decide_release_process task, and the release-decider tag.
-# 4. Delete scripts/evergreen/decide_release_process.sh.
+# 4. Delete scripts/evergreen/decide_release_process.py.
 include:
   - filename: .evergreen-functions.yml
 
