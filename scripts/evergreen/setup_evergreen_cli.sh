@@ -7,7 +7,7 @@
 
 set -Eeou pipefail
 
-dest="${PROJECT_DIR:-${workdir}}/bin"
+dest="${workdir}/bin"
 mkdir -p "${dest}"
 
 echo "Installing evergreen CLI via go install..."
