@@ -1,15 +1,18 @@
 // Package memberregistration produces the registration a member cluster needs so the MCK
 // operator can reach it: a credential Secret (a single-context kubeconfig) and a MemberCluster
-// CR referencing that Secret. It reads the ServiceAccount token that
-// `generate-member-resources` created on the member cluster and writes both resources as a
-// multi-document YAML string. It holds the logic; the CLI wiring lives in cmd/kubectl-mongodb.
+// CR referencing that Secret. It reads the token of the user-provisioned member ServiceAccount
+// (found via the kubernetes.io/service-account.name annotation on the ServiceAccount token
+// Secrets in the member namespace) and writes both resources as a multi-document YAML string.
+// It holds the logic; the CLI wiring lives in cmd/kubectl-mongodb.
 package memberregistration
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -38,23 +41,29 @@ var tokenPollInterval = 2 * time.Second
 type Options struct {
 	// MemberClusterName is the RFC 1123 name used for the central-cluster resources this
 	// registration emits: the MemberCluster CR's metadata.name and the credential Secret name
-	// suffix. It must be unique per member cluster on the central cluster. The token Secret on
-	// the member cluster is the fixed mck-member-token, so this name need not match anything
-	// from generate-member-resources.
+	// suffix. It must be unique per member cluster on the central cluster.
 	MemberClusterName string
 	// MemberClusterLogicalName is the logical cluster identity set as spec.clusterName on the MemberCluster CR.
 	// Used to resolve clusterSpecList[].clusterName references in workload CRs.
 	MemberClusterLogicalName string
-	// MemberClusterNamespace is the namespace on the member cluster holding the SA token Secret.
+	// MemberClusterNamespace is the namespace on the member cluster holding the operator's
+	// credentials (the member ServiceAccount and its token Secret).
 	MemberClusterNamespace string
+	// MemberClusterServiceAccount is the name of the user-provisioned ServiceAccount on the
+	// member cluster the operator authenticates as. Its token Secret is discovered via the
+	// kubernetes.io/service-account.name annotation. Must match the ServiceAccount the
+	// member-cluster RBAC is bound to (--member-cluster-service-account of
+	// generate-member-resources).
+	MemberClusterServiceAccount string
 	// OperatorNamespace is the namespace on the operator's cluster where the emitted CR and
 	// credential Secret are placed.
 	OperatorNamespace        string
 	MemberClusterApiServer   string
 	MemberClusterApiServerCA []byte
-	// TokenWaitTimeout is how long Generate waits for the token Secret to be populated by
-	// Kubernetes's token controller before failing. It must be positive; the CLI passes
-	// DefaultTokenWaitTimeout.
+	// TokenWaitTimeout is how long Generate waits for the token Secret's data keys to be
+	// populated by Kubernetes's token controller before failing. It must be positive; the
+	// CLI passes DefaultTokenWaitTimeout. Only the data keys are awaited: the Secret itself
+	// must already exist (the user creates it together with the ServiceAccount).
 	TokenWaitTimeout time.Duration
 }
 
@@ -62,7 +71,18 @@ type Options struct {
 // serverURL as the kubeconfig API-server address. It is the entry point used by the CLI, which
 // builds client and serverURL from the member cluster's kubeconfig context.
 func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, memberClusterServerURL string, opts Options) (string, error) {
-	tokenSecretName := resourcenames.MemberClusterTokenSecretName()
+	if strings.TrimSpace(opts.MemberClusterServiceAccount) == "" {
+		return "", xerrors.Errorf("MemberClusterServiceAccount must be non-empty")
+	}
+
+	if err := ensureServiceAccountExists(ctx, memberClusterClient, opts); err != nil {
+		return "", err
+	}
+
+	tokenSecretName, err := findTokenSecret(ctx, memberClusterClient, opts)
+	if err != nil {
+		return "", err
+	}
 
 	token, ca, err := waitForTokenSecret(ctx, memberClusterClient, tokenSecretName, opts)
 	if err != nil {
@@ -116,13 +136,62 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 	return string(secretYAML) + "---\n" + string(memberClusterYAML), nil
 }
 
+// ensureServiceAccountExists verifies the user-provisioned member ServiceAccount exists, so a
+// missing credential fails fast with a clear message instead of surfacing as a token-Secret
+// lookup failure.
+func ensureServiceAccountExists(ctx context.Context, memberClusterClient kubernetes.Interface, opts Options) error {
+	_, err := memberClusterClient.CoreV1().ServiceAccounts(opts.MemberClusterNamespace).Get(ctx, opts.MemberClusterServiceAccount, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("reading ServiceAccount %s/%s on the member cluster (was the credentials manifest applied to it?): %v", opts.MemberClusterNamespace, opts.MemberClusterServiceAccount, err)
+	}
+	return nil
+}
+
+// findTokenSecret locates the token Secret belonging to the member ServiceAccount: a Secret of
+// type kubernetes.io/service-account-token annotated with the ServiceAccount's name
+// (kubernetes.io/service-account.name — the annotation the token controller requires to
+// populate a token Secret). Zero matches means the user has not created the Secret — an
+// immediate error, not a wait; multiple matches are ambiguous and refused.
+func findTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interface, opts Options) (string, error) {
+	secrets, err := memberClusterClient.CoreV1().Secrets(opts.MemberClusterNamespace).List(ctx, metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("type", string(corev1.SecretTypeServiceAccountToken)).String(),
+	})
+	if err != nil {
+		return "", xerrors.Errorf("listing token secrets in %s on the member cluster: %v", opts.MemberClusterNamespace, err)
+	}
+
+	var matches []string
+	for _, secret := range secrets.Items {
+		// The type is re-checked in code (not just via the field selector above): fake
+		// clientsets used in tests discard field selectors, and only the type excludes a
+		// non-token Secret that happens to carry the same ServiceAccount annotation.
+		if secret.Type != corev1.SecretTypeServiceAccountToken {
+			continue
+		}
+		if secret.Annotations[corev1.ServiceAccountNameKey] == opts.MemberClusterServiceAccount {
+			matches = append(matches, secret.Name)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", xerrors.Errorf("no token Secret for ServiceAccount %q found in namespace %s on the member cluster: create a Secret of type %s annotated with %s: %s",
+			opts.MemberClusterServiceAccount, opts.MemberClusterNamespace, corev1.SecretTypeServiceAccountToken, corev1.ServiceAccountNameKey, opts.MemberClusterServiceAccount)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", xerrors.Errorf("found %d token Secrets for ServiceAccount %q in namespace %s on the member cluster (%s); exactly one is expected — delete the extras",
+			len(matches), opts.MemberClusterServiceAccount, opts.MemberClusterNamespace, strings.Join(matches, ", "))
+	}
+}
+
 // readTokenSecret Gets the token Secret once and returns the complete, user-facing error for a
 // failed read: a Get error (including NotFound) or a missing/empty token or ca.crt data key.
 // waitForTokenSecret's poll condition uses the error verbatim.
 func readTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interface, namespace, name string) (token, ca []byte, err error) {
 	secret, err := memberClusterClient.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, xerrors.Errorf("reading token secret %s/%s on the member cluster (was 'generate-member-resources' applied to it?): %v", namespace, name, err)
+		return nil, nil, xerrors.Errorf("reading token secret %s/%s on the member cluster: %v", namespace, name, err)
 	}
 	if token = secret.Data[corev1.ServiceAccountTokenKey]; len(token) == 0 {
 		return nil, nil, xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", namespace, name, corev1.ServiceAccountTokenKey)
@@ -134,8 +203,9 @@ func readTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interfa
 }
 
 // waitForTokenSecret polls the token Secret until Kubernetes has populated both its token and
-// ca.crt data keys or opts.TokenWaitTimeout elapses. It retries on all errors: the Secret may
-// not exist yet, and transient API errors should not abort the wait.
+// ca.crt data keys or opts.TokenWaitTimeout elapses. The Secret is known to exist by this point
+// (findTokenSecret located it); the poll covers the token controller's population delay, plus
+// transient API errors and a mid-wait deletion, none of which should abort the wait.
 func waitForTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interface, tokenSecretName string, opts Options) ([]byte, []byte, error) {
 	var token, ca []byte
 	var lastErr error

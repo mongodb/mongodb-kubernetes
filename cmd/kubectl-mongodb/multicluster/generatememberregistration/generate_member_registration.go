@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -17,19 +18,21 @@ import (
 )
 
 var flags struct {
-	memberCluster            string
-	memberClusterContext     string
-	memberClusterNamespace   string
-	operatorNamespace        string
-	memberClusterLogicalName string
-	memberClusterApiServer   string
-	memberClusterApiServerCA string
+	memberCluster               string
+	memberClusterContext        string
+	memberClusterNamespace      string
+	memberClusterServiceAccount string
+	operatorNamespace           string
+	memberClusterLogicalName    string
+	memberClusterApiServer      string
+	memberClusterApiServerCA    string
 }
 
 func init() {
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; names the central-cluster resources (the MemberCluster CR's metadata.name and the credential Secret name suffix). Must be unique per member cluster on the central cluster. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
+	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterServiceAccount, "member-cluster-service-account", "", "Name of the ServiceAccount you created on the member cluster for the operator to authenticate as; its token Secret is found via the kubernetes.io/service-account.name annotation. Must match the ServiceAccount the member-cluster RBAC is bound to. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
@@ -41,11 +44,13 @@ func init() {
 var GenerateMemberRegistrationCmd = &cobra.Command{
 	Use:   "generate-member-registration",
 	Short: "Emit a credential Secret and MemberCluster CR for a single member cluster",
-	Long: `'generate-member-registration' connects to one member cluster, reads the ServiceAccount
-token that 'generate-member-resources' created on it, and writes a credential Secret (a
-single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdout.
+	Long: `'generate-member-registration' connects to one member cluster, reads the token of the
+ServiceAccount you created on it (--member-cluster-service-account), and writes a credential
+Secret (a single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdout.
 
-If the token Secret is not populated yet, the command waits up to a minute for Kubernetes to provision it.
+The token Secret is located via the kubernetes.io/service-account.name annotation and must
+already exist (create it together with the ServiceAccount). If it is not populated yet, the
+command waits up to a minute for Kubernetes to provision the token.
 By default the credential kubeconfig uses the API server address from --member-cluster-context; pass --member-cluster-api-server to override it.
 By default the credential kubeconfig uses the CA from the member cluster's ServiceAccount token Secret; pass --member-cluster-api-server-ca to override it.
 
@@ -53,7 +58,7 @@ Apply the output to the operator's cluster with kubectl, or commit it to Git for
 
 Example:
 
-kubectl-mongodb multicluster generate-member-registration --member-cluster=cluster-east --member-cluster-context=east-ctx --member-cluster-namespace=mongodb --operator-namespace=mongodb | kubectl apply --context=central-ctx -f -
+kubectl-mongodb multicluster generate-member-registration --member-cluster=cluster-east --member-cluster-context=east-ctx --member-cluster-namespace=mongodb --member-cluster-service-account=mck-member-sa --operator-namespace=mongodb | kubectl apply --context=central-ctx -f -
 `,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		opts, err := parseFlags()
@@ -86,8 +91,15 @@ func parseFlags() (memberregistration.Options, error) {
 	if strings.TrimSpace(flags.memberCluster) == "" ||
 		strings.TrimSpace(flags.memberClusterContext) == "" ||
 		strings.TrimSpace(flags.memberClusterNamespace) == "" ||
+		strings.TrimSpace(flags.memberClusterServiceAccount) == "" ||
 		strings.TrimSpace(flags.operatorNamespace) == "" {
-		return memberregistration.Options{}, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-context, member-cluster-namespace, operator-namespace]")
+		return memberregistration.Options{}, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-context, member-cluster-namespace, member-cluster-service-account, operator-namespace]")
+	}
+
+	// The ServiceAccount name is used in a GET against the member cluster — fail fast on an
+	// invalid name instead of surfacing an apiserver error.
+	if errs := validation.IsDNS1123Subdomain(flags.memberClusterServiceAccount); len(errs) > 0 {
+		return memberregistration.Options{}, xerrors.Errorf("invalid --member-cluster-service-account %q: %s", flags.memberClusterServiceAccount, strings.Join(errs, "; "))
 	}
 
 	memberClusterLogicalName := flags.memberClusterLogicalName
@@ -112,13 +124,14 @@ func parseFlags() (memberregistration.Options, error) {
 	}
 
 	return memberregistration.Options{
-		MemberClusterName:        flags.memberCluster,
-		MemberClusterNamespace:   flags.memberClusterNamespace,
-		OperatorNamespace:        flags.operatorNamespace,
-		MemberClusterLogicalName: memberClusterLogicalName,
-		MemberClusterApiServer:   memberClusterApiServer,
-		MemberClusterApiServerCA: memberClusterApiServerCA,
-		TokenWaitTimeout:         memberregistration.DefaultTokenWaitTimeout,
+		MemberClusterName:           flags.memberCluster,
+		MemberClusterNamespace:      flags.memberClusterNamespace,
+		MemberClusterServiceAccount: flags.memberClusterServiceAccount,
+		OperatorNamespace:           flags.operatorNamespace,
+		MemberClusterLogicalName:    memberClusterLogicalName,
+		MemberClusterApiServer:      memberClusterApiServer,
+		MemberClusterApiServerCA:    memberClusterApiServerCA,
+		TokenWaitTimeout:            memberregistration.DefaultTokenWaitTimeout,
 	}, nil
 }
 
