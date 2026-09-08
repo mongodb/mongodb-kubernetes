@@ -54,6 +54,10 @@ func kindNames(rs []*unstructured.Unstructured) []string {
 	return out
 }
 
+// testServiceAccount is the member ServiceAccount name tests pass to Render: the
+// user-provisioned SA every rendered operator binding must target as its subject.
+const testServiceAccount = "mck-member-sa"
+
 // resourceNames is the single source of truth for the names Render emits, keyed by semantic
 // purpose rather than by naming convention. Tests identify resources through these fields so
 // they keep isolating the operator RBAC from the workload RBAC once the workload names also
@@ -63,9 +67,8 @@ type resourceNames struct {
 	// each with its own binding(s). role-base (the operator's shared
 	// workload-management rules, operator-roles-base.yaml), role-multicluster (rules
 	// needed only for multi-cluster operation, member-cluster-rbac.yaml) and
-	// pvc-resize (operator-roles-pvc-resize.yaml).
-	operatorSA              string
-	operatorToken           string
+	// pvc-resize (operator-roles-pvc-resize.yaml). The member ServiceAccount and token
+	// Secret are NOT rendered — the user provisions them (see testServiceAccount).
 	roleBase                string
 	roleBaseBinding         string
 	roleMulticluster        string
@@ -90,8 +93,6 @@ type resourceNames struct {
 func expectedNames() resourceNames {
 	const prefix = "mck-member-"
 	return resourceNames{
-		operatorSA:              prefix + "sa",
-		operatorToken:           prefix + "token",
 		roleBase:                prefix + "role-base",
 		roleBaseBinding:         prefix + "role-base-binding",
 		roleMulticluster:        prefix + "role-multicluster",
@@ -214,10 +215,7 @@ func TestRender(t *testing.T) {
 			workload:          []string{memberNs},
 			operatorTelemetry: true,
 			wantRoleKind:      "Role",
-			want: append(append(append([]resourceID{
-				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
-				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "Role", memberNs)...), telemetryResources(n)...), workloadResources(n, memberNs)...),
+			want:              append(append(operatorResources(n, "Role", memberNs), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
 			// A single workload namespace that differs from the member namespace unions the
@@ -228,20 +226,14 @@ func TestRender(t *testing.T) {
 			workload:          []string{"ns1"},
 			operatorTelemetry: true,
 			wantRoleKind:      "Role",
-			want: append(append(append([]resourceID{
-				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
-				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "Role", "ns1", memberNs)...), telemetryResources(n)...), workloadResources(n, "ns1")...),
+			want:              append(append(operatorResources(n, "Role", "ns1", memberNs), telemetryResources(n)...), workloadResources(n, "ns1")...),
 		},
 		{
 			name:              "multiple workload namespaces",
 			workload:          []string{"ns1", "ns2"},
 			operatorTelemetry: true,
 			wantRoleKind:      "Role",
-			want: append(append(append([]resourceID{
-				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
-				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "Role", "ns1", "ns2", memberNs)...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
+			want:              append(append(operatorResources(n, "Role", "ns1", "ns2", memberNs), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
 			name:                  "cluster-scoped with default workload namespaces",
@@ -249,10 +241,7 @@ func TestRender(t *testing.T) {
 			operatorClusterScoped: true,
 			operatorTelemetry:     true,
 			wantRoleKind:          "ClusterRole",
-			want: append(append(append([]resourceID{
-				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
-				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "ClusterRole", "")...), telemetryResources(n)...), workloadResources(n, memberNs)...),
+			want:                  append(append(operatorResources(n, "ClusterRole", ""), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
 			name:                  "cluster-scoped with explicit workload namespaces",
@@ -260,25 +249,20 @@ func TestRender(t *testing.T) {
 			operatorClusterScoped: true,
 			operatorTelemetry:     true,
 			wantRoleKind:          "ClusterRole",
-			want: append(append(append([]resourceID{
-				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
-				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "ClusterRole", "")...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
+			want:                  append(append(operatorResources(n, "ClusterRole", ""), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
 			name:              "telemetry roles opted out",
 			workload:          []string{memberNs},
 			operatorTelemetry: false,
 			wantRoleKind:      "Role",
-			want: append(append([]resourceID{
-				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
-				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
-			}, operatorResources(n, "Role", memberNs)...), workloadResources(n, memberNs)...),
+			want:              append(operatorResources(n, "Role", memberNs), workloadResources(n, memberNs)...),
 		},
 	}
 
-	// The three operator bindings (role-base, role-multicluster, pvc-resize) all share the
-	// same scope in every test case and must point at a role of wantRoleKind.
+	// The operator bindings (role-base, role-multicluster, pvc-resize, telemetry) all share the
+	// same subject — the user-provided member ServiceAccount — and (telemetry aside) the same
+	// scope in every test case, pointing at a role of wantRoleKind.
 	operatorBindings := map[string]bool{
 		n.roleBaseBinding:         true,
 		n.roleMulticlusterBinding: true,
@@ -287,7 +271,7 @@ func TestRender(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Render(memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
+			out, err := Render(memberNs, testServiceAccount, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
 			require.NoError(t, err, "render failed")
 			resources := parseResources(t, out)
 
@@ -302,6 +286,19 @@ func TestRender(t *testing.T) {
 				if operatorBindings[r.GetName()] && (r.GetKind() == "RoleBinding" || r.GetKind() == "ClusterRoleBinding") {
 					roleRefKind, _, _ := unstructured.NestedString(r.Object, "roleRef", "kind")
 					assert.Equal(t, tc.wantRoleKind, roleRefKind, "%s/%s roleRef.kind", r.GetKind(), r.GetName())
+				}
+				// Every binding granting the operator permissions (the three scope-sharing
+				// bindings plus the always-cluster-scoped telemetry one) must target the
+				// user-provided member ServiceAccount in the member namespace.
+				if operatorBindings[r.GetName()] || r.GetName() == n.telemetryBinding {
+					subjects, found, err := unstructured.NestedSlice(r.Object, "subjects")
+					require.NoError(t, err)
+					require.True(t, found, "%s/%s has no subjects", r.GetKind(), r.GetName())
+					require.Len(t, subjects, 1, "%s/%s subjects", r.GetKind(), r.GetName())
+					subject := subjects[0].(map[string]any)
+					assert.Equal(t, "ServiceAccount", subject["kind"], "%s/%s subject kind", r.GetKind(), r.GetName())
+					assert.Equal(t, testServiceAccount, subject["name"], "%s/%s subject name", r.GetKind(), r.GetName())
+					assert.Equal(t, memberNs, subject["namespace"], "%s/%s subject namespace", r.GetKind(), r.GetName())
 				}
 				// Without an imagePullSecrets argument, no ServiceAccount should carry one.
 				if r.GetKind() == "ServiceAccount" {
@@ -357,7 +354,7 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
 
-	out, err := Render(memberNs, []string{memberNs}, false, true, "")
+	out, err := Render(memberNs, testServiceAccount, []string{memberNs}, false, true, "")
 	require.NoError(t, err, "render failed")
 
 	byName := map[string]*unstructured.Unstructured{}
@@ -406,20 +403,29 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 // since "*" is only ever valid via operatorClusterScoped.
 func TestRender_RejectsWildcard(t *testing.T) {
 	for _, workload := range [][]string{{"*"}, {"ns1", "*"}} {
-		_, err := Render("mongodb", workload, false, true, "")
+		_, err := Render("mongodb", testServiceAccount, workload, false, true, "")
 		require.Error(t, err, "expected an error for workload namespaces %v", workload)
 		assert.Contains(t, err.Error(), "--operator-cluster-scoped", "error should point at --operator-cluster-scoped, got: %v", err)
 	}
 }
 
+// TestRender_RejectsEmptyServiceAccount pins the CLI-facing validation: the member
+// ServiceAccount name is required, since every rendered binding targets it as its subject.
+func TestRender_RejectsEmptyServiceAccount(t *testing.T) {
+	_, err := Render("mongodb", "  ", []string{"mongodb"}, false, true, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "serviceAccount")
+}
+
 // TestRender_ImagePullSecrets asserts that a non-empty imagePullSecrets argument is set on
-// the workload ServiceAccounts only (the operator's own member SA carries no image pull
-// secret, since it is not used to pull workload images).
+// the workload ServiceAccounts (the only ServiceAccounts Render emits — the operator's own
+// member SA is user-provisioned and carries no image pull secret, since it is not used to
+// pull workload images).
 func TestRender_ImagePullSecrets(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
 
-	out, err := Render(memberNs, []string{memberNs}, false, true, "my-pull-secret")
+	out, err := Render(memberNs, testServiceAccount, []string{memberNs}, false, true, "my-pull-secret")
 	require.NoError(t, err, "render failed")
 	resources := parseResources(t, out)
 
@@ -434,17 +440,14 @@ func TestRender_ImagePullSecrets(t *testing.T) {
 		if r.GetKind() != "ServiceAccount" {
 			continue
 		}
+		require.Contains(t, workloadSAs, r.GetName(), "unexpected ServiceAccount %s rendered", r.GetName())
 		pullSecrets, _, err := unstructured.NestedSlice(r.Object, "imagePullSecrets")
 		require.NoError(t, err, "%s/%s reading imagePullSecrets", r.GetKind(), r.GetName())
 
-		if workloadSAs[r.GetName()] {
-			sawWorkloadSA++
-			require.Len(t, pullSecrets, 1, "%s/%s imagePullSecrets", r.GetKind(), r.GetName())
-			name, _, _ := unstructured.NestedString(pullSecrets[0].(map[string]any), "name")
-			assert.Equal(t, "my-pull-secret", name, "%s/%s imagePullSecrets[0].name", r.GetKind(), r.GetName())
-		} else if r.GetName() == n.operatorSA {
-			assert.Empty(t, pullSecrets, "%s/%s should have no imagePullSecrets", r.GetKind(), r.GetName())
-		}
+		sawWorkloadSA++
+		require.Len(t, pullSecrets, 1, "%s/%s imagePullSecrets", r.GetKind(), r.GetName())
+		name, _, _ := unstructured.NestedString(pullSecrets[0].(map[string]any), "name")
+		assert.Equal(t, "my-pull-secret", name, "%s/%s imagePullSecrets[0].name", r.GetKind(), r.GetName())
 	}
 	assert.Equal(t, len(workloadSAs), sawWorkloadSA, "expected to see all workload ServiceAccounts")
 }
@@ -504,6 +507,7 @@ func TestHelmTemplateParity(t *testing.T) {
 	helmTemplate := func(showOnly string) string {
 		cmd := exec.Command(helmBin, "template", diskChartDir,
 			"--set", "memberCluster.enabled=true",
+			"--set", "memberCluster.serviceAccount="+testServiceAccount,
 			"--set", "memberCluster.clusterScoped=false",
 			"--set", "memberCluster.workloadNamespaces[0]=mongodb",
 			"--set", "operator.namespace=mongodb",
@@ -516,7 +520,7 @@ func TestHelmTemplateParity(t *testing.T) {
 		return stdout.String()
 	}
 
-	embeddedOut, err := Render("mongodb", []string{"mongodb"}, false, true, "")
+	embeddedOut, err := Render("mongodb", testServiceAccount, []string{"mongodb"}, false, true, "")
 	require.NoError(t, err, "embedded render failed")
 	embeddedResources := parseResources(t, embeddedOut)
 
@@ -529,8 +533,6 @@ func TestHelmTemplateParity(t *testing.T) {
 		{
 			template: "templates/member-cluster-rbac.yaml",
 			names: map[string]bool{
-				names.operatorSA:              true,
-				names.operatorToken:           true,
 				names.roleMulticluster:        true,
 				names.roleMulticlusterBinding: true,
 			},

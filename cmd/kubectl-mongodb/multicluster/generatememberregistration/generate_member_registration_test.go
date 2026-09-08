@@ -18,6 +18,45 @@ import (
 	cryptorand "crypto/rand"
 )
 
+func TestParseFlags_RequiredFlags(t *testing.T) {
+	original := flags
+	defer func() { flags = original }()
+
+	// All required flags set: the baseline each mutation below subtracts from.
+	flags.memberCluster = "cluster-east"
+	flags.memberClusterContext = "east-ctx"
+	flags.memberClusterNamespace = "mongodb"
+	flags.memberClusterServiceAccount = "mck-member-sa"
+	flags.operatorNamespace = "mongodb"
+	flags.memberClusterLogicalName = ""
+	flags.memberClusterApiServer = ""
+	flags.memberClusterApiServerCA = ""
+
+	t.Run("all required flags set", func(t *testing.T) {
+		opts, err := parseFlags()
+		require.NoError(t, err)
+		assert.Equal(t, "mck-member-sa", opts.MemberClusterServiceAccount)
+	})
+
+	t.Run("member-cluster-service-account missing", func(t *testing.T) {
+		flags.memberClusterServiceAccount = ""
+		defer func() { flags.memberClusterServiceAccount = "mck-member-sa" }()
+
+		_, err := parseFlags()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "member-cluster-service-account")
+	})
+
+	t.Run("member-cluster-service-account not RFC 1123", func(t *testing.T) {
+		flags.memberClusterServiceAccount = "Invalid_SA"
+		defer func() { flags.memberClusterServiceAccount = "mck-member-sa" }()
+
+		_, err := parseFlags()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid --member-cluster-service-account")
+	})
+}
+
 func TestLoadMemberClusterApiServerCA(t *testing.T) {
 	caPEM := generateTestCAPEM(t, "member-cluster-ca")
 
