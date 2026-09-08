@@ -1,17 +1,19 @@
 {{- $memberMode := (.Values.memberCluster | default dict).enabled | default false }}
+{{- $memberCluster := .Values.memberCluster | default dict }}
 {{- $telemetry := default dict .Values.operator.telemetry }}
 {{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
 {{- $bindingName := printf "%s-%s-cluster-telemetry-binding" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
 {{- $saName := .Values.operator.name }}
 {{- if $memberMode }}
 {{- /* Member mode (rendered only by `kubectl mongodb multicluster generate-member-resources`):
-       same rules bound to the member ServiceAccount, using the unified mck-member-*
+       same rules bound to the user-provided member ServiceAccount
+       (memberCluster.serviceAccount), using the unified mck-member-*
        naming (identical on every member cluster) so they are additive to the base
        installation RBAC. */}}
 {{- $memberPrefix := "mck-member" }}
 {{- $clusterRoleName = printf "%s-cluster-telemetry" $memberPrefix }}
 {{- $bindingName = printf "%s-cluster-telemetry-binding" $memberPrefix }}
-{{- $saName = printf "%s-sa" $memberPrefix }}
+{{- $saName = $memberCluster.serviceAccount }}
 {{- end }}
 
 {{/* Whether telemetry is enabled/disabled is a runtime setting on the OperatorConfig CR, so the RBAC
