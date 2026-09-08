@@ -144,21 +144,6 @@ tasks:
       - func: python_venv
       - func: create_chart_release_pr
 
-  # Trigger docs snippets refresh using the published images. Runs after
-  # the release_images variant succeeds (order is enforced by the build
-  # variant dependency below).
-  - name: trigger_public_docs_snippets
-    commands:
-      - func: clone
-      - command: subprocess.exec
-        type: test
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          include_expansions_in_env:
-            - revision
-            - triggered_by_git_tag
-          binary: scripts/dev/trigger_public_docs_snippets.sh
-
   - name: release_chart_to_oci_registry
     tags: [ "release_chart_to_oci_registry" ]
     commands:
@@ -493,9 +478,12 @@ buildvariants:
     tasks:
       - name: release_chart_to_oci_registry
 
-  # Trigger docs snippets using the images just published.
-  - name: trigger_public_docs_snippets
-    display_name: trigger_public_docs_snippets
+  # Public docs snippet generation against the already-published images.
+  # Uses the same task groups as the manual public snippet variants
+  # (.evergreen-snippets.yml) but wired into the deprecated release pipeline
+  # so that the public docs are updated automatically once images are live.
+  - name: release_gke_snippets
+    display_name: release_gke_snippets
     tags: [ "deprecated-release" ]
     run_on:
       - ubuntu2404-small
@@ -504,4 +492,16 @@ buildvariants:
       - name: "*"
         variant: release_images
     tasks:
-      - name: trigger_public_docs_snippets
+      - name: gke_code_snippets_task_group
+
+  - name: release_kind_snippets
+    display_name: release_kind_snippets
+    tags: [ "deprecated-release" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_images
+    tasks:
+      - name: kind_code_snippets_task_group

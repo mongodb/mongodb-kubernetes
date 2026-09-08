@@ -47,21 +47,6 @@ tasks:
             fi
             scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
 
-  # Trigger docs snippets refresh using the published images. Runs after
-  # the publish variant succeeds (order is enforced by the build variant
-  # dependency below).
-  - name: publish_doc_snippets
-    commands:
-      - func: clone
-      - command: subprocess.exec
-        type: test
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          include_expansions_in_env:
-            - revision
-            - triggered_by_git_tag
-          binary: scripts/dev/trigger_public_docs_snippets.sh
-
 buildvariants:
   - name: release_decider
     display_name: release_decider
@@ -202,9 +187,12 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
-  # Trigger docs snippets using the images just published.
-  - name: trigger_public_docs_snippets_publish
-    display_name: trigger_public_docs_snippets_publish
+  # Public docs snippet generation against the already-published images.
+  # Uses the same task groups as the manual public snippet variants
+  # (.evergreen-snippets.yml) but wired into the release pipeline so that
+  # the public docs are updated automatically once images are live.
+  - name: release_gke_snippets_publish
+    display_name: release_gke_snippets_publish
     tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small
@@ -213,5 +201,17 @@ buildvariants:
       - name: "*"
         variant: release_publish
     tasks:
-      - name: publish_doc_snippets
+      - name: gke_code_snippets_task_group
+
+  - name: release_kind_snippets_publish
+    display_name: release_kind_snippets_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+    tasks:
+      - name: kind_code_snippets_task_group
 
