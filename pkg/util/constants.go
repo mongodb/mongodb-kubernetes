@@ -344,8 +344,6 @@ const (
 
 	OfficialEnterpriseServerImageName = "mongodb-enterprise-server"
 
-	MdbAppdbAssumeOldFormat = "MDB_APPDB_ASSUME_OLD_FORMAT"
-
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"

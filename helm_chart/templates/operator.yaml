@@ -152,10 +152,6 @@ spec:
               value: {{ .Values.mongodb.name }}
             - name: MONGODB_REPO_URL
               value: {{ .Values.mongodb.repo }}
-    {{- if eq .Values.mongodb.appdbAssumeOldFormat true }}
-            - name: MDB_APPDB_ASSUME_OLD_FORMAT
-              value: 'true'
-    {{- end }}
     {{- if eq .Values.multiCluster.performFailOver true }}
             - name: PERFORM_FAILOVER
               value: 'true'
