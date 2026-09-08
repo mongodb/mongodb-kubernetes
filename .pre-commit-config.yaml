@@ -134,7 +134,7 @@ repos:
 
       - id: ty
         name: ty
-        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/'
+        entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check --python ../../venv tests/'
         language: system
         pass_filenames: false
         files: docker/mongodb-kubernetes-tests/tests/.*\.py$

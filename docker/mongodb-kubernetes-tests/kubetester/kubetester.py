@@ -1769,6 +1769,17 @@ def ensure_ent_version(mdb_version: str) -> str:
     return mdb_version
 
 
+def get_mongodb_version_for_automation_config(version: str) -> str:
+    if not is_default_architecture_static():
+        return version
+
+    version = version.removesuffix("-ent")
+    for image_type in ("ubi9-slim", "ubi9", "ubi8"):
+        version = version.removesuffix(f"-{image_type}")
+
+    return ensure_ent_version(version)
+
+
 @TRACER.start_as_current_span("wait_processes_ready")
 def wait_processes_ready():
     # Get current automation status

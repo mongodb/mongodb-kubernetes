@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/e2e_static_multi_cluster_kind"
+source "${script_dir}/variables/mongodb_slim"
+
+CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_80_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
+export CUSTOM_OM_VERSION
+export CUSTOM_MDB_PREV_VERSION=7.0.5
+export CUSTOM_MDB_VERSION="${SLIM_MDB_VERSION}-ubi${SLIM_UBI_VERSION}-slim"
