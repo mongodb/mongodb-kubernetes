@@ -11,12 +11,16 @@ type DefaultArchitecture string
 type ImageType string
 
 const (
-	ImageTypeUBI8    ImageType = "ubi8"
-	ImageTypeUBI9    ImageType = "ubi9"
-	DefaultImageType ImageType = ImageTypeUBI8
+	ImageTypeUBI8     ImageType = "ubi8"
+	ImageTypeUBI9     ImageType = "ubi9"
+	ImageTypeUBI9Slim ImageType = "ubi9-slim"
+	DefaultImageType  ImageType = ImageTypeUBI8
 )
 
 func HasSupportedImageTypeSuffix(imageVersion string) (suffixFound bool, suffix string) {
+	if strings.HasSuffix(imageVersion, string(ImageTypeUBI9Slim)) {
+		return true, string(ImageTypeUBI9Slim)
+	}
 	if strings.HasSuffix(imageVersion, string(ImageTypeUBI8)) {
 		return true, string(ImageTypeUBI8)
 	}
@@ -69,14 +73,23 @@ func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultA
 // If we are in static containers architecture, we need the -ent suffix in case we are running the ea image.
 // If not, the agent will try to change the version to reflect the non-enterprise image.
 func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnterprise bool, architecture DefaultArchitecture) string {
+	hasEnterpriseSuffix := strings.HasSuffix(version, "-ent")
+	versionWithoutEnterpriseSuffix := strings.TrimSuffix(version, "-ent")
+	if found, suffix := HasSupportedImageTypeSuffix(versionWithoutEnterpriseSuffix); found {
+		version = strings.TrimSuffix(versionWithoutEnterpriseSuffix, "-"+suffix)
+	} else if architecture != Static {
+		return version
+	} else {
+		version = versionWithoutEnterpriseSuffix
+	}
+
 	if architecture != Static {
 		return version
 	}
+
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
-	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageName) || forceEnterprise {
-		if !strings.HasSuffix(version, "-ent") {
-			version = version + "-ent"
-		}
+	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageName) || forceEnterprise || hasEnterpriseSuffix {
+		version = version + "-ent"
 	}
 
 	return version

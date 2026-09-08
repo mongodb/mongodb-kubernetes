@@ -13,14 +13,20 @@ def test_find_task_variants():
     project_dir = os.environ.get("PROJECT_DIR", ".")
     evergreen_file = os.path.join(project_dir, ".evergreen.yml")
     result = find_task_variants(evergreen_file, "e2e_feature_controls_authentication")
-    assert sorted(result) == ["e2e_mdb_kind_ubi_cloudqa", "e2e_static_mdb_kind_ubi_cloudqa"]
+    assert sorted(result) == [
+        "e2e_mdb_kind_ubi_cloudqa",
+        "e2e_static_mdb_kind_ubi9_slim_cloudqa",
+        "e2e_static_mdb_kind_ubi_cloudqa",
+    ]
 
     result = find_task_variants(evergreen_file, "e2e_sharded_cluster")
     assert sorted(result) == [
         "e2e_mdb_kind_ubi_cloudqa",
         "e2e_multi_cluster_kind",
+        "e2e_static_mdb_kind_ubi9_slim_cloudqa",
         "e2e_static_mdb_kind_ubi_cloudqa",
         "e2e_static_multi_cluster_kind",
+        "e2e_static_multi_cluster_kind_ubi9_slim",
     ]
 
     result = find_task_variants(evergreen_file, "")
@@ -45,7 +51,11 @@ def test_main_output(monkeypatch):
     monkeypatch.setattr("sys.stdout", captured)
     main()
     output = captured.getvalue().strip().splitlines()
-    assert sorted(output) == ["e2e_mdb_kind_ubi_cloudqa", "e2e_static_mdb_kind_ubi_cloudqa"]
+    assert sorted(output) == [
+        "e2e_mdb_kind_ubi_cloudqa",
+        "e2e_static_mdb_kind_ubi9_slim_cloudqa",
+        "e2e_static_mdb_kind_ubi_cloudqa",
+    ]
 
 
 def test_main_output_no_matches(monkeypatch):

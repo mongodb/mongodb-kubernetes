@@ -172,6 +172,43 @@ func TestGetAppDBImage(t *testing.T) {
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
 			},
 		},
+		{
+			name:  "Getting official ubi9 slim image on static architecture",
+			input: "8.0.23-ubi9-slim",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9-slim",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting official ubi9 slim image with enterprise suffix on static architecture",
+			input: "8.0.23-ubi9-slim-ent",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9-slim",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting related ubi9 slim image with enterprise suffix on static architecture",
+			input: "8.0.23-ubi9-slim-ent",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "registry.example.com/mongodb-enterprise-server@sha256:1234",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_8_0_23_ubi9_slim", "registry.example.com/mongodb-enterprise-server@sha256:1234")
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -62,6 +62,27 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 	}
 }
 
+func TestHasSupportedImageTypeSuffix(t *testing.T) {
+	tests := []struct {
+		version string
+		found   bool
+		suffix  string
+	}{
+		{version: "8.0.0-ubi8", found: true, suffix: "ubi8"},
+		{version: "8.0.0-ubi9", found: true, suffix: "ubi9"},
+		{version: "8.0.23-ubi9-slim", found: true, suffix: "ubi9-slim"},
+		{version: "8.0.0-ubuntu"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			found, suffix := HasSupportedImageTypeSuffix(tt.version)
+			if found != tt.found || suffix != tt.suffix {
+				t.Errorf("HasSupportedImageTypeSuffix() = (%v, %q), want (%v, %q)", found, suffix, tt.found, tt.suffix)
+			}
+		})
+	}
+}
+
 func TestGetMongoVersion(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -86,6 +107,46 @@ func TestGetMongoVersion(t *testing.T) {
 			forceEnterprise: false,
 			architecture:    Static,
 			want:            "8.0.0-ent",
+		},
+		{
+			name:            "enterprise repo with ubi9 slim image suffix",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.23-ubi9-slim",
+			forceEnterprise: false,
+			architecture:    Static,
+			want:            "8.0.23-ent",
+		},
+		{
+			name:            "enterprise repo with ubi9 slim image and enterprise suffixes",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.23-ubi9-slim-ent",
+			forceEnterprise: false,
+			architecture:    Static,
+			want:            "8.0.23-ent",
+		},
+		{
+			name:            "enterprise repo with ubi9 image suffix",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.23-ubi9",
+			forceEnterprise: false,
+			architecture:    Static,
+			want:            "8.0.23-ent",
+		},
+		{
+			name:            "enterprise repo with ubi9 slim image suffix on non-static architecture",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.23-ubi9-slim",
+			forceEnterprise: false,
+			architecture:    NonStatic,
+			want:            "8.0.23",
+		},
+		{
+			name:            "enterprise repo with ubi9 slim image and enterprise suffixes on non-static architecture",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.23-ubi9-slim-ent",
+			forceEnterprise: false,
+			architecture:    NonStatic,
+			want:            "8.0.23",
 		},
 		{
 			name:            "community repo",

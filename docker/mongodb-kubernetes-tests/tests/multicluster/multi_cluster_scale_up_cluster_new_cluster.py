@@ -90,17 +90,7 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    clients = {c.cluster_name: c for c in member_cluster_clients}
-
-    # read all statefulsets except the last one
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients[:-1])
-    cluster_one_client = clients["kind-e2e-cluster-1"]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = clients["kind-e2e-cluster-2"]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients[:-1])
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster
@@ -146,20 +136,7 @@ def test_statefulsets_have_been_created_correctly_after_cluster_addition(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    clients = {c.cluster_name: c for c in member_cluster_clients}
-    # read all statefulsets except the last one
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-    cluster_one_client = clients["kind-e2e-cluster-1"]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = clients["kind-e2e-cluster-2"]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
-
-    cluster_three_client = clients["kind-e2e-cluster-3"]
-    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 2
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
 
 
 @pytest.mark.e2e_multi_cluster_scale_up_cluster_new_cluster

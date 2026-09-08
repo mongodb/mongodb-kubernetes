@@ -138,17 +138,17 @@ func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[strin
 
 	assumeOldFormat := env.ReadBoolOrDefault(util.MdbAppdbAssumeOldFormat, false) // nolint:forbidigo
 	if IsEnterpriseImage(imageURL) && !assumeOldFormat {
-		// 5.0.6-ent -> 5.0.6-ubi8
-		if strings.HasSuffix(version, "-ent") {
-			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, "ent"), imageType)
-		}
-		// 5.0.6 ->  5.0.6-ubi8
-		r := regexp.MustCompile("-.+$")
-		if !r.MatchString(version) {
-			version = version + "-" + imageType
-		}
-		if found, suffix := architectures.HasSupportedImageTypeSuffix(version); found {
-			version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, suffix), imageType)
+		version = strings.TrimSuffix(version, "-ent")
+		found, suffix := architectures.HasSupportedImageTypeSuffix(version)
+		if !found || suffix != string(architectures.ImageTypeUBI9Slim) {
+			// 5.0.6 ->  5.0.6-ubi8
+			r := regexp.MustCompile("-.+$")
+			if !r.MatchString(version) {
+				version = version + "-" + imageType
+			}
+			if found {
+				version = fmt.Sprintf("%s%s", strings.TrimSuffix(version, suffix), imageType)
+			}
 		}
 		// if neither, let's not change it: 5.0.6-ubi8 -> 5.0.6-ubi8
 	}
