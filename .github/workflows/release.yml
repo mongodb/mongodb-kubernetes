@@ -30,8 +30,8 @@ jobs:
     name: Create Draft Release & Push Tag
     runs-on: ubuntu-latest
     outputs:
-      commit: ${{ steps.verify_release_commit.outputs.commit }}
-      version: ${{ steps.verify_release_commit.outputs.version }}
+      commit: ${{ github.event.inputs.commit_sha }}
+      version: ${{ github.event.inputs.version }}
     permissions:
       contents: write
     steps:
@@ -44,22 +44,6 @@ jobs:
         uses: ./.github/actions/setup-ubuntu-host
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
-
-      - name: Log in to quay.io (staging)
-        run: scripts/release/quay_staging_login.sh
-        env:
-          QUAY_STAGING_USERNAME: ${{ secrets.QUAY_STAGING_USERNAME }}
-          QUAY_STAGING_PASSWORD: ${{ secrets.QUAY_STAGING_ROBOT_TOKEN }}
-
-      - name: Verify Release Commit
-        id: verify_release_commit
-        run: |
-          output=$(scripts/evergreen/release/verify_release_commit.sh \
-            --commit "${{ github.event.inputs.commit_sha }}" \
-            --version "${{ github.event.inputs.version }}")
-          echo "$output" | while IFS= read -r line; do
-            echo "$line" >> "$GITHUB_OUTPUT"
-          done
 
       - name: Generate Release Notes
         id: generate_release_notes
@@ -76,8 +60,8 @@ jobs:
           fi
           gh release create "$VERSION" --target "$COMMIT_SHA" --draft --latest --notes-file release_notes_final.md --title "$release_title"
         env:
-          VERSION: ${{ steps.verify_release_commit.outputs.version }}
-          COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
+          VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -92,8 +76,8 @@ jobs:
           git tag -a "$VERSION" -m "${annotation}" "$COMMIT_SHA"
           git push origin "$VERSION"
         env:
-          VERSION: ${{ steps.verify_release_commit.outputs.version }}
-          COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
+          VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
