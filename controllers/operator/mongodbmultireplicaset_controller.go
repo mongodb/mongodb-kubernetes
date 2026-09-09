@@ -126,6 +126,9 @@ func memberClusterAndSecretClients(memberClusterEntries map[string]multicluster.
 
 	// extract client from each cluster object.
 	for k, v := range memberClusterEntries {
+		if v.Client == nil {
+			continue
+		}
 		clientsMap[k] = kubernetesClient.NewClient(v.Client)
 		secretClientsMap[k] = secrets.SecretClient{
 			VaultClient: nil, // Vault is not supported yet on multicluster
@@ -508,7 +511,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnershipAll(ctx
 		}
 
 		memberClient, ok := memberClusterClientsMap[item.ClusterName]
-		if !ok {
+		if !ok || memberClient == nil {
 			return workflow.Failed(xerrors.Errorf("failed to arbitrate AppDB ownership: cluster %s missing from client map", item.ClusterName))
 		}
 
