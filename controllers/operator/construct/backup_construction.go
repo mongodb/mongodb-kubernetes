@@ -83,7 +83,7 @@ func backupOptions(memberCluster multicluster.MemberCluster, additionalOpts ...f
 		}
 		opts.Replicas = opsManager.Spec.Backup.Members
 		opts.AppDBConnectionSecretName = opsManager.AppDBMongoConnectionStringSecretName()
-		opts.ServiceAccountName = resourcenames.WorkloadOpsManagerServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)
+		opts.ServiceAccountName = resourcenames.WorkloadOpsManagerServiceAccount.Name(memberCluster.Legacy)
 
 		opts.LoggingConfiguration = opsManager.Spec.Backup.Logging
 

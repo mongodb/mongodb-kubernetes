@@ -5343,7 +5343,7 @@ func TestBuildReplicaSetPlan_ServiceAccount(t *testing.T) {
 		assert.Equal(t, util.MongoDBServiceAccount, plan.units[0].serviceAccountName)
 	})
 
-	t.Run("named member clusters use member-scoped service accounts", func(t *testing.T) {
+	t.Run("named member clusters use the fixed member-scoped service account", func(t *testing.T) {
 		mdb := newSearch([]searchv1.ClusterSpec{{Name: "cluster-a"}, {Name: "cluster-b"}})
 		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState(), memberClusters: memberClusterEntries(map[string]kubernetesClient.Client{
 			"cluster-a": newTestFakeClient(),
@@ -5352,8 +5352,8 @@ func TestBuildReplicaSetPlan_ServiceAccount(t *testing.T) {
 		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
 		require.NoError(t, err)
 		require.Len(t, plan.units, 2)
-		assert.Equal(t, "mck-member-cluster-a-database-pods", plan.units[0].serviceAccountName)
-		assert.Equal(t, "mck-member-cluster-b-database-pods", plan.units[1].serviceAccountName)
+		assert.Equal(t, "mck-member-database-pods", plan.units[0].serviceAccountName)
+		assert.Equal(t, "mck-member-database-pods", plan.units[1].serviceAccountName)
 	})
 
 	t.Run("the operator's own cluster uses the fixed service account in per-cluster operator mode", func(t *testing.T) {
