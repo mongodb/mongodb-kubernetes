@@ -2100,7 +2100,7 @@ func TestMDBMultiAppDBOwnershipGate_MemberClusterClients(t *testing.T) {
 			name:          "cluster with a nil client fails arbitration",
 			nilClient:     true,
 			expectedOK:    false,
-			expectedError: fmt.Sprintf("member cluster %s client is not available", clusters[0]),
+			expectedError: fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s missing from client map", clusters[0]),
 		},
 	}
 
@@ -2111,7 +2111,7 @@ func TestMDBMultiAppDBOwnershipGate_MemberClusterClients(t *testing.T) {
 			case tt.deleteClient:
 				reconciler.memberClustersProvider = multicluster.NewProvider()
 			case tt.nilClient:
-				reconciler.memberClustersProvider.Set(clusters[0], multicluster.Entry{})
+				reconciler.memberClustersProvider.Set(ctx, clusters[0], multicluster.Entry{})
 			}
 
 			gateStatus := reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
