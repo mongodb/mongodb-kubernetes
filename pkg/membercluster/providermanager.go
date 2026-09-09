@@ -109,13 +109,11 @@ func (m *providerManager) sync(ctx context.Context, mc *operatorv1.MemberCluster
 	}
 
 	entryCtx, cancel := context.WithCancel(m.baseCtx)
-	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
+	m.wg.Go(func() {
 		if err := memberCluster.Start(entryCtx); err != nil {
 			log.Errorf("Member cluster %q stopped with error: %s", mc.Spec.ClusterName, err)
 		}
-	}()
+	})
 
 	m.mu.Lock()
 	m.entries[mc.Name] = entryState{clusterName: mc.Spec.ClusterName, cancel: cancel, generation: mc.Generation}
