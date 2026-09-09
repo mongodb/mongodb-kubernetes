@@ -1507,8 +1507,6 @@ def generate_and_apply_member_resources(
             plugin,
             "multicluster",
             "generate-member-resources",
-            "--member-cluster",
-            cluster,
             "--member-cluster-namespace",
             member_namespace,
         ]

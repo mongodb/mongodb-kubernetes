@@ -59,7 +59,7 @@ func kindNames(rs []*unstructured.Unstructured) []string {
 // they keep isolating the operator RBAC from the workload RBAC once the workload names also
 // become member-scoped.
 type resourceNames struct {
-	// Operator member RBAC, cluster-scoped-named as mck-member-<cluster>-*: three roles,
+	// Operator member RBAC, named mck-member-*: three roles,
 	// each with its own binding(s). role-base (the operator's shared
 	// workload-management rules, operator-roles-base.yaml), role-multicluster (rules
 	// needed only for multi-cluster operation, member-cluster-rbac.yaml) and
@@ -78,7 +78,7 @@ type resourceNames struct {
 	telemetryClusterRole string
 	telemetryBinding     string
 
-	// Database-workload RBAC, also cluster-scoped-named as mck-member-<cluster>-* in
+	// Database-workload RBAC, also named mck-member-* in
 	// member mode so it is additive to the base installation's fixed-name workload RBAC.
 	workloadAppdbSA      string
 	workloadDatabaseSA   string
@@ -87,8 +87,8 @@ type resourceNames struct {
 	workloadAppdbBinding string
 }
 
-func expectedNames(clusterName string) resourceNames {
-	prefix := "mck-member-" + clusterName + "-"
+func expectedNames() resourceNames {
+	const prefix = "mck-member-"
 	return resourceNames{
 		operatorSA:              prefix + "sa",
 		operatorToken:           prefix + "token",
@@ -191,9 +191,8 @@ func operatorResources(n resourceNames, roleKind string, namespaces ...string) [
 // follow only the workload namespaces. Telemetry resources are present unless
 // operatorTelemetry is false.
 func TestRender(t *testing.T) {
-	const clusterName = "cluster-east"
 	const memberNs = "mongodb"
-	n := expectedNames(clusterName)
+	n := expectedNames()
 
 	tests := []struct {
 		name                  string
@@ -280,7 +279,7 @@ func TestRender(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Render(clusterName, memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
+			out, err := Render(memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
 			require.NoError(t, err, "render failed")
 			resources := parseResources(t, out)
 
@@ -347,11 +346,10 @@ func rulesOf(t *testing.T, r *unstructured.Unstructured) []rbacRule {
 // exactly the shared workload-management rules (no central-only rules), and pvc-resize
 // holds its single least-privilege rule.
 func TestRender_OperatorRoleRules(t *testing.T) {
-	const clusterName = "cluster-east"
 	const memberNs = "mongodb"
-	n := expectedNames(clusterName)
+	n := expectedNames()
 
-	out, err := Render(clusterName, memberNs, []string{memberNs}, false, true, "")
+	out, err := Render(memberNs, []string{memberNs}, false, true, "")
 	require.NoError(t, err, "render failed")
 
 	byName := map[string]*unstructured.Unstructured{}
@@ -395,19 +393,12 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	}, rulesOf(t, byName[n.pvcResizeRole]), "pvc-resize rules")
 }
 
-func TestRender_RequiresClusterName(t *testing.T) {
-	// Render itself renders whatever it is given; the required-name guard lives in the chart
-	// template, so an empty cluster name must surface as a render error.
-	_, err := Render("", "mongodb", []string{"mongodb"}, false, true, "")
-	require.Error(t, err, "expected an error when the cluster name is empty")
-}
-
 // TestRender_RejectsWildcard asserts the chart-level backstop for "*": the CLI rejects it
 // when parsing --workload-namespaces, but the member-mode templates must also refuse it,
 // since "*" is only ever valid via operatorClusterScoped.
 func TestRender_RejectsWildcard(t *testing.T) {
 	for _, workload := range [][]string{{"*"}, {"ns1", "*"}} {
-		_, err := Render("cluster-east", "mongodb", workload, false, true, "")
+		_, err := Render("mongodb", workload, false, true, "")
 		require.Error(t, err, "expected an error for workload namespaces %v", workload)
 		assert.Contains(t, err.Error(), "--operator-cluster-scoped", "error should point at --operator-cluster-scoped, got: %v", err)
 	}
@@ -417,11 +408,10 @@ func TestRender_RejectsWildcard(t *testing.T) {
 // the workload ServiceAccounts only (the operator's own member SA carries no image pull
 // secret, since it is not used to pull workload images).
 func TestRender_ImagePullSecrets(t *testing.T) {
-	const clusterName = "cluster-east"
 	const memberNs = "mongodb"
-	n := expectedNames(clusterName)
+	n := expectedNames()
 
-	out, err := Render(clusterName, memberNs, []string{memberNs}, false, true, "my-pull-secret")
+	out, err := Render(memberNs, []string{memberNs}, false, true, "my-pull-secret")
 	require.NoError(t, err, "render failed")
 	resources := parseResources(t, out)
 
@@ -501,13 +491,11 @@ func TestHelmTemplateParity(t *testing.T) {
 	helmBin, err := exec.LookPath("helm")
 	require.NoError(t, err, "helm must be installed to run the chart parity test")
 
-	const clusterName = "cluster-east"
-	names := expectedNames(clusterName)
+	names := expectedNames()
 
 	helmTemplate := func(showOnly string) string {
 		cmd := exec.Command(helmBin, "template", diskChartDir,
 			"--set", "memberCluster.enabled=true",
-			"--set", "memberCluster.name="+clusterName,
 			"--set", "memberCluster.clusterScoped=false",
 			"--set", "memberCluster.workloadNamespaces[0]=mongodb",
 			"--set", "operator.namespace=mongodb",
@@ -520,7 +508,7 @@ func TestHelmTemplateParity(t *testing.T) {
 		return stdout.String()
 	}
 
-	embeddedOut, err := Render(clusterName, "mongodb", []string{"mongodb"}, false, true, "")
+	embeddedOut, err := Render("mongodb", []string{"mongodb"}, false, true, "")
 	require.NoError(t, err, "embedded render failed")
 	embeddedResources := parseResources(t, embeddedOut)
 
