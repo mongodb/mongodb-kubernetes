@@ -1,8 +1,7 @@
 # Release process: publishes the images already promoted for a given commit.
 #
-# Pushes an "X.Y.Z" git tag with a "[new]" annotation prefix.
-# Evergreen inspects the annotation: "[new]" → release-publish pipeline,
-# otherwise → deprecated-release (legacy rebuild-and-retest).
+# The annotation message prefix "[new]... " signals that this tag should be
+# processed by the new release-publish pipeline.
 name: Release MCK version (publish-only)
 
 permissions:

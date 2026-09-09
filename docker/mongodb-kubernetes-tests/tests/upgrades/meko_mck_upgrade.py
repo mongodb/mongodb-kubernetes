@@ -31,6 +31,16 @@ logger = test_logger.get_test_logger(__name__)
 RS_NAME = "my-replica-set"
 CERT_PREFIX = "prefix"
 
+# AC process names recorded while the legacy MEKO operator owns the deployment. MEKO predates
+# the k8s/{namespace}/{pod} process naming introduced in MCK 1.12.0, so the Automation Config
+# holds legacy bare pod names. The upgraded operator must keep them on existing deployments
+# instead of renaming to the new scheme.
+process_names_before_upgrade: set = set()
+
+
+def get_ac_process_names(replica_set: MongoDB) -> set:
+    return {p["name"] for p in replica_set.get_automation_config_tester().get_all_processes()}
+
 
 @fixture(scope="module")
 def rs_certs_secret(namespace: str, issuer: str):
@@ -104,6 +114,13 @@ def test_install_replicaset(replica_set: MongoDB):
 
 
 @mark.e2e_meko_mck_upgrade
+def test_record_process_names_before_upgrade(replica_set: MongoDB):
+    process_names_before_upgrade.update(get_ac_process_names(replica_set))
+    assert process_names_before_upgrade
+    assert not any(name.startswith("k8s/") for name in process_names_before_upgrade)
+
+
+@mark.e2e_meko_mck_upgrade
 def test_downscale_latest_official_operator(namespace: str):
     deployment_name = LEGACY_MULTI_CLUSTER_OPERATOR_NAME if is_multi_cluster() else LEGACY_OPERATOR_NAME
     downscale_operator_deployment(deployment_name, namespace)
@@ -146,6 +163,13 @@ def test_upgrade_operator(
 def test_replicaset_reconciled(replica_set: MongoDB):
     replica_set.assert_abandons_phase(phase=Phase.Running, timeout=300)
     replica_set.assert_reaches_phase(phase=Phase.Running, timeout=800)
+
+
+@mark.e2e_meko_mck_upgrade
+def test_process_names_unchanged_after_upgrade(replica_set: MongoDB):
+    current = get_ac_process_names(replica_set)
+    assert current == process_names_before_upgrade
+    assert not any(name.startswith("k8s/") for name in current)
 
 
 @mark.e2e_meko_mck_upgrade
