@@ -474,9 +474,10 @@ func TestEnsureAppDbPassword_ErrorWhenPasswordSecretKeyRefNotFound(t *testing.T)
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	ctx := context.Background()
+	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	_, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	s := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.PasswordSecretKeyRef.Name, Namespace: testOm.Namespace},

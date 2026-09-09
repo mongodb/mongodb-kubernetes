@@ -1471,7 +1471,7 @@ def run_legacy_kube_config_creation_tool(
 
 def _multi_cluster_plugin_path() -> str:
     """Path to the built kubectl-mongodb plugin binary."""
-    return os.getenv("MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH", "multi-cluster-kube-config-creator")
+    return os.getenv("KUBECTL_MONGODB_PATH", "kubectl-mongodb")
 
 
 def _kubectl_apply_to_context(context: str, manifests: bytes):
