@@ -45,6 +45,20 @@ jobs:
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
 
+      - name: Validate commit SHA
+        env:
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+        run: |
+          if ! echo "$COMMIT_SHA" | grep -qP '^[0-9a-f]{40}$'; then
+            echo "Error: commit_sha '$COMMIT_SHA' is not a valid 40-character hex SHA"
+            exit 1
+          fi
+          if ! git cat-file -e "$COMMIT_SHA^{commit}" 2>/dev/null; then
+            echo "Error: commit_sha '$COMMIT_SHA' does not exist in the repository"
+            exit 1
+          fi
+          echo "Commit SHA $COMMIT_SHA is valid"
+
       - name: Generate Release Notes
         id: generate_release_notes
         run: python -m scripts.release.release_notes -s $INITIAL_COMMIT_SHA -v $INITIAL_VERSION -o release_notes_final.md
