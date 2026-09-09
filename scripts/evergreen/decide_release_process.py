@@ -69,8 +69,30 @@ def main():
         print(f"ERROR: no buildvariants found in {pipeline_file}", file=sys.stderr)
         sys.exit(1)
 
-    # Write generate.tasks JSON.
-    output = {"buildvariants": variants}
+    # Write generate.tasks JSON. Only emit name + tasks so we add tasks
+    # to already-defined variants instead of trying to redefine them.
+    #
+    # run_conditionally_* wrapper tasks are NOT included — they internally
+    # call generate.tasks, which EVG forbids inside another generate.tasks
+    # block. Instead we run the condition check here and include the real
+    # task directly when it passes.
+    def resolve_tasks(v):
+        """Return the list of task names for a variant, resolving conditionals inline."""
+        out = []
+        for t in v.get("tasks", []):
+            name = t["name"]
+            if name == "run_conditionally_prepare_and_upload_openshift_bundles":
+                result = subprocess.run(
+                    ["scripts/evergreen/should_prepare_openshift_bundles.sh"],
+                    capture_output=True,
+                )
+                if result.returncode == 0:
+                    out.append("prepare_and_upload_openshift_bundles")
+            else:
+                out.append(name)
+        return out
+
+    output = {"buildvariants": [{"name": v["name"], "tasks": resolve_tasks(v)} for v in variants]}
     with open("evergreen_tasks.json", "w") as f:
         json.dump(output, f, indent=2)
 
