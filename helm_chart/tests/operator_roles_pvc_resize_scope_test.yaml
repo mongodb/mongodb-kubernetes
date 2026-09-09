@@ -1,0 +1,72 @@
+suite: test pvc-resize role scope (Role per namespace vs ClusterRole)
+templates:
+  - operator-roles-pvc-resize.yaml
+tests:
+  - it: default install renders a single namespaced Role and RoleBinding
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+
+  - it: multi-namespace watchNamespace renders one Role per namespace and no ClusterRole
+    set:
+      operator.watchNamespace: "ns1,ns2"
+    asserts:
+      - hasDocuments:
+          count: 6
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - isKind:
+          of: Role
+        documentIndex: 1
+      - isKind:
+          of: Role
+        documentIndex: 2
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 2
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 3
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 4
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 5
+
+  - it: cluster-wide watchNamespace renders a ClusterRole and ClusterRoleBinding
+    set:
+      operator.watchNamespace: "*"
+    asserts:
+      - isKind:
+          of: ClusterRole
+        documentIndex: 0
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      - isKind:
+          of: RoleBinding
+        documentIndex: 2
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+        documentIndex: 2
