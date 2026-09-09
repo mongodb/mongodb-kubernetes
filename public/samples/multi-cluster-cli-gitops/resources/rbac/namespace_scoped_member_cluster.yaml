@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mck-member-member-cluster-sa
+  name: mck-member-sa
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -12,17 +12,17 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: mck-member-member-cluster-token
+  name: mck-member-token
   namespace: mongodb
   annotations:
-    kubernetes.io/service-account.name: mck-member-member-cluster-sa
+    kubernetes.io/service-account.name: mck-member-sa
     mongodb.com/rbac-version: "2.0.0"
 type: kubernetes.io/service-account-token
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-role-multicluster
+  name: mck-member-role-multicluster
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -51,23 +51,23 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-role-multicluster-binding
+  name: mck-member-role-multicluster-binding
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mck-member-member-cluster-role-multicluster
+  name: mck-member-role-multicluster
 subjects:
   - kind: ServiceAccount
-    name: mck-member-member-cluster-sa
+    name: mck-member-sa
     namespace: mongodb
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-role-base
+  name: mck-member-role-base
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -122,23 +122,23 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-role-base-binding
+  name: mck-member-role-base-binding
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mck-member-member-cluster-role-base
+  name: mck-member-role-base
 subjects:
   - kind: ServiceAccount
-    name: mck-member-member-cluster-sa
+    name: mck-member-sa
     namespace: mongodb
 ---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-pvc-resize
+  name: mck-member-pvc-resize
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -156,23 +156,23 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-pvc-resize-binding
+  name: mck-member-pvc-resize-binding
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mck-member-member-cluster-pvc-resize
+  name: mck-member-pvc-resize
 subjects:
   - kind: ServiceAccount
-    name: mck-member-member-cluster-sa
+    name: mck-member-sa
     namespace: mongodb
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mck-member-member-cluster-appdb
+  name: mck-member-appdb
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -181,7 +181,7 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mck-member-member-cluster-database-pods
+  name: mck-member-database-pods
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -190,7 +190,7 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: mck-member-member-cluster-ops-manager
+  name: mck-member-ops-manager
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -199,7 +199,7 @@ metadata:
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-appdb
+  name: mck-member-appdb
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
@@ -223,24 +223,24 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-appdb
+  name: mck-member-appdb
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mck-member-member-cluster-appdb
+  name: mck-member-appdb
 subjects:
   - kind: ServiceAccount
-    name: mck-member-member-cluster-appdb
+    name: mck-member-appdb
     namespace: mongodb
 ---
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-cluster-telemetry
+  name: mck-member-cluster-telemetry
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 rules:
@@ -269,14 +269,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-member-cluster-cluster-telemetry-binding
+  name: mck-member-cluster-telemetry-binding
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: mck-member-member-cluster-cluster-telemetry
+  name: mck-member-cluster-telemetry
 subjects:
   - kind: ServiceAccount
-    name: mck-member-member-cluster-sa
+    name: mck-member-sa
     namespace: mongodb

@@ -38,11 +38,11 @@ const (
 )
 
 // tokenSecret returns a ServiceAccount token Secret as generate-member-resources would have
-// created it on the member cluster, keyed by cluster name.
-func tokenSecret(clusterName, namespace string, data map[string][]byte) *corev1.Secret {
+// created it on the member cluster (the fixed mck-member-token name).
+func tokenSecret(namespace string, data map[string][]byte) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mck-member-" + clusterName + "-token",
+			Name:      "mck-member-token",
 			Namespace: namespace,
 		},
 		Type: corev1.SecretTypeServiceAccountToken,
@@ -114,7 +114,7 @@ func TestGenerate(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			client := fake.NewSimpleClientset(tokenSecret(tc.memberClusterName, testNamespace, map[string][]byte{
+			client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
 				corev1.ServiceAccountTokenKey:  []byte(testToken),
 				corev1.ServiceAccountRootCAKey: []byte(testCA),
 			}))
@@ -140,7 +140,7 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestGenerate_KubeconfigContents(t *testing.T) {
-	client := fake.NewSimpleClientset(tokenSecret("cluster-east", testNamespace, map[string][]byte{
+	client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
 		corev1.ServiceAccountTokenKey:  []byte(testToken),
 		corev1.ServiceAccountRootCAKey: []byte(testCA),
 	}))
@@ -180,7 +180,7 @@ func TestGenerate_KubeconfigContents(t *testing.T) {
 }
 
 func TestGenerate_KubeconfigContents_ApiServerOverride(t *testing.T) {
-	client := fake.NewSimpleClientset(tokenSecret("cluster-east", testNamespace, map[string][]byte{
+	client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
 		corev1.ServiceAccountTokenKey:  []byte(testToken),
 		corev1.ServiceAccountRootCAKey: []byte(testCA),
 	}))
@@ -205,7 +205,7 @@ func TestGenerate_KubeconfigContents_ApiServerOverride(t *testing.T) {
 }
 
 func TestGenerate_KubeconfigContents_CertificateAuthorityOverride(t *testing.T) {
-	client := fake.NewSimpleClientset(tokenSecret("cluster-east", testNamespace, map[string][]byte{
+	client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
 		corev1.ServiceAccountTokenKey:  []byte(testToken),
 		corev1.ServiceAccountRootCAKey: []byte(testCA),
 	}))
@@ -264,13 +264,13 @@ func TestGenerate_Errors(t *testing.T) {
 			wantErrText: "reading token secret",
 		},
 		"missing token key": {
-			objects: []*corev1.Secret{tokenSecret("cluster-east", testNamespace, map[string][]byte{
+			objects: []*corev1.Secret{tokenSecret(testNamespace, map[string][]byte{
 				corev1.ServiceAccountRootCAKey: []byte(testCA),
 			})},
 			wantErrText: `has no "token" key`,
 		},
 		"missing ca key": {
-			objects: []*corev1.Secret{tokenSecret("cluster-east", testNamespace, map[string][]byte{
+			objects: []*corev1.Secret{tokenSecret(testNamespace, map[string][]byte{
 				corev1.ServiceAccountTokenKey: []byte(testToken),
 			})},
 			wantErrText: `has no "ca.crt" key`,
@@ -307,7 +307,7 @@ func TestGenerate_WaitsForTokenPopulation(t *testing.T) {
 	tokenPollInterval = time.Millisecond
 	defer func() { tokenPollInterval = originalPollInterval }()
 
-	populated := tokenSecret("cluster-east", testNamespace, map[string][]byte{
+	populated := tokenSecret(testNamespace, map[string][]byte{
 		corev1.ServiceAccountTokenKey:  []byte(testToken),
 		corev1.ServiceAccountRootCAKey: []byte(testCA),
 	})
@@ -353,7 +353,7 @@ func TestGenerate_TokenWaitTimeout(t *testing.T) {
 			},
 		},
 		"secret never populated": {
-			objects: []*corev1.Secret{tokenSecret("cluster-east", testNamespace, nil)},
+			objects: []*corev1.Secret{tokenSecret(testNamespace, nil)},
 			wantErrText: []string{
 				"timed out after 50ms",
 				`has no "token" key`,

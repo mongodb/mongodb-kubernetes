@@ -15,32 +15,32 @@ import (
 	"helm.sh/helm/v3/pkg/engine"
 
 	helmchart "github.com/mongodb/mongodb-kubernetes/helm_chart"
-	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
 
 // memberTemplates are the chart templates rendered into the output, in order. Everything a
 // member cluster needs must be present:
 //
 //   - member-cluster-rbac.yaml: the member-specific resources — the member ServiceAccount
-//     and token Secret (credentials), and mck-member-<cluster-name>-role-multicluster
+//     and token Secret (credentials), and mck-member-role-multicluster
 //     holding the rules the operator needs only because of multi-cluster operation
 //     (deletecollection cleanup; the serviceaccounts get self-read for the parked
 //     rbac-version validation was removed with that scaffolding).
 //   - operator-roles-base.yaml: dual-mode; in member mode it renders
-//     mck-member-<cluster-name>-role-base — the operator's shared workload-management
+//     mck-member-role-base — the operator's shared workload-management
 //     rules, identical to the base installation's role, from a single unconditional
 //     source in the template.
 //   - operator-roles-pvc-resize.yaml: dual-mode; in member mode it renders
-//     mck-member-<cluster-name>-pvc-resize bound to the member SA.
+//     mck-member-pvc-resize bound to the member SA.
 //   - database-roles.yaml: RBAC for the MongoDB pods. Dual-mode; in member mode it renders
-//     member-scoped names (mck-member-<cluster-name>-*).
+//     member-scoped names (mck-member-*).
 //   - operator-roles-telemetry.yaml: telemetry ClusterRole/ClusterRoleBinding. Dual-mode; in
-//     member mode it renders mck-member-<cluster-name>-cluster-telemetry bound to the member
+//     member mode it renders mck-member-cluster-telemetry bound to the member
 //     SA. Renders to nothing when operatorTelemetry is false (installClusterRole gate).
 //
-// All member resources use the distinct mck-member-<cluster-name>-* naming so they are
+// All member resources use the distinct fixed mck-member-* naming so they are
 // additive to the base-installation RBAC and never collide with it — including when the
-// operator's own cluster is also configured as a member cluster.
+// operator's own cluster is also configured as a member cluster. One render can be applied
+// to every member cluster.
 var memberTemplates = []string{
 	"member-cluster-rbac.yaml",
 	"operator-roles-base.yaml",
@@ -61,7 +61,7 @@ var memberTemplates = []string{
 //   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding
 //     (the only cluster-scoped resources in a narrowed render).
 //   - imagePullSecrets: when non-empty, set as the workload ServiceAccounts' imagePullSecrets.
-func Render(clusterName, namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
+func Render(namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
 	chrt, err := loadEmbeddedChart()
 	if err != nil {
 		return "", xerrors.Errorf("loading embedded chart: %w", err)
@@ -70,7 +70,6 @@ func Render(clusterName, namespace string, workloadNamespaces []string, operator
 	values := map[string]any{
 		"memberCluster": map[string]any{
 			"enabled":            true,
-			"name":               clusterName,
 			"clusterScoped":      operatorClusterScoped,
 			"workloadNamespaces": workloadNamespaces,
 		},
@@ -88,7 +87,6 @@ func Render(clusterName, namespace string, workloadNamespaces []string, operator
 	}
 
 	renderValues, err := chartutil.ToRenderValues(chrt, values, chartutil.ReleaseOptions{
-		Name:      resourcenames.MemberClusterResourceName(clusterName),
 		Namespace: namespace,
 	}, chartutil.DefaultCapabilities)
 	if err != nil {
