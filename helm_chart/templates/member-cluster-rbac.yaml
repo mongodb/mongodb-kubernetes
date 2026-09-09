@@ -3,30 +3,31 @@ Member-cluster credentials and multi-cluster-only RBAC.
 
 Rendered only when `memberCluster.enabled=true`, which is set exclusively by
 `kubectl mongodb multicluster generate-member-resources` (never by helm install / OLM).
-These resources are additive to the base installation RBAC and use a distinct,
-cluster-name-scoped naming convention (`mck-member-<cluster-name>-*`) so they never collide
-with the base `operator.name` resources — including when the operator's own cluster
-is also configured as a member cluster.
+These resources are additive to the base installation RBAC and use a distinct, unified
+naming convention (`mck-member-*`, identical on every member cluster) so they never
+collide with the base `operator.name` resources — including when the operator's own
+cluster is also configured as a member cluster.
 
 This file renders only what is member-specific:
 
   - the member ServiceAccount and its token Secret (the credentials the operator
     authenticates with);
-  - mck-member-<cluster-name>-role-multicluster: the rules the operator needs ONLY
-    because of multi-cluster operation (see the rule comments below).
+  - mck-member-role-multicluster: the rules the operator needs ONLY because of
+    multi-cluster operation (see the rule comments below).
 
 Everything else the member cluster needs is rendered by the dual-mode templates, which
 share one source with the base installation: the operator's shared workload-management
-rules in operator-roles-base.yaml (mck-member-<cluster-name>-role-base), the operator's
+rules in operator-roles-base.yaml (mck-member-role-base), the operator's
 PVC-resize rules in operator-roles-pvc-resize.yaml, telemetry in
 operator-roles-telemetry.yaml, and the workload pods' RBAC (MongoDB, Ops Manager) in
 database-roles.yaml.
 
 The naming prefix is deliberately decoupled from `.Values.operator.name` (which still
-differs between single- and multi-cluster installs pending operator-name unification):
-the operator reconstructs the ServiceAccount name `mck-member-<cluster-name>-sa` from the
-MemberCluster CR's metadata.name (the same value passed here as memberCluster.name) when
-validating RBAC.
+differs between single- and multi-cluster installs pending operator-name unification)
+and from the MemberCluster CR's metadata.name: member-side RBAC names are the fixed
+`mck-member-*` set on every member cluster. The mongodb.com/rbac-version annotation on
+them (including the well-known `mck-member-sa` ServiceAccount) is rendered so RBAC
+validation can be reintroduced later without re-annotating.
 
 memberCluster.* is intentionally absent from values.yaml — it is a plugin-internal render
 flag, not a user-facing install option, so guard the access with `default dict`.
@@ -41,7 +42,7 @@ Scope model (set exclusively by the plugin):
     entry — cluster-wide permission is expressed only via clusterScoped.
 */ -}}
 {{- if (.Values.memberCluster | default dict).enabled }}
-{{- $name := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" .Values.memberCluster.name) }}
+{{- $name := "mck-member" }}
 {{- $namespace := include "mongodb-kubernetes-operator.namespace" . }}
 {{- $memberCluster := .Values.memberCluster | default dict }}
 {{- $clusterScoped := $memberCluster.clusterScoped | default false }}

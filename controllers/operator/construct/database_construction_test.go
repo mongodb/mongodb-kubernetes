@@ -651,8 +651,8 @@ func TestGetServiceAccountName(t *testing.T) {
 	}{
 		{
 			name:     "option used when pod template has no serviceAccountName",
-			opts:     DatabaseStatefulSetOptions{ServiceAccountName: "mck-member-cluster-a-database-pods"},
-			expected: "mck-member-cluster-a-database-pods",
+			opts:     DatabaseStatefulSetOptions{ServiceAccountName: "mck-member-database-pods"},
+			expected: "mck-member-database-pods",
 		},
 		{
 			name:     "pod template wins over the option default",
@@ -661,7 +661,7 @@ func TestGetServiceAccountName(t *testing.T) {
 		},
 		{
 			name:     "pod template wins over the option",
-			opts:     DatabaseStatefulSetOptions{PodSpec: podSpecWithSA, ServiceAccountName: "mck-member-cluster-a-database-pods"},
+			opts:     DatabaseStatefulSetOptions{PodSpec: podSpecWithSA, ServiceAccountName: "mck-member-database-pods"},
 			expected: "user-sa",
 		},
 	}
