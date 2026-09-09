@@ -36,9 +36,11 @@ var tokenPollInterval = 2 * time.Second
 
 // Options carries the resolved flag values for a single member-cluster registration.
 type Options struct {
-	// MemberClusterName is the RFC 1123 name used for the MemberCluster CR's metadata.name and the
-	// credential Secret name suffix. It must match the name passed to generate-member-resources,
-	// which is how the token Secret (mck-member-<MemberClusterName>-token) is located.
+	// MemberClusterName is the RFC 1123 name used for the central-cluster resources this
+	// registration emits: the MemberCluster CR's metadata.name and the credential Secret name
+	// suffix. It must be unique per member cluster on the central cluster. The token Secret on
+	// the member cluster is the fixed mck-member-token, so this name need not match anything
+	// from generate-member-resources.
 	MemberClusterName string
 	// MemberClusterLogicalName is the logical cluster identity set as spec.clusterName on the MemberCluster CR.
 	// Used to resolve clusterSpecList[].clusterName references in workload CRs.
@@ -60,7 +62,7 @@ type Options struct {
 // serverURL as the kubeconfig API-server address. It is the entry point used by the CLI, which
 // builds client and serverURL from the member cluster's kubeconfig context.
 func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, memberClusterServerURL string, opts Options) (string, error) {
-	tokenSecretName := resourcenames.MemberClusterTokenSecretName(opts.MemberClusterName)
+	tokenSecretName := resourcenames.MemberClusterTokenSecretName()
 
 	token, ca, err := waitForTokenSecret(ctx, memberClusterClient, tokenSecretName, opts)
 	if err != nil {

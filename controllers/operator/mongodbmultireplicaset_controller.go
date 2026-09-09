@@ -446,8 +446,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s missing from client map", item.ClusterName))
 			continue
 		}
-		// memberClusterEntries has an entry for every key in memberClusterClientsMap.
-		memberClusterEntry := memberClusterEntries[item.ClusterName]
 		secretMemberClient := memberClusterSecretClientsMap[item.ClusterName]
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(mrs, item)
 		clusterNum := mrs.ClusterNum(item.ClusterName)
@@ -534,7 +532,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
-			mconstruct.WithServiceAccount(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberClusterEntry.ResourceName, false)),
+			mconstruct.WithServiceAccount(resourcenames.WorkloadDatabasePodsServiceAccount.Name(false)),
 			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),

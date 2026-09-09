@@ -404,8 +404,8 @@ func TestAppDbStatefulSet_ServiceAccount(t *testing.T) {
 	})
 
 	t.Run("explicit option is used", func(t *testing.T) {
-		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ServiceAccountName: "mck-member-cluster-a-appdb"}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ServiceAccountName: "mck-member-appdb"}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
 		require.NoError(t, err)
-		assert.Equal(t, "mck-member-cluster-a-appdb", sts.Spec.Template.Spec.ServiceAccountName)
+		assert.Equal(t, "mck-member-appdb", sts.Spec.Template.Spec.ServiceAccountName)
 	})
 }

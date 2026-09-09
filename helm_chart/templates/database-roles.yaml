@@ -1,7 +1,7 @@
 {{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
 {{- $namePrefix := "mongodb-kubernetes" -}}
 {{- if $memberMode }}
-{{- $namePrefix = printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled is true" .Values.memberCluster.name) -}}
+{{- $namePrefix = "mck-member" -}}
 {{- end }}
 {{- $rbacVersion := .Chart.Version | quote -}}
 

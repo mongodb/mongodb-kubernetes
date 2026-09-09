@@ -27,7 +27,7 @@ var flags struct {
 }
 
 func init() {
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; used as the MemberCluster CR's metadata.name and the credential Secret name suffix. Must match the name passed to generate-member-resources. [required]")
+	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; names the central-cluster resources (the MemberCluster CR's metadata.name and the credential Secret name suffix). Must be unique per member cluster on the central cluster. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
 	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
