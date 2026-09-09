@@ -12,7 +12,6 @@ import (
 )
 
 var flags struct {
-	memberCluster          string
 	memberClusterNamespace string
 	workloadNamespaces     string
 	operatorClusterScoped  bool
@@ -21,7 +20,6 @@ var flags struct {
 }
 
 func init() {
-	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "Name of the member cluster; used in RBAC resource names (mck-member-<cluster-name>-*) and as the cluster identity. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster for the operator's credentials. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --member-cluster-namespace]")
 	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). [optional]")
@@ -41,11 +39,11 @@ Apply the output to the member cluster with kubectl, or commit it to Git for Git
 
 Example (operator watching a single namespace):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-east --member-cluster-namespace=mongodb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb | kubectl apply --context=east-ctx -f -
 
 Example (cluster-wide operator with workloads in two namespaces):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-east --member-cluster-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
 `,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		workloadNamespaces, err := parseFlags()
@@ -53,7 +51,7 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-
 			return err
 		}
 
-		out, err := memberresources.Render(flags.memberCluster, flags.memberClusterNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.imagePullSecrets)
+		out, err := memberresources.Render(flags.memberClusterNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.imagePullSecrets)
 		if err != nil {
 			return err
 		}
@@ -63,8 +61,8 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster=cluster-
 }
 
 func parseFlags() ([]string, error) {
-	if strings.TrimSpace(flags.memberCluster) == "" || strings.TrimSpace(flags.memberClusterNamespace) == "" {
-		return nil, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-namespace]")
+	if strings.TrimSpace(flags.memberClusterNamespace) == "" {
+		return nil, xerrors.Errorf("non-empty value is required for [member-cluster-namespace]")
 	}
 	return normalizeWorkloadNamespaces(flags.workloadNamespaces, flags.memberClusterNamespace)
 }

@@ -10,21 +10,21 @@ import (
 
 func TestWorkloadServiceAccountName(t *testing.T) {
 	workloads := map[string]struct {
-		sa        workloadServiceAccount
-		fixedName string
-		suffix    string
+		sa              workloadServiceAccount
+		baseInstallName string
+		memberName      string
 	}{
-		"appdb":         {sa: WorkloadAppDBServiceAccount, fixedName: util.AppDBServiceAccount, suffix: "appdb"},
-		"database pods": {sa: WorkloadDatabasePodsServiceAccount, fixedName: util.MongoDBServiceAccount, suffix: "database-pods"},
-		"ops manager":   {sa: WorkloadOpsManagerServiceAccount, fixedName: util.OpsManagerServiceAccount, suffix: "ops-manager"},
+		"appdb":         {sa: WorkloadAppDBServiceAccount, baseInstallName: util.AppDBServiceAccount, memberName: "mck-member-appdb"},
+		"database pods": {sa: WorkloadDatabasePodsServiceAccount, baseInstallName: util.MongoDBServiceAccount, memberName: "mck-member-database-pods"},
+		"ops manager":   {sa: WorkloadOpsManagerServiceAccount, baseInstallName: util.OpsManagerServiceAccount, memberName: "mck-member-ops-manager"},
 	}
 
 	for name, w := range workloads {
 		t.Run(name+" base install returns fixed helm-install name", func(t *testing.T) {
-			assert.Equal(t, w.fixedName, w.sa.Name("gke-proj-zone-cl", true))
+			assert.Equal(t, w.baseInstallName, w.sa.Name(true))
 		})
-		t.Run(name+" member cluster returns member-scoped name", func(t *testing.T) {
-			assert.Equal(t, "mck-member-gke-proj-zone-cl-"+w.suffix, w.sa.Name("gke-proj-zone-cl", false))
+		t.Run(name+" member cluster returns fixed member-scoped name", func(t *testing.T) {
+			assert.Equal(t, w.memberName, w.sa.Name(false))
 		})
 	}
 }
