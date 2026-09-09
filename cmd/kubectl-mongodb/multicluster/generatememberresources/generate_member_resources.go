@@ -78,7 +78,7 @@ func normalizeWorkloadNamespaces(rawValue, memberClusterNamespace string) ([]str
 	}
 	seen := make(map[string]bool)
 	var namespaces []string
-	for _, entry := range strings.Split(rawValue, ",") {
+	for entry := range strings.SplitSeq(rawValue, ",") {
 		ns := strings.TrimSpace(entry)
 		if ns == "" {
 			return nil, xerrors.Errorf("invalid --workload-namespaces %q: entries must be non-empty namespace names", rawValue)

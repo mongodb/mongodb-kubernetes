@@ -370,6 +370,7 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 		{apiGroups: []string{""}, resources: []string{"services"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
 		{apiGroups: []string{""}, resources: []string{"configmaps", "secrets"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
 		{apiGroups: []string{"apps"}, resources: []string{"deployments", "statefulsets"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
+		{apiGroups: []string{"batch"}, resources: []string{"jobs"}, verbs: []string{"create", "delete", "get", "list", "watch"}},
 		{apiGroups: []string{""}, resources: []string{"pods"}, verbs: []string{"delete", "deletecollection", "get", "list", "watch"}},
 	}, baseRules, "role-base rules")
 
