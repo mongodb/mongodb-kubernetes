@@ -412,12 +412,10 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 	})
 
 	t.Run("non-static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
 		mdb.Spec.DownloadBase = "/custom/download/base"
 
-		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
 		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
 			return c.Name == util.DatabaseContainerName
@@ -428,12 +426,10 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 	})
 
 	t.Run("default download base does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 		// No DownloadBase configured, so GetDownloadBase returns util.DefaultPvcMmsMountPath.
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
 
-		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
 		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
 			return c.Name == util.DatabaseContainerName
@@ -446,8 +442,6 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 }
 
 func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 	sc := mdbv1.NewClusterBuilder().Build()
 	sc.Spec.DownloadBase = "/custom/download/base"
 
@@ -461,9 +455,9 @@ func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
 	}
 
 	cases := map[string]func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions{
-		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars),
-		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars),
-		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars),
+		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars, WithDefaultArchitecture(architectures.NonStatic)),
+		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars, WithDefaultArchitecture(architectures.NonStatic)),
+		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars, WithDefaultArchitecture(architectures.NonStatic)),
 	}
 
 	for name, optFunc := range cases {

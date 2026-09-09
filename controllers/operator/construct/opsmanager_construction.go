@@ -288,15 +288,14 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 // and BackupDaemon StatefulSets
 func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerStatefulSetOptions {
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
-		OwnerName:               opsManager.Name,
-		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
-		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
-		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
-		ServiceAccountName:      util.OpsManagerServiceAccount,
-		Namespace:               opsManager.Namespace,
-		Labels:                  opsManager.Labels,
-		StsLabels:               opsManager.GetOwnerLabels(),
+		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
+		OwnerName:           opsManager.Name,
+		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
+		EnvVars:             opsManagerConfigurationToEnvVars(opsManager),
+		ServiceAccountName:  util.OpsManagerServiceAccount,
+		Namespace:           opsManager.Namespace,
+		Labels:              opsManager.Labels,
+		StsLabels:           opsManager.GetOwnerLabels(),
 	}
 }
 
