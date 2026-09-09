@@ -60,7 +60,7 @@ buildvariants:
   - name: release_decider
     display_name: release_decider
     tags: [ "release-decider" ]
-    allowed_requesters: [ "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     run_on:
       - ubuntu2404-small
     tasks:
