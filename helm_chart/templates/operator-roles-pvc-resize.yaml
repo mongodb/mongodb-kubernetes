@@ -5,8 +5,9 @@ PVC-resize RBAC. Dual-mode template:
     ServiceAccount across operator.watchNamespace.
   - Member mode (memberCluster.enabled=true, set exclusively by
     `kubectl mongodb multicluster generate-member-resources`):
-    mck-member-<cluster-name>-pvc-resize bound to the member ServiceAccount
-    mck-member-<cluster-name>-sa, additive to the base installation RBAC.
+    mck-member-pvc-resize bound to the member ServiceAccount
+    mck-member-sa, additive to the base installation RBAC. The mck-member-*
+    names are unified — identical on every member cluster.
 
 Least-privilege verb set (list, watch, update): the operator only ever lists PVCs and
 updates their requested storage during a resize. watch is required because the cached
@@ -22,10 +23,10 @@ retention policy), never by the operator.
 {{- $bindingName := printf "%s-pvc-resize-binding" .Values.operator.name -}}
 {{- $saName := .Values.operator.name -}}
 {{- if $memberMode -}}
-{{- $memberName := printf "mck-member-%s" (required "memberCluster.name is required when memberCluster.enabled=true" $memberCluster.name) -}}
-{{- $name = printf "%s-pvc-resize" $memberName -}}
-{{- $bindingName = printf "%s-pvc-resize-binding" $memberName -}}
-{{- $saName = printf "%s-sa" $memberName -}}
+{{- $memberPrefix := "mck-member" -}}
+{{- $name = printf "%s-pvc-resize" $memberPrefix -}}
+{{- $bindingName = printf "%s-pvc-resize-binding" $memberPrefix -}}
+{{- $saName = printf "%s-sa" $memberPrefix -}}
 {{- end -}}
 
 {{- $watchNamespace := list $operatorNamespace -}}

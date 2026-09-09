@@ -319,10 +319,10 @@ func TestMultiClusterStatefulSet_ServiceAccount(t *testing.T) {
 			WithClusterNum(0),
 			WithMemberCount(3),
 			construct.GetPodEnvOptions(),
-			WithServiceAccount("mck-member-foo-database-pods"),
+			WithServiceAccount("mck-member-database-pods"),
 		)
 		sts := MultiClusterStatefulSet(mdbm, opts)
-		assert.Equal(t, "mck-member-foo-database-pods", sts.Spec.Template.Spec.ServiceAccountName)
+		assert.Equal(t, "mck-member-database-pods", sts.Spec.Template.Spec.ServiceAccountName)
 	})
 
 	t.Run("without WithServiceAccount the options builder default is used", func(t *testing.T) {
@@ -349,7 +349,7 @@ func TestMultiClusterStatefulSet_ServiceAccount(t *testing.T) {
 			WithClusterNum(0),
 			WithMemberCount(3),
 			construct.GetPodEnvOptions(),
-			WithServiceAccount("mck-member-foo-database-pods"),
+			WithServiceAccount("mck-member-database-pods"),
 			WithStsOverride(&override.SpecWrapper.Spec),
 		)
 		sts := MultiClusterStatefulSet(mdbm, opts)
