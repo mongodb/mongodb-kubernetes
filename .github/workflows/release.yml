@@ -12,15 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'Commit hash of the promoted commit to release. Must have a corresponding promoted-{commit}-{version} tag in the staging registry.'
+        description: 'Full SHA of the commit hash to release'
         type: string
         required: true
       version:
-        description: 'Expected release version implied by the given commit (version at release.json .mongodbOperator field). The release fails if they do not match.'
+        description: 'Expected release version'
         required: true
         type: string
       dry_run:
-        description: 'Dry run: creates a draft GitHub release (never published) and triggers the EVG pipeline with IS_DRYRUN=true. The tag annotation includes "[dry-run]". Requires the Evergreen project var "dryrun_registry_override" to be set.'
+        description: 'Dry run: do not publish for real'
         required: false
         type: boolean
         default: false
