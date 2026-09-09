@@ -7,20 +7,23 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/memberresources"
 )
 
 var flags struct {
-	memberClusterNamespace string
-	workloadNamespaces     string
-	operatorClusterScoped  bool
-	operatorTelemetry      bool
-	imagePullSecrets       string
+	memberClusterNamespace      string
+	memberClusterServiceAccount string
+	workloadNamespaces          string
+	operatorClusterScoped       bool
+	operatorTelemetry           bool
+	imagePullSecrets            string
 }
 
 func init() {
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster for the operator's credentials. [required]")
+	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterServiceAccount, "member-cluster-service-account", "", "Name of the ServiceAccount you created on the member cluster for the operator to authenticate as; the rendered RBAC is bound to it. [required]")
 	GenerateMemberResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --member-cluster-namespace]")
 	// --operator-cluster-scoped is a distinct flag rather than "*" in --workload-namespaces for
 	// two reasons: workload namespaces are placement (you cannot create a ServiceAccount in "*"),
@@ -42,6 +45,11 @@ var GenerateMemberResourcesCmd = &cobra.Command{
 multi-cluster operation. It is purely local: it contacts no cluster and writes the
 manifests as YAML to stdout.
 
+The output does not include the operator's credentials: create the ServiceAccount
+and its token Secret on the member cluster yourself (day-2 configuration), then pass
+the ServiceAccount name via --member-cluster-service-account so the rendered RBAC
+binds to it.
+
 Apply the output to the member cluster with kubectl, or commit it to Git for GitOps.
 
 By default the operator's permissions are namespaced: each operator role is rendered
@@ -51,11 +59,11 @@ single ClusterRoleBinding for a cluster-wide operator.
 
 Example (operator watching a single namespace):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb --member-cluster-service-account=mck-member-sa | kubectl apply --context=east-ctx -f -
 
 Example (cluster-wide operator with workloads in two namespaces):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb --member-cluster-service-account=mck-member-sa --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
 `,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		workloadNamespaces, err := parseFlags()
@@ -63,7 +71,7 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster-namespac
 			return err
 		}
 
-		out, err := memberresources.Render(flags.memberClusterNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.imagePullSecrets)
+		out, err := memberresources.Render(flags.memberClusterNamespace, flags.memberClusterServiceAccount, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.imagePullSecrets)
 		if err != nil {
 			return err
 		}
@@ -73,8 +81,14 @@ kubectl-mongodb multicluster generate-member-resources --member-cluster-namespac
 }
 
 func parseFlags() ([]string, error) {
-	if strings.TrimSpace(flags.memberClusterNamespace) == "" {
-		return nil, xerrors.Errorf("non-empty value is required for [member-cluster-namespace]")
+	if strings.TrimSpace(flags.memberClusterNamespace) == "" ||
+		strings.TrimSpace(flags.memberClusterServiceAccount) == "" {
+		return nil, xerrors.Errorf("non-empty values are required for [member-cluster-namespace, member-cluster-service-account]")
+	}
+	// The ServiceAccount name lands in every rendered binding's subject, where an invalid
+	// name would only surface as an apiserver rejection at apply time — fail fast instead.
+	if errs := validation.IsDNS1123Subdomain(flags.memberClusterServiceAccount); len(errs) > 0 {
+		return nil, xerrors.Errorf("invalid --member-cluster-service-account %q: %s", flags.memberClusterServiceAccount, strings.Join(errs, "; "))
 	}
 	return normalizeWorkloadNamespaces(flags.workloadNamespaces, flags.memberClusterNamespace)
 }

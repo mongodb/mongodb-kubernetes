@@ -12,12 +12,22 @@ The files in the [argocd](./argocd) directory contain an [AppProject](./argocd/p
 ### 1. Install the operator on the central cluster
 The central-cluster RBAC the operator needs for multi-cluster operation always ships with the operator installation, so nothing extra is required here.
 
-### 2. Apply member-cluster RBAC per member cluster
-Each member cluster needs RBAC that lets the operator manage workloads on it. The canonical way to produce it is the CLI:
+### 2. Apply member-cluster credentials per member cluster
+Each member cluster needs a ServiceAccount the operator authenticates as, plus a long-lived token Secret for it. Users provision these themselves — the CLI does not render them. Apply the checked-in [credentials.yaml](./resources/credentials.yaml) (adjusting the namespace to match `--member-cluster-namespace`):
+
+``` shell
+kubectl apply -f resources/credentials.yaml
+```
+
+The token Secret is discovered later by its `kubernetes.io/service-account.name` annotation, so it must exist before registration is generated.
+
+### 3. Apply member-cluster RBAC per member cluster
+Each member cluster needs RBAC that lets the operator manage workloads on it, bound to the ServiceAccount created above. The canonical way to produce it is the CLI:
 
 ``` shell
 kubectl mongodb multicluster generate-member-resources \
-  --member-cluster-namespace mongodb | kubectl apply -f -
+  --member-cluster-namespace mongodb \
+  --member-cluster-service-account mck-member-sa | kubectl apply -f -
 ```
 
 For users who cannot run the plugin, the [rbac](./resources/rbac) directory contains the checked-in output of that command:
@@ -26,7 +36,7 @@ For users who cannot run the plugin, the [rbac](./resources/rbac) directory cont
 
 Adjust the namespaces for your clusters and apply (or commit) the file on each member cluster — the resource names are unified (`mck-member-*`), so the same file works on every member cluster.
 
-### 3. Manage the credential Secret and MemberCluster CR per member cluster in Git
+### 4. Manage the credential Secret and MemberCluster CR per member cluster in Git
 The operator learns about each member cluster from a credential Secret (a single-context kubeconfig authenticating as the member ServiceAccount created in step 2) and a `MemberCluster` CR referencing it, both in the operator's namespace on the central cluster. Both can be managed in Git:
 
 ``` yaml
@@ -76,12 +86,13 @@ In practice, generate both documents from the live member cluster rather than ha
 ``` shell
 kubectl mongodb multicluster generate-member-registration \
   --member-cluster member-cluster --member-cluster-context member-cluster-ctx \
-  --member-cluster-namespace mongodb --operator-namespace mongodb
+  --member-cluster-namespace mongodb --member-cluster-service-account mck-member-sa \
+  --operator-namespace mongodb
 ```
 
 Commit the output (or apply it) per member cluster. Note the Secret contains credentials — use your GitOps secret-management solution of choice for it.
 
-### 4. Recovery
+### 5. Recovery
 To recover a member cluster (or re-onboard after losing the central cluster), re-apply the `MemberCluster` CRs and credential Secrets from Git — the operator reconciles the member clusters from them.
 
 ## RBAC Settings for the Member clusters

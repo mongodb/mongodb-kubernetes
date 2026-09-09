@@ -1488,6 +1488,30 @@ def _kubectl_apply_to_context(context: str, manifests: bytes):
     )
 
 
+def apply_member_cluster_credentials(member_clusters: List[str], member_namespace: str):
+    """Apply the user-provided member-cluster credentials (ServiceAccount + token Secret)
+    to each member cluster. The CLI plugin no longer renders these; the registration
+    command discovers the token Secret via the `kubernetes.io/service-account.name`
+    annotation."""
+    for cluster in member_clusters:
+        manifests = f"""apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mck-member-sa
+  namespace: {member_namespace}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mck-member-token
+  namespace: {member_namespace}
+  annotations:
+    kubernetes.io/service-account.name: mck-member-sa
+type: kubernetes.io/service-account-token
+"""
+        _kubectl_apply_to_context(cluster, manifests.encode("utf-8"))
+
+
 def generate_and_apply_member_resources(
     member_clusters: List[str],
     member_namespace: str,
@@ -1503,6 +1527,8 @@ def generate_and_apply_member_resources(
             "generate-member-resources",
             "--member-cluster-namespace",
             member_namespace,
+            "--member-cluster-service-account",
+            "mck-member-sa",
         ]
         if workload_namespaces:
             args += ["--workload-namespaces", workload_namespaces]
@@ -1537,6 +1563,8 @@ def generate_and_apply_member_registration(
             cluster,
             "--member-cluster-namespace",
             member_namespace,
+            "--member-cluster-service-account",
+            "mck-member-sa",
             "--operator-namespace",
             operator_namespace,
         ]
@@ -1553,8 +1581,9 @@ def configure_multi_cluster_members(
     workload_namespaces: Optional[str] = None,
     operator_cluster_scoped: bool = False,
 ):
-    """Apply member-cluster RBAC to each member cluster, then register each cluster with the
-    operator's cluster."""
+    """Apply the user-provided member-cluster credentials to each member cluster, then apply
+    member-cluster RBAC, then register each cluster with the operator's cluster."""
+    apply_member_cluster_credentials(member_clusters, member_namespace)
     generate_and_apply_member_resources(member_clusters, member_namespace, workload_namespaces, operator_cluster_scoped)
     generate_and_apply_member_registration(member_clusters, member_namespace, operator_namespace, central_cluster)
 
