@@ -4,7 +4,6 @@ echo "Configuring member clusters (RBAC + MemberCluster registration)..."
 # bindings) to every member cluster, including the central one.
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}"; do
   kubectl mongodb multicluster generate-member-resources \
-    --member-cluster="${ctx}" \
     --member-cluster-namespace="${MDB_NS}" \
     ${IMAGE_PULL_SECRET_NAME:+--image-pull-secrets="${IMAGE_PULL_SECRET_NAME}"} \
     | kubectl apply --context "${ctx}" -f -

@@ -472,8 +472,8 @@ func TestCreateSearchStatefulSetFunc_ServiceAccount(t *testing.T) {
 	})
 
 	t.Run("member-scoped serviceAccountName is used", func(t *testing.T) {
-		stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", "mck-member-cluster-1-database-pods", labels, "mongot:latest", corev1.PullAlways, false)
+		stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", "mck-member-database-pods", labels, "mongot:latest", corev1.PullAlways, false)
 		sts := statefulset.New(stsMod)
-		assert.Equal(t, "mck-member-cluster-1-database-pods", sts.Spec.Template.Spec.ServiceAccountName)
+		assert.Equal(t, "mck-member-database-pods", sts.Spec.Template.Spec.ServiceAccountName)
 	})
 }

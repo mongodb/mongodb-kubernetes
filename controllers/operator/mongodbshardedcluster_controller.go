@@ -2630,7 +2630,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		Replicas(scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
-		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
@@ -2673,7 +2673,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
-		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
@@ -2717,7 +2717,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
-		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.ResourceName, memberCluster.Legacy)),
+		ServiceAccountName(resourcenames.WorkloadDatabasePodsServiceAccount.Name(memberCluster.Legacy)),
 		PodEnvVars(opts.podEnvVars),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
