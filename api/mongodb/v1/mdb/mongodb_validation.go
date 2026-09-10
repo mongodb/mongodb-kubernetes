@@ -383,6 +383,16 @@ func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.Validat
 	return v1.ValidationSuccess()
 }
 
+func ldapConfigIsSetIfLdapAuthModeIsEnabled(d DbCommonSpec) v1.ValidationResult {
+	if d.Security == nil || !d.Security.Authentication.IsLDAPEnabled() {
+		return v1.ValidationSuccess()
+	}
+	if d.Security.Authentication.Ldap == nil {
+		return v1.ValidationError("spec.security.authentication.ldap must be specified if LDAP is present in spec.security.authentication.modes")
+	}
+	return v1.ValidationSuccess()
+}
+
 func ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal(d DbCommonSpec) v1.ValidationResult {
 	if d.Security == nil || d.Security.Authentication == nil || d.Security.Authentication.Ldap == nil {
 		return v1.ValidationSuccess()
@@ -686,6 +696,7 @@ func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResul
 		ldapAuthRequiresEnterprise,
 		rolesAttributeIsCorrectlyConfigured,
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
+		ldapConfigIsSetIfLdapAuthModeIsEnabled,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
 		featureCompatibilityVersionValidation,
