@@ -194,11 +194,15 @@ def operator_clusterwide(
     return get_operator_clusterwide(namespace, operator_installation_config)
 
 
-def get_operator_clusterwide(namespace, operator_installation_config):
+def get_operator_clusterwide(
+    namespace,
+    operator_installation_config,
+    operator_config_extra_spec: Optional[dict] = None,
+):
     helm_args = operator_installation_config.copy()
     helm_args["operator.watchNamespace"] = "*"
     operator = Operator(namespace=namespace, helm_args=helm_args).install()
-    operator.apply_operator_config_and_wait()
+    operator.apply_operator_config_and_wait(extra_spec=operator_config_extra_spec)
     return operator
 
 
