@@ -3,13 +3,15 @@ package om
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"golang.org/x/xerrors"
 )
 
 const (
-	// maxPages is the hard upper bound on the number of pages TraversePages reads.
+	// maxPages is the hard upper bound on the number of pages TraversePages reads: 10,000 automation agents at Ops
+	// Manager's default of 100 per page, or 50,000 organizations at the itemsPerPage=500 the callers request.
 	maxPages = 100
 
 	// traversePagesTimeout is the overall deadline for a single TraversePages call.
@@ -95,7 +97,7 @@ func readPage(ctx context.Context, reader PageReader, pageNum int) (Paginated, e
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			// the OM client wraps requests in apierror.Error which drops the error chain,
 			// so the context error is wrapped here to keep the deadline detectable
-			return nil, xerrors.Errorf("failed reading Ops Manager page %d: %w", pageNum, ctxErr)
+			return nil, fmt.Errorf("failed reading Ops Manager page %d: %w; %w", pageNum, err, ctxErr)
 		}
 		return nil, err
 	}

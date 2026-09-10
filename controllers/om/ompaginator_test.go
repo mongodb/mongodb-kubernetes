@@ -95,6 +95,22 @@ func TestPagination_ContextDeadlineAbortsTraversal(t *testing.T) {
 	assert.LessOrEqual(t, pagesRead, 2, "no page may be requested once the deadline has passed")
 }
 
+func TestPagination_DeadlineKeepsReaderError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	reader := func(ctx context.Context, _ int) (Paginated, error) {
+		<-ctx.Done()
+		return nil, errors.New("401 Unauthorized")
+	}
+
+	_, err := TraversePages(ctx, reader, func(interface{}) bool { return false })
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "401 Unauthorized")
+}
+
 func TestPagination_ReaderReceivesContextWithDeadline(t *testing.T) {
 	start := time.Now()
 	var deadline time.Time
