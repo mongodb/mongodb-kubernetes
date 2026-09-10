@@ -84,12 +84,12 @@ func ApiKeySecretName(project string) string {
 }
 
 // WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.
-func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger, rs *mdbv1.MongoDB) error {
+func WaitForRsAgentsToRegister(ctx context.Context, set appsv1.StatefulSet, members int, clusterName string, omConnection om.Connection, log *zap.SugaredLogger, rs *mdbv1.MongoDB) error {
 	hostnames, _ := dns.GetDnsForStatefulSetReplicasSpecified(set, clusterName, members, rs.Spec.DbCommonSpec.GetExternalDomain())
 
 	log = log.With("statefulset", set.Name)
 
-	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
+	ok, msg := waitUntilRegistered(ctx, omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
 	if !ok {
 		return getAgentRegisterError(msg)
 	}
@@ -97,12 +97,12 @@ func WaitForRsAgentsToRegister(set appsv1.StatefulSet, members int, clusterName 
 }
 
 // WaitForRsAgentsToRegisterByResource waits for RS agents to register using MongoDB resource directly without StatefulSet
-func WaitForRsAgentsToRegisterByResource(rs *mdbv1.MongoDB, members int, omConnection om.Connection, log *zap.SugaredLogger) error {
+func WaitForRsAgentsToRegisterByResource(ctx context.Context, rs *mdbv1.MongoDB, members int, omConnection om.Connection, log *zap.SugaredLogger) error {
 	hostnames, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), members, rs.Spec.DbCommonSpec.GetExternalDomain())
 
 	log = log.With("mongodb", rs.Name)
 
-	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
+	ok, msg := waitUntilRegistered(ctx, omConnection, log, retryParams{retrials: 5, waitSeconds: 3}, hostnames...)
 	if !ok {
 		return getAgentRegisterError(msg)
 	}
@@ -110,8 +110,8 @@ func WaitForRsAgentsToRegisterByResource(rs *mdbv1.MongoDB, members int, omConne
 }
 
 // WaitForRsAgentsToRegisterSpecifiedHostnames waits for the specified agents to registry with Ops Manager.
-func WaitForRsAgentsToRegisterSpecifiedHostnames(omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
-	ok, msg := waitUntilRegistered(omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...)
+func WaitForRsAgentsToRegisterSpecifiedHostnames(ctx context.Context, omConnection om.Connection, hostnames []string, log *zap.SugaredLogger) error {
+	ok, msg := waitUntilRegistered(ctx, omConnection, log, retryParams{retrials: 10, waitSeconds: 9}, hostnames...)
 	if !ok {
 		return getAgentRegisterError(msg)
 	}
@@ -167,9 +167,10 @@ type MongoDBClusterStateInOM struct {
 
 // GetMongoDBClusterState executes requests to OM from the given omConnection to gather the current deployment state.
 // It combines the data from the automation status and the list of automation agents.
-func GetMongoDBClusterState(omConnection om.Connection) (MongoDBClusterStateInOM, error) {
+func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (MongoDBClusterStateInOM, error) {
 	var agentStatuses []om.AgentStatus
 	_, err := om.TraversePages(
+		ctx,
 		omConnection.ReadAutomationAgents,
 		func(aa interface{}) bool {
 			agentStatuses = append(agentStatuses, aa.(om.AgentStatus))
@@ -256,7 +257,7 @@ func calculateProcessStateMap(processStatuses []om.ProcessStatus, agentStatuses 
 	return processStates, nil
 }
 
-func agentCheck(omConnection om.Connection, agentHostnames []string, log *zap.SugaredLogger) (string, bool) {
+func agentCheck(ctx context.Context, omConnection om.Connection, agentHostnames []string, log *zap.SugaredLogger) (string, bool) {
 	registeredHostnamesSet := map[string]struct{}{}
 	predicateFunc := func(aa interface{}) bool {
 		automationAgent := aa.(om.Status)
@@ -272,6 +273,7 @@ func agentCheck(omConnection om.Connection, agentHostnames []string, log *zap.Su
 	}
 
 	_, err := om.TraversePages(
+		ctx,
 		omConnection.ReadAutomationAgents,
 		predicateFunc,
 	)
@@ -304,7 +306,7 @@ func agentCheck(omConnection om.Connection, agentHostnames []string, log *zap.Su
 
 // waitUntilRegistered waits until all agents with 'agentHostnames' are registered in OM. Note, that wait
 // happens after retrial - this allows to skip waiting in case agents are already registered
-func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r retryParams, agentHostnames ...string) (bool, string) {
+func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *zap.SugaredLogger, r retryParams, agentHostnames ...string) (bool, string) {
 	if len(agentHostnames) == 0 {
 		log.Debugf("Not waiting for agents as the agentHostnames list is empty")
 		return true, "Not waiting for agents as the agentHostnames list is empty"
@@ -315,8 +317,8 @@ func waitUntilRegistered(omConnection om.Connection, log *zap.SugaredLogger, r r
 	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, r.retrials)       // nolint:forbidigo
 
 	agentsCheckFunc := func() (string, bool) {
-		return agentCheck(omConnection, agentHostnames, log)
+		return agentCheck(ctx, omConnection, agentHostnames, log)
 	}
 
-	return util.DoAndRetry(agentsCheckFunc, log, retrials, waitSeconds)
+	return util.DoAndRetryWithContext(ctx, agentsCheckFunc, log, retrials, waitSeconds)
 }

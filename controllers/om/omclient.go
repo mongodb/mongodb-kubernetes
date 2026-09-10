@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -47,17 +48,18 @@ type Connection interface {
 	ReadProcessLogRotation() (*automationconfig.AcLogRotate, error)
 	ReadAuditLogRotation() (*automationconfig.AcLogRotate, error)
 	ReadAutomationStatus() (*AutomationStatus, error)
-	ReadAutomationAgents(page int) (Paginated, error)
+	// ReadAutomationAgents returns the automation agents registered in the project at the specified page
+	ReadAutomationAgents(ctx context.Context, page int) (Paginated, error)
 	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
 
 	ReadOrganizationsByName(name string) ([]*Organization, error)
 	// ReadOrganizations returns all organizations at specified page
-	ReadOrganizations(page int) (Paginated, error)
+	ReadOrganizations(ctx context.Context, page int) (Paginated, error)
 	ReadOrganization(orgID string) (*Organization, error)
 
 	ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error)
 	// ReadProjectsInOrganization returns all projects in the organization at the specified page
-	ReadProjectsInOrganization(orgID string, page int) (Paginated, error)
+	ReadProjectsInOrganization(ctx context.Context, orgID string, page int) (Paginated, error)
 	CreateProject(project *Project) (*Project, error)
 	UpdateProject(project *Project) (*Project, error)
 
@@ -549,10 +551,10 @@ func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 }
 
 // ReadAutomationAgents returns the state of the automation agents registered in Ops Manager
-func (oc *HTTPOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
+func (oc *HTTPOmConnection) ReadAutomationAgents(ctx context.Context, pageNum int) (Paginated, error) {
 	// TODO: Add proper testing to this pagination. In order to test it I just used `itemsPerPage=1`, which will make
 	// the endpoint to be called 3 times in a 3 member replica set. The default itemsPerPage is 100
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION?pageNum=%d", oc.GroupID(), pageNum))
+	ans, err := oc.getWithContext(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION?pageNum=%d", oc.GroupID(), pageNum))
 	if err != nil {
 		return nil, err
 	}
@@ -626,9 +628,9 @@ func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organizatio
 }
 
 // ReadOrganizations returns all organizations at the specified page.
-func (oc *HTTPOmConnection) ReadOrganizations(page int) (Paginated, error) {
+func (oc *HTTPOmConnection) ReadOrganizations(ctx context.Context, page int) (Paginated, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=500&pageNum=%d", page)
-	res, err := oc.get(mPath)
+	res, err := oc.getWithContext(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -684,9 +686,9 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name 
 }
 
 // ReadProjectsInOrganization returns all projects inside organization
-func (oc *HTTPOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
+func (oc *HTTPOmConnection) ReadProjectsInOrganization(ctx context.Context, orgID string, page int) (Paginated, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?itemsPerPage=500&pageNum=%d", url.PathEscape(orgID), page)
-	res, err := oc.get(mPath)
+	res, err := oc.getWithContext(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1034,34 +1036,42 @@ func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) 
 
 //********************************** Private methods *******************************************************************
 
+// The verb helpers without a context are bounded only by the HTTP client's per-attempt timeout (see api.NewHTTPClient).
+// Calls that need an overall deadline, e.g. the paginated traversals, use getWithContext.
+
 func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
-	return oc.httpVerb("GET", path, nil)
+	return oc.getWithContext(context.Background(), path)
+}
+
+// getWithContext performs a GET request that is aborted as soon as ctx is done.
+func (oc *HTTPOmConnection) getWithContext(ctx context.Context, path string) ([]byte, error) {
+	return oc.httpVerb(ctx, "GET", path, nil)
 }
 
 func (oc *HTTPOmConnection) post(path string, v interface{}) ([]byte, error) {
-	return oc.httpVerb("POST", path, v)
+	return oc.httpVerb(context.Background(), "POST", path, v)
 }
 
 func (oc *HTTPOmConnection) put(path string, v interface{}) ([]byte, error) {
-	return oc.httpVerb("PUT", path, v)
+	return oc.httpVerb(context.Background(), "PUT", path, v)
 }
 
 func (oc *HTTPOmConnection) patch(path string, v interface{}) ([]byte, error) {
-	return oc.httpVerb("PATCH", path, v)
+	return oc.httpVerb(context.Background(), "PATCH", path, v)
 }
 
 func (oc *HTTPOmConnection) delete(path string) error {
-	_, err := oc.httpVerb("DELETE", path, nil)
+	_, err := oc.httpVerb(context.Background(), "DELETE", path, nil)
 	return err
 }
 
-func (oc *HTTPOmConnection) httpVerb(method, path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) httpVerb(ctx context.Context, method, path string, v interface{}) ([]byte, error) {
 	client, err := oc.getHTTPClient()
 	if err != nil {
 		return nil, err
 	}
 
-	response, header, err := client.Request(method, oc.BaseURL(), path, v)
+	response, header, err := client.RequestWithContext(ctx, method, oc.BaseURL(), path, v)
 	oc.setVersionFromHeader(header)
 
 	return response, err

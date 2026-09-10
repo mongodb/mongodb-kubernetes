@@ -755,7 +755,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
 	replicasTarget := scale.ReplicasThisReconciliation(rs)
-	err := agents.WaitForRsAgentsToRegisterByResource(rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
+	err := agents.WaitForRsAgentsToRegisterByResource(ctx, rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}

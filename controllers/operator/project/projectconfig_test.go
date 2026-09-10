@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -105,6 +106,49 @@ func TestMissingRequiredFieldsFromCM(t *testing.T) {
 		_, err = ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm1"), "")
 		assert.Error(t, err)
 	})
+}
+
+func TestReadProjectConfig_ValidatesBaseURL(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		baseURL string
+		wantErr bool
+	}{
+		{baseURL: "http://mycompany.example.com:8080"},
+		{baseURL: "https://om.example.com:8443/"},
+		{baseURL: "http://[::1]:8080"},
+		{baseURL: "https://cloud.mongodb.com"},
+		{baseURL: "", wantErr: true},
+		{baseURL: "   ", wantErr: true},
+		{baseURL: "mycompany.example.com:8080", wantErr: true},
+		{baseURL: "ftp://mycompany.example.com", wantErr: true},
+		{baseURL: "file:///etc/passwd", wantErr: true},
+		{baseURL: "http://", wantErr: true},
+		{baseURL: "http:///path-only", wantErr: true},
+		{baseURL: "http://mycompany.example.com:8080?x=1", wantErr: true},
+		{baseURL: "http://mycompany.example.com:8080?", wantErr: true},
+		{baseURL: "http://mycompany.example.com:8080#frag", wantErr: true},
+		{baseURL: "::not-a-url", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.baseURL, func(t *testing.T) {
+			// a fresh client per case, so a single ConfigMap name is enough
+			client, _ := mock.NewDefaultFakeClient()
+			cm := defaultConfigMap("cm")
+			cm.Data[util.OmBaseUrl] = tt.baseURL
+			require.NoError(t, client.Create(ctx, &cm))
+
+			projectConfig, err := ReadProjectConfig(ctx, client, kube.ObjectKey(mock.TestNamespace, "cm"), "")
+			if tt.wantErr {
+				require.Error(t, err, "baseUrl %q must be rejected", tt.baseURL)
+				assert.Contains(t, err.Error(), "is not a valid Ops Manager base URL")
+				return
+			}
+			require.NoError(t, err, "baseUrl %q must be accepted", tt.baseURL)
+			assert.Equal(t, tt.baseURL, projectConfig.BaseURL)
+		})
+	}
 }
 
 func defaultConfigMap(name string) corev1.ConfigMap {

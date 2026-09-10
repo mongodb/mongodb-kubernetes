@@ -1814,7 +1814,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	if preCleanupReadErr != nil {
 		errs = multierror.Append(errs, xerrors.Errorf("failed to read deployment before cleanup. Skipping the wait for ready state and continuing with cleanup: %w", preCleanupReadErr))
 	} else {
-		healthyProcessNames := r.getHealthyProcessNamesToWaitForReadyState(preCleanupDeployment, conn, log)
+		healthyProcessNames := r.getHealthyProcessNamesToWaitForReadyState(ctx, preCleanupDeployment, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessNames, log.With("ctx", "cleanOpsManagerState"))
 		if err := om.WaitForReadyState(conn, healthyProcessNames, false, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
@@ -2010,7 +2010,7 @@ type deploymentOptions struct {
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
 func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(sc, conn, log)
+	err := r.waitForAgentsToRegister(ctx, sc, conn, log)
 	if err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
@@ -2043,7 +2043,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, workflowStatus)
 	}
 
-	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(dep, conn, log)
+	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 	logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmDeploymentShardedCluster"))
 	if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		if !isRecovering {
@@ -2067,7 +2067,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 			logWarnIgnoredDueToRecovery(log, workflowStatus)
 		}
 
-		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(dep, conn, log)
+		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
 		if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 			if !isRecovering {
@@ -2154,7 +2154,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		return nil, false, workflow.Failed(err)
 	}
 
-	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(existingDeployment, conn, log)
+	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, existingDeployment, conn, log)
 
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
 
@@ -2244,7 +2244,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		return nil, shardsRemoving, reconcileResult
 	}
 
-	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(existingDeployment, conn, log)
+	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(ctx, existingDeployment, conn, log)
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
 	if err := om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
@@ -2293,14 +2293,14 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 	return allProcesses
 }
 
-func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) error {
+func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(ctx context.Context, sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) error {
 	var mongosHostnames []string
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		hostnames, _ := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		mongosHostnames = append(mongosHostnames, hostnames...)
 	}
 
-	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, mongosHostnames, log.With("hostnamesOf", "mongos")); err != nil {
+	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, mongosHostnames, log.With("hostnamesOf", "mongos")); err != nil {
 		return xerrors.Errorf("Mongos agents didn't register with Ops Manager: %w", err)
 	}
 
@@ -2309,7 +2309,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		hostnames, _ := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		configSrvHostnames = append(configSrvHostnames, hostnames...)
 	}
-	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, configSrvHostnames, log.With("hostnamesOf", "configServer")); err != nil {
+	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, configSrvHostnames, log.With("hostnamesOf", "configServer")); err != nil {
 		return xerrors.Errorf("Config server agents didn't register with Ops Manager: %w", err)
 	}
 
@@ -2319,7 +2319,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 			hostnames, _ := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 			shardHostnames = append(shardHostnames, hostnames...)
 		}
-		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
+		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
 			return xerrors.Errorf("Shards agents didn't register with Ops Manager: %w", err)
 		}
 	}
@@ -3301,10 +3301,10 @@ func (r *ShardedClusterReconcileHelper) getHealthyProcessNames(existingDeploymen
 	return processNames
 }
 
-func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyState(existingDeployment om.Deployment, conn om.Connection, log *zap.SugaredLogger) []string {
+func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyState(ctx context.Context, existingDeployment om.Deployment, conn om.Connection, log *zap.SugaredLogger) []string {
 	processList := r.getHealthyProcessNames(existingDeployment)
 
-	clusterState, err := agents.GetMongoDBClusterState(conn)
+	clusterState, err := agents.GetMongoDBClusterState(ctx, conn)
 	if err != nil {
 		log.Warnf("Skipping check for mongos deadlock for all the nodes being healthy (deadlock) due to error: %v", err)
 		return processList

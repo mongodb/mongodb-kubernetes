@@ -733,7 +733,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		reachableHostnames = append(reachableHostnames, hostnamesToAdd...)
 	}
 
-	err = agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, reachableHostnames, log)
+	err = agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, reachableHostnames, log)
 	if err != nil && !isRecovering {
 		return err
 	}

@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -450,7 +451,7 @@ func TestGetClusterState(t *testing.T) {
 				return tc.mockAgentStatusResponse, tc.mockAgentStatusErr
 			}
 
-			clusterState, err := GetMongoDBClusterState(mockConn)
+			clusterState, err := GetMongoDBClusterState(context.Background(), mockConn)
 			if tc.expectErr {
 				require.Error(t, err, "Expected an error but got none")
 				return
