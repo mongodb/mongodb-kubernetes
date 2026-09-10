@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -125,6 +126,9 @@ func getAgentRegisterError(errorMsg string) error {
 }
 
 const StaleProcessDuration = time.Minute * 2
+
+// agentRegistrationTimeout bounds one wait for agents to register, including all retries. Overridden in tests.
+var agentRegistrationTimeout = 3 * time.Minute
 
 // ProcessState represents the state of the mongodb process.
 // Most importantly it contains the information whether the node is down (precisely whether the agent running next to mongod is actively reporting pings to OM),
@@ -316,9 +320,16 @@ func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *z
 	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, r.waitSeconds) // nolint:forbidigo
 	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, r.retrials)       // nolint:forbidigo
 
+	ctx, cancel := context.WithTimeout(ctx, agentRegistrationTimeout)
+	defer cancel()
+
 	agentsCheckFunc := func() (string, bool) {
 		return agentCheck(ctx, omConnection, agentHostnames, log)
 	}
 
-	return util.DoAndRetryWithContext(ctx, agentsCheckFunc, log, retrials, waitSeconds)
+	ok, msg := util.DoAndRetryWithContext(ctx, agentsCheckFunc, log, retrials, waitSeconds)
+	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		msg = fmt.Sprintf("%s (timed out after %s waiting for agents to register)", msg, agentRegistrationTimeout)
+	}
+	return ok, msg
 }

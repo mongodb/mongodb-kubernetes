@@ -6,10 +6,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 )
+
+func TestWaitUntilRegistered_BoundedByOverallTimeout(t *testing.T) {
+	original := agentRegistrationTimeout
+	agentRegistrationTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { agentRegistrationTimeout = original })
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	conn.ReadAutomationAgentsFunc = func(_ int) (om.Paginated, error) {
+		return om.AutomationAgentStatusResponse{}, nil
+	}
+
+	// a retry budget the deadline cannot outlast, so the deadline is what ends the wait
+	ok, msg := waitUntilRegistered(context.Background(), conn, zap.NewNop().Sugar(),
+		retryParams{retrials: 100, waitSeconds: 1}, "host-that-never-registers")
+
+	assert.False(t, ok)
+	assert.Contains(t, msg, "timed out after")
+}
 
 func TestCalculateProcessStateMap(t *testing.T) {
 	sampleTimeStamp := "2023-06-03T10:00:00Z"
