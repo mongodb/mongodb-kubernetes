@@ -1,0 +1,318 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster1-api-proxy
+  namespace: __NAMESPACE__
+data:
+  proxy.py: |
+    import http.client
+    import json
+    import os
+    import ssl
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    remote_host = os.environ["REMOTE_API_HOST"]
+    remote_port = int(os.environ.get("REMOTE_API_PORT", "6443"))
+    with open("/credentials/token", encoding="utf-8") as token_file:
+        token = token_file.read().strip()
+    tls_context = ssl.create_default_context()
+
+    def read_varint(data, offset):
+        value = 0
+        shift = 0
+        while True:
+            byte = data[offset]
+            offset += 1
+            value |= (byte & 0x7f) << shift
+            if byte < 0x80:
+                return value, offset
+            shift += 7
+
+    def encode_varint(value):
+        encoded = bytearray()
+        while value >= 0x80:
+            encoded.append((value & 0x7f) | 0x80)
+            value >>= 7
+        encoded.append(value)
+        return bytes(encoded)
+
+    def protobuf_fields(data):
+        offset = 0
+        while offset < len(data):
+            field_start = offset
+            tag, offset = read_varint(data, offset)
+            field_number = tag >> 3
+            wire_type = tag & 7
+            value_start = offset
+            if wire_type == 0:
+                _, offset = read_varint(data, offset)
+            elif wire_type == 1:
+                offset += 8
+            elif wire_type == 2:
+                length, offset = read_varint(data, offset)
+                value_start = offset
+                offset += length
+            elif wire_type == 5:
+                offset += 4
+            else:
+                raise ValueError(f"unsupported protobuf wire type {wire_type}")
+            yield field_start, offset, field_number, wire_type, value_start
+
+    def strip_metadata_owner_references(metadata):
+        output = bytearray()
+        for start, end, field_number, _, _ in protobuf_fields(metadata):
+            if field_number != 13:
+                output.extend(metadata[start:end])
+        return bytes(output)
+
+    def strip_object_owner_references(raw_object):
+        output = bytearray()
+        for start, end, field_number, wire_type, value_start in protobuf_fields(raw_object):
+            if field_number == 1 and wire_type == 2:
+                metadata = strip_metadata_owner_references(raw_object[value_start:end])
+                tag, _ = read_varint(raw_object, start)
+                output.extend(encode_varint(tag))
+                output.extend(encode_varint(len(metadata)))
+                output.extend(metadata)
+            else:
+                output.extend(raw_object[start:end])
+        return bytes(output)
+
+    def strip_kubernetes_protobuf_owner_references(body):
+        if not body.startswith(b"k8s\x00"):
+            return body
+        envelope = body[4:]
+        output = bytearray(b"k8s\x00")
+        for start, end, field_number, wire_type, value_start in protobuf_fields(envelope):
+            if field_number == 2 and wire_type == 2:
+                raw_object = strip_object_owner_references(envelope[value_start:end])
+                tag, _ = read_varint(envelope, start)
+                output.extend(encode_varint(tag))
+                output.extend(encode_varint(len(raw_object)))
+                output.extend(raw_object)
+            else:
+                output.extend(envelope[start:end])
+        return bytes(output)
+
+    def without_owner_references(body, content_type):
+        if not body:
+            return body
+        if content_type.startswith("application/vnd.kubernetes.protobuf"):
+            try:
+                return strip_kubernetes_protobuf_owner_references(body)
+            except (IndexError, ValueError):
+                return body
+        if "json" not in content_type:
+            return body
+        try:
+            value = json.loads(body)
+        except json.JSONDecodeError:
+            return body
+        if isinstance(value, dict):
+            metadata = value.get("metadata")
+            if isinstance(metadata, dict):
+                metadata.pop("ownerReferences", None)
+        elif isinstance(value, list):
+            value = [
+                operation
+                for operation in value
+                if not str(operation.get("path", "")).startswith("/metadata/ownerReferences")
+            ]
+        return json.dumps(value, separators=(",", ":")).encode()
+
+    class ProxyHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):
+            self.proxy()
+
+        def do_HEAD(self):
+            self.proxy()
+
+        def do_POST(self):
+            self.proxy()
+
+        def do_PUT(self):
+            self.proxy()
+
+        def do_PATCH(self):
+            self.proxy()
+
+        def do_DELETE(self):
+            self.proxy()
+
+        def do_OPTIONS(self):
+            self.proxy()
+
+        def proxy(self):
+            body_length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(body_length) if body_length else b""
+            content_type = self.headers.get("Content-Type", "")
+            if self.command in {"POST", "PUT", "PATCH"}:
+                print(
+                    f"mutation request method={self.command} content-type={content_type} "
+                    f"bytes={len(body)} prefix={body[:8].hex()}",
+                    flush=True,
+                )
+                body = without_owner_references(body, content_type)
+
+            headers = {}
+            skipped = {
+                "authorization",
+                "connection",
+                "content-length",
+                "host",
+                "proxy-connection",
+                "transfer-encoding",
+                "upgrade",
+            }
+            for name, value in self.headers.items():
+                if name.lower() not in skipped:
+                    headers[name] = value
+            headers["Authorization"] = f"Bearer {token}"
+            headers["Host"] = remote_host
+            if body:
+                headers["Content-Length"] = str(len(body))
+
+            upstream = http.client.HTTPSConnection(
+                remote_host,
+                remote_port,
+                context=tls_context,
+                timeout=10,
+            )
+            try:
+                upstream.request(self.command, self.path, body=body, headers=headers)
+                response = upstream.getresponse()
+                if upstream.sock:
+                    upstream.sock.settimeout(None)
+                self.send_response(response.status, response.reason)
+                for name, value in response.getheaders():
+                    if name.lower() not in {
+                        "connection",
+                        "content-length",
+                        "transfer-encoding",
+                        "upgrade",
+                    }:
+                        self.send_header(name, value)
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    while True:
+                        chunk = response.read1(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            except Exception as error:
+                print(f"upstream error: {error}", flush=True)
+                if not self.wfile.closed:
+                    self.send_error(502, "remote API proxy error")
+            finally:
+                upstream.close()
+                self.close_connection = True
+
+        def log_message(self, format_string, *args):
+            print(f"{self.client_address[0]} {format_string % args}", flush=True)
+
+    ThreadingHTTPServer(("0.0.0.0", 8080), ProxyHandler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster1-api-proxy
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cluster1-api-proxy
+  template:
+    metadata:
+      annotations:
+        mc-no-mesh/remote-api-host: __CLUSTER1_API_HOST__
+        mc-no-mesh/config-hash: __CONFIG_HASH__
+      labels:
+        app: cluster1-api-proxy
+    spec:
+      terminationGracePeriodSeconds: 5
+      imagePullSecrets:
+        - name: __IMAGE_PULL_SECRET__
+      containers:
+        - name: proxy
+          image: docker.io/library/python:3.12-slim
+          command: ["python", "/proxy/proxy.py"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: REMOTE_API_HOST
+              value: __CLUSTER1_API_HOST__
+            - name: REMOTE_API_PORT
+              value: "__CLUSTER1_API_PORT__"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: proxy
+              mountPath: /proxy
+              readOnly: true
+            - name: credentials
+              mountPath: /credentials
+              readOnly: true
+      volumes:
+        - name: proxy
+          configMap:
+            name: cluster1-api-proxy
+        - name: credentials
+          secret:
+            secretName: cluster1-api-proxy-credentials
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster1-api-proxy
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: cluster1-api-proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cluster1-api-proxy
+  namespace: __NAMESPACE__
+spec:
+  podSelector:
+    matchLabels:
+      app: cluster1-api-proxy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mc-no-mesh-operator
+      ports:
+        - protocol: TCP
+          port: 8080

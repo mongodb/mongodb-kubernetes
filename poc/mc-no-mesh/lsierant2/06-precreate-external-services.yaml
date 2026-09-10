@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mdb-0-0-svc-external
+  namespace: __NAMESPACE__
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+    - name: backup
+      port: 27018
+      targetPort: 27018
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mdb-1-0-svc-external
+  namespace: __NAMESPACE__
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+    - name: backup
+      port: 27018
+      targetPort: 27018
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mdb-1-1-svc-external
+  namespace: __NAMESPACE__
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+    - name: backup
+      port: 27018
+      targetPort: 27018
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mc-no-mesh-dns
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: mc-no-mesh-relay
+  ports:
+    - name: dns-udp
+      protocol: UDP
+      port: 53
+      targetPort: 5353
+    - name: dns-tcp
+      protocol: TCP
+      port: 53
+      targetPort: 5353

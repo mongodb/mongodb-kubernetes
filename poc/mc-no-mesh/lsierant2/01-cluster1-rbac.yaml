@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mc-no-mesh-operator
+  namespace: __NAMESPACE__
+imagePullSecrets:
+  - name: __IMAGE_PULL_SECRET__
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mc-no-mesh-operator-token
+  namespace: __NAMESPACE__
+  annotations:
+    kubernetes.io/service-account.name: mc-no-mesh-operator
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mc-no-mesh-operator
+  namespace: __NAMESPACE__
+rules:
+  - apiGroups: [""]
+    resources: [secrets, configmaps, services]
+    verbs: [get, list, create, update, delete, watch, deletecollection]
+  - apiGroups: [apps]
+    resources: [statefulsets, deployments]
+    verbs: [get, list, create, update, delete, watch, deletecollection]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, create, update, watch, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete, deletecollection]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mc-no-mesh-operator
+  namespace: __NAMESPACE__
+subjects:
+  - kind: ServiceAccount
+    name: mc-no-mesh-operator
+    namespace: __NAMESPACE__
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mc-no-mesh-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-kubernetes-appdb
+  namespace: __NAMESPACE__
+imagePullSecrets:
+  - name: __IMAGE_PULL_SECRET__
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-kubernetes-database-pods
+  namespace: __NAMESPACE__
+imagePullSecrets:
+  - name: __IMAGE_PULL_SECRET__
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-kubernetes-ops-manager
+  namespace: __NAMESPACE__
+imagePullSecrets:
+  - name: __IMAGE_PULL_SECRET__
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mongodb-kubernetes-appdb
+  namespace: __NAMESPACE__
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [patch, delete, get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mongodb-kubernetes-appdb
+  namespace: __NAMESPACE__
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-kubernetes-appdb
+    namespace: __NAMESPACE__
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-kubernetes-appdb

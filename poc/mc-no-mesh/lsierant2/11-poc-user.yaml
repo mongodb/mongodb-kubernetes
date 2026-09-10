@@ -1,0 +1,18 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: mc-no-mesh-user
+  namespace: __NAMESPACE__
+spec:
+  username: mc-no-mesh-user
+  db: admin
+  passwordSecretKeyRef:
+    name: mc-no-mesh-user-password
+    key: password
+  mongodbResourceRef:
+    name: mdb
+  roles:
+    - db: admin
+      name: clusterAdmin
+    - db: admin
+      name: readWriteAnyDatabase

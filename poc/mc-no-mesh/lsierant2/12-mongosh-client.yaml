@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mc-no-mesh-client
+  namespace: __NAMESPACE__
+  labels:
+    app: mc-no-mesh-client
+spec:
+  dnsPolicy: None
+  dnsConfig:
+    nameservers:
+      - __DNS_IP__
+    searches:
+      - __NAMESPACE__.svc.cluster.local
+      - svc.cluster.local
+      - cluster.local
+    options:
+      - name: ndots
+        value: "1"
+  securityContext:
+    seccompProfile:
+      type: RuntimeDefault
+  imagePullSecrets:
+    - name: __IMAGE_PULL_SECRET__
+  containers:
+    - name: mongosh
+      image: docker.io/library/mongo:8.0.5
+      command: ["sleep", "infinity"]
+      env:
+        - name: HOME
+          value: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+        runAsNonRoot: true
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+      volumeMounts:
+        - name: ca
+          mountPath: /ca
+          readOnly: true
+        - name: work
+          mountPath: /work
+  volumes:
+    - name: ca
+      configMap:
+        name: mc-no-mesh-ca
+    - name: work
+      emptyDir: {}

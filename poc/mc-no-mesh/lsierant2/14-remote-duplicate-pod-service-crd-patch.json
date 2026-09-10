@@ -1,0 +1,22 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/remoteDuplicatePodService",
+    "value": {
+      "description": "RemoteDuplicatePodService configures per-mongod pod Services outside their owning cluster. The pod-Service FQDN stays unchanged; only remote duplicates replace the backend selector. Owning-cluster pod Services keep the generated mongod selector.",
+      "type": "object",
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "spec": {
+          "type": "object",
+          "x-kubernetes-preserve-unknown-fields": true
+        }
+      }
+    }
+  }
+]

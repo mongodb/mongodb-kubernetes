@@ -1,0 +1,16 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mdb-0-0-external
+  namespace: __NAMESPACE__
+spec:
+  host: mdb-0-0.__CLUSTER0_DOMAIN__
+  port:
+    targetPort: mongodb
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: None
+  to:
+    kind: Service
+    name: mdb-0-0-svc-external
+    weight: 100

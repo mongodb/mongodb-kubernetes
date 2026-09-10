@@ -1,0 +1,57 @@
+managedSecurityContext: true
+
+operator:
+  env: prod
+  name: mc-no-mesh-operator
+  operator_image_name: mc-no-mesh-operator
+  version: __OPERATOR_IMAGE_TAG__
+  watchNamespace: __NAMESPACE__
+  watchedResources:
+    - mongodbusers
+  createOperatorServiceAccount: false
+  createResourcesServiceAccountsAndRoles: false
+  enableClusterMongoDBRoles: false
+  enablePVCResize: false
+  resources:
+    requests:
+      cpu: 200m
+      memory: 200Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  webhook:
+    installClusterRole: false
+    registerConfiguration: true
+    name: mdbpolicy.mc-no-mesh.__NAMESPACE__.mongodb.com
+  telemetry:
+    enabled: false
+    installClusterRole: false
+    collection:
+      clusters:
+        enabled: false
+      deployments:
+        enabled: false
+      operators:
+        enabled: false
+    send:
+      enabled: false
+
+registry:
+  imagePullSecrets: __IMAGE_PULL_SECRET__
+  pullPolicy: IfNotPresent
+  operator: image-registry.openshift-image-registry.svc:5000/__NAMESPACE__
+
+database:
+  version: 1.6.1
+
+initDatabase:
+  version: 1.6.1
+
+multiCluster:
+  clusters:
+    - cluster0
+    - cluster1
+  kubeConfigSecretName: mongodb-enterprise-operator-multi-cluster-kubeconfig
+  performFailOver: false
+  clusterClientTimeout: 20
+  memberClusterRequiredHealthyStreak: 2

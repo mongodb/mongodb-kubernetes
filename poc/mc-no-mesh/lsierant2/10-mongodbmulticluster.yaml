@@ -1,0 +1,91 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBMultiCluster
+metadata:
+  name: mdb
+  namespace: __NAMESPACE__
+spec:
+  version: 8.0.5-ent
+  type: ReplicaSet
+  persistent: true
+  duplicateServiceObjects: true
+  remoteDuplicatePodService:
+    spec:
+      selector:
+        app: mc-no-mesh-relay
+  externalAccess:
+    externalService:
+      spec:
+        type: ClusterIP
+  credentials: __CREDENTIALS_SECRET__
+  opsManager:
+    configMapRef:
+      name: __OPS_MANAGER_CONFIGMAP__
+  security:
+    certsSecretPrefix: mc-no-mesh
+    tls:
+      enabled: true
+      ca: mc-no-mesh-ca
+    authentication:
+      enabled: true
+      modes:
+        - SCRAM
+        - X509
+      agents:
+        mode: X509
+  clusterSpecList:
+    - clusterName: cluster0
+      members: 1
+      externalAccess:
+        externalDomain: __CLUSTER0_DOMAIN__
+      statefulSet:
+        spec:
+          template:
+            spec:
+              dnsPolicy: None
+              dnsConfig:
+                nameservers:
+                  - __CLUSTER0_DNS_IP__
+                searches:
+                  - __NAMESPACE__.svc.cluster.local
+                  - svc.cluster.local
+                  - cluster.local
+                options:
+                  - name: ndots
+                    value: "1"
+                  - name: timeout
+                    value: "2"
+                  - name: attempts
+                    value: "3"
+              containers:
+                - name: mongodb-enterprise-database
+                  env:
+                    - name: MDB_LOG_FILE_AUTOMATION_AGENT_STDERR
+                      value: /var/log/mongodb-mms-automation/automation-agent-stderr.log
+    - clusterName: cluster1
+      members: 2
+      externalAccess:
+        externalDomain: __CLUSTER1_DOMAIN__
+      statefulSet:
+        spec:
+          template:
+            spec:
+              dnsPolicy: None
+              dnsConfig:
+                nameservers:
+                  - __CLUSTER1_DNS_IP__
+                searches:
+                  - __NAMESPACE__.svc.cluster.local
+                  - svc.cluster.local
+                  - cluster.local
+                options:
+                  - name: ndots
+                    value: "1"
+                  - name: timeout
+                    value: "2"
+                  - name: attempts
+                    value: "3"
+              containers:
+                - name: mongodb-enterprise-database
+                  env:
+                    - name: MDB_LOG_FILE_AUTOMATION_AGENT_STDERR
+                      value: /var/log/mongodb-mms-automation/automation-agent-stderr.log
