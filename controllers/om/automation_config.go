@@ -59,7 +59,9 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 		(*into)["tls"] = mergedTLS
 	}
 
-	if _, ok := a.Deployment["ldap"]; ok {
+	if a.Ldap == nil {
+		delete(*into, "ldap")
+	} else if _, ok := a.Deployment["ldap"]; ok {
 		mergedLdap, err := util.MergeWith(a.Ldap, a.Deployment["ldap"].(map[string]interface{}), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
