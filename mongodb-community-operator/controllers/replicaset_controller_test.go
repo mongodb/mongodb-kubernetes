@@ -36,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -1467,11 +1468,12 @@ func marshalRuntimeObjectFromYAMLBytes(bytes []byte, obj runtime.Object) error {
 
 func TestGetMongoDBImage(t *testing.T) {
 	type testConfig struct {
-		mongodbRepoUrl   string
-		mongodbImage     string
-		mongodbImageType string
-		version          string
-		expectedImage    string
+		mongodbRepoUrl             string
+		mongodbImage               string
+		mongodbImageType           string
+		version                    string
+		additionalOfficialRepoUrls string
+		expectedImage              string
 	}
 	tests := map[string]testConfig{
 		"Default UBI8 Community image": {
@@ -1526,10 +1528,44 @@ func TestGetMongoDBImage(t *testing.T) {
 			version:          "5.0.14-ent",
 			expectedImage:    "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:5.0.14-ent",
 		},
+		"Private mirror not declared official keeps the backwards compatible tag": {
+			mongodbRepoUrl:   "registry.example.com/mongodb",
+			mongodbImage:     "mongodb-community-server",
+			mongodbImageType: "ubi8",
+			version:          "6.0.5",
+			expectedImage:    "registry.example.com/mongodb/mongodb-community-server:6.0.5",
+		},
+		"Private mirror declared official gets the image type suffix": {
+			mongodbRepoUrl:             "registry.example.com/mongodb",
+			mongodbImage:               "mongodb-community-server",
+			mongodbImageType:           "ubi8",
+			version:                    "6.0.5",
+			additionalOfficialRepoUrls: "registry.example.com/mongodb",
+			expectedImage:              "registry.example.com/mongodb/mongodb-community-server:6.0.5-ubi8",
+		},
+		"Additional official repo urls are a list, and tolerate spacing and trailing slashes": {
+			mongodbRepoUrl:             "registry.example.com/mongodb",
+			mongodbImage:               "mongodb-community-server",
+			mongodbImageType:           "ubi8",
+			version:                    "6.0.5",
+			additionalOfficialRepoUrls: "mirror.example.org/mongodb, registry.example.com/mongodb/ ",
+			expectedImage:              "registry.example.com/mongodb/mongodb-community-server:6.0.5-ubi8",
+		},
+		"An empty additional official repo url list does not make every repo official": {
+			mongodbRepoUrl:             "registry.example.com/mongodb",
+			mongodbImage:               "mongodb-community-server",
+			mongodbImageType:           "ubi8",
+			version:                    "6.0.5",
+			additionalOfficialRepoUrls: " , ",
+			expectedImage:              "registry.example.com/mongodb/mongodb-community-server:6.0.5",
+		},
 	}
 	for testName := range tests {
 		t.Run(testName, func(t *testing.T) {
 			testConfig := tests[testName]
+			if testConfig.additionalOfficialRepoUrls != "" {
+				t.Setenv(util.AdditionalOfficialMongodbRepoUrlsEnv, testConfig.additionalOfficialRepoUrls)
+			}
 			image := getMongoDBImage(testConfig.mongodbRepoUrl, testConfig.mongodbImage, testConfig.mongodbImageType, testConfig.version)
 			assert.Equal(t, testConfig.expectedImage, image)
 		})
