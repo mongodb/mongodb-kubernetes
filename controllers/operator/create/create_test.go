@@ -1052,14 +1052,22 @@ func TestResizePVCsStorage(t *testing.T) {
 	const testStsName = "test"
 	const testStsNamespace = "mongodb-test"
 	initialSts := createStatefulSet(testStsName, testStsNamespace, "20Gi", "20Gi", "20Gi")
+	initialSts.UID = types.UID("initial-sts-uid")
 
 	// Create the StatefulSet that we want to resize the PVC to
 	err := fakeClient.CreateStatefulSet(context.TODO(), *initialSts)
 	assert.NoError(t, err)
 
+	ownerRef := metav1.OwnerReference{
+		APIVersion: "apps/v1",
+		Kind:       "StatefulSet",
+		Name:       initialSts.Name,
+		UID:        initialSts.UID,
+	}
+
 	for _, template := range initialSts.Spec.VolumeClaimTemplates {
 		for i := range *initialSts.Spec.Replicas {
-			pvc := createPVCFromTemplate(template, initialSts.Name, initialSts.Namespace, i)
+			pvc := createPVCFromTemplate(template, initialSts.Name, initialSts.Namespace, i, ownerRef)
 			err = fakeClient.Create(context.TODO(), pvc)
 			assert.NoError(t, err)
 		}
@@ -1069,21 +1077,29 @@ func TestResizePVCsStorage(t *testing.T) {
 	// Previously, we had not taken into account namespace when listing PVCs https://jira.mongodb.org/browse/HELP-85556
 	const otherTestStsNamespace = "mongodb-test-2"
 	otherSts := createStatefulSet(testStsName, otherTestStsNamespace, "25Gi", "20Gi", "15Gi")
+	otherSts.UID = types.UID("other-sts-uid")
 
 	// Create the StatefulSet that we want to resize the PVC to
 	err = fakeClient.CreateStatefulSet(context.TODO(), *otherSts)
 	assert.NoError(t, err)
 
+	otherOwnerRef := metav1.OwnerReference{
+		APIVersion: "apps/v1",
+		Kind:       "StatefulSet",
+		Name:       otherSts.Name,
+		UID:        otherSts.UID,
+	}
+
 	for _, template := range otherSts.Spec.VolumeClaimTemplates {
 		for i := range *otherSts.Spec.Replicas {
-			pvc := createPVCFromTemplate(template, otherSts.Name, otherSts.Namespace, i)
+			pvc := createPVCFromTemplate(template, otherSts.Name, otherSts.Namespace, i, otherOwnerRef)
 			err = fakeClient.Create(context.TODO(), pvc)
 			assert.NoError(t, err)
 		}
 	}
 
 	// We are resizing only initialSts PVCs here and otherSts PVCs should remain unchanged
-	err = resizePVCsStorage(context.TODO(), fakeClient, createStatefulSet(testStsName, testStsNamespace, "30Gi", "30Gi", "20Gi"), zap.S())
+	err = resizePVCsStorage(context.TODO(), fakeClient, createStatefulSet(testStsName, testStsNamespace, "30Gi", "30Gi", "20Gi"), initialSts.UID, zap.S())
 	assert.NoError(t, err)
 
 	pvcList := corev1.PersistentVolumeClaimList{}
@@ -1119,6 +1135,74 @@ func TestResizePVCsStorage(t *testing.T) {
 			assert.Equal(t, pvc.Spec.Resources.Requests.Storage().String(), pvcSizes["logs"])
 		} else {
 			t.Fatal("no pvc was compared while we should have at least detected and compared one")
+		}
+	}
+}
+
+func TestResizePVCsStorage_ForeignPVCNotMatched(t *testing.T) {
+	fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+
+	const stsName = "my-app"
+	const stsNamespace = "shared-ns"
+	sts := createStatefulSet(stsName, stsNamespace, "10Gi", "10Gi", "10Gi")
+	sts.UID = types.UID("our-sts-uid")
+
+	err := fakeClient.CreateStatefulSet(context.TODO(), *sts)
+	assert.NoError(t, err)
+
+	ownerRef := metav1.OwnerReference{
+		APIVersion: "apps/v1",
+		Kind:       "StatefulSet",
+		Name:       sts.Name,
+		UID:        sts.UID,
+	}
+
+	// Create our own PVCs with ownerReference
+	for _, template := range sts.Spec.VolumeClaimTemplates {
+		for i := range *sts.Spec.Replicas {
+			pvc := createPVCFromTemplate(template, sts.Name, sts.Namespace, i, ownerRef)
+			err = fakeClient.Create(context.TODO(), pvc)
+			assert.NoError(t, err)
+		}
+	}
+
+	// Create a foreign PVC whose name matches the ambiguous prefix pattern
+	// ^data-my-app-[0-9]+$ (template=data, sts=my-app)
+	// This simulates the attack: an attacker chooses CR name + template name
+	// such that the prefix matches a foreign workload's PVC.
+	// The foreign PVC has a different ownerReference (wrong UID).
+	foreignOwnerRef := metav1.OwnerReference{
+		APIVersion: "apps/v1",
+		Kind:       "StatefulSet",
+		Name:       "foreign-sts",
+		UID:        types.UID("foreign-uid"),
+	}
+	// foreign PVC with a name that matches the pattern ^data-my-app-[0-9]+$
+	// but owned by a different StatefulSet — should NOT be resized
+	foreignPVC := createPVCWithCapacity("data-my-app-5", stsNamespace, "5Gi", foreignOwnerRef)
+	err = fakeClient.Create(context.TODO(), foreignPVC)
+	assert.NoError(t, err)
+
+	// Resize our PVCs from 10Gi to 20Gi
+	desiredSts := createStatefulSet(stsName, stsNamespace, "20Gi", "20Gi", "20Gi")
+	desiredSts.UID = sts.UID
+	err = resizePVCsStorage(context.TODO(), fakeClient, desiredSts, sts.UID, zap.S())
+	assert.NoError(t, err)
+
+	// Verify: our PVCs were resized to 20Gi
+	pvcList := corev1.PersistentVolumeClaimList{}
+	err = fakeClient.List(context.TODO(), &pvcList)
+	assert.NoError(t, err)
+
+	for _, pvc := range pvcList.Items {
+		if pvc.OwnerReferences[0].UID == sts.UID {
+			// Our PVCs should be resized
+			assert.Equal(t, "20Gi", pvc.Spec.Resources.Requests.Storage().String(),
+				"our PVC %s should have been resized to 20Gi", pvc.Name)
+		} else {
+			// Foreign PVC should remain unchanged
+			assert.Equal(t, "5Gi", pvc.Spec.Resources.Requests.Storage().String(),
+				"foreign PVC %s should NOT have been resized", pvc.Name)
 		}
 	}
 }
@@ -1174,12 +1258,13 @@ func createStatefulSet(name, namespace, size1, size2, size3 string) *appsv1.Stat
 	}
 }
 
-func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, namespace string, ordinal int32) *corev1.PersistentVolumeClaim {
+func createPVCFromTemplate(pvcTemplate corev1.PersistentVolumeClaim, stsName string, namespace string, ordinal int32, ownerRefs ...metav1.OwnerReference) *corev1.PersistentVolumeClaim {
 	pvcName := fmt.Sprintf("%s-%s-%d", pvcTemplate.Name, stsName, ordinal)
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pvcName,
-			Namespace: namespace,
+			Name:            pvcName,
+			Namespace:       namespace,
+			OwnerReferences: ownerRefs,
 		},
 		Spec: pvcTemplate.Spec,
 	}
@@ -1292,6 +1377,7 @@ func TestHasFinishedResizing(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test",
 			Namespace: "mongodb-test",
+			UID:       types.UID("sts-uid"),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
@@ -1323,16 +1409,27 @@ func TestHasFinishedResizing(t *testing.T) {
 		},
 	}
 
+	stsOwnerRef := metav1.OwnerReference{
+		APIVersion: "apps/v1",
+		Kind:       "StatefulSet",
+		Name:       sts.Name,
+		UID:        sts.UID,
+	}
+
 	ctx := context.TODO()
 	{
-		fakeClient, _ := mock.NewDefaultFakeClient()
+		fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+		// Create the StatefulSet so hasFinishedResizing can fetch it to get the UID
+		err := fakeClient.CreateStatefulSet(ctx, *sts)
+		assert.NoError(t, err)
+
 		// Scenario 1: All PVCs have finished resizing
-		pvc1 := createPVCWithCapacity("data-"+sts.Name+"-0", sts.Namespace, "20Gi")
-		pvc2 := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "30Gi")
+		pvc1 := createPVCWithCapacity("data-"+sts.Name+"-0", sts.Namespace, "20Gi", stsOwnerRef)
+		pvc2 := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "30Gi", stsOwnerRef)
 		// PVCs in different namespace, but same name, should be ignored and not taken into account when checking resizing status
-		pvc1InDifferentNamespace := createPVCWithCapacity("data-"+sts.Name+"-0", "mongodb-test-2", "15Gi")
-		pvc2InDifferentNamespace := createPVCWithCapacity("logs-"+sts.Name+"-0", "mongodb-test-2", "10Gi")
-		err := fakeClient.Create(ctx, pvc1)
+		pvc1InDifferentNamespace := createPVCWithCapacity("data-"+sts.Name+"-0", "mongodb-test-2", "15Gi", stsOwnerRef)
+		pvc2InDifferentNamespace := createPVCWithCapacity("logs-"+sts.Name+"-0", "mongodb-test-2", "10Gi", stsOwnerRef)
+		err = fakeClient.Create(ctx, pvc1)
 		assert.NoError(t, err)
 		err = fakeClient.Create(ctx, pvc2)
 		assert.NoError(t, err)
@@ -1341,30 +1438,34 @@ func TestHasFinishedResizing(t *testing.T) {
 		err = fakeClient.Create(ctx, pvc2InDifferentNamespace)
 		assert.NoError(t, err)
 
-		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts, sts.UID)
 		assert.NoError(t, err)
 		assert.True(t, finished, "PVCs should be finished resizing")
 	}
 
 	{
 		// Scenario 2: Some PVCs are still resizing
-		fakeClient, _ := mock.NewDefaultFakeClient()
-		pvc2Incomplete := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "10Gi")
-		err := fakeClient.Create(ctx, pvc2Incomplete)
+		fakeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
+		err := fakeClient.CreateStatefulSet(ctx, *sts)
 		assert.NoError(t, err)
 
-		finished, err := hasFinishedResizing(ctx, fakeClient, sts)
+		pvc2Incomplete := createPVCWithCapacity("logs-"+sts.Name+"-0", sts.Namespace, "10Gi", stsOwnerRef)
+		err = fakeClient.Create(ctx, pvc2Incomplete)
+		assert.NoError(t, err)
+
+		finished, err := hasFinishedResizing(ctx, fakeClient, sts, sts.UID)
 		assert.NoError(t, err)
 		assert.False(t, finished, "PVCs should not be finished resizing")
 	}
 }
 
 // Helper function to create a PVC with a specific capacity and status
-func createPVCWithCapacity(name string, namespace string, capacity string) *corev1.PersistentVolumeClaim {
+func createPVCWithCapacity(name string, namespace string, capacity string, ownerRefs ...metav1.OwnerReference) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:            name,
+			Namespace:       namespace,
+			OwnerReferences: ownerRefs,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			Resources: corev1.VolumeResourceRequirements{
@@ -1382,9 +1483,11 @@ func createPVCWithCapacity(name string, namespace string, capacity string) *core
 }
 
 func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
+	const stsUID types.UID = "example-sts-uid"
 	statefulSet := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "example-sts",
+			UID:  stsUID,
 		},
 		Spec: appsv1.StatefulSetSpec{
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
@@ -1407,12 +1510,35 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 	tests := []struct {
 		name             string
 		pvcName          string
+		ownerRefs        []metav1.OwnerReference
 		expectedTemplate *corev1.PersistentVolumeClaim
 		expectedIndex    int
 	}{
 		{
 			name:    "Matching data-pvc with ordinal 0",
 			pvcName: "data-pvc-example-sts-0",
+			ownerRefs: []metav1.OwnerReference{
+				{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+					Name:       "other-sts",
+					UID:        types.UID("other-uid"),
+				},
+			},
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
+		{
+			name:    "Matching data-pvc with ordinal 0 and correct owner",
+			pvcName: "data-pvc-example-sts-0",
+			ownerRefs: []metav1.OwnerReference{
+				{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+					Name:       "example-sts",
+					UID:        stsUID,
+				},
+			},
 			expectedTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "data-pvc",
@@ -1421,8 +1547,16 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 			expectedIndex: 0,
 		},
 		{
-			name:    "Matching logs-pvc with ordinal 1",
+			name:    "Matching logs-pvc with ordinal 1 and correct owner",
 			pvcName: "logs-pvc-example-sts-1",
+			ownerRefs: []metav1.OwnerReference{
+				{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+					Name:       "example-sts",
+					UID:        stsUID,
+				},
+			},
 			expectedTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "logs-pvc",
@@ -1431,14 +1565,22 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 			expectedIndex: 1,
 		},
 		{
-			name:             "Non-matching PVC name",
+			name:             "Non-matching PVC name and no owner",
 			pvcName:          "cache-pvc-example-sts-0",
 			expectedTemplate: nil,
 			expectedIndex:    -1,
 		},
 		{
-			name:    "Matching data-pvc with high ordinal",
+			name:    "Matching data-pvc with high ordinal and correct owner",
 			pvcName: "data-pvc-example-sts-1000",
+			ownerRefs: []metav1.OwnerReference{
+				{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+					Name:       "example-sts",
+					UID:        stsUID,
+				},
+			},
 			expectedTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "data-pvc",
@@ -1470,17 +1612,32 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 			expectedTemplate: nil,
 			expectedIndex:    -1,
 		},
+		{
+			name:    "Foreign PVC matching name pattern but owned by different STS is rejected",
+			pvcName: "data-pvc-example-sts-0",
+			ownerRefs: []metav1.OwnerReference{
+				{
+					APIVersion: "apps/v1",
+					Kind:       "StatefulSet",
+					Name:       "attacker-sts",
+					UID:        types.UID("attacker-uid"),
+				},
+			},
+			expectedTemplate: nil,
+			expectedIndex:    -1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: tt.pvcName,
+					Name:            tt.pvcName,
+					OwnerReferences: tt.ownerRefs,
 				},
 			}
 
-			template, index := getMatchingPVCTemplateFromSTS(statefulSet, p)
+			template, index := getMatchingPVCTemplateFromSTS(statefulSet, p, stsUID)
 
 			if tt.expectedTemplate == nil {
 				assert.Nil(t, template, "Expected no matching PVC template")
