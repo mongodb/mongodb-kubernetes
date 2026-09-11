@@ -57,6 +57,9 @@ UNUSED_TASK_ALLOWLIST: dict[str, str] = {
     "e2e_replica_set_x509_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
     "e2e_replica_set_ldap_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
     "e2e_sharded_cluster_ldap_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
+    # --- Orphaned e2e tasks disabled pending KUBE-448 (multicluster LDAP-over-TLS: mongod fails to start in Istio mesh) ---
+    "e2e_multi_cluster_with_ldap": "disabled pending KUBE-448 (multicluster LDAP-over-TLS fails in Istio mesh)",
+    "e2e_multi_cluster_with_ldap_custom_roles": "disabled pending KUBE-448 (multicluster LDAP-over-TLS fails in Istio mesh)",
 }
 
 
