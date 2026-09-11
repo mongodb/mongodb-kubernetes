@@ -369,6 +369,12 @@ tasks:
           binary: scripts/dev/run_python.sh
           args:
             - scripts/release/release_om_and_agents.py
+      # CVE scan of the released agent images (currently used versions)
+      - func: trivy_scan
+        vars:
+          image_name: agent
+          agent_version: current
+          build_scenario: release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -525,6 +531,9 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
+      - func: trivy_scan
+        vars:
+          image_name: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -543,6 +552,9 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
+      - func: trivy_scan
+        vars:
+          image_name: init-ops-manager
 
   - name: build_agent_images_ubi
     commands:
@@ -554,6 +566,11 @@ tasks:
           image_name: agent
           agent_version: all
           flags: "--parallel"
+      - func: trivy_scan
+        vars:
+          image_name: agent
+          # only the currently used agent versions are scanned to keep scan time bounded
+          agent_version: current
 
   - name: build_init_database_image_ubi
     commands:
@@ -561,6 +578,9 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
+        vars:
+          image_name: init-database
+      - func: trivy_scan
         vars:
           image_name: init-database
 
@@ -572,6 +592,9 @@ tasks:
       - func: pipeline
         vars:
           image_name: database
+      - func: trivy_scan
+        vars:
+          image_name: database
 
   - name: build_readiness_probe_image
     commands:
@@ -581,6 +604,9 @@ tasks:
       - func: pipeline
         vars:
           image_name: readiness-probe
+      - func: trivy_scan
+        vars:
+          image_name: readiness-probe
 
   - name: build_version_upgrade_hook_image
     commands:
@@ -588,6 +614,9 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
+        vars:
+          image_name: upgrade-hook
+      - func: trivy_scan
         vars:
           image_name: upgrade-hook
 
@@ -645,6 +674,9 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
+        vars:
+          image_name: ops-manager
+      - func: trivy_scan
         vars:
           image_name: ops-manager
 
