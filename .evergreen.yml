@@ -54,6 +54,10 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: build_init_om_images_ubi
@@ -158,6 +162,10 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: build_init_om_images_ubi
@@ -180,6 +188,10 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: build_init_om_images_ubi
@@ -197,6 +209,10 @@ variables:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
@@ -221,6 +237,10 @@ variables:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
