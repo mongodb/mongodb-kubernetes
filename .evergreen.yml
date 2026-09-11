@@ -1345,7 +1345,6 @@ task_groups:
       - e2e_om_feature_controls
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
-      - e2e_operator_upgrade_ops_manager
 
   - name: e2e_static_ops_manager_kind_only_task_group
     max_hosts: -1
@@ -1380,7 +1379,6 @@ task_groups:
       - e2e_om_feature_controls
       - e2e_vault_setup_om
       - e2e_vault_setup_om_backup
-      - e2e_operator_upgrade_ops_manager
     #   Deactivated tests
     #    - e2e_om_localmode_multiple_pv
     #    - e2e_om_localmode
@@ -1439,12 +1437,23 @@ task_groups:
     tasks:
       - e2e_om_ops_manager_backup_object_lock
 
-  # Tests features only supported on OM70 and OM80, its only upgrade test as we test upgrading from 6 to 7 or 7 to 8
+  # Ops Manager upgrade test (e2e_om_ops_manager_upgrade). Upgrades both Ops Manager and its
+  # Application Database in one step, then verifies each independently. Runs on OM7/OM8 (6->7,
+  # 7->8) and on OM9 (8->9, with the appdb upgraded 8.0.6-ent -> 9.0.0-rc3-ent via the om90
+  # context). The managed MongoDB workload is upgraded separately in TestMongoDbsVersionUpgrade.
   - name: e2e_ops_manager_upgrade_only_task_group
     max_hosts: -1
     <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_upgrade
+
+  # Operator upgrade test (starts from a previously released operator). Kept in a dedicated
+  # group so the OM9 variants can omit it until a released operator ships a 9.x om_version_mapping.
+  - name: e2e_operator_upgrade_only_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_operator_upgrade_ops_manager
 
   # Tests features only supported on OM60
   - name: e2e_static_ops_manager_kind_6_0_only_task_group
@@ -1636,6 +1645,7 @@ buildvariants:
       - name: e2e_ops_manager_kind_only_task_group
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
+      - name: e2e_operator_upgrade_only_task_group
 
   # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_static_om60_kind_ubi
@@ -1648,6 +1658,7 @@ buildvariants:
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
+      - name: e2e_operator_upgrade_only_task_group
 
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
@@ -1660,6 +1671,7 @@ buildvariants:
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+      - name: e2e_operator_upgrade_only_task_group
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
@@ -1671,6 +1683,7 @@ buildvariants:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+      - name: e2e_operator_upgrade_only_task_group
 
   - name: e2e_om80_kind_ubi
     display_name: e2e_om80_kind_ubi
@@ -1684,54 +1697,53 @@ buildvariants:
       - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
       - name: e2e_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+      - name: e2e_operator_upgrade_only_task_group
       - name: e2e_ops_manager_kind_8_0_only_task_group
 
-  # Isolated Ops Manager Tests for the 9.0 release candidate - on-demand only
+  # Ops Manager Tests for the 9.0 release candidate
   - name: e2e_om90_kind_ubi
     display_name: e2e_om90_kind_ubi
-    tags: [ "manual_patch", "e2e_test_suite", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "om9" ]
     run_on:
       - ubuntu2204-medium-high-memory
-    <<: *base_om9_dependency
+    <<: [*production_code_paths, *base_om9_dependency]
     tasks:
       - name: e2e_ops_manager_kind_only_task_group
       # TODO (CLOUDP-346008): Replace this task group with e2e_ops_manager_kind_5_0_only_task_group once the issue with queryable backup task is resolved
       - name: e2e_ops_manager_kind_5_0_only_task_group_without_queryable_backup
       - name: e2e_ops_manager_kind_6_0_only_task_group
-      # e2e_ops_manager_upgrade_only_task_group is intentionally omitted: it starts from a
+      - name: e2e_ops_manager_upgrade_only_task_group
+      # e2e_operator_upgrade_only_task_group is intentionally omitted: it starts from a
       # previously released operator, whose baked om_version_mapping.json has no 9.x entry,
       # so the AppDB monitoring agent resolves to an empty image tag.
       - name: e2e_ops_manager_kind_8_0_only_task_group
 
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
-    tags: [ "manual_patch", "e2e_test_suite", "static", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
+    tags: [ "staging", "e2e_test_suite", "static", "om9" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
-      # e2e_ops_manager_upgrade_only_task_group omitted for the same reason as in
+      - name: e2e_ops_manager_upgrade_only_task_group
+      # e2e_operator_upgrade_only_task_group omitted for the same reason as in
       # e2e_om90_kind_ubi above.
 
   - name: e2e_om90_kind_ubi_large
     display_name: e2e_om90_kind_ubi_large
-    tags: [ "manual_patch", "e2e_test_suite", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "om9" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om9_dependency
+    <<: [*production_code_paths, *base_om9_dependency]
     tasks:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
 
   - name: e2e_static_om90_kind_ubi_large
     display_name: e2e_static_om90_kind_ubi_large
-    tags: [ "manual_patch", "e2e_test_suite", "static", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
+    tags: [ "staging", "e2e_test_suite", "static", "om9" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -1749,6 +1761,7 @@ buildvariants:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+      - name: e2e_operator_upgrade_only_task_group
 
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
@@ -1935,14 +1948,11 @@ buildvariants:
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
-  # The multi-cluster OM variants below run against the 9.0 release candidate, so they are
-  # on-demand only: they depend on build_om90_images, which cannot run on commit builds because
-  # the RC tarball is a transient mciuploads artifact.
+  # The multi-cluster OM variants below run against the 9.0 release candidate.
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "manual_patch", "e2e_test_suite", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
-    <<: *base_om9_dependency
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "om9" ]
+    <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
     tasks:
@@ -1950,8 +1960,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "manual_patch", "e2e_test_suite", "static", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
+    tags: [ "staging", "e2e_test_suite", "static", "om9" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -1960,9 +1969,8 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "manual_patch", "e2e_test_suite", "om9" ]
-    allowed_requesters: ["patch"] # only on demand
-    <<: *base_om9_dependency
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "om9" ]
+    <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
     tasks:
@@ -2228,8 +2236,7 @@ buildvariants:
 
   - name: build_om90_images
     display_name: build_om90_images
-    tags: [ "manual_patch", "om9" ]
-    allowed_requesters: ["patch"] # only on demand; the RC tarball is a transient mciuploads artifact
+    tags: [ "pr_patch_static", "staging", "om9" ]
     run_on:
       - ubuntu2404-small
     tasks:
