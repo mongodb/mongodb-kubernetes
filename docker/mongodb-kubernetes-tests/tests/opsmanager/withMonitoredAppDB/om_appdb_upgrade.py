@@ -167,7 +167,9 @@ class TestOpsManagerMixed:
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
     def test_mongod(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        mdb_tester = ops_manager.get_appdb_tester()
+        # The AppDB has SCRAM auth enabled, and buildInfo requires authentication on MongoDB 9.0,
+        # so the tester must authenticate (OM_USER_NAME + generated password) to assert the version.
+        mdb_tester = ops_manager.get_appdb_tester(authenticate=True)
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version(custom_appdb_version)
 

@@ -164,6 +164,17 @@ class MongoTester:
     def client(self, value):
         self._client = value
 
+    def set_credentials(self, username: str, password: str, auth_mechanism: str = "SCRAM-SHA-256"):
+        """Authenticates the default client with SCRAM credentials.
+
+        The AppDB has authentication enabled, so commands that require auth (e.g. buildInfo on
+        MongoDB 9.0) fail on the default unauthenticated client. Calling this makes ``self.client``
+        authenticate, so ``assert_version`` and other default-client commands work against the
+        AppDB. The managed MongoDB resources used in other tests don't enable auth, so they don't.
+        """
+        self.default_opts.update(with_scram(username, password, auth_mechanism))
+        self._client = None  # force the lazy client to re-initialize with credentials
+
     def _merge_options(self, opts: List[Dict[str, Any]]) -> Dict[str, Any]:
         options = copy.deepcopy(self.default_opts)
         for opt in opts:

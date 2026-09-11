@@ -37,6 +37,11 @@ from tests.constants import LEGACY_CENTRAL_CLUSTER_NAME
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
 
+# User that the operator creates on the Ops Manager Application Database. It carries
+# readWriteAnyDatabase/dbAdminAnyDatabase (see EXPECTED_OM_USER_ROLES), so an authenticated AppDB
+# tester can both write and run commands such as buildInfo.
+APPDB_OM_USER_NAME = "mongodb-ops-manager"
+
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
@@ -762,9 +767,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             for cluster_index, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items()
         ]
 
-    def get_appdb_tester(self, **kwargs) -> MongoTester:
+    def get_appdb_tester(self, authenticate: bool = False, **kwargs) -> MongoTester:
         if self.is_appdb_multi_cluster():
-            return MultiReplicaSetTester(
+            tester = MultiReplicaSetTester(
                 service_names=self.get_appdb_service_names_in_multi_cluster(),
                 port="27017",
                 namespace=self.namespace,
@@ -773,11 +778,19 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         else:
             members = self.appdb_status().get_members()
             assert members is not None, "appdb members count must not be None"
-            return ReplicaSetTester(
+            tester = ReplicaSetTester(
                 self.app_db_name(),
                 replicas_count=members,
                 **kwargs,
             )
+
+        # The AppDB has SCRAM auth enabled, so commands like buildInfo require authentication on
+        # MongoDB 9.0. Opt in with authenticate=True for tests that run such commands on the
+        # default client (e.g. assert_version). Other callers keep the unauthenticated client.
+        if authenticate:
+            tester.set_credentials(APPDB_OM_USER_NAME, self.read_appdb_generated_password())
+
+        return tester
 
     def pod_urls(self):
         """Returns http urls to each pod in the Ops Manager"""
