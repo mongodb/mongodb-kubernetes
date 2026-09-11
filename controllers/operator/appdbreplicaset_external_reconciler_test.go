@@ -28,7 +28,7 @@ import (
 
 func newOpsManagerReconcilerForValidation(objects ...client.Object) *OpsManagerReconciler {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(objects...)
-	return NewOpsManagerReconciler(context.Background(), kubeClient, map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
+	return NewOpsManagerReconciler(context.Background(), kubeClient, multiClusterProviderFromClientMap(nil), images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
 }
 
 func TestValidateExternalAppDBReference(t *testing.T) {
@@ -251,7 +251,7 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 				SetField(util.OpsManagerPasswordKey, "test-password").
 				Build()))
 
-			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, reconciler.memberClustersMap, zap.S())
+			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
 			require.NoError(t, err)
 
 			cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())

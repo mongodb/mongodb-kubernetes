@@ -15,8 +15,6 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v2 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 const (
@@ -121,16 +119,17 @@ func createInitialConfigmap(namespace string) (string, *corev1.ConfigMap) {
 
 // isTimestampOlderThanConfiguredFrequency is used to get the timestamp from the ConfigMap and check whether it's time to
 // send the data to atlas.
-func isTimestampOlderThanConfiguredFrequency(ctx context.Context, k8sClient kubeclient.Client, namespace string, OperatorConfigMapTelemetryConfigMapName string, et EventType) (bool, error) {
-	durationStr := env.ReadOrDefault(SendFrequency, DefaultSendFrequencyStr) // nolint:forbidigo
-	duration, err := time.ParseDuration(durationStr)
-	if err != nil || duration < 10*time.Minute {
-		Logger.Warn("Failed to parse or given durationString: %s too low (min: 10 minutes), defaulting to one week", durationStr)
+func isTimestampOlderThanConfiguredFrequency(ctx context.Context, k8sClient kubeclient.Client, namespace string, OperatorConfigMapTelemetryConfigMapName string, et EventType, sendFrequency time.Duration) (bool, error) {
+	// The send frequency comes pre-validated and defaulted from the OperatorConfig CR. Guard against
+	// a non-positive value as a defensive measure.
+	duration := sendFrequency
+	if duration <= 0 {
+		Logger.Warnf("Telemetry send frequency is not positive (%s), using default %s", duration, DefaultSendFrequency)
 		duration = DefaultSendFrequency
 	}
 
 	cm := &corev1.ConfigMap{}
-	err = k8sClient.Get(ctx, types.NamespacedName{Name: OperatorConfigMapTelemetryConfigMapName, Namespace: namespace}, cm)
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: OperatorConfigMapTelemetryConfigMapName, Namespace: namespace}, cm)
 	if err != nil {
 		return false, fmt.Errorf("failed to get ConfigMap: %w", err)
 	}

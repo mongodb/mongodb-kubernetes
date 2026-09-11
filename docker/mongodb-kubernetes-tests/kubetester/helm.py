@@ -3,8 +3,12 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from typing import Dict, List, Optional, Tuple
 
+import yaml
+from kubernetes import client
+from kubernetes.client.rest import ApiException
 from tests import test_logger
 from tests.constants import (
     DEFAULT_HELM_CHART_PATH_ENV_VAR_NAME,
@@ -254,6 +258,65 @@ def apply_crds_from_chart(crds_dir: str):
         logger.info(f"Applying CRD from file: {crd_file}")
         args = ["kubectl", "apply", "-f", crd_file]
         process_run_and_check(" ".join(args), check=True, capture_output=True, shell=True)
+
+
+# Paths to operator-level CRDs inside the local Helm chart copied into the tests image.
+OPERATOR_CONFIG_CRD_FILE = os.path.join(LOCAL_CRDS_DIR, "operator.mongodb.com_operatorconfigs.yaml")
+OPERATOR_CONFIG_CRD_NAME = "operatorconfigs.operator.mongodb.com"
+MEMBER_CLUSTER_CRD_FILE = os.path.join(LOCAL_CRDS_DIR, "operator.mongodb.com_memberclusters.yaml")
+MEMBER_CLUSTER_CRD_NAME = "memberclusters.operator.mongodb.com"
+
+
+def _apply_crd_and_wait(crd_file: str, crd_name: str, kind: str, api_client=None):
+    """Applies a CRD from a file and waits for it to be Established."""
+    with open(crd_file) as f:
+        crd_body = yaml.safe_load(f)
+
+    api = client.ApiextensionsV1Api(api_client=api_client)
+
+    logger.info(f"Applying {kind} CRD from file: {crd_file}")
+    try:
+        api.create_custom_resource_definition(body=crd_body)
+    except ApiException as e:
+        if e.status != 409:
+            raise
+        # CRD already exists — replace it so any schema changes in the file are applied.
+        # resourceVersion is required for a replace; copy it from the live object.
+        existing = api.read_custom_resource_definition(crd_name)
+        crd_body["metadata"]["resourceVersion"] = existing.metadata.resource_version
+        api.replace_custom_resource_definition(crd_name, crd_body)
+        logger.info(f"{kind} CRD already existed; replaced with current version")
+
+    logger.info(f"Waiting for the {kind} CRD to be established")
+    timeout_seconds = 60
+    poll_interval_seconds = 2
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        crd = api.read_custom_resource_definition(crd_name)
+        conditions = (crd.status.conditions or []) if crd.status else []
+        if any(c.type == "Established" and c.status == "True" for c in conditions):
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"{kind} CRD {crd_name} was not established within {timeout_seconds}s")
+        time.sleep(poll_interval_seconds)
+
+
+def apply_operator_config_crd(api_client=None):
+    """Applies the OperatorConfig CRD and waits for it to be established.
+
+    Used by upgrade tests to ensure the CRD exists before the OperatorConfig CR is created and the
+    operator is upgraded to a version that reads it (legacy operators do not ship this CRD).
+    """
+    _apply_crd_and_wait(OPERATOR_CONFIG_CRD_FILE, OPERATOR_CONFIG_CRD_NAME, "OperatorConfig", api_client)
+
+
+def apply_member_cluster_crd(api_client=None):
+    """Applies the MemberCluster CRD and waits for it to be established.
+
+    The operator reads this CRD at startup (it is scoped in the manager cache), so it must exist
+    before the operator starts even when only a subset of workload CRDs is installed.
+    """
+    _apply_crd_and_wait(MEMBER_CLUSTER_CRD_FILE, MEMBER_CLUSTER_CRD_NAME, "MemberCluster", api_client)
 
 
 def helm_uninstall(name):

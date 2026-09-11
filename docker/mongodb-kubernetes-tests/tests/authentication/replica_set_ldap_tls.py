@@ -1,5 +1,3 @@
-from typing import Dict
-
 from kubetester import create_or_update_secret, find_fixture, try_load, wait_until
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
@@ -9,22 +7,16 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def operator_installation_config_quick_recovery(operator_installation_config: Dict[str, str]) -> Dict[str, str]:
+def operator_config_extra_spec() -> dict:
     """
     This sets the recovery backoff time to 10s for the replicaset reconciliation. It seems like setting it higher
     ensures that the automatic recovery doesn't get triggered at all since the `lastTransitionTime` in the status gets updated
     too often.
     TODO: investigate why and when this mechanism was broken.
+
+    The back-off lives in the OperatorConfig CR (.spec.automaticRecovery.delay).
     """
-    operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
-    )
-    return operator_installation_config
-
-
-@fixture(scope="module")
-def operator_installation_config(operator_installation_config_quick_recovery: Dict[str, str]) -> Dict[str, str]:
-    return operator_installation_config_quick_recovery
+    return {"automaticRecovery": {"delay": 10}}
 
 
 @fixture(scope="module")

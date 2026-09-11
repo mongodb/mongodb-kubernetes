@@ -434,3 +434,20 @@ func TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates(t *testing.T
 		assertNoClaimLabels(t, sts, 3)
 	})
 }
+
+func TestAppDbStatefulSet_ServiceAccount(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	t.Run("fixed default name provided by the caller is used", func(t *testing.T) {
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ServiceAccountName: util.AppDBServiceAccount}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		assert.Equal(t, util.AppDBServiceAccount, sts.Spec.Template.Spec.ServiceAccountName)
+	})
+
+	t.Run("explicit option is used", func(t *testing.T) {
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ServiceAccountName: "mck-member-appdb"}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		assert.Equal(t, "mck-member-appdb", sts.Spec.Template.Spec.ServiceAccountName)
+	})
+}

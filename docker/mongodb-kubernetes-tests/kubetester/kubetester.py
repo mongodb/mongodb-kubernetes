@@ -10,7 +10,7 @@ import tempfile
 import time
 import warnings
 from base64 import b64decode, b64encode
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import jsonpatch
 import kubernetes.client
@@ -90,6 +90,207 @@ def assert_container_count_with_static(current_container_count: int, expected_co
 
 def get_default_architecture() -> str:
     return "static" if is_default_architecture_static() else "non-static"
+
+
+def create_operator_config(namespace: str, spec: dict, api_client=None) -> bool:
+    """Creates or patches the OperatorConfig CR.
+
+    Returns True if a restart is expected (CR was freshly created, or patched with a changed spec).
+    Returns False if the CR already existed with the same spec (generation unchanged, no restart).
+    """
+    resource = CustomObject(
+        "operator-config",
+        namespace,
+        "OperatorConfig",
+        "operatorconfigs",
+        "operator.mongodb.com",
+        "v1",
+        api_client=api_client,
+    )
+    resource["spec"] = spec
+    try:
+        resource.create()
+        return True
+    except ApiException as e:
+        if e.status != 409:
+            raise
+
+    # CR already exists — patch it with the desired spec. The Watcher only triggers a restart when
+    # the generation changes, which only happens when the spec actually differs. Comparing generations
+    # before and after lets us tell the caller whether a restart is coming.
+    resource.load()
+    old_generation = resource.backing_obj.get("metadata", {}).get("generation", 0)
+    resource["spec"] = spec
+    resource.patch()
+    new_generation = resource.backing_obj.get("metadata", {}).get("generation", 0)
+    return new_generation > old_generation
+
+
+def build_operator_config_spec_from_test_env() -> dict:
+    """Builds the OperatorConfig spec from test env vars. Returns an empty dict when all settings are
+    defaults (i.e. there is nothing to configure).
+
+    As more settings are added to OperatorConfig, add the corresponding env-var reads here.
+    """
+    spec: dict = {}
+    if is_default_architecture_static():
+        spec["defaultArchitecture"] = "Static"
+    max_concurrent_reconciles = os.getenv("MDB_MAX_CONCURRENT_RECONCILES")
+    if max_concurrent_reconciles:
+        spec["maxConcurrentReconciles"] = int(max_concurrent_reconciles)
+
+    # Telemetry. The OperatorConfig default is send Enabled (opt-out), but e2e operators must NOT
+    # ship telemetry to cloud, so we default send to Disabled here and only enable it for the
+    # dedicated telemetry variant (MDB_OPERATOR_TELEMETRY_SEND_ENABLED=true, which also points the
+    # operator at a cloud-dev endpoint via MDB_OPERATOR_TELEMETRY_SEND_BASEURL). Setting
+    # MDB_OPERATOR_TELEMETRY_ENABLED=false disables telemetry entirely (master switch).
+    #
+    # Collection frequency is set to the minimum (1m) so telemetry tests observe fresh, populated
+    # payloads quickly: the operator collects once immediately at startup (before any deployment
+    # exists) and then on this interval, so a short interval is needed to pick up resources created
+    # later in the test within its polling window.
+    telemetry: dict = {"send": {"mode": "Disabled"}, "collection": {"frequency": "1m"}}
+    if os.getenv("MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "false") == "true":
+        telemetry["send"]["mode"] = "Enabled"
+    if os.getenv("MDB_OPERATOR_TELEMETRY_ENABLED", "true") == "false":
+        telemetry["mode"] = "Disabled"
+    spec["telemetry"] = telemetry
+
+    return spec
+
+
+def get_operator_pod_restart_count(namespace: str, name: str, api_client=None) -> Optional[int]:
+    """Returns the restart count of the operator container, or None if the pod is not yet present.
+
+    This is installation-method-agnostic: it inspects the operator pod directly and works regardless of
+    how the operator was installed (Helm, OLM or raw YAML).
+    """
+    pods = (
+        client.CoreV1Api(api_client=api_client)
+        .list_namespaced_pod(namespace, label_selector=f"app.kubernetes.io/name={name}")
+        .items
+    )
+    if len(pods) != 1 or not pods[0].status.container_statuses:
+        return None
+    # Select the operator container by name rather than assuming it is the first one. In
+    # multi-cluster deployments the pod also runs an injected istio-proxy sidecar, so the
+    # operator container is not necessarily at index 0 of container_statuses. The operator
+    # container shares its name with the operator deployment (Helm sets both from operator.name).
+    container_statuses = {cs.name: cs for cs in pods[0].status.container_statuses}
+    operator_status = container_statuses.get(name)
+    if operator_status is None:
+        return None
+    return operator_status.restart_count
+
+
+def wait_for_operator_pod_present(namespace: str, name: str, api_client=None, retries: int = 120) -> int:
+    """Polls until exactly one operator pod with started containers is present and returns its restart
+    count. Raises AssertionError if the pod does not appear within the timeout.
+
+    Some install paths report readiness before the operator Deployment has finished rolling out its
+    pod (notably OLM, which signals readiness via the CSV phase, and rolling upgrades where the old
+    and new pods coexist transiently). Polling avoids a one-shot read racing that rollout.
+    """
+    timeout_seconds = retries
+    while retries > 0:
+        count = get_operator_pod_restart_count(namespace, name, api_client=api_client)
+        if count is not None:
+            return count
+        time.sleep(1)
+        retries -= 1
+
+    raise AssertionError(
+        f"Operator pod '{name}' in namespace '{namespace}' did not appear within {timeout_seconds} "
+        "seconds before applying OperatorConfig. Ensure the operator is running before calling "
+        "apply_operator_config_from_test_env."
+    )
+
+
+def wait_for_operator_pod_restart(
+    namespace: str,
+    name: str,
+    previous_restart_count: Optional[int],
+    api_client=None,
+    retries: int = 60,
+):
+    """Waits until the operator container's restart count exceeds previous_restart_count.
+
+    Creating, changing or deleting the OperatorConfig CR triggers the operator to gracefully restart so
+    it can reload its configuration. The container restarts in-place (the same pod), so detecting the
+    restart is a matter of watching the container restart count increase. This is generic and works for
+    any operator pod regardless of how it was installed.
+
+    A previous_restart_count of None means the operator is running locally (no pod in the cluster), in
+    which case there is nothing to wait for.
+    """
+    if previous_restart_count is None:
+        return
+
+    logger.debug("Waiting for the operator to restart after the OperatorConfig change...")
+    timeout_seconds = retries
+    while retries > 0:
+        current = get_operator_pod_restart_count(namespace, name, api_client=api_client)
+        if current is not None and current > previous_restart_count:
+            return
+        time.sleep(1)
+        retries -= 1
+
+    raise AssertionError(
+        f"Operator pod '{name}' in namespace '{namespace}' did not restart within {timeout_seconds} seconds after OperatorConfig change."
+    )
+
+
+def apply_operator_config_from_test_env(
+    namespace: str,
+    api_client=None,
+    name: str = "mongodb-kubernetes-operator",
+    wait_for_ready: Optional[Callable[[], None]] = None,
+    extra_spec: Optional[dict] = None,
+) -> bool:
+    """Creates the OperatorConfig CR from test env vars (if any non-default settings exist) and waits for
+    the operator to restart and reload its configuration.
+
+    This is the single entry point callers should use. It is installation-method-agnostic and does not
+    require an Operator object, so it works for Helm, OLM and raw YAML deployments alike:
+      - it builds the OperatorConfig spec from the test environment,
+      - creates the CR (no-op if all settings are defaults or the CR already exists),
+      - and, only if the CR was actually created, waits for the operator pod to restart (generic,
+        restart-count based) and then for it to become ready again.
+
+    The post-restart readiness check differs per installation method (Helm checks the deployment and the
+    validating webhook; OLM checks the CSV), so callers supply it via the wait_for_ready callback. When
+    no callback is given (and the CR was created), only the pod restart is awaited.
+
+    Returns True if the CR was created (and therefore a restart was awaited), False otherwise.
+    """
+    # the import is done here to prevent circular dependency
+    from tests.conftest import local_operator
+
+    spec = build_operator_config_spec_from_test_env()
+    if extra_spec:
+        spec.update(extra_spec)
+    if not spec:
+        return False
+
+    if local_operator():
+        # No operator pod in the cluster — the operator process reads OperatorConfig directly from the
+        # API server, so there is no pod restart to wait for.
+        create_operator_config(namespace, spec, api_client=api_client)
+        return True
+
+    # Snapshot the operator pod's restart count before applying the CR. Poll for the pod to be present
+    # first: some install paths report readiness before the operator Deployment has finished rolling
+    # out (e.g. OLM's CSV phase, or a rolling upgrade where the old pod is still terminating).
+    previous_restart_count = wait_for_operator_pod_present(namespace, name, api_client=api_client)
+
+    if not create_operator_config(namespace, spec, api_client=api_client):
+        # The CR already existed, so the operator already loaded this config and will not restart.
+        return False
+
+    wait_for_operator_pod_restart(namespace, name, previous_restart_count, api_client=api_client)
+    if wait_for_ready is not None:
+        wait_for_ready()
+    return True
 
 
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):

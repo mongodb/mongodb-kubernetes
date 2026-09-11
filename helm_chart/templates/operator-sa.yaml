@@ -1,4 +1,3 @@
-{{ if .Values.operator.createOperatorServiceAccount }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -9,4 +8,3 @@ metadata:
 imagePullSecrets:
   - name: {{ .Values.registry.imagePullSecrets }}
 {{- end }}
-{{- end }} {{/* if .Values.operator.createOperatorServiceAccount */}}
