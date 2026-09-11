@@ -103,6 +103,34 @@ jobs:
       contents: read
       checks: read
     steps:
+      - name: Show manual EVG fallback
+        env:
+          VERSION: ${{ needs.create_tag_and_draft_release.outputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          ANNOTATION="[new] Release of MCK ${VERSION}"
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            ANNOTATION="[new][dry-run] Release of MCK ${VERSION}"
+          fi
+          echo "If Evergreen doesn't pick up the tag within 2 minutes, trigger manually from your CLI."
+          echo "You can either re-post the tag yourself manually:"
+          echo "  git push origin :${VERSION} # removes the previous remote tag if present"
+          echo "  git tag -a ${VERSION} -m ${ANNOTATION} ${COMMIT_SHA} # tag the release commit locally"
+          echo "  git push origin ${VERSION} # push the tag to GitHub to kick off evergreen with your current user"
+          echo "OR"
+          echo "  evergreen patch -p mongodb-kubernetes -v release_decider \\"
+          echo "    -d \"${ANNOTATION}\" \\"
+          echo "    --param triggered_by_git_tag=${VERSION} \\"
+          echo "    -f -y"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "If Evergreen doesn't pick up the tag within 2 minutes, trigger manually from your CLI:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '  evergreen patch -p mongodb-kubernetes -v release_decider \' >> $GITHUB_STEP_SUMMARY
+          echo "    -d \"${ANNOTATION}\" \\" >> $GITHUB_STEP_SUMMARY
+          echo "    --param triggered_by_git_tag=${VERSION} \\" >> $GITHUB_STEP_SUMMARY
+          echo "    -f -y" >> $GITHUB_STEP_SUMMARY
+
       - name: Wait for Evergreen build to complete
         uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
         id: wait_for_evg
@@ -125,7 +153,7 @@ jobs:
           COMMUNITY_REPO="community-operators"
           CERTIFIED_REPO="certified-operators"
           VERSION="${{ needs.create_tag_and_draft_release.outputs.version }}"
-          RH_BRANCH="mck-release-${VERSION}"
+          RH_BRANCH="mongodb-kubernetes-${VERSION}"
 
           COMMUNITY_PR_CREATION_URL="https://github.com/k8s-operatorhub/community-operators/compare/main...${RH_FORK_ORG}:${COMMUNITY_REPO}:${RH_BRANCH}?quick_pull=1"
           CERTIFIED_PR_CREATION_URL="https://github.com/redhat-openshift-ecosystem/certified-operators/compare/main...${RH_FORK_ORG}:${CERTIFIED_REPO}:${RH_BRANCH}?quick_pull=1"
@@ -133,7 +161,7 @@ jobs:
           echo "Evergreen successfully created the release branches on the RedHat fork." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "👉 **[Click here to create the RedHat Community Operators PR](${COMMUNITY_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
-          echo "👉 **[Click here to createi the RedHat Certified Operators PR](${CERTIFIED_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
+          echo "👉 **[Click here to create the RedHat Certified Operators PR](${CERTIFIED_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
 
   publish_release:
     name: Publish Release
