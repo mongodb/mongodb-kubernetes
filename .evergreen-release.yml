@@ -163,7 +163,6 @@ buildvariants:
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
-    max_hosts: -1
     tasks:
       - name: release_operator
       - name: release_init_database
@@ -267,7 +266,7 @@ buildvariants:
       - name: gke_code_snippets_task_group
 
   - name: init_test_run_release
-    display_name: init_test_run
+    display_name: init_test_run (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -282,7 +281,6 @@ buildvariants:
 
   - name: init_smoke_tests_ibm_power_release
     display_name: init_smoke_tests_ibm_power
-    max_hosts: -1
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-rhel9-power-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -298,7 +296,6 @@ buildvariants:
 
   - name: init_smoke_tests_ibm_z_release
     display_name: init_smoke_tests_ibm_z
-    max_hosts: -1
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-rhel9-zseries-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -314,7 +311,6 @@ buildvariants:
 
   - name: init_smoke_tests_arm_release
     display_name: init_smoke_tests_arm
-    max_hosts: -1
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
@@ -356,7 +352,7 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_smoke_ibm_power_release
-    display_name: e2e_smoke_ibm_power
+    display_name: e2e_smoke_ibm_power (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-power-small
@@ -371,7 +367,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_static_smoke_ibm_power_release
-    display_name: e2e_static_smoke_ibm_power
+    display_name: e2e_static_smoke_ibm_power (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - rhel9-power-small
@@ -386,7 +382,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_smoke_ibm_z_release
-    display_name: e2e_smoke_ibm_z
+    display_name: e2e_smoke_ibm_z (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-small
@@ -401,7 +397,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_static_smoke_ibm_z_release
-    display_name: e2e_static_smoke_ibm_z
+    display_name: e2e_static_smoke_ibm_z (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - rhel9-zseries-small
@@ -416,7 +412,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_smoke_arm_release
-    display_name: e2e_smoke_arm
+    display_name: e2e_smoke_arm (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
@@ -430,7 +426,7 @@ buildvariants:
       - name: e2e_smoke_arm_task_group
 
   - name: e2e_static_smoke_arm_release
-    display_name: e2e_static_smoke_arm
+    display_name: e2e_static_smoke_arm (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
       - ubuntu2404-arm64-large

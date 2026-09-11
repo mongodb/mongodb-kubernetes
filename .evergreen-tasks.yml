@@ -67,32 +67,6 @@ tasks:
           image_name: mongodb-kubernetes
           mongodbOperator: "latest"
 
-# Code snippets tasks
-# Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh
-  - name: task_gke_multi_cluster_snippets
-    tags: [ "code_snippets" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
-  - name: task_gke_multi_cluster_no_mesh_snippets
-    tags: [ "code_snippets" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
-  - name: task_kind_search_community_snippets
-    tags: [ "code_snippets", "patch-run" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
-  - name: task_kind_search_enterprise_snippets
-    tags: [ "code_snippets", "patch-run" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
 ## Below are only e2e runs for .evergreen.yml ##
 
   - name: e2e_multiple_cluster_failures
@@ -145,7 +119,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_standalone_groups
     tags: [ "patch-run" ]
     commands:
@@ -211,12 +184,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
-  - name: e2e_olm_operator_webhooks
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_olm_operator_upgrade_with_resources
     tags: [ "patch-run" ]
     commands:
@@ -277,7 +244,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replica_set_groups
     tags: [ "patch-run" ]
     commands:
@@ -308,7 +274,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replication_state_awareness
     tags: [ "patch-run" ]
     commands:
@@ -589,23 +554,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_tls_certs_top_level_prefix
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_disable_tls_and_scale
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replica_set_tls_require_to_allow
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_sharded_cluster_tls_require_custom_ca
     tags: [ "patch-run" ]
     commands:
@@ -616,7 +574,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_tls_multiple_different_ssl_configs
     commands:
       - func: "e2e_test"
@@ -822,7 +779,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replica_set_scram_x509_internal_cluster
     tags: [ "patch-run" ]
     commands:
@@ -838,7 +794,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_sharded_cluster_scram_x509_internal_cluster
     tags: [ "patch-run" ]
     commands:
@@ -1144,12 +1099,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  # TODO: not used in any variant
-  - name: e2e_multi_cluster_tls_cert_rotation
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
   - name: e2e_multi_cluster_tls_no_mesh
     tags: [ "patch-run" ]
     commands:
@@ -1210,7 +1159,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  # TODO: not used in any variant
   - name: e2e_multi_cluster_clusterwide
     tags: [ "patch-run" ]
     commands:
@@ -1337,7 +1285,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  # TODO: not used in any variant
   - name: e2e_om_reconcile_perf
     tags: [ "patch-run" ]
     commands:
