@@ -2029,6 +2029,14 @@ func TestAppDB_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
 		// Create the PVCs that Kubernetes would generate for the AppDB StatefulSet.
 		// VolumeClaimTemplate name is "data" (AppDBSpec.DataVolumeName()), STS name is "<om-name>-db".
 		stsName := opsManager.Spec.AppDB.Name()
+		var existingSts appsv1.StatefulSet
+		require.NoError(t, fakeClient.Get(ctx, types.NamespacedName{Name: stsName, Namespace: opsManager.Namespace}, &existingSts))
+		stsOwnerRef := metav1.OwnerReference{
+			APIVersion: "apps/v1",
+			Kind:       "StatefulSet",
+			Name:       existingSts.Name,
+			UID:        existingSts.UID,
+		}
 		initialStorage := resource.MustParse("16G")
 		newStorage := resource.MustParse("50G")
 
@@ -2036,8 +2044,9 @@ func TestAppDB_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			p := corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      fmt.Sprintf("data-%s-%d", stsName, i),
-					Namespace: opsManager.Namespace,
+					Name:            fmt.Sprintf("data-%s-%d", stsName, i),
+					Namespace:       opsManager.Namespace,
+					OwnerReferences: []metav1.OwnerReference{stsOwnerRef},
 				},
 				Spec: corev1.PersistentVolumeClaimSpec{
 					Resources: corev1.VolumeResourceRequirements{
