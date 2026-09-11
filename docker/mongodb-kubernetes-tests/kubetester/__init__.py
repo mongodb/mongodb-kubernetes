@@ -284,12 +284,12 @@ def read_namespace(name: str):
     return client.CoreV1Api().read_namespace(name)
 
 
-def label_namespace(name: str, labels: dict):
+def label_namespace(name: str, labels: dict, api_client: Optional[kubernetes.client.ApiClient] = None):
     body = {"metadata": {"labels": labels}}
-    client.CoreV1Api().patch_namespace(name, body)
+    client.CoreV1Api(api_client=api_client).patch_namespace(name, body)
 
 
-def downgrade_pss_to_warn(namespace: str) -> None:
+def downgrade_pss_to_warn(namespace: str, api_client: Optional[kubernetes.client.ApiClient] = None) -> None:
     """Downgrade a namespace from PSS enforce to warn mode.
 
     Used for test namespaces that contain third-party or legacy components that
@@ -302,6 +302,7 @@ def downgrade_pss_to_warn(namespace: str) -> None:
             "pod-security.kubernetes.io/enforce": None,
             "pod-security.kubernetes.io/warn": "restricted",
         },
+        api_client=api_client,
     )
 
 
