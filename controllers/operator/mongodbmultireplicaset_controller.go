@@ -1555,8 +1555,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 // deleteManagedResources deletes resources across all member clusters that are owned by this MongoDBMultiCluster resource.
 func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	var errs error
-	if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
-		errs = multierror.Append(errs, err)
+	if mrs.Spec.Role != mdb.RoleAppDB {
+		if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
+			errs = multierror.Append(errs, err)
+		}
 	}
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
