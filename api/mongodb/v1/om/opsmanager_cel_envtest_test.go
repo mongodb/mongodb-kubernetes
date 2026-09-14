@@ -89,3 +89,51 @@ func TestOpsManagerCELValidation_AppDBOrExternalRefRequired(t *testing.T) {
 		})
 	}
 }
+
+func TestOpsManagerCELValidation_ExternalRefKindEnum(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		kind          string
+		errorContains string
+	}{
+		{
+			name: "om-mongodb",
+			kind: "MongoDB",
+		},
+		{
+			name: "om-multicluster",
+			kind: "MongoDBMultiCluster",
+		},
+		{
+			name:          "om-bogus",
+			kind:          "Bogus",
+			errorContains: `Unsupported value: "Bogus": supported values: "MongoDB", "MongoDBMultiCluster"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := omv1.NewOpsManagerBuilder().
+				SetName(tc.name).
+				SetNamespace("default").
+				SetVersion("8.0.25").
+				SetAppDBToNil().
+				SetExternalAppDBRef(omv1.ExternalAppDBRef{Name: "om-db", Kind: tc.kind}).
+				Build()
+
+			err := k8sClient.Create(ctx, om)
+
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
