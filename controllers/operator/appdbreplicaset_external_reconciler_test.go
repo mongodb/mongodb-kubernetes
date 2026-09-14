@@ -20,6 +20,7 @@ import (
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	api "github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -575,6 +576,89 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 				assert.Contains(t, string(result.Data[util.AppDbConnectionStringKey]), util.OpsManagerMongoDBUserName)
 			})
 		}
+	}
+}
+
+func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name                    string
+		appDBClusterNames       []string
+		clusterMapping          map[string]string
+		externalClusterNames     []string
+		externalRefKind         string
+		expectedErrorContains   string
+	}{
+		{
+			name:                  "aligned internal and external multi-cluster AppDB passes",
+			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
+			clusterMapping:        map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
+			externalClusterNames:   []string{"cluster-1", "cluster-2", "cluster-3"},
+			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+		},
+		{
+			name:                  "external multi-cluster extra cluster is rejected",
+			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
+			clusterMapping:        map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
+			externalClusterNames:   []string{"cluster-1", "cluster-2", "cluster-3", "cluster-4"},
+			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			expectedErrorContains: "cluster-4",
+		},
+		{
+			name:                  "cluster index mismatch is rejected",
+			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
+			clusterMapping:        map[string]string{"cluster-1": "1", "cluster-2": "0", "cluster-3": "2"},
+			externalClusterNames:   []string{"cluster-1", "cluster-2", "cluster-3"},
+			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			expectedErrorContains: "cluster-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			previousAdmin := api.CurrMockedAdmin
+			api.CurrMockedAdmin = nil
+			defer func() { api.CurrMockedAdmin = previousAdmin }()
+
+			opsManager := DefaultOpsManagerBuilder().
+				SetName("test-om").
+				SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetAppDBClusterSpecList(makeClusterSpecList(tt.appDBClusterNames...)).
+				Build()
+			testOm := withExternalAppDBRef(opsManager, &omv1.ExternalAppDBRef{
+				Name:      "test-om-db",
+				Kind:      tt.externalRefKind,
+				Namespace: mock.TestNamespace,
+			})
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			memberClusterMap := getAppDBFakeMultiClusterMapWithClusters(tt.appDBClusterNames, omConnectionFactory)
+			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+
+			mappingData := make(map[string]string, len(tt.clusterMapping))
+			for name, index := range tt.clusterMapping {
+				mappingData[name] = index
+			}
+			require.NoError(t, kubeClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: testOm.Name + "-db-cluster-mapping", Namespace: mock.TestNamespace}, Data: mappingData}))
+
+			external := mdbmulti.DefaultMultiReplicaSetBuilder().
+				SetName("test-om-db").
+				SetRole(mdbv1.RoleAppDB).
+				SetClusterSpecList(tt.externalClusterNames).
+				Build()
+			external.Namespace = mock.TestNamespace
+
+			require.NoError(t, reconciler.client.Create(ctx, external))
+
+			err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, testOm)
+			if tt.expectedErrorContains != "" {
+				require.ErrorContains(t, err, tt.expectedErrorContains)
+				return
+			}
+
+			require.NoError(t, err)
+		})
 	}
 }
 

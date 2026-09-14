@@ -103,6 +103,58 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
 	}
 
+	if ref.Kind == omv1.ExternalAppDBRefKindMongoDBMultiCluster && opsManager.Spec.AppDB != nil && opsManager.Spec.AppDB.IsMultiCluster() {
+		mdbm, ok := refObject.(*externalAppDBRefObject).ConnectionStringBuilder.(*mdbmultiv1.MongoDBMultiCluster)
+		if !ok {
+			return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must reference a MongoDBMultiCluster", ref.Namespace, ref.Name)
+		}
+
+		if err := e.validateExternalAppDBTopology(ctx, opsManager, mdbm); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, mdbm *mdbmultiv1.MongoDBMultiCluster) error {
+	helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, e.ReconcileCommonController, e.memberClustersMap, e.log)
+	if err != nil {
+		return xerrors.Errorf("failed to initialize read-only AppDB helper: %w", err)
+	}
+
+	internalClusterNames := map[string]struct{}{}
+	for _, clusterSpec := range opsManager.Spec.AppDB.ClusterSpecList {
+		internalClusterNames[clusterSpec.ClusterName] = struct{}{}
+	}
+
+	externalClusterNames := map[string]struct{}{}
+	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
+		externalClusterNames[clusterSpec.ClusterName] = struct{}{}
+	}
+
+	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
+		if _, ok := internalClusterNames[clusterSpec.ClusterName]; !ok {
+			return xerrors.Errorf("cluster %s is not present in internal AppDB clusterSpecList", clusterSpec.ClusterName)
+		}
+	}
+
+	for _, clusterSpec := range opsManager.Spec.AppDB.ClusterSpecList {
+		if _, ok := externalClusterNames[clusterSpec.ClusterName]; !ok {
+			return xerrors.Errorf("cluster %s is not present in external MongoDBMultiCluster clusterSpecList", clusterSpec.ClusterName)
+		}
+
+		internalIndex, ok := helper.deploymentState.ClusterMapping[clusterSpec.ClusterName]
+		if !ok {
+			return xerrors.Errorf("cluster %s has no persisted cluster mapping", clusterSpec.ClusterName)
+		}
+
+		externalIndex := mdbm.ClusterNum(clusterSpec.ClusterName)
+		if internalIndex != externalIndex {
+			return xerrors.Errorf("cluster %s index mismatch: internal %d external %d", clusterSpec.ClusterName, internalIndex, externalIndex)
+		}
+	}
+
 	return nil
 }
 
