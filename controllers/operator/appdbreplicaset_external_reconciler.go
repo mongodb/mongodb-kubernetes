@@ -4,8 +4,10 @@ import (
 	"context"
 	"slices"
 
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,14 +30,23 @@ import (
 // state comes from the referenced MongoDB CR instead.
 type ReconcileExternalAppDBReplicaSet struct {
 	*ReconcileCommonController
-	log *zap.SugaredLogger
+	memberClustersMap map[string]client.Client
+	log               *zap.SugaredLogger
 }
 
 func (r *OpsManagerReconciler) createNewExternalAppDBReconciler(log *zap.SugaredLogger) *ReconcileExternalAppDBReplicaSet {
 	return &ReconcileExternalAppDBReplicaSet{
 		ReconcileCommonController: r.ReconcileCommonController,
+		memberClustersMap:         r.memberClustersMap,
 		log:                       log,
 	}
+}
+
+type appDBClusterWorkItem struct {
+	clusterName         string
+	client              client.Client
+	stsName             string
+	legacySingleCluster bool
 }
 
 // ReconcileAppDB validates the externalApplicationDatabaseRef, performs the one-time
@@ -95,35 +106,57 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 	return nil
 }
 
-// ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
-//   - absent: nothing to detach - Fresh Start, the referenced CR creates its own StatefulSet
-//   - owned by this OM: strip OM's OwnerReference and set util.AppDBMigrationReadyAnnotation
-//     so the referenced MongoDB CR can adopt
-//   - foreign-owned (a MongoDB CR) or already detached: no-op - the CR owns the StatefulSet
 func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
-	sts := appsv1.StatefulSet{}
-	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.ExternalAppDBRef.Name)
-	if err := e.client.Get(ctx, stsKey, &sts); err != nil {
-		if apiErrors.IsNotFound(err) {
-			return nil // Fresh Start, nothing to detach
+	workList, err := e.buildAppDBClusterWorkList(ctx, opsManager)
+	if err != nil {
+		return err
+	}
+
+	var errs error
+	for _, workItem := range workList {
+		if workItem.client == nil {
+			if workItem.legacySingleCluster {
+				return xerrors.Errorf("failed to fetch StatefulSet %s: member cluster client is not available", workItem.stsName)
+			}
+
+			errs = multierror.Append(errs, xerrors.Errorf("member cluster %s client is not available", workItem.clusterName))
+			continue
 		}
-		return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
+
+		sts := appsv1.StatefulSet{}
+		stsKey := kube.ObjectKey(opsManager.Namespace, workItem.stsName)
+		if err := workItem.client.Get(ctx, stsKey, &sts); err != nil {
+			if apiErrors.IsNotFound(err) {
+				continue
+			}
+
+			if workItem.legacySingleCluster {
+				return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
+			}
+
+			errs = multierror.Append(errs, xerrors.Errorf("failed to fetch StatefulSet %s for cluster %s: %w", stsKey.Name, workItem.clusterName, err))
+			continue
+		}
+
+		if !slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+			return ref.UID == opsManager.UID
+		}) {
+			continue
+		}
+
+		if err := e.requestAppDBForwardMigration(ctx, workItem.client, sts); err != nil {
+			if workItem.legacySingleCluster {
+				return err
+			}
+
+			errs = multierror.Append(errs, xerrors.Errorf("failed to detach StatefulSet %s for cluster %s: %w", stsKey.Name, workItem.clusterName, err))
+		}
 	}
 
-	ownedByThisOM := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
-		return ref.UID == opsManager.UID
-	})
-
-	// If not owned by this Ops Manager, no-op
-	if !ownedByThisOM {
-		return nil
-	}
-
-	// Request forward migration if owned by this Ops Manager
-	return e.requestAppDBForwardMigration(ctx, sts)
+	return errs
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx context.Context, sts appsv1.StatefulSet) error {
+func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx context.Context, c client.Client, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = nil
 
 	if sts.Annotations == nil {
@@ -132,11 +165,46 @@ func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx cont
 	sts.Annotations[util.AppDBMigrationReadyAnnotation] = trueString
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 
-	if err := e.client.Update(ctx, &sts); err != nil {
+	if err := c.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to strip OwnerReferences and annotate StatefulSet %s: %w", sts.GetName(), err)
 	}
 
 	return nil
+}
+
+func (e *ReconcileExternalAppDBReplicaSet) buildAppDBClusterWorkList(ctx context.Context, opsManager *omv1.MongoDBOpsManager) ([]appDBClusterWorkItem, error) {
+	ref := opsManager.Spec.ExternalAppDBRef
+	if ref == nil {
+		return nil, xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
+	}
+
+	switch ref.Kind {
+	case "MongoDB":
+		return []appDBClusterWorkItem{{client: e.client, stsName: ref.Name, legacySingleCluster: true}}, nil
+	case omv1.ExternalAppDBRefKindMongoDBMultiCluster:
+		mdbm := &mdbmultiv1.MongoDBMultiCluster{}
+		objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
+		if err := e.client.Get(ctx, objectKey, mdbm); err != nil {
+			if apiErrors.IsNotFound(err) {
+				return nil, xerrors.Errorf("externalApplicationDatabaseRef points to MongoDBMultiCluster %s which does not exist", objectKey)
+			}
+
+			return nil, xerrors.Errorf("failed to fetch referenced MongoDBMultiCluster %s: %w", objectKey, err)
+		}
+
+		workList := make([]appDBClusterWorkItem, 0, len(mdbm.Spec.ClusterSpecList))
+		for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
+			workList = append(workList, appDBClusterWorkItem{
+				clusterName: clusterSpec.ClusterName,
+				client:      e.memberClustersMap[clusterSpec.ClusterName],
+				stsName:     mdbm.StatefulSetNameForCluster(clusterSpec.ClusterName),
+			})
+		}
+
+		return workList, nil
+	}
+
+	return nil, xerrors.Errorf("externalApplicationDatabaseRef.kind %q is not supported", ref.Kind)
 }
 
 type externalAppDBRefObject struct {

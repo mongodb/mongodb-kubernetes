@@ -13,6 +13,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -27,6 +28,31 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
+
+type appDBStatefulSetState struct {
+	ownerReferences []metav1.OwnerReference
+	annotations     map[string]string
+}
+
+func newAppDBStatefulSetStatefulSet(name string, state appDBStatefulSetState) *appsv1.StatefulSet {
+	return &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       mock.TestNamespace,
+			OwnerReferences: state.ownerReferences,
+			Annotations:     state.annotations,
+		},
+		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+	}
+}
+
+func getAppDBStatefulSetState(t *testing.T, ctx context.Context, c client.Client, namespace, name string) appDBStatefulSetState {
+	t.Helper()
+
+	sts := appsv1.StatefulSet{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(namespace, name), &sts))
+	return appDBStatefulSetState{ownerReferences: sts.OwnerReferences, annotations: sts.Annotations}
+}
 
 func newOpsManagerReconcilerForValidation(objects ...client.Object) *OpsManagerReconciler {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(objects...)
@@ -213,6 +239,198 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *te
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
 	assert.Empty(t, resultSts.OwnerReferences)
 	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
+}
+
+func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
+	ctx := context.Background()
+	const (
+		omUID   = "om-uid-1111"
+		mdbmUID = "mdbm-uid-2222"
+	)
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().SetName("test-om").Build(), &omv1.ExternalAppDBRef{
+		Name:      "test-om-db",
+		Kind:      omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+		Namespace: mock.TestNamespace,
+	})
+	testOm.UID = types.UID(omUID)
+
+	foreignOwner := []metav1.OwnerReference{{
+		APIVersion: "mongodb.com/v1",
+		Kind:       "MongoDBMultiCluster",
+		Name:       "test-om-db",
+		UID:        types.UID(mdbmUID),
+	}}
+
+	rows := []struct {
+		name                  string
+		createStates          map[string]appDBStatefulSetState
+		missingClients        []string
+		expectedStates        map[string]appDBStatefulSetState
+		expectedErrorContains string
+		runTwice              bool
+	}{
+		{
+			name:           "fresh start skips missing StatefulSets in every cluster",
+			createStates:   map[string]appDBStatefulSetState{},
+			expectedStates: map[string]appDBStatefulSetState{},
+		},
+		{
+			name: "OM-owned StatefulSets detach per cluster and leave others untouched",
+			createStates: map[string]appDBStatefulSetState{
+				"cluster-1": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}},
+				"cluster-2": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}},
+				"cluster-3": {ownerReferences: foreignOwner},
+			},
+			expectedStates: map[string]appDBStatefulSetState{
+				"cluster-1": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-2": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-3": {ownerReferences: foreignOwner},
+			},
+		},
+		{
+			name: "foreign-owned StatefulSets stay untouched",
+			createStates: map[string]appDBStatefulSetState{
+				"cluster-1": {ownerReferences: foreignOwner},
+				"cluster-2": {ownerReferences: foreignOwner},
+				"cluster-3": {ownerReferences: foreignOwner},
+			},
+			expectedStates: map[string]appDBStatefulSetState{
+				"cluster-1": {ownerReferences: foreignOwner},
+				"cluster-2": {ownerReferences: foreignOwner},
+				"cluster-3": {ownerReferences: foreignOwner},
+			},
+		},
+		{
+			name: "missing client reports the cluster and still detaches the others",
+			createStates: map[string]appDBStatefulSetState{
+				"cluster-1": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}},
+				"cluster-2": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}},
+				"cluster-3": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}},
+			},
+			missingClients: []string{"cluster-2"},
+			expectedStates: map[string]appDBStatefulSetState{
+				"cluster-1": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-3": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+			},
+			expectedErrorContains: "cluster-2",
+		},
+		{
+			name: "already detached StatefulSets are idempotent on a second run",
+			createStates: map[string]appDBStatefulSetState{
+				"cluster-1": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-2": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-3": {ownerReferences: foreignOwner},
+			},
+			expectedStates: map[string]appDBStatefulSetState{
+				"cluster-1": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-2": {annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString}},
+				"cluster-3": {ownerReferences: foreignOwner},
+			},
+			runTwice: true,
+		},
+	}
+
+	for _, tt := range rows {
+		t.Run(tt.name, func(t *testing.T) {
+			ref := &mdbmulti.MongoDBMultiCluster{}
+			ref.Namespace = mock.TestNamespace
+			ref.Name = "test-om-db"
+			ref.UID = types.UID(mdbmUID)
+			ref.Spec = mdbmulti.DefaultMultiReplicaSetBuilder().SetName("test-om-db").SetRole(mdbv1.RoleAppDB).Build().Spec
+			ref.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{{ClusterName: "cluster-1"}, {ClusterName: "cluster-2"}, {ClusterName: "cluster-3"}}
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			memberClustersMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-1", "cluster-2", "cluster-3"}, omConnectionFactory)
+			for clusterName, state := range tt.createStates {
+				require.NoError(t, memberClustersMap[clusterName].Create(ctx, newAppDBStatefulSetStatefulSet(ref.StatefulSetNameForCluster(clusterName), state)))
+			}
+
+			for _, clusterName := range tt.missingClients {
+				delete(memberClustersMap, clusterName)
+			}
+
+			reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClustersMap, omConnectionFactory, architectures.NonStatic)
+			require.NoError(t, reconciler.client.Create(ctx, ref))
+
+			err := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm)
+			if tt.expectedErrorContains != "" {
+				require.ErrorContains(t, err, tt.expectedErrorContains)
+			} else {
+				require.NoError(t, err)
+			}
+
+			if tt.runTwice {
+				require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm))
+			}
+
+			for _, clusterName := range []string{"cluster-1", "cluster-2", "cluster-3"} {
+				if _, ok := tt.expectedStates[clusterName]; !ok {
+					if _, present := tt.createStates[clusterName]; !present {
+						err := memberClustersMap[clusterName].Get(ctx, kube.ObjectKey(mock.TestNamespace, ref.StatefulSetNameForCluster(clusterName)), &appsv1.StatefulSet{})
+						require.Error(t, err)
+						require.True(t, apiErrors.IsNotFound(err))
+					}
+					continue
+				}
+
+				expected := tt.expectedStates[clusterName]
+				result := getAppDBStatefulSetState(t, ctx, memberClustersMap[clusterName], mock.TestNamespace, ref.StatefulSetNameForCluster(clusterName))
+				assert.Equal(t, expected.ownerReferences, result.ownerReferences, "cluster %s owner refs", clusterName)
+				assert.Equal(t, expected.annotations, result.annotations, "cluster %s annotations", clusterName)
+			}
+		})
+	}
+}
+
+func TestEnsureAppDBStatefulSetOwnership_MongoDBRegression(t *testing.T) {
+	ctx := context.Background()
+	const omUID = "om-uid-3333"
+
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().SetName("test-om").Build(), validExternalAppDBRef())
+	testOm.UID = types.UID(omUID)
+
+	rows := []struct {
+		name          string
+		state         appDBStatefulSetState
+		expectedState appDBStatefulSetState
+	}{
+		{
+			name: "OM-owned central StatefulSet detaches and annotates",
+			state: appDBStatefulSetState{
+				ownerReferences: kube.BaseOwnerReference(testOm),
+				annotations:     map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString},
+			},
+			expectedState: appDBStatefulSetState{
+				annotations: map[string]string{util.AppDBMigrationReadyAnnotation: trueString},
+			},
+		},
+		{
+			name: "foreign-owned central StatefulSet stays untouched",
+			state: appDBStatefulSetState{
+				ownerReferences: []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: types.UID("mongo-uid-1")}},
+			},
+			expectedState: appDBStatefulSetState{
+				ownerReferences: []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: types.UID("mongo-uid-1")}},
+			},
+		},
+	}
+
+	for _, tt := range rows {
+		t.Run(tt.name, func(t *testing.T) {
+			memberClustersMap := map[string]client.Client{}
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClustersMap, omConnectionFactory, architectures.NonStatic)
+			require.NoError(t, reconciler.client.Create(ctx, validExternalAppDBMongoDB()))
+			require.NoError(t, kubeClient.Create(ctx, newAppDBStatefulSetStatefulSet("test-om-db", tt.state)))
+
+			require.NoError(t, reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm))
+
+			result := getAppDBStatefulSetState(t, ctx, kubeClient, mock.TestNamespace, "test-om-db")
+			assert.Equal(t, tt.expectedState.ownerReferences, result.ownerReferences)
+			assert.Equal(t, tt.expectedState.annotations, result.annotations)
+		})
+	}
 }
 
 func TestEnsureAppDBStatefulSetOwnership_NoOpWhenNoStatefulSetExists(t *testing.T) {
