@@ -343,10 +343,12 @@ func (b *AppDbBuilder) Build() *AppDBSpec {
 }
 
 func (m *AppDBSpec) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON *AppDBSpec
-	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
+	type appDBSpecAlias AppDBSpec
+	var alias appDBSpecAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
 		return err
 	}
+	*m = AppDBSpec(alias)
 
 	// if a reference is specified without a key, we will default to "password"
 	if m.PasswordSecretKeyRef != nil && m.PasswordSecretKeyRef.Key == "" {

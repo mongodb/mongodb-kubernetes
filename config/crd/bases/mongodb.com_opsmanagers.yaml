@@ -1659,6 +1659,7 @@ spec:
                     description: Kind of the referenced resource.
                     enum:
                     - MongoDB
+                    - MongoDBMultiCluster
                     type: string
                   name:
                     description: |-
