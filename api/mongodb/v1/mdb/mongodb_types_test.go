@@ -553,6 +553,15 @@ func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	assert.Equal(t, expected, actual)
 }
 
+func TestMongoDBUnmarshalJSON_InitializesDefaults(t *testing.T) {
+	var m MongoDB
+
+	err := json.Unmarshal([]byte(`{"metadata":{"name":"example"}}`), &m)
+	require.NoError(t, err)
+	require.NotNil(t, m.Spec.PodSpec)
+	assert.Equal(t, "example", m.Spec.ProjectName)
+}
+
 func TestGetReplicaSetName_NoOverride(t *testing.T) {
 	mdb := NewReplicaSetBuilder().SetName("my-rs").Build()
 	assert.Equal(t, "my-rs", mdb.GetReplicaSetName())

@@ -457,7 +457,6 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || (self.security.authentication.enabled == true && has(self.security.authentication.modes) && size(self.security.authentication.modes) == 1 && self.security.authentication.modes[0] == 'SCRAM')",message="spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB, or omitted entirely"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers == true",message="spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB and authentication is set"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.type == 'ReplicaSet'",message="spec.resourceType must be ReplicaSet when spec.role is AppDB"
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role == oldSelf.role)",message="spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
@@ -535,6 +534,7 @@ type DbCommonSpec struct {
 	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.externalMembers) || (has(self.externalMembers) ? size(self.externalMembers.filter(m, m.type != 'mongos')) : 0) >= size(oldSelf.externalMembers.filter(m, m.type != 'mongos')) - 1",message="at most one external mongod may be removed per update: remove mongod entries from spec.externalMembers one at a time so the replica set keeps its voting majority"
 type MongoDbSpec struct {
@@ -1431,8 +1431,8 @@ func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
 // UnmarshalJSON when unmarshalling a MongoDB instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references by calling InitDefaults
 func (m *MongoDB) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON *MongoDB
-	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
+	type MongoDBJSON MongoDB
+	if err := json.Unmarshal(data, (*MongoDBJSON)(m)); err != nil {
 		return err
 	}
 
