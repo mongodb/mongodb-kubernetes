@@ -664,10 +664,14 @@ tasks:
         type: test
         params:
           shell: bash
+          add_expansions_to_env: true
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
             source .generated/context.export.env
-            scripts/mckci release promote images --commit "${revision}" --latest-marker latest
+            # target_commit is the actual tagged commit; revision is the Evergreen merge commit.
+            release_commit="${target_commit:-${revision}}"
+            echo "TRACE: using commit=${release_commit}"
+            scripts/mckci release promote images --commit "${release_commit}" --latest-marker latest
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack

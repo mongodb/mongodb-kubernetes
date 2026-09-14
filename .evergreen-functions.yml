@@ -16,6 +16,7 @@ variables:
       - build_id
       - build_variant
       - distro
+      - dryrun_registry_override  # defaults to production when unset
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa
       - e2e_cloud_qa_orgid_owner_ubi_cloudqa
       - e2e_cloud_qa_user_owner_ubi_cloudqa
@@ -38,6 +39,7 @@ variables:
       - registry
       - requester
       - task_name
+      - tag_description_override  # synthetic annotation for patches; real tags read actual git annotation
       - triggered_by_git_tag
       - version_id
       - workdir
@@ -621,6 +623,10 @@ functions:
       params:
         include_expansions_in_env:
           - dryrun_registry_override
+          - tag_description_override
+          - triggered_by_git_tag
+          - quay_staging_username
+          - quay_staging_robot_token
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
 
@@ -741,12 +747,8 @@ functions:
           - rh_gh_app_id
           - rh_gh_app_installation_id
           - rh_gh_app_pem_b64
-          - rh_dryrun
-          - requester
         env:
           VERSION: ${mongodbOperator}
-          RH_DRYRUN: ${rh_dryrun}
-          REQUESTER: ${requester}
           RH_GH_APP_ID: ${rh_gh_app_id}
           RH_GH_APP_INSTALLATION_ID: ${rh_gh_app_installation_id}
           RH_GH_APP_PEM_B64: ${rh_gh_app_pem_b64}
@@ -1007,6 +1009,8 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - OPERATOR_VERSION
+          - tag_description_override  # dry-run detection (IS_DRYRUN doesn't propagate across task wildcards)
+          - dryrun_registry_override  # redirects repo lookups to staging org
         env:
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
@@ -1033,6 +1037,8 @@ functions:
           - OPERATOR_VERSION
           - STAGING_VERSION_OVERRIDE
           - SKIP_GITHUB_RELEASE_UPLOAD
+          - tag_description_override  # dry-run detection (IS_DRYRUN doesn't propagate across task wildcards)
+          - target_commit  # resolves S3 staging path when tag doesn't exist in git (dry-run patches)
         env:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
           MACOS_NOTARY_SECRET: ${macos_notary_secret}
