@@ -31,8 +31,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -1539,7 +1541,7 @@ func appDBGateStatefulSet(name string, ownerRefs []metav1.OwnerReference, annota
 	return builder.Build()
 }
 
-func newMultiClusterGateFixture(role string) (*mdbmulti.MongoDBMultiCluster, *ReconcileMongoDbMultiReplicaSet, map[string]client.Client) {
+func newMultiClusterGateFixture(role string) (*mdbmulti.MongoDBMultiCluster, *ReconcileMongoDbMultiReplicaSet, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetName("temple").SetRole(role).Build()
 	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
 		{ClusterName: clusters[0], Members: 3},
@@ -1553,8 +1555,8 @@ func newMultiClusterGateFixture(role string) (*mdbmulti.MongoDBMultiCluster, *Re
 	}
 	mrs.UID = types.UID("mrs-uid-1111")
 
-	reconciler, _, clusterMap, _ := defaultMultiReplicaSetReconciler(context.Background(), nil, "", "", mrs, architectures.NonStatic)
-	return mrs, reconciler, clusterMap
+	reconciler, _, clusterMap, omConnectionFactory := defaultMultiReplicaSetReconciler(context.Background(), nil, "", "", mrs, architectures.NonStatic)
+	return mrs, reconciler, clusterMap, omConnectionFactory
 }
 
 func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
@@ -1721,13 +1723,40 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mrs, reconciler, clusterMap := newMultiClusterGateFixture(tt.role)
+			mrs, reconciler, clusterMap, _ := newMultiClusterGateFixture(tt.role)
 			if tt.setup != nil {
 				tt.setup(t, mrs, reconciler, clusterMap)
 			}
 			tt.verify(t, mrs, reconciler, clusterMap)
 		})
 	}
+}
+
+func TestMDBMultiAppDBAdoptionGate_WiredIntoReconcileStatefulSets(t *testing.T) {
+	ctx := context.Background()
+	clusterName := clusters[0]
+	mrs, reconciler, clusterMap, omConnectionFactory := newMultiClusterGateFixture(mdb.RoleAppDB)
+	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{{ClusterName: clusterName, Members: 3}}
+	mrs.Spec.Mapping = map[string]int{clusterName: 0}
+
+	foreignOwnerRefs := someOtherOwnerReference()
+	sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(clusterName), foreignOwnerRefs, nil, 3)
+	require.NoError(t, clusterMap[clusterName].Create(ctx, &sts))
+
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, mrs, zap.S())
+	require.NoError(t, err)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mrs.Namespace, true, zap.S())
+	require.NoError(t, err)
+
+	gateStatus := reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "")
+	assert.Equal(t, status.PhasePending, gateStatus.Phase())
+	assert.Equal(t, "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource", statusMessage(gateStatus))
+
+	result := appsv1.StatefulSet{}
+	require.NoError(t, clusterMap[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(clusterName)), &result))
+	assert.Len(t, result.OwnerReferences, 1)
+	assert.Equal(t, foreignOwnerRefs[0].UID, result.OwnerReferences[0].UID)
+	assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation)
 }
 
 // specsAreEqual compares two different MongoDBMultiSpec instances and returns true if they are equal.
