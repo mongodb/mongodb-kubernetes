@@ -60,6 +60,13 @@ func TestPredicatesForOpsManager(t *testing.T) {
 		newOm := oldOm.DeepCopy()
 		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
 	})
+	t.Run("No reconciliation for MongoDBOpsManager with ExternalAppDBRef MongoDBMultiCluster when vault backend and nothing meaningful changed", func(t *testing.T) {
+		t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
+		oldOm := omv1.NewOpsManagerBuilder().Build()
+		oldOm.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "external-appdb", Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster}
+		newOm := oldOm.DeepCopy()
+		assert.False(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
+	})
 }
 
 func TestPredicatesForMongoDB(t *testing.T) {
