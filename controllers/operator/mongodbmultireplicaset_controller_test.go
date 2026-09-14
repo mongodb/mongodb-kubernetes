@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -718,6 +719,88 @@ func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
 
 	assert.NotEmpty(t, mockedOmConn.GetProcesses())
 	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
+}
+
+func TestAppDBFallbackDeleteCRFirst_MultiCluster(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetName("temple").
+		SetRole(mdb.RoleAppDB).
+		Build()
+	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+		{ClusterName: clusters[0], Members: 3},
+		{ClusterName: clusters[1], Members: 3},
+		{ClusterName: clusters[2], Members: 3},
+	}
+	mrs.Spec.Mapping = map[string]int{
+		clusters[0]: 0,
+		clusters[1]: 1,
+		clusters[2]: 2,
+	}
+	mrs.UID = types.UID("mrs-uid-1111")
+
+	reconciler, _, memberClients, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	passwordSecretName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
+	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
+	for _, clusterName := range clusters {
+		sts := appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      mrs.StatefulSetNameForCluster(clusterName),
+				Namespace: mrs.Namespace,
+				Labels:    mrs.GetOwnerLabels(),
+			},
+		}
+		require.NoError(t, memberClients[clusterName].Create(ctx, &sts))
+		require.NoError(t, reconciler.memberClusterSecretClientsMap[clusterName].CreateSecret(ctx, secret.Builder().
+			SetName(passwordSecretName).
+			SetNamespace(mrs.Namespace).
+			SetField(util.OpsManagerPasswordKey, "member-password").
+			Build()))
+		require.NoError(t, reconciler.memberClusterSecretClientsMap[clusterName].CreateSecret(ctx, secret.Builder().
+			SetName(keyfileSecretName).
+			SetNamespace(mrs.Namespace).
+			SetField(constants.AgentKeyfileKey, "member-keyfile").
+			Build()))
+	}
+
+	require.NoError(t, reconciler.SecretClient.CreateSecret(ctx, secret.Builder().
+		SetName(passwordSecretName).
+		SetNamespace(mrs.Namespace).
+		SetField(util.OpsManagerPasswordKey, "central-password").
+		Build()))
+	require.NoError(t, reconciler.SecretClient.CreateSecret(ctx, secret.Builder().
+		SetName(keyfileSecretName).
+		SetNamespace(mrs.Namespace).
+		SetField(constants.AgentKeyfileKey, "central-keyfile").
+		Build()))
+
+	require.NoError(t, reconciler.OnDelete(ctx, mrs, zap.S()))
+
+	for _, clusterName := range clusters {
+		sts := appsv1.StatefulSet{}
+		err := memberClients[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(clusterName)), &sts)
+		require.Error(t, err)
+		require.True(t, apiErrors.IsNotFound(err))
+
+		passwordSecret, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
+		require.Error(t, err)
+		require.True(t, secret.SecretNotExist(err))
+		assert.Empty(t, passwordSecret)
+
+		keyfileSecret, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
+		require.Error(t, err)
+		require.True(t, secret.SecretNotExist(err))
+		assert.Empty(t, keyfileSecret)
+	}
+
+	centralPasswordSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
+	require.NoError(t, err)
+	assert.Equal(t, "central-password", string(centralPasswordSecret.Data[util.OpsManagerPasswordKey]))
+
+	centralKeyfileSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
+	require.NoError(t, err)
+	assert.Equal(t, "central-keyfile", string(centralKeyfileSecret.Data[constants.AgentKeyfileKey]))
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
