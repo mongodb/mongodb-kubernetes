@@ -19,6 +19,7 @@ import (
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -221,12 +222,19 @@ func validExternalAppDBMongoDB() *mdbv1.MongoDB {
 }
 
 func validExternalAppDBMongoDBMultiCluster() *mdbmulti.MongoDBMultiCluster {
-	mdbm := mdbmulti.DefaultMultiReplicaSetBuilder().
+	return validExternalAppDBMongoDBMultiClusterWithTLS(false, "")
+}
+
+func validExternalAppDBMongoDBMultiClusterWithTLS(tlsEnabled bool, caConfigMapName string) *mdbmulti.MongoDBMultiCluster {
+	return mdbmulti.DefaultMultiReplicaSetBuilder().
 		SetName("test-om-db").
 		SetRole(mdbv1.RoleAppDB).
+		SetClusterSpecList([]string{"cluster-1", "cluster-2", "cluster-3"}).
+		SetSecurity(&mdbv1.Security{
+			TLSConfig:      &mdbv1.TLSConfig{Enabled: tlsEnabled, CA: caConfigMapName},
+			Authentication: &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}},
+		}).
 		Build()
-	mdbm.Namespace = mock.TestNamespace
-	return mdbm
 }
 
 func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *testing.T) {
@@ -307,68 +315,74 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 
 func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 	ctx := context.Background()
+	const password = "test-password"
 
 	tests := []struct {
 		name                    string
-		enableTLS               bool
-		caConfigMapName         string
+		buildExternalAppDB      func() *mdbmulti.MongoDBMultiCluster
+		createPasswordSecret    bool
 		expectedIsTLSEnabled    bool
 		expectedCAConfigMapName string
+		expectedErrorContains   string
 	}{
 		{
 			name:                    "TLS disabled returns empty CA and disabled flag",
+			buildExternalAppDB:      func() *mdbmulti.MongoDBMultiCluster { return validExternalAppDBMongoDBMultiClusterWithTLS(false, "") },
+			createPasswordSecret:    true,
 			expectedIsTLSEnabled:    false,
 			expectedCAConfigMapName: "",
 		},
 		{
-			name:                    "TLS enabled with CA returns resolved TLS config",
-			enableTLS:               true,
-			caConfigMapName:         "app-db-issuer-ca",
+			name: "TLS enabled with CA returns resolved TLS config",
+			buildExternalAppDB: func() *mdbmulti.MongoDBMultiCluster {
+				return validExternalAppDBMongoDBMultiClusterWithTLS(true, "app-db-issuer-ca")
+			},
+			createPasswordSecret:    true,
 			expectedIsTLSEnabled:    true,
 			expectedCAConfigMapName: "app-db-issuer-ca",
+		},
+		{
+			name:                  "MongoDBMultiCluster without password secret returns an error",
+			buildExternalAppDB:    func() *mdbmulti.MongoDBMultiCluster { return validExternalAppDBMongoDBMultiClusterWithTLS(false, "") },
+			createPasswordSecret:  false,
+			expectedErrorContains: "failed to read shared password secret",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			builder := mdbv1.NewReplicaSetBuilder().
-				SetName("test-om-db").
-				SetNamespace(mock.TestNamespace).
-				SetVersion("6.0.0").
-				SetMembers(3).
-				EnableAuth([]mdbv1.AuthMode{util.SCRAM})
-			if tt.enableTLS {
-				builder = builder.SetSecurityTLSEnabled()
-			}
-			externalAppDB := builder.Build()
-			externalAppDB.Spec.Role = mdbv1.RoleAppDB
-			if tt.enableTLS {
-				externalAppDB.Spec.Security.TLSConfig.CA = tt.caConfigMapName
-			}
+			externalAppDB := tt.buildExternalAppDB()
 
 			testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
-				Kind: "MongoDB",
+				Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 			})
 
 			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 			require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
-			require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
-				SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
-				SetNamespace(testOm.Namespace).
-				SetField(util.OpsManagerPasswordKey, "test-password").
-				Build()))
+			if tt.createPasswordSecret {
+				require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+					SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+					SetNamespace(testOm.Namespace).
+					SetField(util.OpsManagerPasswordKey, password).
+					Build()))
+			}
+
+			cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())
+			if tt.expectedErrorContains != "" {
+				require.ErrorContains(t, err, tt.expectedErrorContains)
+				return
+			}
+
+			require.NoError(t, err)
+			expectedConnectionString := externalAppDB.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
+			assert.Equal(t, expectedConnectionString, cfg.ConnectionString)
+			assert.Equal(t, tt.expectedIsTLSEnabled, cfg.IsTLSEnabled)
+			assert.Equal(t, tt.expectedCAConfigMapName, cfg.CAConfigMapName)
 
 			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, reconciler.memberClustersMap, zap.S())
 			require.NoError(t, err)
-
-			cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())
-			require.NoError(t, err)
-			assert.Contains(t, cfg.ConnectionString, util.OpsManagerMongoDBUserName)
-			assert.Contains(t, cfg.ConnectionString, "test-password")
-			assert.Equal(t, tt.expectedIsTLSEnabled, cfg.IsTLSEnabled)
-			assert.Equal(t, tt.expectedCAConfigMapName, cfg.CAConfigMapName)
 
 			for _, memberCluster := range helper.getHealthyMemberClusters() {
 				require.NoError(t, reconciler.ensureAppDBConnectionStringInMemberCluster(ctx, testOm, cfg.ConnectionString, memberCluster, zap.S()))
