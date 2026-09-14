@@ -200,7 +200,7 @@ func validExternalAppDBMongoDBMultiCluster() *mdbmulti.MongoDBMultiCluster {
 }
 
 func validExternalAppDBMongoDBMultiClusterWithTLS(tlsEnabled bool, caConfigMapName string) *mdbmulti.MongoDBMultiCluster {
-	return mdbmulti.DefaultMultiReplicaSetBuilder().
+	mdbm := mdbmulti.DefaultMultiReplicaSetBuilder().
 		SetName("test-om-db").
 		SetRole(mdbv1.RoleAppDB).
 		SetClusterSpecList([]string{"cluster-1", "cluster-2", "cluster-3"}).
@@ -209,6 +209,8 @@ func validExternalAppDBMongoDBMultiClusterWithTLS(tlsEnabled bool, caConfigMapNa
 			Authentication: &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}},
 		}).
 		Build()
+	mdbm.Spec.Mapping = map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2}
+	return mdbm
 }
 
 func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *testing.T) {
@@ -340,6 +342,7 @@ func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
 			ref.UID = types.UID(mdbmUID)
 			ref.Spec = mdbmulti.DefaultMultiReplicaSetBuilder().SetName("test-om-db").SetRole(mdbv1.RoleAppDB).Build().Spec
 			ref.Spec.ClusterSpecList = []mdbv1.ClusterSpecItem{{ClusterName: "cluster-1"}, {ClusterName: "cluster-2"}, {ClusterName: "cluster-3"}}
+			ref.Spec.Mapping = map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2}
 
 			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 			memberClustersMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-1", "cluster-2", "cluster-3"}, omConnectionFactory)
