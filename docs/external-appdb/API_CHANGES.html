@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.45; color:#202124; }
+h1 { font-size: 22pt; } h2 { font-size: 16pt; margin-top: 20px; } h3 { font-size: 13pt; }
+code { font-family: 'Roboto Mono','Courier New',monospace; font-size: 10pt; background:#f1f3f4; padding:1px 3px; border-radius:3px; }
+pre { font-family: 'Roboto Mono','Courier New',monospace; font-size: 9.5pt; background:#f1f3f4; padding:10px; border-radius:5px; white-space:pre-wrap; }
+pre code { background:none; padding:0; }
+blockquote { border-left:3px solid #dadce0; margin:0; padding:4px 12px; color:#5f6368; }
+table { border-collapse:collapse; width:100%; } th,td { border:1px solid #dadce0; padding:5px 9px; text-align:left; vertical-align:top; }
+th { background:#f1f3f4; }
+</style></head><body>
+<h1 id="external-appdb-api-crd-changes">External AppDB — API (CRD) changes</h1>
+<p>This document describes the CRD/API additions that enable an <strong>external Application Database</strong> — an
+Ops Manager whose AppDB is a separate, operator-managed <code>MongoDB</code> resource instead of the
+internally-managed one. It covers the new spec fields, their validation rules, and the annotations
+the operator uses to coordinate the migration flows.</p>
+<h2 id="summary">Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Field / annotation</th>
+<th>Type</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MongoDBOpsManager</code></td>
+<td><code>spec.externalApplicationDatabaseRef</code></td>
+<td>object</td>
+<td><strong>new</strong></td>
+</tr>
+<tr>
+<td><code>MongoDBOpsManager</code></td>
+<td><code>spec.applicationDatabase</code></td>
+<td>object</td>
+<td><strong>now optional</strong> (was effectively required)</td>
+</tr>
+<tr>
+<td><code>MongoDB</code></td>
+<td><code>spec.role</code></td>
+<td>string enum</td>
+<td><strong>new</strong></td>
+</tr>
+<tr>
+<td>StatefulSet</td>
+<td><code>mongodb.com/appdb-migration-ready</code></td>
+<td>annotation</td>
+<td><strong>new</strong> (forward migration)</td>
+</tr>
+<tr>
+<td>StatefulSet</td>
+<td><code>mongodb.com/appdb-reverse-migration-ready</code></td>
+<td>annotation</td>
+<td><strong>new</strong> (reverse migration)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="mongodbopsmanager-crd"><code>MongoDBOpsManager</code> CRD</h2>
+<h3 id="new-specexternalapplicationdatabaseref">New: <code>spec.externalApplicationDatabaseRef</code></h3>
+<p>References a <code>MongoDB</code> resource to use as this Ops Manager's AppDB instead of an internally-managed
+one.</p>
+<pre><code class="language-yaml">spec:
+  externalApplicationDatabaseRef:
+    name: &lt;om-name&gt;-db   # required
+    kind: MongoDB        # required; enum: MongoDB
+</code></pre>
+<p>Fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>yes</td>
+<td>Name of the <code>MongoDB</code> resource to use as the external AppDB. Must be in the <strong>same namespace</strong> as the <code>MongoDBOpsManager</code>, and named <strong><code>&lt;MongoDBOpsManager-name&gt;-db</code></strong> (operator-enforced).</td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td>yes</td>
+<td>Kind of the referenced resource. Enum — currently only <code>MongoDB</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Semantics / validation:</p>
+<ul>
+<li><strong>Precedence:</strong> when both <code>externalApplicationDatabaseRef</code> and <code>applicationDatabase</code> are set, the
+  external reference <strong>takes precedence</strong>; the operator does not manage an internal AppDB for this OM.</li>
+<li><strong>Naming rule:</strong> the referenced name must equal <code>&lt;om-name&gt;-db</code>. This is what lets the OM and the
+  <code>MongoDB</code> CR converge on the <strong>same</strong> AppDB StatefulSet name (required for the migration/adoption
+  handover).</li>
+<li><strong>Same namespace:</strong> cross-namespace references are not allowed.</li>
+<li>When the external reference is set, the AppDB-specific validations that normally run against
+  <code>spec.applicationDatabase</code> are skipped (there is no internal AppDB spec to validate).</li>
+<li>There is an internal, non-serialized <code>Namespace</code> field on the struct (<code>json:"-"</code>) the operator
+  populates at runtime from the OM's namespace; it is <strong>not</strong> part of the CRD/API surface.</li>
+</ul>
+<h3 id="changed-specapplicationdatabase-is-now-optional">Changed: <code>spec.applicationDatabase</code> is now optional</h3>
+<p><code>applicationDatabase</code> may now be <strong>omitted entirely</strong> when <code>externalApplicationDatabaseRef</code> is set. It
+remains the way to configure a normal, internally-managed AppDB otherwise. If both are present the
+external reference wins and <code>applicationDatabase</code> is ignored.</p>
+<h3 id="behavioral-note-status">Behavioral note (status)</h3>
+<p>For an OM using an external AppDB, <code>status.applicationDatabase.phase</code> is reported as <strong><code>Disabled</code></strong>
+(the operator does not manage an internal AppDB for it) — <code>Disabled</code> here is expected, not an error.
+<code>status.opsManager.phase</code> behaves as usual.</p>
+<h2 id="mongodb-crd"><code>MongoDB</code> CRD</h2>
+<h3 id="new-specrole">New: <code>spec.role</code></h3>
+<p>Marks a <code>MongoDB</code> (or <code>MongoDBMultiCluster</code>) resource as playing a special role for another resource.</p>
+<pre><code class="language-yaml">spec:
+  role: AppDB          # enum: AppDB (only supported value)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>role</code></td>
+<td>Optional string, enum <code>AppDB</code>. Marks this <code>MongoDB</code> as the externally-managed Application Database for a <code>MongoDBOpsManager</code>. When unset, the resource is an ordinary MongoDB deployment.</td>
+</tr>
+</tbody>
+</table>
+<p>Validation / immutability:</p>
+<ul>
+<li>Enum-restricted to <code>AppDB</code> (the only supported value today).</li>
+<li><strong>Immutable:</strong> you cannot add <code>role: AppDB</code> to an existing plain <code>MongoDB</code>, nor remove it from one
+  that has it — the value must be set at creation and left unchanged (the migration flows create/
+  delete the CR rather than toggling the field).</li>
+<li>A <code>role: AppDB</code> resource is a normal replica set that registers as a project on a <strong>management</strong>
+  Ops Manager (via <code>spec.opsManager.configMapRef</code> + <code>spec.credentials</code>); its <code>spec.version</code> must be a
+  MongoDB version that OM offers.</li>
+</ul>
+<h2 id="annotations-on-the-appdb-statefulset">Annotations (on the AppDB StatefulSet)</h2>
+<p>These coordinate the hand-off of the shared AppDB StatefulSet between a <code>MongoDBOpsManager</code> (internal
+AppDB) and a <code>MongoDB</code> (<code>role: AppDB</code>) CR during migrations. They live on the <strong>StatefulSet</strong>, are set
+and cleared by the operator, and are <strong>not</strong> meant to be edited by users.</p>
+<table>
+<thead>
+<tr>
+<th>Annotation</th>
+<th>Direction</th>
+<th>Set by</th>
+<th>Meaning / lifecycle</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mongodb.com/appdb-migration-ready</code></td>
+<td>Forward (internal → external)</td>
+<td>OM (AppDB) reconciler</td>
+<td>Marks the internal AppDB StatefulSet as <strong>fully detached</strong> from the <code>MongoDBOpsManager</code> (OwnerReference dropped), signalling that the referenced <code>MongoDB</code> CR may now <strong>adopt</strong> it (the CR's adoption gate waits for this). Cleared once the CR has adopted the StatefulSet.</td>
+</tr>
+<tr>
+<td><code>mongodb.com/appdb-reverse-migration-ready</code></td>
+<td>Reverse (external → internal)</td>
+<td>internal AppDB reconciler</td>
+<td>The <strong>release request</strong>: set on a StatefulSet still owned by the <code>MongoDB</code> CR to ask it to release ownership. The <code>MongoDB</code> controller answers by stripping its OwnerReference; the annotation is removed at <strong>adoption</strong> by the OM (not at migration completion), symmetric with the forward direction — from adoption onward the OwnerReference is the authoritative state.</td>
+</tr>
+</tbody>
+</table>
+<p>In both directions the AppDB StatefulSet keeps the <strong>same name</strong> (<code>&lt;om-name&gt;-db</code>) and the same member
+hosts, so the computed AppDB connection string does not change and the OM pods do not roll during the
+switch.</p>
+<h2 id="related-resources-unchanged-shapes-noted-for-completeness">Related resources (unchanged shapes, noted for completeness)</h2>
+<ul>
+<li><strong>Project ConfigMap</strong> — the <code>role: AppDB</code> MongoDB points at the management OM through the usual
+  <code>spec.opsManager.configMapRef</code> (a ConfigMap with <code>baseUrl</code>, <code>projectName</code>, <code>orgId</code>).</li>
+<li><strong>Credentials</strong> — <code>spec.credentials</code> references the management OM's programmatic API-key secret
+  (operator-provisioned, named <code>&lt;namespace&gt;-&lt;management-om-name&gt;-admin-key</code>).</li>
+<li><strong>Connection-string secret</strong> — the operator computes the AppDB connection-string secret
+  (<code>&lt;om-name&gt;-db-connection-string</code>) for the primary OM, exactly as for an internal AppDB.</li>
+</ul>
+<h2 id="see-also">See also</h2>
+<ul>
+<li><a href="./01-fresh-start">01-fresh-start</a> — deploy external AppDB from scratch.</li>
+<li><a href="./02-forward-migration">02-forward-migration</a> — internal → external (uses <code>appdb-migration-ready</code>).</li>
+<li><a href="./03-reverse-migration">03-reverse-migration</a> — external → internal (uses
+  <code>appdb-reverse-migration-ready</code>).
+</content></li>
+</ul>
+</body></html>
