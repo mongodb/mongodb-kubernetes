@@ -670,16 +670,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
+		ownershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, secretMemberClient, log)
+		if !ownershipStatus.IsOK() {
+			workflowStatus = workflowStatus.Merge(ownershipStatus)
+			continue
+		}
 		if mrs.Spec.Role == mdb.RoleAppDB {
 			if err := r.copyAppDBRoleSecretsToMemberCluster(ctx, mrs, item.ClusterName); err != nil {
 				workflowStatus = workflowStatus.Merge(workflow.Failed(err))
 				continue
 			}
-		}
-		ownershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, secretMemberClient, log)
-		if !ownershipStatus.IsOK() {
-			workflowStatus = workflowStatus.Merge(ownershipStatus)
-			continue
 		}
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(mrs, item)
 		clusterNum := mrs.ClusterNum(item.ClusterName)

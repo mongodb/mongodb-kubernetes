@@ -27,6 +27,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -47,6 +48,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func init() {
@@ -1757,6 +1759,99 @@ func TestMDBMultiAppDBAdoptionGate_WiredIntoReconcileStatefulSets(t *testing.T) 
 	assert.Len(t, result.OwnerReferences, 1)
 	assert.Equal(t, foreignOwnerRefs[0].UID, result.OwnerReferences[0].UID)
 	assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation)
+}
+
+func TestMDBMultiAppDBSharedSecrets_WiredIntoReconcileStatefulSets(t *testing.T) {
+	ctx := context.Background()
+	passwordSecretName := func(mrs *mdbmulti.MongoDBMultiCluster) string { return omv1.OpsManagerUserPasswordSecretName(mrs.Name) }
+	keyfileSecretName := func(mrs *mdbmulti.MongoDBMultiCluster) string { return fmt.Sprintf("%s-keyfile", mrs.Name) }
+
+	tests := []struct {
+		name  string
+		role  string
+		setup func(*testing.T, *mdbmulti.MongoDBMultiCluster, map[string]client.Client)
+	}{
+		{
+			name: "appdb fresh start copies secrets to every member cluster",
+			role: mdb.RoleAppDB,
+		},
+		{
+			name: "appdb pending cluster does not get copied secrets",
+			role: mdb.RoleAppDB,
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(clusters[0]), someOtherOwnerReference(), nil, 3)
+				require.NoError(t, clusterMap[clusters[0]].Create(ctx, &sts))
+			},
+		},
+		{
+			name: "non-appdb does not create or copy appdb shared secrets",
+			role: "",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(clusters[0]), someOtherOwnerReference(), nil, 3)
+				require.NoError(t, clusterMap[clusters[0]].Create(ctx, &sts))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs, reconciler, clusterMap, omConnectionFactory := newMultiClusterGateFixture(tt.role)
+			if tt.setup != nil {
+				tt.setup(t, mrs, clusterMap)
+			}
+
+			projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, mrs, zap.S())
+			require.NoError(t, err)
+			conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mrs.Namespace, true, zap.S())
+			require.NoError(t, err)
+
+			_ = reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "")
+			if tt.role == mdb.RoleAppDB {
+				ac, err := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName}).ReadAutomationConfig()
+				require.NoError(t, err)
+				_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+				require.NotNil(t, createdUser)
+				assertAppDBRoleUserRolesAndCreds(t, createdUser)
+
+				passwordSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
+				require.NoError(t, err)
+				keyfileSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
+				require.NoError(t, err)
+				assert.NotEmpty(t, passwordSecret.Data[util.OpsManagerPasswordKey])
+				assert.NotEmpty(t, keyfileSecret.Data[constants.AgentKeyfileKey])
+
+				for _, clusterName := range clusters {
+					passwordMemberSecret, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
+					if tt.name == "appdb pending cluster does not get copied secrets" && clusterName == clusters[0] {
+						assert.Error(t, err)
+						continue
+					}
+					require.NoError(t, err)
+					assert.Equal(t, passwordSecret.Data, passwordMemberSecret.Data)
+					assert.Empty(t, passwordMemberSecret.OwnerReferences)
+
+					keyfileMemberSecret, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
+					if tt.name == "appdb pending cluster does not get copied secrets" && clusterName == clusters[0] {
+						assert.Error(t, err)
+						continue
+					}
+					require.NoError(t, err)
+					assert.Equal(t, keyfileSecret.Data, keyfileMemberSecret.Data)
+					assert.Empty(t, keyfileMemberSecret.OwnerReferences)
+				}
+			} else {
+				ac, err := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName}).ReadAutomationConfig()
+				require.NoError(t, err)
+				assert.Len(t, ac.Auth.Users, 0)
+				for _, clusterName := range clusters {
+					_, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
+					assert.Error(t, err)
+					_, err = reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
+					assert.Error(t, err)
+				}
+			}
+		})
+	}
 }
 
 func TestEnsureAppDBRoleUser_Multi(t *testing.T) {
