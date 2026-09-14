@@ -41,6 +41,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -1527,6 +1529,205 @@ func readStatefulSets(ctx context.Context, mrs *mdbmulti.MongoDBMultiCluster, me
 		}
 	}
 	return allStatefulSets
+}
+
+func appDBGateStatefulSet(name string, ownerRefs []metav1.OwnerReference, annotations map[string]string, replicas int32, volumes ...corev1.Volume) appsv1.StatefulSet {
+	builder := DefaultStatefulSetBuilder().SetName(name).SetOwnerReferences(ownerRefs).SetAnnotations(annotations).SetReplicas(replicas)
+	if len(volumes) > 0 {
+		builder.SetVolumes(volumes)
+	}
+	return builder.Build()
+}
+
+func newMultiClusterGateFixture(role string) (*mdbmulti.MongoDBMultiCluster, *ReconcileMongoDbMultiReplicaSet, map[string]client.Client) {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetName("temple").SetRole(role).Build()
+	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+		{ClusterName: clusters[0], Members: 3},
+		{ClusterName: clusters[1], Members: 3},
+		{ClusterName: clusters[2], Members: 3},
+	}
+	mrs.Spec.Mapping = map[string]int{
+		clusters[0]: 0,
+		clusters[1]: 1,
+		clusters[2]: 2,
+	}
+	mrs.UID = types.UID("mrs-uid-1111")
+
+	reconciler, _, clusterMap, _ := defaultMultiReplicaSetReconciler(context.Background(), nil, "", "", mrs, architectures.NonStatic)
+	return mrs, reconciler, clusterMap
+}
+
+func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
+	ctx := context.Background()
+	cluster1, cluster2, cluster3 := clusters[0], clusters[1], clusters[2]
+
+	tests := []struct {
+		name   string
+		role   string
+		setup  func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client)
+		verify func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client)
+	}{
+		{
+			name: "fresh start",
+			role: "AppDB",
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				for _, clusterName := range []string{cluster1, cluster2, cluster3} {
+					item := mdb.ClusterSpecItem{ClusterName: clusterName, Members: 3}
+					gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[clusterName], reconciler.memberClusterSecretClientsMap[clusterName], zap.S())
+					assert.True(t, gateStatus.IsOK())
+				}
+			},
+		},
+		{
+			name: "adopts ownerless annotated clusters and keeps the annotation",
+			role: "AppDB",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				for _, clusterName := range []string{cluster1, cluster2} {
+					sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(clusterName), nil, map[string]string{util.AppDBMigrationReadyAnnotation: trueString}, 3)
+					require.NoError(t, clusterMap[clusterName].Create(ctx, &sts))
+				}
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				for _, clusterName := range []string{cluster1, cluster2} {
+					item := mdb.ClusterSpecItem{ClusterName: clusterName, Members: 3}
+					gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[clusterName], reconciler.memberClusterSecretClientsMap[clusterName], zap.S())
+					assert.True(t, gateStatus.IsOK())
+
+					result := appsv1.StatefulSet{}
+					err := clusterMap[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(clusterName)), &result)
+					require.NoError(t, err)
+					assert.Len(t, result.OwnerReferences, 1)
+					assert.Equal(t, mrs.UID, result.OwnerReferences[0].UID)
+					assert.Equal(t, trueString, result.Annotations[util.AppDBMigrationReadyAnnotation])
+				}
+
+				result := appsv1.StatefulSet{}
+				err := clusterMap[cluster3].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(cluster3)), &result)
+				assert.Error(t, err)
+			},
+		},
+		{
+			name: "blocks foreign statefulsets without the annotation",
+			role: "AppDB",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), someOtherOwnerReference(), nil, 3)
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assert.Equal(t, status.PhasePending, gateStatus.Phase())
+				assert.Equal(t, "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource", statusMessage(gateStatus))
+			},
+		},
+		{
+			name: "releases owned statefulsets on reverse migration",
+			role: "AppDB",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), kube.BaseOwnerReference(mrs), map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}, 3)
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assert.Equal(t, status.PhasePending, gateStatus.Phase())
+				assert.Equal(t, "This AppDB resource is under Reverse Migration to Ops Manager CR", statusMessage(gateStatus))
+
+				result := appsv1.StatefulSet{}
+				err := clusterMap[cluster1].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(cluster1)), &result)
+				require.NoError(t, err)
+				assert.Empty(t, result.OwnerReferences)
+			},
+		},
+		{
+			name: "rejects TLS drift during forward migration",
+			role: "AppDB",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(
+					mrs.StatefulSetNameForCluster(cluster1),
+					nil,
+					map[string]string{util.AppDBMigrationReadyAnnotation: trueString},
+					3,
+					statefulset.CreateVolumeFromSecret(util.SecretVolumeName, "tls-secret"),
+				)
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+				require.NoError(t, reconciler.memberClusterSecretClientsMap[cluster1].CreateSecret(ctx, corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: mrs.Namespace}}))
+				mrs.Spec.Security = nil
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assert.Equal(t, status.PhaseFailed, gateStatus.Phase())
+				assert.Equal(t, "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true", statusMessage(gateStatus))
+			},
+		},
+		{
+			name: "rejects CA drift during forward migration",
+			role: "AppDB",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(
+					mrs.StatefulSetNameForCluster(cluster1),
+					nil,
+					map[string]string{util.AppDBMigrationReadyAnnotation: trueString},
+					3,
+					statefulset.CreateVolumeFromSecret(util.SecretVolumeName, "tls-secret"),
+					statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeCAName, "old-ca"),
+				)
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+				require.NoError(t, reconciler.memberClusterSecretClientsMap[cluster1].CreateSecret(ctx, corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "tls-secret", Namespace: mrs.Namespace}}))
+				mrs.Spec.Security.TLSConfig.Enabled = true
+				mrs.Spec.Security.TLSConfig.CA = "new-ca"
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assert.Equal(t, status.PhaseFailed, gateStatus.Phase())
+				assert.Equal(t, "cannot change AppDB configuration during forward migration: spec.security.tls.ca must reference ConfigMap \"old-ca\"", statusMessage(gateStatus))
+			},
+		},
+		{
+			name: "rejects member count drift during forward migration",
+			role: "AppDB",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), nil, map[string]string{util.AppDBMigrationReadyAnnotation: trueString}, 2)
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assert.Equal(t, status.PhaseFailed, gateStatus.Phase())
+				assert.Equal(t, "cannot change AppDB configuration during forward migration: spec.members must remain 2", statusMessage(gateStatus))
+			},
+		},
+		{
+			name: "keeps non-AppDB reconciliation unchanged",
+			role: "",
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), someOtherOwnerReference(), nil, 3)
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assert.True(t, gateStatus.IsOK())
+
+				result := appsv1.StatefulSet{}
+				err := clusterMap[cluster1].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(cluster1)), &result)
+				require.NoError(t, err)
+				assert.Len(t, result.OwnerReferences, 1)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs, reconciler, clusterMap := newMultiClusterGateFixture(tt.role)
+			if tt.setup != nil {
+				tt.setup(t, mrs, reconciler, clusterMap)
+			}
+			tt.verify(t, mrs, reconciler, clusterMap)
+		})
+	}
 }
 
 // specsAreEqual compares two different MongoDBMultiSpec instances and returns true if they are equal.

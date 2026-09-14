@@ -407,6 +407,107 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 }
 
+func ownsStatefulSet(sts appsv1.StatefulSet, ownerUID types.UID) bool {
+	for _, ref := range sts.OwnerReferences {
+		if ref.UID == ownerUID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) validateAppDBForwardMigration(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, sts appsv1.StatefulSet, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
+		return workflow.OK()
+	}
+
+	if wasTLSSecretMounted(ctx, secretGetter, sts, mdb.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: mrs.Namespace}}, log) {
+		if !mrs.Spec.Security.IsTLSEnabled() {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
+		}
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && mrs.Spec.Security.TLSConfig.CA != caVolume.ConfigMap.Name {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
+		}
+	}
+
+	if sts.Spec.Replicas != nil && item.Members != int(*sts.Spec.Replicas) {
+		return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.members must remain %d", *sts.Spec.Replicas))
+	}
+
+	return workflow.OK()
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reclaimAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
+	sts.OwnerReferences = kube.BaseOwnerReference(mrs)
+	if err := memberClient.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) releaseAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, sts appsv1.StatefulSet) error {
+	sts.OwnerReferences = nil
+	if err := memberClient.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, memberClient client.Client, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if mrs.Spec.Role != mdb.RoleAppDB {
+		return workflow.OK()
+	}
+
+	stsName := mrs.StatefulSetNameForCluster(item.ClusterName)
+	sts := appsv1.StatefulSet{}
+	var err error
+	if err = memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, stsName), &sts); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return workflow.OK()
+		}
+		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
+	}
+
+	ownedByThisMongoDB := ownsStatefulSet(sts, mrs.UID)
+
+	if validationStatus := r.validateAppDBForwardMigration(ctx, mrs, item, sts, secretGetter, log); !validationStatus.IsOK() {
+		return validationStatus
+	}
+
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		if len(sts.OwnerReferences) == 0 {
+			if err := r.reclaimAppDBStatefulsetOwnership(ctx, memberClient, mrs, sts); err != nil {
+				return workflow.Failed(err)
+			}
+			return workflow.OK()
+		}
+
+		if ownedByThisMongoDB {
+			return workflow.OK()
+		}
+
+		return workflow.Failed(xerrors.New("Cannot take ownership of the AppDB Statefulset: it has other owner"))
+	}
+
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+		if ownedByThisMongoDB {
+			if err := r.releaseAppDBStatefulsetOwnership(ctx, memberClient, sts); err != nil {
+				return workflow.Failed(err)
+			}
+		}
+		return workflow.Pending("This AppDB resource is under Reverse Migration to Ops Manager CR")
+	}
+
+	if !ownedByThisMongoDB {
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource")
+	}
+
+	return workflow.OK()
+}
+
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash, agentCertPath string) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -441,6 +542,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
+		ownershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, secretMemberClient, log)
+		if !ownershipStatus.IsOK() {
+			workflowStatus = workflowStatus.Merge(ownershipStatus)
+			continue
+		}
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(mrs, item)
 		clusterNum := mrs.ClusterNum(item.ClusterName)
 		if err != nil {
