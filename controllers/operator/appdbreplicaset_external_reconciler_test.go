@@ -19,6 +19,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -423,7 +424,7 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 			ref.Spec.Mapping = map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2}
 
 			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-			memberClustersMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-1", "cluster-2", "cluster-3"}, omConnectionFactory)
+			memberClustersMap := getFakeMultiClusterMapWithoutInterceptor([]string{"cluster-1", "cluster-2", "cluster-3"})
 			for clusterName, state := range tt.createStates {
 				require.NoError(t, memberClustersMap[clusterName].Create(ctx, newAppDBStatefulSetStatefulSet(ref.StatefulSetNameForCluster(clusterName), state)))
 			}
@@ -464,6 +465,39 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExternalAppDBStatusPhases_MultiCluster(t *testing.T) {
+	ctx := context.Background()
+	opsManager := withExternalAppDBRef(DefaultOpsManagerBuilder().
+		SetName("test-om").
+		SetNamespace(mock.TestNamespace).
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-1", Members: 2},
+			{ClusterName: "cluster-2", Members: 3},
+			{ClusterName: "cluster-3", Members: 1},
+		}).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+		Build(), &omv1.ExternalAppDBRef{
+		Name: "test-om-db",
+		Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClusterMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-1", "cluster-2", "cluster-3"}, omConnectionFactory)
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", opsManager, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+
+	externalAppDB := validExternalAppDBMongoDBMultiCluster()
+	externalAppDB.Namespace = mock.TestNamespace
+	require.NoError(t, kubeClient.Create(ctx, externalAppDB))
+
+	extReconciler := reconciler.createNewExternalAppDBReconciler(zap.S())
+	result, err := extReconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	assert.True(t, result.RequeueAfter > 0)
+	assert.Equal(t, status.PhaseDisabled, opsManager.Status.AppDbStatus.Phase)
+	assert.Empty(t, opsManager.Status.AppDbStatus.Message)
 }
 
 func TestEnsureAppDBStatefulSetOwnership_MongoDBRegression(t *testing.T) {
