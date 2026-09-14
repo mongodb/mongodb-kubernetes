@@ -24,7 +24,7 @@ spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.12.1"
+          image: "quay.io/mongodb/mongodb-kubernetes:1.13.0"
           imagePullPolicy: Always
           args:
             - -watch-resource=mongodb
@@ -58,7 +58,7 @@ spec:
             # Migration dry-run job image.
             # Optional: it can be resolved from the API server.
             - name: MDB_OPERATOR_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes:1.12.1"
+              value: "quay.io/mongodb/mongodb-kubernetes:1.13.0"
             - name: WATCH_NAMESPACE
               valueFrom:
                 fieldRef:
