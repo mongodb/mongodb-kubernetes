@@ -1073,6 +1073,27 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 	}
 }
 
+func TestApplyInto_RemovesLDAPBlockWhenLdapIsNil(t *testing.T) {
+	storedDeployment := Deployment{
+		"ldap": map[string]interface{}{
+			"bindQueryUser":     "cn=admin,dc=example,dc=com",
+			"bindQueryPassword": "live-corporate-credential",
+			"servers":           "ldap.example.com",
+			"transportSecurity": "tls",
+		},
+	}
+	config := AutomationConfig{
+		Ldap:       nil,
+		Deployment: storedDeployment,
+	}
+	into := NewDeployment()
+	err := applyInto(config, &into)
+	assert.NoError(t, err)
+
+	_, ldapExists := into["ldap"]
+	assert.False(t, ldapExists, "ldap block should be deleted from deployment when Ldap is nil")
+}
+
 func TestApplyInto(t *testing.T) {
 	config := AutomationConfig{
 		Auth: NewAuth(),
