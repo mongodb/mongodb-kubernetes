@@ -28,6 +28,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
@@ -2315,5 +2316,274 @@ func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testin
 		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, name), &s))
 		require.Len(t, s.OwnerReferences, 1, name)
 		assert.Equal(t, testOm.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the OM at adoption", name)
+	}
+}
+
+func hasOwnerRefUID(ownerRefs []metav1.OwnerReference, uid types.UID) bool {
+	for _, ref := range ownerRefs {
+		if ref.UID == uid {
+			return true
+		}
+	}
+
+	return false
+}
+
+func TestReverseMigrationPerCluster(t *testing.T) {
+	ctx := context.Background()
+	const (
+		opsManagerName = "test-om"
+		omUID          = types.UID("om-uid-1111")
+		mdbmUID        = types.UID("mdbm-uid-2222")
+		passwordValue   = "reverse-password"
+		keyfileValue    = "reverse-keyfile"
+	)
+
+	tests := []struct {
+		name                    string
+		setup                   func(t *testing.T) (*ReconcileAppDbReplicaSet, *omv1.MongoDBOpsManager, client.Client, map[string]client.Client)
+		expectedPhase           mdbstatus.Phase
+		expectedClusterOwnerUID map[string]types.UID
+		expectedReverseSet      map[string]bool
+		expectedPasswordOwner   *types.UID
+		expectedKeyfileOwner    *types.UID
+		expectedPasswordValue   string
+		expectedKeyfileValue    string
+	}{
+		{
+			name: "all clusters foreign-owned by mdbmulti request reverse migration",
+			setup: func(t *testing.T) (*ReconcileAppDbReplicaSet, *omv1.MongoDBOpsManager, client.Client, map[string]client.Client) {
+				t.Helper()
+
+				opsManager := DefaultOpsManagerBuilder().
+					SetName(opsManagerName).
+					SetNamespace(mock.TestNamespace).
+					SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+						{ClusterName: "cluster-a", Members: 2},
+						{ClusterName: "cluster-b", Members: 3},
+					}).
+					SetAppDbMembers(0).
+					SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+					Build()
+				opsManager.UID = omUID
+
+				kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+				memberClusterMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-a", "cluster-b"}, omConnectionFactory)
+				reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+				require.NoError(t, err)
+
+				foreignOwnerRefs := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBMultiCluster", Name: "test-om-db", UID: mdbmUID}}
+				for _, clusterName := range []string{"cluster-a", "cluster-b"} {
+					idx := reconciler.helper.getMemberClusterIndex(clusterName)
+					sts := newAppDBStatefulSetStatefulSet(opsManager.Spec.AppDB.NameForCluster(idx), appDBStatefulSetState{ownerReferences: foreignOwnerRefs})
+					require.NoError(t, memberClusterMap[clusterName].Create(ctx, sts))
+				}
+
+				return reconciler, opsManager, kubeClient, memberClusterMap
+			},
+			expectedPhase: mdbstatus.PhasePending,
+			expectedClusterOwnerUID: map[string]types.UID{
+				"cluster-a": mdbmUID,
+				"cluster-b": mdbmUID,
+			},
+			expectedReverseSet: map[string]bool{
+				"cluster-a": true,
+				"cluster-b": true,
+			},
+		},
+		{
+			name: "released clusters are reclaimed and shared secrets are claimed back",
+			setup: func(t *testing.T) (*ReconcileAppDbReplicaSet, *omv1.MongoDBOpsManager, client.Client, map[string]client.Client) {
+				t.Helper()
+
+				opsManager := DefaultOpsManagerBuilder().
+					SetName(opsManagerName).
+					SetNamespace(mock.TestNamespace).
+					SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+						{ClusterName: "cluster-a", Members: 2},
+						{ClusterName: "cluster-b", Members: 3},
+					}).
+					SetAppDbMembers(0).
+					SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+					Build()
+				opsManager.UID = omUID
+
+				kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+				memberClusterMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-a", "cluster-b"}, omConnectionFactory)
+				reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+				require.NoError(t, err)
+
+				ownRefs := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBMultiCluster", Name: "test-om-db", UID: mdbmUID}}
+				for _, clusterName := range []string{"cluster-a", "cluster-b"} {
+					idx := reconciler.helper.getMemberClusterIndex(clusterName)
+					sts := newAppDBStatefulSetStatefulSet(opsManager.Spec.AppDB.NameForCluster(idx), appDBStatefulSetState{
+						ownerReferences: nil,
+						annotations:     map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+					})
+					require.NoError(t, memberClusterMap[clusterName].Create(ctx, sts))
+				}
+
+				for _, name := range []string{opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
+					sec := secret.Builder().
+						SetName(name).
+						SetNamespace(opsManager.Namespace).
+						SetOwnerReferences(ownRefs).
+						Build()
+					if name == opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName() {
+						sec.Data = map[string][]byte{util.OpsManagerPasswordKey: []byte(passwordValue)}
+					} else {
+						sec.Data = map[string][]byte{constants.AgentKeyfileKey: []byte(keyfileValue)}
+					}
+					require.NoError(t, kubeClient.Create(ctx, &sec))
+				}
+
+				return reconciler, opsManager, kubeClient, memberClusterMap
+			},
+			expectedPhase: mdbstatus.PhaseRunning,
+			expectedClusterOwnerUID: map[string]types.UID{
+				"cluster-a": omUID,
+				"cluster-b": omUID,
+			},
+			expectedReverseSet: map[string]bool{
+				"cluster-a": true,
+				"cluster-b": true,
+			},
+			expectedPasswordOwner: ptr.To(omUID),
+			expectedKeyfileOwner:  ptr.To(omUID),
+			expectedPasswordValue: passwordValue,
+			expectedKeyfileValue:  keyfileValue,
+		},
+		{
+			name: "mixed released and foreign-owned clusters stay pending while released cluster is reclaimed",
+			setup: func(t *testing.T) (*ReconcileAppDbReplicaSet, *omv1.MongoDBOpsManager, client.Client, map[string]client.Client) {
+				t.Helper()
+
+				opsManager := DefaultOpsManagerBuilder().
+					SetName(opsManagerName).
+					SetNamespace(mock.TestNamespace).
+					SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+						{ClusterName: "cluster-a", Members: 2},
+						{ClusterName: "cluster-b", Members: 3},
+					}).
+					SetAppDbMembers(0).
+					SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+					Build()
+				opsManager.UID = omUID
+
+				kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+				memberClusterMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-a", "cluster-b"}, omConnectionFactory)
+				reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+				require.NoError(t, err)
+
+				released := newAppDBStatefulSetStatefulSet(opsManager.Spec.AppDB.NameForCluster(reconciler.helper.getMemberClusterIndex("cluster-a")), appDBStatefulSetState{
+					ownerReferences: nil,
+					annotations:     map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+				})
+				require.NoError(t, memberClusterMap["cluster-a"].Create(ctx, released))
+
+				foreignOwnerRefs := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBMultiCluster", Name: "test-om-db", UID: mdbmUID}}
+				foreign := newAppDBStatefulSetStatefulSet(opsManager.Spec.AppDB.NameForCluster(reconciler.helper.getMemberClusterIndex("cluster-b")), appDBStatefulSetState{
+					ownerReferences: foreignOwnerRefs,
+				})
+				require.NoError(t, memberClusterMap["cluster-b"].Create(ctx, foreign))
+
+				for _, name := range []string{opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName(), opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
+					sec := secret.Builder().
+						SetName(name).
+						SetNamespace(opsManager.Namespace).
+						SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBMultiCluster", Name: "test-om-db", UID: mdbmUID}}).
+						Build()
+					if name == opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName() {
+						sec.Data = map[string][]byte{util.OpsManagerPasswordKey: []byte(passwordValue)}
+					} else {
+						sec.Data = map[string][]byte{constants.AgentKeyfileKey: []byte(keyfileValue)}
+					}
+					require.NoError(t, kubeClient.Create(ctx, &sec))
+				}
+
+				return reconciler, opsManager, kubeClient, memberClusterMap
+			},
+			expectedPhase: mdbstatus.PhasePending,
+			expectedClusterOwnerUID: map[string]types.UID{
+				"cluster-a": omUID,
+				"cluster-b": mdbmUID,
+			},
+			expectedReverseSet: map[string]bool{
+				"cluster-a": true,
+				"cluster-b": true,
+			},
+			expectedPasswordOwner: ptr.To(omUID),
+			expectedKeyfileOwner:  ptr.To(omUID),
+			expectedPasswordValue: passwordValue,
+			expectedKeyfileValue:  keyfileValue,
+		},
+		{
+			name: "single-cluster reverse migration still adopts without clearing the annotation",
+			setup: func(t *testing.T) (*ReconcileAppDbReplicaSet, *omv1.MongoDBOpsManager, client.Client, map[string]client.Client) {
+				t.Helper()
+
+				opsManager := DefaultOpsManagerBuilder().
+					SetName(opsManagerName).
+					SetNamespace(mock.TestNamespace).
+					SetAppDbMembers(3).
+					Build()
+				opsManager.UID = omUID
+
+				kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+				reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+				require.NoError(t, err)
+
+				sts := newAppDBStatefulSetStatefulSet(opsManager.Spec.AppDB.Name(), appDBStatefulSetState{
+					ownerReferences: nil,
+					annotations:     map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+				})
+				require.NoError(t, kubeClient.Create(ctx, sts))
+
+				return reconciler, opsManager, kubeClient, nil
+			},
+			expectedPhase: mdbstatus.PhaseRunning,
+			expectedClusterOwnerUID: map[string]types.UID{
+				multicluster.LegacyCentralClusterName: omUID,
+			},
+			expectedReverseSet: map[string]bool{
+				multicluster.LegacyCentralClusterName: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler, opsManager, centralClient, memberClusterMap := tt.setup(t)
+
+			status := reconciler.ensureAppDBStatefulSetOwnership(ctx, opsManager)
+			assert.Equal(t, tt.expectedPhase, status.Phase())
+
+			for clusterName, expectedOwnerUID := range tt.expectedClusterOwnerUID {
+				var sts appsv1.StatefulSet
+				var err error
+				if clusterName == multicluster.LegacyCentralClusterName {
+					err = centralClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), &sts)
+				} else {
+					err = memberClusterMap[clusterName].Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(reconciler.helper.getMemberClusterIndex(clusterName))), &sts)
+				}
+				require.NoError(t, err)
+				assert.True(t, hasOwnerRefUID(sts.OwnerReferences, expectedOwnerUID), "cluster %s should have owner uid %s", clusterName, expectedOwnerUID)
+				assert.Equal(t, tt.expectedReverseSet[clusterName], sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == "true")
+			}
+
+			if tt.expectedPasswordOwner != nil {
+				passwordSecret := corev1.Secret{}
+				require.NoError(t, centralClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetOpsManagerUserPasswordSecretName()), &passwordSecret))
+				assert.True(t, hasOwnerRefUID(passwordSecret.OwnerReferences, *tt.expectedPasswordOwner))
+				assert.Equal(t, tt.expectedPasswordValue, string(passwordSecret.Data[util.OpsManagerPasswordKey]))
+			}
+
+			if tt.expectedKeyfileOwner != nil {
+				keyfileSecret := corev1.Secret{}
+				require.NoError(t, centralClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name), &keyfileSecret))
+				assert.True(t, hasOwnerRefUID(keyfileSecret.OwnerReferences, *tt.expectedKeyfileOwner))
+				assert.Equal(t, tt.expectedKeyfileValue, string(keyfileSecret.Data[constants.AgentKeyfileKey]))
+			}
+		})
 	}
 }

@@ -2132,6 +2132,44 @@ func TestAppDBBlockNonEmptyClusterSpecItemRemoval(t *testing.T) {
 	}
 }
 
+func TestReverseMigrationPerCluster_ReconcileWiring(t *testing.T) {
+	ctx := context.Background()
+	opsManager := DefaultOpsManagerBuilder().
+		SetName("test-om").
+		SetNamespace(mock.TestNamespace).
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-a", Members: 2},
+			{ClusterName: "cluster-b", Members: 3},
+		}).
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+		Build()
+	opsManager.UID = types.UID("om-uid-1111")
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+	memberClusterMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-a", "cluster-b"}, omConnectionFactory)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	foreignOwnerRefs := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBMultiCluster", Name: "test-om-db", UID: types.UID("mdbm-uid-2222")}}
+	for _, clusterName := range []string{"cluster-a", "cluster-b"} {
+		idx := reconciler.helper.getMemberClusterIndex(clusterName)
+		sts := newAppDBStatefulSetStatefulSet(opsManager.Spec.AppDB.NameForCluster(idx), appDBStatefulSetState{ownerReferences: foreignOwnerRefs})
+		require.NoError(t, memberClusterMap[clusterName].Create(ctx, sts))
+	}
+
+	result, err := reconciler.ReconcileAppDB(ctx, opsManager)
+	require.NoError(t, err)
+	assert.True(t, result.RequeueAfter > 0)
+
+	for _, clusterName := range []string{"cluster-a", "cluster-b"} {
+		idx := reconciler.helper.getMemberClusterIndex(clusterName)
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, memberClusterMap[clusterName].Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.NameForCluster(idx)), &sts))
+		assert.Equal(t, "true", sts.Annotations[util.AppDBReverseMigrationReadyAnnotation])
+	}
+}
+
 func TestReconcileAppDBBlockNonEmptyClusterSpecItemRemovalIntegration(t *testing.T) {
 	ctx := context.Background()
 	clusterA := "cluster-a"
