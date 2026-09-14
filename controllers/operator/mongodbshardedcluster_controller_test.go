@@ -490,6 +490,14 @@ func createPVCs(t *testing.T, sts appsv1.StatefulSet, c client.Writer) []corev1.
 				Name:      pvcName,
 				Namespace: sts.Namespace,
 				Labels:    sts.Spec.Template.Labels,
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "apps/v1",
+						Kind:       "StatefulSet",
+						Name:       sts.Name,
+						UID:        sts.UID,
+					},
+				},
 			},
 			Spec: sts.Spec.VolumeClaimTemplates[0].Spec,
 		}

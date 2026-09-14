@@ -883,6 +883,7 @@ func TestHandlePVCResize(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "example-sts",
 				Namespace: "default",
+				UID:       types.UID("example-sts-uid"),
 			},
 			Spec: appsv1.StatefulSetSpec{
 				Replicas: ptr.To(int32(3)),
@@ -907,6 +908,14 @@ func TestHandlePVCResize(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "data-pvc-example-sts-0",
 				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "apps/v1",
+						Kind:       "StatefulSet",
+						Name:       "example-sts",
+						UID:        types.UID("example-sts-uid"),
+					},
+				},
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")}}},
 			Status: corev1.PersistentVolumeClaimStatus{

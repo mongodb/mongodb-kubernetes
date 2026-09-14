@@ -151,11 +151,11 @@ func HandlePVCResize(ctx context.Context, memberClient kubernetesClient.Client, 
 		}
 
 		log.Infof("Detected PVC size expansion; patching all pvcs and increasing the size for sts: %s", desiredSts.Name)
-		if err := resizePVCsStorage(ctx, memberClient, desiredSts, log); err != nil {
+		if err := resizePVCsStorage(ctx, memberClient, desiredSts, existingStatefulSet.UID, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("can't resize pvc, err: %s", err))
 		}
 
-		finishedResizing, err := hasFinishedResizing(ctx, memberClient, desiredSts)
+		finishedResizing, err := hasFinishedResizing(ctx, memberClient, desiredSts, existingStatefulSet.UID)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -268,7 +268,7 @@ func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClien
 	return deletedIsStatefulset
 }
 
-func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet) (bool, error) {
+func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Client, desiredSts *appsv1.StatefulSet, stsUID types.UID) (bool, error) {
 	pvcList := corev1.PersistentVolumeClaimList{}
 	if err := memberClient.List(ctx, &pvcList, client.InNamespace(desiredSts.Namespace)); err != nil {
 		return false, err
@@ -276,7 +276,7 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 
 	finishedResizing := true
 	for _, currentPVC := range pvcList.Items {
-		if template, index := getMatchingPVCTemplateFromSTS(desiredSts, &currentPVC); template != nil {
+		if template, index := getMatchingPVCTemplateFromSTS(desiredSts, &currentPVC, stsUID); template != nil {
 			if currentPVC.Status.Capacity.Storage().Cmp(*desiredSts.Spec.VolumeClaimTemplates[index].Spec.Resources.Requests.Storage()) != 0 {
 				finishedResizing = false
 			}
@@ -286,7 +286,7 @@ func hasFinishedResizing(ctx context.Context, memberClient kubernetesClient.Clie
 }
 
 // resizePVCsStorage takes the sts we want to create and update all matching pvc with the new storage
-func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet, log *zap.SugaredLogger) error {
+func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, statefulSetToCreate *appsv1.StatefulSet, stsUID types.UID, log *zap.SugaredLogger) error {
 	// this is to ensure that requests to a potentially not allowed resource is not blocking the operator until the end
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -297,7 +297,7 @@ func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, 
 	}
 
 	for _, existingPVC := range pvcList.Items {
-		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC); template != nil {
+		if template, _ := getMatchingPVCTemplateFromSTS(statefulSetToCreate, &existingPVC, stsUID); template != nil {
 			currentSize := existingPVC.Spec.Resources.Requests[corev1.ResourceStorage]
 			targetSize := *template.Spec.Resources.Requests.Storage()
 			log.Infof("Resizing PVC %s/%s from %s to %s", existingPVC.GetNamespace(), existingPVC.GetName(), currentSize.String(), targetSize.String())
@@ -310,7 +310,10 @@ func resizePVCsStorage(ctx context.Context, kubeClient kubernetesClient.Client, 
 	return nil
 }
 
-func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.PersistentVolumeClaim) (*corev1.PersistentVolumeClaim, int) {
+func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.PersistentVolumeClaim, stsUID types.UID) (*corev1.PersistentVolumeClaim, int) {
+	if !isOwnedByStatefulSet(pvc, stsUID) {
+		return nil, -1
+	}
 	for i, claimTemplate := range statefulSet.Spec.VolumeClaimTemplates {
 		expectedPrefix := fmt.Sprintf("%s-%s", claimTemplate.Name, statefulSet.Name)
 
@@ -321,6 +324,15 @@ func getMatchingPVCTemplateFromSTS(statefulSet *appsv1.StatefulSet, pvc *corev1.
 		}
 	}
 	return nil, -1
+}
+
+func isOwnedByStatefulSet(pvc *corev1.PersistentVolumeClaim, stsUID types.UID) bool {
+	for _, ownerRef := range pvc.OwnerReferences {
+		if ownerRef.Kind == "StatefulSet" && ownerRef.UID == stsUID {
+			return true
+		}
+	}
+	return false
 }
 
 // createExternalServices creates the per-pod external LoadBalancer services for one StatefulSet.
