@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -28,7 +29,36 @@ import (
 
 func newOpsManagerReconcilerForValidation(objects ...client.Object) *OpsManagerReconciler {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(objects...)
-	return NewOpsManagerReconciler(context.Background(), kubeClient, map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
+	return NewOpsManagerReconciler(context.Background(), newValidationClient(kubeClient, objects...), map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
+}
+
+type validationClient struct {
+	client.Client
+	mdbmultiByKey map[types.NamespacedName]*mdbmulti.MongoDBMultiCluster
+}
+
+func newValidationClient(base client.Client, objects ...client.Object) client.Client {
+	wrappedClient := &validationClient{
+		Client:        base,
+		mdbmultiByKey: map[types.NamespacedName]*mdbmulti.MongoDBMultiCluster{},
+	}
+	for _, object := range objects {
+		if mdbm, ok := object.(*mdbmulti.MongoDBMultiCluster); ok {
+			key := types.NamespacedName{Name: mdbm.Name, Namespace: mdbm.Namespace}
+			wrappedClient.mdbmultiByKey[key] = mdbm.DeepCopy()
+		}
+	}
+	return wrappedClient
+}
+
+func (c *validationClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if mdbm, ok := obj.(*mdbmulti.MongoDBMultiCluster); ok {
+		if stored, ok := c.mdbmultiByKey[types.NamespacedName{Name: key.Name, Namespace: key.Namespace}]; ok {
+			*mdbm = *stored.DeepCopy()
+			return nil
+		}
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
 }
 
 func TestValidateExternalAppDBReference(t *testing.T) {
@@ -80,6 +110,37 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 			objects: []client.Object{validMongoDB},
 		},
 		{
+			name: "referenced MongoDBMultiCluster is valid",
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+				Name: "test-om-db",
+				Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			}),
+			objects: []client.Object{validExternalAppDBMongoDBMultiCluster()},
+		},
+		{
+			name: "referenced MongoDBMultiCluster does not have role AppDB",
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+				Name: "test-om-db",
+				Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			}),
+			objects: []client.Object{
+				func() *mdbmulti.MongoDBMultiCluster {
+					mdbm := mdbmulti.DefaultMultiReplicaSetBuilder().SetName("test-om-db").Build()
+					mdbm.Namespace = mock.TestNamespace
+					return mdbm
+				}(),
+			},
+			expectedError: `externalApplicationDatabaseRef my-namespace/test-om-db must have spec.role set to "AppDB"`,
+		},
+		{
+			name: "referenced MongoDBMultiCluster does not exist",
+			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+				Name: "test-om-db",
+				Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			}),
+			expectedError: "failed to fetch externalApplicationDatabaseRef my-namespace/test-om-db: externalApplicationDatabaseRef points to MongoDBMultiCluster my-namespace/test-om-db which does not exist",
+		},
+		{
 			name: "unsupported kind",
 			om: withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
 				Name: "test-om-db",
@@ -102,6 +163,45 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 	}
 }
 
+func TestFetchExternalAppDBRefObject_KindMultiCluster(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name                    string
+		objects                 []client.Object
+		expectedIsTLSEnabled    bool
+		expectedCAConfigMapName string
+	}{
+		{
+			name:    "referenced MongoDBMultiCluster is valid",
+			objects: []client.Object{validExternalAppDBMongoDBMultiCluster()},
+		},
+		{
+			name: "referenced MongoDBMultiCluster with TLS returns CA name",
+			objects: func() []client.Object {
+				mdbm := validExternalAppDBMongoDBMultiCluster()
+				mdbm.Spec.Security.TLSConfig.Enabled = true
+				mdbm.Spec.Security.TLSConfig.CA = "app-db-issuer-ca"
+				return []client.Object{mdbm}
+			}(),
+			expectedIsTLSEnabled:    true,
+			expectedCAConfigMapName: "app-db-issuer-ca",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler := newOpsManagerReconcilerForValidation(tt.objects...)
+			ref := &omv1.ExternalAppDBRef{Name: "test-om-db", Namespace: mock.TestNamespace, Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster}
+			got, err := reconciler.createNewExternalAppDBReconciler(zap.S()).fetchExternalAppDBRefObject(ctx, ref)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.expectedIsTLSEnabled, got.IsTLSEnabled())
+			assert.Equal(t, tt.expectedCAConfigMapName, got.GetCAConfigMapName())
+		})
+	}
+}
+
 func validExternalAppDBRef() *omv1.ExternalAppDBRef {
 	return &omv1.ExternalAppDBRef{
 		Name:      "test-om-db",
@@ -118,6 +218,15 @@ func validExternalAppDBMongoDB() *mdbv1.MongoDB {
 		Build()
 	mdb.Spec.Role = mdbv1.RoleAppDB
 	return mdb
+}
+
+func validExternalAppDBMongoDBMultiCluster() *mdbmulti.MongoDBMultiCluster {
+	mdbm := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetName("test-om-db").
+		SetRole(mdbv1.RoleAppDB).
+		Build()
+	mdbm.Namespace = mock.TestNamespace
+	return mdbm
 }
 
 func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *testing.T) {
