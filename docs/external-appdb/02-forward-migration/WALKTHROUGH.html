@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.45; color:#202124; }
+h1 { font-size: 22pt; } h2 { font-size: 16pt; margin-top: 20px; } h3 { font-size: 13pt; }
+code { font-family: 'Roboto Mono','Courier New',monospace; font-size: 10pt; background:#f1f3f4; padding:1px 3px; border-radius:3px; }
+pre { font-family: 'Roboto Mono','Courier New',monospace; font-size: 9.5pt; background:#f1f3f4; padding:10px; border-radius:5px; white-space:pre-wrap; }
+pre code { background:none; padding:0; }
+blockquote { border-left:3px solid #dadce0; margin:0; padding:4px 12px; color:#5f6368; }
+table { border-collapse:collapse; } th,td { border:1px solid #dadce0; padding:4px 8px; }
+</style></head><body>
+<h1 id="external-appdb-forward-migration-step-by-step-walkthrough">External AppDB — Forward Migration: step-by-step walkthrough</h1>
+<p>This guide migrates an <strong>existing</strong> Ops Manager from an <strong>internally-managed</strong> Application Database
+(<code>spec.applicationDatabase</code>) to an <strong>external</strong> one — a <code>MongoDB</code> resource (<code>role: AppDB</code>) referenced
+through <code>spec.externalApplicationDatabaseRef</code> — <strong>without downtime and without rolling the OM pods</strong>.</p>
+<p>It assumes the Ops Manager and its AppDB are already deployed (see Prerequisites) and only shows the
+migration-specific steps. Every step is a plain <code>kubectl</code> command with the resource YAML inlined.</p>
+<blockquote>
+<p>See also: <a href="../01-fresh-start">../01-fresh-start</a> (start external from scratch) and
+<a href="../03-reverse-migration">../03-reverse-migration</a> (move back to an internal AppDB).</p>
+</blockquote>
+<h2 id="how-it-works">How it works</h2>
+<pre><code>BEFORE                                   AFTER
+─────────                                ─────────
+primary OM ──owns──► StatefulSet         primary OM ──externalApplicationDatabaseRef──►┐
+ (spec.applicationDatabase)               (no spec.applicationDatabase)                │
+                                                                                       ▼
+                                         management OM ──manages──► MongoDB(role:AppDB) ──adopts──► StatefulSet
+</code></pre>
+<ol>
+<li>The primary OM starts with an internal AppDB; the operator owns a StatefulSet named
+   <code>&lt;primary-om-name&gt;-db</code>.</li>
+<li>You create a <code>MongoDB</code> (<code>role: AppDB</code>) CR with <strong>the same name</strong>, managed by the management OM. It
+   cannot adopt the existing StatefulSet yet — the operator's <strong>adoption gate</strong> keeps it <code>Pending</code>
+   ("Cannot take ownership of the AppDB StatefulSet") while the StatefulSet is still owned by the OM.</li>
+<li>You add <code>spec.externalApplicationDatabaseRef</code> to the primary OM. The operator <strong>detaches</strong> its
+   internal AppDB StatefulSet (drops its OwnerReference, marks it migration-ready); the <code>MongoDB</code> CR
+   then <strong>adopts</strong> it. Because the computed connection string is identical (same hosts), the OM pods
+   do not roll.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>This guide starts from an already-running deployment. Before you begin you must have:</p>
+<ul>
+<li>A Kubernetes cluster with the <strong>MongoDB Kubernetes operator installed</strong> and <code>kubectl</code> configured.</li>
+<li>An existing <strong>primary Ops Manager</strong> (<code>${PRIMARY_OM_NAME}</code>, below) with an <strong>internally-managed
+  AppDB</strong> — i.e. it has <code>spec.applicationDatabase</code> and the operator owns a StatefulSet named
+  <code>&lt;primary-om-name&gt;-db</code>. This is the deployment you are migrating; <strong>this guide does not cover
+  deploying it.</strong></li>
+<li>A <strong>management Ops Manager</strong> (<code>${MANAGEMENT_OM_NAME}</code>, below) that is <code>Running</code> and will own the
+  external AppDB's project. If you do not have one yet, stand it up first — see
+  <a href="../01-fresh-start">../01-fresh-start</a> steps 4–5 (deploy management OM) — this guide does not repeat
+  those steps.</li>
+<li>The management OM's operator-provisioned programmatic API-key secret
+  (<code>&lt;namespace&gt;-&lt;management-om-name&gt;-admin-key</code>) — created automatically once the management OM is
+  <code>Running</code>.</li>
+</ul>
+<p>Quick sanity check that the prerequisites are in place:</p>
+<pre><code class="language-bash"># primary OM Running with an internal AppDB, and its AppDB StatefulSet owned by the OM:
+kubectl get om &quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.status.opsManager.phase} / appdb={.status.applicationDatabase.phase}{&quot;\n&quot;}'
+kubectl get statefulset &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{range .metadata.ownerReferences[*]}{.kind}/{.name}{&quot;\n&quot;}{end}'
+# -&gt; MongoDBOpsManager/${PRIMARY_OM_NAME}
+
+# management OM Running and its API-key secret present:
+kubectl get om &quot;${MANAGEMENT_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.status.opsManager.phase}{&quot;\n&quot;}'
+kubectl get secret &quot;${MANAGEMENT_OM_ADMIN_KEY_SECRET}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot;
+</code></pre>
+<h2 id="0-set-your-variables">0. Set your variables</h2>
+<pre><code class="language-bash">export K8S_CTX=&quot;&lt;your-kube-context&gt;&quot;     # kubectl config get-contexts
+export MDB_NS=&quot;mongodb&quot;                    # namespace of the existing OMs and the AppDB
+
+# Names of the already-deployed Ops Managers:
+export MANAGEMENT_OM_NAME=&quot;management-om&quot;  # owns the external AppDB project
+export PRIMARY_OM_NAME=&quot;primary-om&quot;        # the OM being migrated
+
+# The AppDB CR name is fixed by the operator's naming convention:
+export APPDB_NAME=&quot;${PRIMARY_OM_NAME}-db&quot;
+
+# Must match the AppDB version already running under the primary OM's internal AppDB, and must be a
+# MongoDB version the management OM offers (keep OM and AppDB on the same major line, e.g. 8.0.x).
+export APPDB_VERSION=&quot;8.0.5-ent&quot;
+
+# In-cluster URL of the management OM and its operator-provisioned API-key secret:
+export MANAGEMENT_OM_URL=&quot;http://${MANAGEMENT_OM_NAME}-svc.${MDB_NS}.svc.cluster.local:8080&quot;
+export MANAGEMENT_OM_ADMIN_KEY_SECRET=&quot;${MDB_NS}-${MANAGEMENT_OM_NAME}-admin-key&quot;
+
+# Project ConfigMap the AppDB CR will point at:
+export APPDB_PROJECT_CONFIGMAP=&quot;${APPDB_NAME}-config&quot;
+export APPDB_PROJECT_NAME=&quot;external-appdb&quot;
+</code></pre>
+<hr />
+<h2 id="1-create-the-appdb-project-configmap">1. Create the AppDB project ConfigMap</h2>
+<p>Registers a project on the management OM for the external AppDB.</p>
+<pre><code class="language-bash">kubectl create configmap &quot;${APPDB_PROJECT_CONFIGMAP}&quot; \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  --from-literal=baseUrl=&quot;${MANAGEMENT_OM_URL}&quot; \
+  --from-literal=projectName=&quot;${APPDB_PROJECT_NAME}&quot; \
+  --from-literal=orgId=&quot;&quot;
+</code></pre>
+<h2 id="2-create-the-external-appdb-mongodb-blocked-on-the-adoption-gate">2. Create the external AppDB <code>MongoDB</code> (blocked on the adoption gate)</h2>
+<p>Same name as the OM's internal AppDB. It <strong>cannot</strong> adopt the StatefulSet yet, so it stays <code>Pending</code>.</p>
+<pre><code class="language-bash">kubectl apply --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; -f - &lt;&lt;EOF
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: ${APPDB_NAME}
+spec:
+  members: 3
+  version: ${APPDB_VERSION}
+  type: ReplicaSet
+  role: AppDB
+  opsManager:
+    configMapRef:
+      name: ${APPDB_PROJECT_CONFIGMAP}
+  credentials: ${MANAGEMENT_OM_ADMIN_KEY_SECRET}
+  persistent: true
+  security:
+    authentication:
+      enabled: true
+      modes: [&quot;SCRAM&quot;]
+      ignoreUnknownUsers: true
+EOF
+</code></pre>
+<p>Confirm it is held on the adoption gate (this is expected — not an error):</p>
+<pre><code class="language-bash">kubectl wait --for=jsonpath='{.status.phase}'=Pending \
+  mdb/&quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=300s
+
+kubectl get mdb &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.status.message}{&quot;\n&quot;}'
+# -&gt; &quot;Cannot take ownership of the AppDB StatefulSet: ...&quot;
+</code></pre>
+<h2 id="3-flip-the-primary-om-to-the-external-appdb">3. Flip the primary OM to the external AppDB</h2>
+<p>Add <code>spec.externalApplicationDatabaseRef</code>. The operator detaches its internal AppDB StatefulSet so
+the <code>MongoDB</code> CR can adopt it. The connection string is unchanged, so the OM pods do not roll.</p>
+<pre><code class="language-bash">kubectl patch om &quot;${PRIMARY_OM_NAME}&quot; \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  --type merge \
+  -p &quot;{\&quot;spec\&quot;:{\&quot;externalApplicationDatabaseRef\&quot;:{\&quot;name\&quot;:\&quot;${APPDB_NAME}\&quot;,\&quot;kind\&quot;:\&quot;MongoDB\&quot;}}}&quot;
+</code></pre>
+<blockquote>
+<p>If your OM also has an explicit <code>spec.applicationDatabase</code> block you want removed, you can drop it
+in the same patch; leaving it is harmless — once <code>externalApplicationDatabaseRef</code> is set the
+operator stops managing an internal AppDB for this OM.</p>
+</blockquote>
+<h2 id="4-wait-for-the-switch-to-complete">4. Wait for the switch to complete</h2>
+<pre><code class="language-bash">kubectl wait --for=jsonpath='{.status.phase}'=Running \
+  mdb/&quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1200s
+
+kubectl wait --for=jsonpath='{.status.opsManager.phase}'=Running \
+  om/&quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1800s
+</code></pre>
+<h2 id="5-verify">5. Verify</h2>
+<pre><code class="language-bash">kubectl get pods --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot;
+
+# The AppDB StatefulSet must now be owned solely by the MongoDB CR (not the OM):
+kubectl get statefulset &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{range .metadata.ownerReferences[*]}{.kind}/{.name}{&quot;\n&quot;}{end}'
+# -&gt; MongoDB/${APPDB_NAME}
+
+# The migration-ready annotation should be cleared after adoption:
+kubectl get statefulset &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.metadata.annotations.mongodb\.com/appdb-migration-ready}{&quot;\n&quot;}'
+</code></pre>
+<p>You should see the AppDB StatefulSet owned by <code>MongoDB/${APPDB_NAME}</code>, the migration annotation
+empty, and the primary OM <code>Running</code> against the external AppDB — with the OM pods never having
+rolled during the switch.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong>AppDB <code>MongoDB</code> is <code>Failed</code> with <code>Invalid config: MongoDB version &lt;x&gt; is not available</code></strong> — the
+  external AppDB is an Ops-Manager-managed MongoDB; its <code>spec.version</code> must be a version the
+  <strong>management OM</strong> offers. Keep the management OM and <code>APPDB_VERSION</code> on the same major line (e.g. OM
+  <code>8.0.x</code> + AppDB <code>8.0.x-ent</code>).</li>
+<li><strong>AppDB CR stays <code>Pending</code> after the switch</strong> — the operator must first detach the StatefulSet.
+  Confirm <code>spec.externalApplicationDatabaseRef</code> was applied to the primary OM and its name equals
+  <code>&lt;primary-om-name&gt;-db</code>.</li>
+<li><strong>AppDB CR <code>Pending</code> with a project/registration error</strong> — the management OM's public REST API may
+  not have been ready when the CR was created. Confirm the management OM is <code>Running</code> and its API
+  answers (<code>GET /api/public/v1.0</code> returns <code>401</code>), then re-reconcile.</li>
+<li><strong>OM pods rolled during the switch</strong> — indicates the computed connection string changed. For the
+  default-port replica-set case it is identical; non-default ports are out of scope.
+</content></li>
+</ul>
+</body></html>
