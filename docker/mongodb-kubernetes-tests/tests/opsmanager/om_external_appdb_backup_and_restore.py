@@ -19,14 +19,28 @@ from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_ce
 from kubetester.kubetester import KubernetesTester, create_testing_namespace
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.clusterwideoperator.om_multiple import install_database_roles
-from tests.conftest import create_issuer, get_central_cluster_client, get_operator_clusterwide
+from tests.conftest import (
+    create_issuer,
+    get_central_cluster_client,
+    get_member_cluster_clients,
+    get_operator_clusterwide,
+)
 from tests.constants import AWS_REGION
-from tests.opsmanager.om_external_appdb_test_helpers import assert_sentinel_doc_present, write_sentinel_doc
+from tests.opsmanager.om_external_appdb_test_helpers import (
+    appdb_role_resource,
+    assert_owned_by_mongodb,
+    assert_project_exists,
+    assert_sentinel_doc_present,
+    configure_appdb_role_mongodb,
+    is_multicluster,
+    write_sentinel_doc,
+)
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
 
 """
@@ -173,7 +187,12 @@ def meta_backup_db(mgmt_namespace: str) -> MongoDB:
 
 
 @fixture(scope="function")
-def primary_om_ext_appdb(primary_namespace: str) -> MongoDB:
+def primary_om_ext_appdb(primary_namespace: str, custom_mdb_version: str) -> MongoDB | MongoDBMulti:
+    if is_multicluster():
+        resource = appdb_role_resource(primary_namespace, custom_mdb_version, PRIMARY_OM_APPDB_NAME)
+        try_load(resource)
+        return resource
+
     resource = MongoDB.from_yaml(
         yaml_fixture("om_external_appdb_bnr_appdb.yaml"), name=PRIMARY_OM_APPDB_NAME, namespace=primary_namespace
     )
@@ -251,8 +270,22 @@ class TestInitialSetup:
         meta_om.backup_status().assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_deploy_primary_om_external_appdb(
-        self, primary_om_ext_appdb: MongoDB, meta_om: MongoDBOpsManager, namespace: str, primary_namespace: str
+        self,
+        primary_om_ext_appdb: MongoDB | MongoDBMulti,
+        meta_om: MongoDBOpsManager,
+        namespace: str,
+        primary_namespace: str,
     ):
+        if is_multicluster():
+            _copy_admin_key_secret(meta_om, namespace, primary_namespace)
+            _configure_appdb_tls(primary_om_ext_appdb, primary_namespace)
+            configure_appdb_role_mongodb(primary_om_ext_appdb, meta_om, primary_namespace)
+            primary_om_ext_appdb.update()
+            primary_om_ext_appdb.assert_reaches_phase(Phase.Running, timeout=900)
+            _assert_primary_om_ext_appdb_statefulset_owned_by_mongodb(primary_namespace)
+            assert_project_exists(meta_om, primary_om_ext_appdb.name)
+            return
+
         _copy_admin_key_secret(meta_om, namespace, primary_namespace)
         _configure_appdb_tls(primary_om_ext_appdb, primary_namespace)
 
@@ -310,7 +343,7 @@ class TestInitialSetup:
         mgmt_namespace: str,
         meta_om: MongoDBOpsManager,
         primary_om: MongoDBOpsManager,
-        primary_om_ext_appdb: MongoDB,
+        primary_om_ext_appdb: MongoDB | MongoDBMulti,
         workload_mdb: MongoDB,
         primary_backup_db: MongoDB,
         issuer_ca_filepath: str,
@@ -320,6 +353,8 @@ class TestInitialSetup:
         writes."""
         primary_om_ext_appdb_tester = meta_om.get_om_tester(project_name=f"{primary_om_ext_appdb.name}-project")
         primary_om_ext_appdb_tester.wait_until_backup_snapshots_are_ready(expected_count=1)
+        if is_multicluster():
+            _assert_primary_om_ext_appdb_statefulset_owned_by_mongodb(primary_om_ext_appdb.namespace)
 
         workload_tester = primary_om.get_om_tester(project_name=f"{workload_mdb.name}-project")
         workload_tester.wait_until_backup_snapshots_are_ready(expected_count=1)
@@ -377,7 +412,7 @@ class TestDisaster:
     def test_delete_primary_and_workload_namespaces(
         self,
         primary_om: MongoDBOpsManager,
-        primary_om_ext_appdb: MongoDB,
+        primary_om_ext_appdb: MongoDB | MongoDBMulti,
         primary_backup_db: MongoDB,
         workload_mdb: MongoDB,
         primary_namespace: str,
@@ -430,8 +465,21 @@ class TestRestore:
             _copy_secret_raw(mgmt_namespace, backup_prefix, primary_namespace, secret_name)
 
     def test_deploy_primary_ext_appdb(
-        self, meta_om: MongoDBOpsManager, primary_om_ext_appdb: MongoDB, namespace: str, primary_namespace: str
+        self,
+        meta_om: MongoDBOpsManager,
+        primary_om_ext_appdb: MongoDB | MongoDBMulti,
+        namespace: str,
+        primary_namespace: str,
     ):
+        if is_multicluster():
+            _copy_admin_key_secret(meta_om, namespace, primary_namespace)
+            _configure_appdb_tls(primary_om_ext_appdb, primary_namespace)
+            configure_appdb_role_mongodb(primary_om_ext_appdb, meta_om, primary_namespace)
+            primary_om_ext_appdb.update()
+            primary_om_ext_appdb.assert_reaches_phase(Phase.Running, timeout=900)
+            _assert_primary_om_ext_appdb_statefulset_owned_by_mongodb(primary_namespace)
+            return
+
         _copy_admin_key_secret(meta_om, namespace, primary_namespace)
         _configure_appdb_tls(primary_om_ext_appdb, primary_namespace)
 
@@ -442,7 +490,10 @@ class TestRestore:
         primary_om_ext_appdb.assert_reaches_phase(Phase.Running, timeout=900)
 
     def test_restore_primary_ext_appdb(
-        self, meta_om: MongoDBOpsManager, primary_om_ext_appdb: MongoDB, restore_points: dict[str, str]
+        self,
+        meta_om: MongoDBOpsManager,
+        primary_om_ext_appdb: MongoDB | MongoDBMulti,
+        restore_points: dict[str, str],
     ):
         appdb_tester = meta_om.get_om_tester(project_name=f"{primary_om_ext_appdb.name}-project")
         job_id = appdb_tester.create_restore_job_pit(
@@ -455,6 +506,9 @@ class TestRestore:
         # The sentinel check in the next test is the real proof the data was restored.
         time.sleep(5)
         primary_om_ext_appdb.assert_reaches_phase(Phase.Running, timeout=900)
+        if is_multicluster():
+            _assert_primary_om_ext_appdb_statefulset_owned_by_mongodb(primary_om_ext_appdb.namespace)
+            assert_project_exists(meta_om, primary_om_ext_appdb.name)
 
     def test_deploy_primary_backup_db(
         self, meta_om: MongoDBOpsManager, primary_backup_db: MongoDB, primary_namespace: str
@@ -745,13 +799,24 @@ def _configure_mdb_tls(mdb: MongoDB, ns: str) -> None:
     mdb.configure_custom_tls(CA_CONFIGMAP_NAME, MDB_CERT_PREFIX)
 
 
-def _configure_appdb_tls(appdb: MongoDB, ns: str) -> None:
+def _configure_appdb_tls(appdb: MongoDB | MongoDBMulti, ns: str) -> None:
     """Create TLS certs and configure TLS on the external AppDB MongoDB CR."""
     create_mongodb_tls_certs(ISSUER_NAME, ns, appdb.name, f"appdb-{appdb.name}-cert")
     appdb.configure_custom_tls(CA_CONFIGMAP_NAME, "appdb")
 
 
-def _create_project_config(om: MongoDBOpsManager, mdb: MongoDB) -> str:
+def _assert_primary_om_ext_appdb_statefulset_owned_by_mongodb(namespace: str) -> None:
+    if is_multicluster():
+        member_cluster = get_member_cluster_clients()[0]
+        cluster_index = member_cluster.cluster_index if member_cluster.cluster_index is not None else 0
+        sts = member_cluster.read_namespaced_stateful_set(f"{PRIMARY_OM_APPDB_NAME}-{cluster_index}", namespace)
+    else:
+        sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(PRIMARY_OM_APPDB_NAME, namespace)
+
+    assert_owned_by_mongodb(sts.metadata, PRIMARY_OM_APPDB_NAME)
+
+
+def _create_project_config(om: MongoDBOpsManager, mdb: MongoDB | MongoDBMulti) -> str:
     """Create the project config ConfigMap with TLS CA reference for the agent to verify OM HTTPS."""
     name = f"{mdb.name}-config"
     base_url = om.om_status().get_url()
