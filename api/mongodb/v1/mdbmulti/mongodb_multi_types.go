@@ -453,8 +453,8 @@ func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]interfa
 // when unmarshalling a MongoDBMultiCluster instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references
 func (m *MongoDBMultiCluster) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON *MongoDBMultiCluster
-	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
+	type MongoDBJSON MongoDBMultiCluster
+	if err := json.Unmarshal(data, (*MongoDBJSON)(m)); err != nil {
 		return err
 	}
 
