@@ -14,7 +14,12 @@ from kubetester import (
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
+from kubetester.kubetester import (
+    get_mongodb_version_for_automation_config,
+    is_default_architecture_static,
+    run_periodically,
+    skip_if_local,
+)
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
@@ -254,7 +259,7 @@ class TestReplicaSetCreation(KubernetesTester):
             p = processes[idx]
             assert p["name"] == f"k8s/{self.namespace}/{name}"
             assert p["processType"] == "mongod"
-            assert custom_mdb_version in p["version"]
+            assert p["version"] == get_mongodb_version_for_automation_config(custom_mdb_version)
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
             assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.{}".format(name, self.namespace, cluster_domain)
@@ -445,7 +450,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             p = processes[idx]
             assert p["name"] == f"k8s/{self.namespace}/{name}"
             assert p["processType"] == "mongod"
-            assert custom_mdb_version in p["version"]
+            assert p["version"] == get_mongodb_version_for_automation_config(custom_mdb_version)
             assert p["authSchemaVersion"] == 5
             assert p["featureCompatibilityVersion"] == fcv_from_version(custom_mdb_version)
             assert p["hostname"] == "{}.my-replica-set-svc.{}.svc.{}".format(name, self.namespace, cluster_domain)

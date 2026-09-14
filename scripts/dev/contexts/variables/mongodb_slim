@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+export SLIM_MDB_VERSION=8.0.23
+export SLIM_UBI_VERSION=9

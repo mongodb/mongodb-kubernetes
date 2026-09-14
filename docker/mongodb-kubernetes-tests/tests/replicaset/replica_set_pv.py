@@ -3,7 +3,7 @@ import pytest
 from kubernetes import client
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import get_mongodb_version_for_automation_config, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
@@ -74,7 +74,7 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
         config = self.get_automation_config()
         processes = config["processes"]
         for idx, p in enumerate(processes):
-            assert custom_mdb_version in p["version"]
+            assert p["version"] == get_mongodb_version_for_automation_config(custom_mdb_version)
             assert p["name"] == f"k8s/{self.namespace}/rs001-pv-{idx}"
             assert p["processType"] == "mongod"
             assert p["authSchemaVersion"] == 5
