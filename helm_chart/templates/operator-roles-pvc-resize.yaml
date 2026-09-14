@@ -48,17 +48,20 @@ retention policy), never by the operator.
 {{- end -}}
 
 
+{{- /* One Role per watched namespace: only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
 {{- $roleScope := "Role" -}}
-{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
-{{- $roleScope = "ClusterRole" }}
-{{- end }}
+{{- if has "*" $watchNamespace -}}
+{{- $roleScope = "ClusterRole" -}}
+{{- $watchNamespace = list "*" -}}
+{{- end -}}
+{{- range $idx, $namespace := $watchNamespace }}
 ---
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ $operatorNamespace }}
+  namespace: {{ $namespace }}
 {{- end }}
 {{- if $memberMode }}
   annotations:
@@ -73,6 +76,7 @@ rules:
       - list
       - watch
       - update
+{{- end }}
 {{- range $idx, $namespace := $watchNamespace }}
 
 {{- $namespaceBlock := "" }}

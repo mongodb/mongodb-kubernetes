@@ -9,6 +9,8 @@ from kubetester import (
     create_or_update_secret,
     delete_cluster_role,
     delete_cluster_role_binding,
+    delete_role,
+    delete_role_binding,
     delete_statefulset,
     read_secret,
     statefulset_is_deleted,
@@ -158,6 +160,8 @@ def test_delete_cluster_role_and_binding(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
+    mdba_ns: str,
+    mdbb_ns: str,
 ):
     # Cluster-scoped RBAC isn't namespaced, so it survives teardown between runs and a helm
     # reinstall would fail on the pre-existing resources; delete any leftovers before installing
@@ -179,20 +183,25 @@ def test_delete_cluster_role_and_binding(
         delete_cluster_role_binding(name, central_cluster_client)
 
     # Member-cluster RBAC (mck-member-*, unified names identical on every member cluster):
-    # the member roles are ClusterRoles in this test's render (multiple workload namespaces;
-    # a single-namespace render would use namespaced Roles instead).
-    member_role_names = (
+    # the member roles are namespaced Roles/RoleBindings rendered once per binding namespace
+    # (the workload namespaces mdba_ns/mdbb_ns plus the operator/member namespace), while
+    # telemetry remains cluster-scoped.
+    member_namespaced_role_names = (
         "mck-member-role-base",
-        "mck-member-role-base-binding",
         "mck-member-role-multicluster",
-        "mck-member-role-multicluster-binding",
         "mck-member-pvc-resize",
-        "mck-member-pvc-resize-binding",
+    )
+    member_cluster_role_names = (
         "mck-member-cluster-telemetry",
         "mck-member-cluster-telemetry-binding",
     )
+    member_binding_namespaces = (mdba_ns, mdbb_ns, namespace)
     for mcc in member_cluster_clients:
-        for name in member_role_names:
+        for ns in member_binding_namespaces:
+            for name in member_namespaced_role_names:
+                delete_role(ns, name, mcc.api_client)
+                delete_role_binding(ns, f"{name}-binding", mcc.api_client)
+        for name in member_cluster_role_names:
             delete_cluster_role(name, mcc.api_client)
             delete_cluster_role_binding(name, mcc.api_client)
 
