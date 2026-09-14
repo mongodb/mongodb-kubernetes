@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import ClassVar, Optional
 
 import pymongo
@@ -20,6 +21,8 @@ from tests.opsmanager.om_external_appdb_test_helpers import (
     assert_project_exists,
     assert_sentinel_doc_present,
     configure_appdb_role_mongodb,
+    get_member_cluster_clients,
+    is_multicluster,
     meta_om_resource,
     password_secret_name,
     ref_kind_for_appdb,
@@ -46,6 +49,45 @@ if the Primary OM can adopt the internal AppDB.
 """
 OM_NAME = "primary-om"
 DB_NAME = f"{OM_NAME}-db"  # must match the operator's required "<om-name>-db" naming convention
+
+
+def _multi_cluster_hosts(namespace: str, cluster_spec_list: list[dict]) -> set[str]:
+    return {
+        f"{DB_NAME}-{cluster_index}-{member_index}-svc.{namespace}.svc.cluster.local:27017"
+        for cluster_index, cluster_spec in enumerate(cluster_spec_list)
+        for member_index in range(cluster_spec["members"])
+    }
+
+
+def _read_appdb_statefulset(namespace: str):
+    if not is_multicluster():
+        return k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
+
+    for fallback_index, member_cluster in enumerate(get_member_cluster_clients()):
+        cluster_index = (
+            member_cluster.cluster_index
+            if member_cluster.cluster_index is not None
+            else fallback_index
+        )
+        return member_cluster.read_namespaced_stateful_set(f"{DB_NAME}-{cluster_index}", namespace)
+
+    raise AssertionError("no member clusters configured")
+
+
+def _assert_appdb_statefulsets_owned_by_ops_manager(namespace: str):
+    if not is_multicluster():
+        sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
+        assert_owned_by_ops_manager(sts.metadata, OM_NAME)
+        return
+
+    for fallback_index, member_cluster in enumerate(get_member_cluster_clients()):
+        cluster_index = (
+            member_cluster.cluster_index
+            if member_cluster.cluster_index is not None
+            else fallback_index
+        )
+        sts = member_cluster.read_namespaced_stateful_set(f"{DB_NAME}-{cluster_index}", namespace)
+        assert_owned_by_ops_manager(sts.metadata, OM_NAME)
 
 
 @fixture(scope="module")
@@ -117,7 +159,7 @@ class TestFreshStartExternalAppDB:
     def test_external_appdb_statefulset_created(self, namespace: str):
         # the StatefulSet belongs solely to the MongoDB CR - the OM controller must never have
         # touched its ownership in the fresh-start flow
-        sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
+        sts = _read_appdb_statefulset(namespace)
         assert_owned_by_mongodb(sts.metadata, DB_NAME)
         assert_no_migration_annotations(namespace, DB_NAME)
 
@@ -128,14 +170,23 @@ class TestFreshStartExternalAppDB:
         assert_owned_by_mongodb(sec.metadata, DB_NAME)
         assert "password" in read_secret(namespace, password_secret_name(OM_NAME))
 
-    def test_connection_string_secret(self, primary_om: MongoDBOpsManager, namespace: str, issuer_ca_filepath: str):
+    def test_connection_string_secret(
+        self,
+        primary_om: MongoDBOpsManager,
+        external_appdb: MongoDB,
+        namespace: str,
+        issuer_ca_filepath: str,
+    ):
         # the connection-string secret is created by the OM controller (never by the referenced
         # CR, per the design) and intentionally carries no OwnerReferences
         cnx_string = primary_om.read_appdb_connection_url()
         # the referenced CR has TLS enabled, so the operator-computed connection string must request TLS
         assert "ssl=true" in cnx_string
 
-        expected_hosts = {f"{DB_NAME}-{i}.{DB_NAME}-svc.{namespace}.svc.cluster.local:27017" for i in range(3)}
+        if is_multicluster():
+            expected_hosts = _multi_cluster_hosts(namespace, external_appdb["spec"]["clusterSpecList"])
+        else:
+            expected_hosts = {f"{DB_NAME}-{i}.{DB_NAME}-svc.{namespace}.svc.cluster.local:27017" for i in range(3)}
 
         # the URI itself must name the referenced CR's pods - not merely "work" via server discovery
         parsed = pymongo.uri_parser.parse_uri(cnx_string)
@@ -187,12 +238,22 @@ class TestReverseMigrationAfterFreshStart:
     def test_reverse_migration_reconfigure_om(
         self,
         primary_om: MongoDBOpsManager,
+        external_appdb: MongoDB,
         custom_appdb_version: str,
         appdb_ca_configmap: str,
         appdb_cert_prefix: str,
     ):
         primary_om.load()
         primary_om["spec"]["externalApplicationDatabaseRef"] = None
+        if is_multicluster():
+            primary_om["spec"]["applicationDatabase"] = {
+                "topology": "MultiCluster",
+                "clusterSpecList": deepcopy(external_appdb["spec"]["clusterSpecList"]),
+                "version": custom_appdb_version,
+                "security": {"certsSecretPrefix": appdb_cert_prefix, "tls": {"ca": appdb_ca_configmap}},
+            }
+            primary_om.update()
+            return
         # the internal AppDB keeps TLS with the same CA/certs as the external CR, so the computed
         # connection string (ssl=true + same hosts) is unchanged and the migration stays graceful.
         primary_om["spec"]["applicationDatabase"] = {
@@ -217,8 +278,11 @@ class TestReverseMigrationAfterFreshStart:
 
     def test_internal_appdb_statefulset_created(self, namespace: str):
         # after adoption the StatefulSet belongs solely to the Ops Manager
-        sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
-        assert_owned_by_ops_manager(sts.metadata, OM_NAME)
+        if is_multicluster():
+            _assert_appdb_statefulsets_owned_by_ops_manager(namespace)
+        else:
+            sts = k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
+            assert_owned_by_ops_manager(sts.metadata, OM_NAME)
         assert_no_migration_annotations(namespace, DB_NAME)
 
     def test_om_secrets_only_updated_owner_reference(self, primary_om: MongoDBOpsManager, namespace: str):
@@ -229,6 +293,10 @@ class TestReverseMigrationAfterFreshStart:
 
     def test_delete_mongodb_cr_after_handover(self, external_appdb: MongoDB, namespace: str):
         external_appdb.delete()
+
+        if is_multicluster():
+            KubernetesTester.wait_until(lambda: not try_load(external_appdb), timeout=300)
+            return
 
         def cr_is_gone():
             try:
