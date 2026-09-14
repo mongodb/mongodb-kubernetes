@@ -25,11 +25,11 @@ if (( ${#missing_vars[@]} )); then
   echo "ERROR: Missing required environment variables:" >&2
   for m in "${missing_vars[@]}"; do echo "  - ${m}" >&2; done
   echo "Please edit env_variables.sh and set these values before proceeding." >&2
-  return 1 2>/dev/null || exit 1
+  exit 1
 elif ! kubectl config get-contexts "${K8S_CTX}" &>/dev/null; then
   echo "ERROR: Kubernetes context '${K8S_CTX}' does not exist." >&2
   kubectl config get-contexts -o name
-  return 1 2>/dev/null || exit 1
+  exit 1
 else
   echo "[ok] All required environment variables are set"
 fi
