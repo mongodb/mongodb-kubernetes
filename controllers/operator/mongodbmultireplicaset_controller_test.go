@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 	"testing/synctest"
@@ -683,6 +684,39 @@ func TestResourceDeletion(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetName("temple").
+		SetRole(mdb.RoleAppDB).
+		Build()
+	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+		{ClusterName: clusters[0], Members: 3},
+		{ClusterName: clusters[1], Members: 3},
+		{ClusterName: clusters[2], Members: 3},
+	}
+	mrs.Spec.Mapping = map[string]int{
+		clusters[0]: 0,
+		clusters[1]: 1,
+		clusters[2]: 2,
+	}
+	mrs.UID = types.UID("mrs-uid-1111")
+
+	reconciler, _, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName, OrgID: om.TestOrgID, GroupID: om.TestGroupID})
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	_, err := mockedOmConn.UpdateDeployment(om.Deployment{"processes": []om.Process{{"name": "temple-0-0", "hostname": "temple-0-0-svc.my-namespace.svc.cluster.local"}}})
+	require.NoError(t, err)
+	assert.NotEmpty(t, mockedOmConn.GetProcesses())
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, mrs, zap.S()))
+
+	assert.NotEmpty(t, mockedOmConn.GetProcesses())
+	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
 }
 
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
