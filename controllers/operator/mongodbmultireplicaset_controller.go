@@ -1535,6 +1535,20 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 			if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
 				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 			}
+
+			if mrs.Spec.Role == mdb.RoleAppDB {
+				secretClient, ok := r.memberClusterSecretClientsMap[clusterName]
+				if !ok {
+					errs = multierror.Append(errs, xerrors.Errorf("missing secret client for cluster %s", clusterName))
+					continue
+				}
+
+				for _, secretName := range []string{omv1.OpsManagerUserPasswordSecretName(mrs.Name), fmt.Sprintf("%s-keyfile", mrs.Name)} {
+					if err := secretClient.DeleteSecret(ctx, kube.ObjectKey(mrs.Namespace, secretName)); err != nil && !apiErrors.IsNotFound(err) {
+						errs = multierror.Append(errs, xerrors.Errorf("failed deleting secret %s in cluster %s: %w", secretName, clusterName, err))
+					}
+				}
+			}
 		}
 	}
 
