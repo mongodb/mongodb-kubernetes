@@ -5,6 +5,11 @@
 // cluster. Central-side per-cluster names (MemberCluster CR metadata.name and the credential
 // Secret derived from it via MemberClusterCredentialSecretName) use the RFC 1123 member
 // cluster name, not the logical spec.clusterName.
+//
+// The member ServiceAccount is rendered by the plugin under the default name
+// MemberClusterServiceAccountName unless the user pre-provisions their own and passes it
+// via --member-cluster-service-account; the token Secret is discovered via the
+// kubernetes.io/service-account.name annotation, never looked up by name.
 package resourcenames
 
 import (
@@ -14,15 +19,14 @@ import (
 const (
 	// memberClusterResourceName is the fixed base name (mck-member) shared by the
 	// member-cluster RBAC resources on every member cluster; individual resources append a
-	// suffix (-sa, -token, -role-base, -role-multicluster, ...).
+	// suffix (-sa, -token, -appdb, -database-pods, -ops-manager, ...).
 	memberClusterResourceName = "mck-member"
-)
 
-// MemberClusterTokenSecretName returns the name of the long-lived ServiceAccount token Secret on the
-// member cluster for the operator's member ServiceAccount (mck-member-sa).
-func MemberClusterTokenSecretName() string {
-	return memberClusterResourceName + "-token"
-}
+	// MemberClusterServiceAccountName is the default name of the member ServiceAccount the
+	// plugin renders (and registration discovers the token for) when the user does not
+	// pre-provision their own via --member-cluster-service-account.
+	MemberClusterServiceAccountName = memberClusterResourceName + "-sa"
+)
 
 // workloadServiceAccount pairs the fixed member-side SA name with the fixed helm-install
 // SA name.

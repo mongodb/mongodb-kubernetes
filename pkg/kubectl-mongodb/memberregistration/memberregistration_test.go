@@ -32,22 +32,44 @@ import (
 const (
 	testNamespace         = "mongodb"
 	testOperatorNamespace = "mongodb-operator"
+	testServiceAccount    = "mck-member-sa"
 	testServerURL         = "https://api.cluster-east.example.com:6443"
 	testToken             = "eyJ-test-token"
 	testCA                = "test-ca-data"
 )
 
-// tokenSecret returns a ServiceAccount token Secret as generate-member-resources would have
-// created it on the member cluster (the fixed mck-member-token name).
-func tokenSecret(namespace string, data map[string][]byte) *corev1.Secret {
+// memberServiceAccount returns the member ServiceAccount as the user would have created it on
+// the member cluster (day-2 credentials provisioning).
+func memberServiceAccount(namespace string) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testServiceAccount,
+			Namespace: namespace,
+		},
+	}
+}
+
+// tokenSecret returns a ServiceAccount token Secret as the user would have created it on the
+// member cluster: type kubernetes.io/service-account-token, annotated with the ServiceAccount
+// name so the token controller populates it (and so Generate can discover it).
+func tokenSecret(namespace, name, serviceAccount string, data map[string][]byte) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "mck-member-token",
-			Namespace: namespace,
+			Name:        name,
+			Namespace:   namespace,
+			Annotations: map[string]string{corev1.ServiceAccountNameKey: serviceAccount},
 		},
 		Type: corev1.SecretTypeServiceAccountToken,
 		Data: data,
 	}
+}
+
+// populatedTokenSecret is the ready-to-use fixture: token and ca.crt present.
+func populatedTokenSecret(namespace string) *corev1.Secret {
+	return tokenSecret(namespace, "mck-member-token", testServiceAccount, map[string][]byte{
+		corev1.ServiceAccountTokenKey:  []byte(testToken),
+		corev1.ServiceAccountRootCAKey: []byte(testCA),
+	})
 }
 
 // parseOutput decodes Generate's output into the two typed docs it emits, in order: Secret, then MemberCluster.
@@ -114,16 +136,14 @@ func TestGenerate(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
-				corev1.ServiceAccountTokenKey:  []byte(testToken),
-				corev1.ServiceAccountRootCAKey: []byte(testCA),
-			}))
+			client := fake.NewSimpleClientset(memberServiceAccount(testNamespace), populatedTokenSecret(testNamespace))
 
 			out, err := Generate(context.Background(), client, testServerURL, Options{
-				MemberClusterName:        tc.memberClusterName,
-				MemberClusterNamespace:   testNamespace,
-				OperatorNamespace:        testOperatorNamespace,
-				MemberClusterLogicalName: tc.logicalName,
+				MemberClusterName:           tc.memberClusterName,
+				MemberClusterNamespace:      testNamespace,
+				MemberClusterServiceAccount: testServiceAccount,
+				OperatorNamespace:           testOperatorNamespace,
+				MemberClusterLogicalName:    tc.logicalName,
 			})
 			require.NoError(t, err)
 
@@ -140,16 +160,14 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestGenerate_KubeconfigContents(t *testing.T) {
-	client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
-		corev1.ServiceAccountTokenKey:  []byte(testToken),
-		corev1.ServiceAccountRootCAKey: []byte(testCA),
-	}))
+	client := fake.NewSimpleClientset(memberServiceAccount(testNamespace), populatedTokenSecret(testNamespace))
 
 	out, err := Generate(context.Background(), client, testServerURL, Options{
-		MemberClusterName:        "cluster-east",
-		MemberClusterNamespace:   testNamespace,
-		OperatorNamespace:        testOperatorNamespace,
-		MemberClusterLogicalName: "cluster-east",
+		MemberClusterName:           "cluster-east",
+		MemberClusterNamespace:      testNamespace,
+		MemberClusterServiceAccount: testServiceAccount,
+		OperatorNamespace:           testOperatorNamespace,
+		MemberClusterLogicalName:    "cluster-east",
 	})
 	require.NoError(t, err)
 
@@ -180,18 +198,16 @@ func TestGenerate_KubeconfigContents(t *testing.T) {
 }
 
 func TestGenerate_KubeconfigContents_ApiServerOverride(t *testing.T) {
-	client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
-		corev1.ServiceAccountTokenKey:  []byte(testToken),
-		corev1.ServiceAccountRootCAKey: []byte(testCA),
-	}))
+	client := fake.NewSimpleClientset(memberServiceAccount(testNamespace), populatedTokenSecret(testNamespace))
 
 	const apiServerOverride = "https://member-api.internal:6443"
 	out, err := Generate(context.Background(), client, testServerURL, Options{
-		MemberClusterName:        "cluster-east",
-		MemberClusterNamespace:   testNamespace,
-		OperatorNamespace:        testOperatorNamespace,
-		MemberClusterLogicalName: "cluster-east",
-		MemberClusterApiServer:   apiServerOverride,
+		MemberClusterName:           "cluster-east",
+		MemberClusterNamespace:      testNamespace,
+		MemberClusterServiceAccount: testServiceAccount,
+		OperatorNamespace:           testOperatorNamespace,
+		MemberClusterLogicalName:    "cluster-east",
+		MemberClusterApiServer:      apiServerOverride,
 	})
 	require.NoError(t, err)
 
@@ -205,18 +221,16 @@ func TestGenerate_KubeconfigContents_ApiServerOverride(t *testing.T) {
 }
 
 func TestGenerate_KubeconfigContents_CertificateAuthorityOverride(t *testing.T) {
-	client := fake.NewSimpleClientset(tokenSecret(testNamespace, map[string][]byte{
-		corev1.ServiceAccountTokenKey:  []byte(testToken),
-		corev1.ServiceAccountRootCAKey: []byte(testCA),
-	}))
+	client := fake.NewSimpleClientset(memberServiceAccount(testNamespace), populatedTokenSecret(testNamespace))
 
 	caOverride := generateTestCAPEM(t, "member-cluster-ca-override")
 	out, err := Generate(context.Background(), client, testServerURL, Options{
-		MemberClusterName:        "cluster-east",
-		MemberClusterNamespace:   testNamespace,
-		OperatorNamespace:        testOperatorNamespace,
-		MemberClusterLogicalName: "cluster-east",
-		MemberClusterApiServerCA: caOverride,
+		MemberClusterName:           "cluster-east",
+		MemberClusterNamespace:      testNamespace,
+		MemberClusterServiceAccount: testServiceAccount,
+		OperatorNamespace:           testOperatorNamespace,
+		MemberClusterLogicalName:    "cluster-east",
+		MemberClusterApiServerCA:    caOverride,
 	})
 	require.NoError(t, err)
 
@@ -256,24 +270,73 @@ func generateTestCAPEM(t *testing.T, commonName string) []byte {
 
 func TestGenerate_Errors(t *testing.T) {
 	tests := map[string]struct {
-		objects     []*corev1.Secret
-		wantErrText string
+		objects        []runtime.Object
+		serviceAccount string
+		wantErrTexts   []string
 	}{
+		"missing service account": {
+			objects:      nil,
+			wantErrTexts: []string{"reading ServiceAccount mongodb/mck-member-sa"},
+		},
 		"missing token secret": {
-			objects:     nil,
-			wantErrText: "reading token secret",
+			objects:      []runtime.Object{memberServiceAccount(testNamespace)},
+			wantErrTexts: []string{`no token Secret for ServiceAccount "mck-member-sa" found`},
+		},
+		"annotated secret of a different type is ignored": {
+			objects: []runtime.Object{
+				memberServiceAccount(testNamespace),
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "not-a-token-secret",
+						Namespace:   testNamespace,
+						Annotations: map[string]string{corev1.ServiceAccountNameKey: testServiceAccount},
+					},
+					Type: corev1.SecretTypeOpaque,
+				},
+			},
+			wantErrTexts: []string{`no token Secret for ServiceAccount "mck-member-sa" found`},
+		},
+		"token secret annotated for another service account": {
+			objects: []runtime.Object{
+				memberServiceAccount(testNamespace),
+				tokenSecret(testNamespace, "other-token", "somebody-else", map[string][]byte{
+					corev1.ServiceAccountTokenKey:  []byte(testToken),
+					corev1.ServiceAccountRootCAKey: []byte(testCA),
+				}),
+			},
+			wantErrTexts: []string{`no token Secret for ServiceAccount "mck-member-sa" found`},
+		},
+		"multiple token secrets for the service account": {
+			objects: []runtime.Object{
+				memberServiceAccount(testNamespace),
+				tokenSecret(testNamespace, "token-one", testServiceAccount, nil),
+				tokenSecret(testNamespace, "token-two", testServiceAccount, nil),
+			},
+			// The ambiguity error must name the candidates so the user knows what to delete.
+			wantErrTexts: []string{"found 2 token Secrets", "token-one", "token-two"},
+		},
+		"empty service account name": {
+			objects:        []runtime.Object{memberServiceAccount(testNamespace), populatedTokenSecret(testNamespace)},
+			serviceAccount: "  ",
+			wantErrTexts:   []string{"MemberClusterServiceAccount must be non-empty"},
 		},
 		"missing token key": {
-			objects: []*corev1.Secret{tokenSecret(testNamespace, map[string][]byte{
-				corev1.ServiceAccountRootCAKey: []byte(testCA),
-			})},
-			wantErrText: `has no "token" key`,
+			objects: []runtime.Object{
+				memberServiceAccount(testNamespace),
+				tokenSecret(testNamespace, "mck-member-token", testServiceAccount, map[string][]byte{
+					corev1.ServiceAccountRootCAKey: []byte(testCA),
+				}),
+			},
+			wantErrTexts: []string{`has no "token" key`},
 		},
 		"missing ca key": {
-			objects: []*corev1.Secret{tokenSecret(testNamespace, map[string][]byte{
-				corev1.ServiceAccountTokenKey: []byte(testToken),
-			})},
-			wantErrText: `has no "ca.crt" key`,
+			objects: []runtime.Object{
+				memberServiceAccount(testNamespace),
+				tokenSecret(testNamespace, "mck-member-token", testServiceAccount, map[string][]byte{
+					corev1.ServiceAccountTokenKey: []byte(testToken),
+				}),
+			},
+			wantErrTexts: []string{`has no "ca.crt" key`},
 		},
 	}
 
@@ -283,21 +346,25 @@ func TestGenerate_Errors(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			client := fake.NewSimpleClientset()
-			for _, o := range tc.objects {
-				_, err := client.CoreV1().Secrets(o.Namespace).Create(context.Background(), o, metav1.CreateOptions{})
-				require.NoError(t, err)
+			client := fake.NewSimpleClientset(tc.objects...)
+
+			serviceAccount := tc.serviceAccount
+			if serviceAccount == "" {
+				serviceAccount = testServiceAccount
 			}
 
 			_, err := Generate(context.Background(), client, testServerURL, Options{
-				MemberClusterName:        "cluster-east",
-				MemberClusterNamespace:   testNamespace,
-				OperatorNamespace:        testOperatorNamespace,
-				MemberClusterLogicalName: "cluster-east",
-				TokenWaitTimeout:         50 * time.Millisecond,
+				MemberClusterName:           "cluster-east",
+				MemberClusterNamespace:      testNamespace,
+				MemberClusterServiceAccount: serviceAccount,
+				OperatorNamespace:           testOperatorNamespace,
+				MemberClusterLogicalName:    "cluster-east",
+				TokenWaitTimeout:            50 * time.Millisecond,
 			})
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantErrText)
+			for _, want := range tc.wantErrTexts {
+				assert.Contains(t, err.Error(), want)
+			}
 		})
 	}
 }
@@ -307,11 +374,8 @@ func TestGenerate_WaitsForTokenPopulation(t *testing.T) {
 	tokenPollInterval = time.Millisecond
 	defer func() { tokenPollInterval = originalPollInterval }()
 
-	populated := tokenSecret(testNamespace, map[string][]byte{
-		corev1.ServiceAccountTokenKey:  []byte(testToken),
-		corev1.ServiceAccountRootCAKey: []byte(testCA),
-	})
-	client := fake.NewSimpleClientset(populated)
+	populated := populatedTokenSecret(testNamespace)
+	client := fake.NewSimpleClientset(memberServiceAccount(testNamespace), populated)
 
 	// Simulate Kubernetes's token controller being slow: the first two reads see the Secret with
 	// no data, subsequent reads fall through to the tracker (which holds the populated Secret).
@@ -327,11 +391,12 @@ func TestGenerate_WaitsForTokenPopulation(t *testing.T) {
 	})
 
 	out, err := Generate(context.Background(), client, testServerURL, Options{
-		MemberClusterName:        "cluster-east",
-		MemberClusterNamespace:   testNamespace,
-		OperatorNamespace:        testOperatorNamespace,
-		MemberClusterLogicalName: "cluster-east",
-		TokenWaitTimeout:         10 * time.Second,
+		MemberClusterName:           "cluster-east",
+		MemberClusterNamespace:      testNamespace,
+		MemberClusterServiceAccount: testServiceAccount,
+		OperatorNamespace:           testOperatorNamespace,
+		MemberClusterLogicalName:    "cluster-east",
+		TokenWaitTimeout:            10 * time.Second,
 	})
 	require.NoError(t, err)
 
@@ -340,20 +405,18 @@ func TestGenerate_WaitsForTokenPopulation(t *testing.T) {
 	assert.Equal(t, "cluster-east", gotMemberCluster.Name)
 }
 
+// The token Secret must already exist (its absence is an immediate error — see
+// TestGenerate_Errors); only its population by the token controller is awaited.
 func TestGenerate_TokenWaitTimeout(t *testing.T) {
 	tests := map[string]struct {
-		objects     []*corev1.Secret
+		objects     []runtime.Object
 		wantErrText []string
 	}{
-		"secret never created": {
-			objects: nil,
-			wantErrText: []string{
-				"timed out after 50ms",
-				"was 'generate-member-resources' applied to it?",
-			},
-		},
 		"secret never populated": {
-			objects: []*corev1.Secret{tokenSecret(testNamespace, nil)},
+			objects: []runtime.Object{
+				memberServiceAccount(testNamespace),
+				tokenSecret(testNamespace, "mck-member-token", testServiceAccount, nil),
+			},
 			wantErrText: []string{
 				"timed out after 50ms",
 				`has no "token" key`,
@@ -367,18 +430,15 @@ func TestGenerate_TokenWaitTimeout(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			client := fake.NewSimpleClientset()
-			for _, o := range tc.objects {
-				_, err := client.CoreV1().Secrets(o.Namespace).Create(context.Background(), o, metav1.CreateOptions{})
-				require.NoError(t, err)
-			}
+			client := fake.NewSimpleClientset(tc.objects...)
 
 			_, err := Generate(context.Background(), client, testServerURL, Options{
-				MemberClusterName:        "cluster-east",
-				MemberClusterNamespace:   testNamespace,
-				OperatorNamespace:        testOperatorNamespace,
-				MemberClusterLogicalName: "cluster-east",
-				TokenWaitTimeout:         50 * time.Millisecond,
+				MemberClusterName:           "cluster-east",
+				MemberClusterNamespace:      testNamespace,
+				MemberClusterServiceAccount: testServiceAccount,
+				OperatorNamespace:           testOperatorNamespace,
+				MemberClusterLogicalName:    "cluster-east",
+				TokenWaitTimeout:            50 * time.Millisecond,
 			})
 			require.Error(t, err)
 			for _, want := range tc.wantErrText {

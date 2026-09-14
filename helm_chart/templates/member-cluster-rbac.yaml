@@ -1,5 +1,5 @@
 {{- /*
-Member-cluster credentials and multi-cluster-only RBAC.
+Member-cluster credentials (by default) and multi-cluster-only RBAC.
 
 Rendered only when `memberCluster.enabled=true`, which is set exclusively by
 `kubectl mongodb multicluster generate-member-resources` (never by helm install / OLM).
@@ -11,9 +11,16 @@ cluster is also configured as a member cluster.
 This file renders only what is member-specific:
 
   - the member ServiceAccount and its token Secret (the credentials the operator
-    authenticates with);
+    authenticates with) — rendered only in the default flow
+    (memberCluster.createCredentials=true); when the user passes
+    --member-cluster-service-account to the CLI (GitOps / pre-provisioned credentials),
+    the blocks are skipped and the user-provided SA is only referenced as the subject
+    of every member-mode binding;
   - mck-member-role-multicluster: the rules the operator needs ONLY because of
     multi-cluster operation (see the rule comments below).
+
+memberCluster.serviceAccount always carries the SA name (the flag value, or the default
+mck-member-sa when the CLI renders the credentials).
 
 Everything else the member cluster needs is rendered by the dual-mode templates, which
 share one source with the base installation: the operator's shared workload-management
@@ -26,8 +33,7 @@ The naming prefix is deliberately decoupled from `.Values.operator.name` (which 
 differs between single- and multi-cluster installs pending operator-name unification)
 and from the MemberCluster CR's metadata.name: member-side RBAC names are the fixed
 `mck-member-*` set on every member cluster. The mongodb.com/rbac-version annotation on
-them (including the well-known `mck-member-sa` ServiceAccount) is rendered so RBAC
-validation can be reintroduced later without re-annotating.
+them is rendered so RBAC validation can be reintroduced later without re-annotating.
 
 memberCluster.* is intentionally absent from values.yaml — it is a plugin-internal render
 flag, not a user-facing install option, so guard the access with `default dict`.
@@ -61,11 +67,12 @@ Scope model (set exclusively by the plugin):
 {{- $bindingNamespaces = list $namespace -}}
 {{- end }}
 {{- $rbacVersion := .Chart.Version | quote }}
+{{- if $memberCluster.createCredentials | default false }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ $name }}-sa
+  name: {{ $memberCluster.serviceAccount }}
   namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
@@ -78,9 +85,10 @@ metadata:
   name: {{ $name }}-token
   namespace: {{ $namespace }}
   annotations:
-    kubernetes.io/service-account.name: {{ $name }}-sa
+    kubernetes.io/service-account.name: {{ $memberCluster.serviceAccount }}
     mongodb.com/rbac-version: {{ $rbacVersion }}
 type: kubernetes.io/service-account-token
+{{- end }}
 {{- range $idx, $ns := $bindingNamespaces }}
 ---
 kind: {{ $roleScope }}
@@ -129,7 +137,7 @@ roleRef:
   name: {{ $name }}-role-multicluster
 subjects:
   - kind: ServiceAccount
-    name: {{ $name }}-sa
+    name: {{ $memberCluster.serviceAccount }}
     namespace: {{ $namespace }}
 {{- end }}
 {{- end }}
