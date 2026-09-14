@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.45; color:#202124; }
+h1 { font-size: 22pt; } h2 { font-size: 16pt; margin-top: 20px; } h3 { font-size: 13pt; }
+code { font-family: 'Roboto Mono','Courier New',monospace; font-size: 10pt; background:#f1f3f4; padding:1px 3px; border-radius:3px; }
+pre { font-family: 'Roboto Mono','Courier New',monospace; font-size: 9.5pt; background:#f1f3f4; padding:10px; border-radius:5px; white-space:pre-wrap; }
+pre code { background:none; padding:0; }
+blockquote { border-left:3px solid #dadce0; margin:0; padding:4px 12px; color:#5f6368; }
+table { border-collapse:collapse; } th,td { border:1px solid #dadce0; padding:4px 8px; text-align:left; }
+th { background:#f1f3f4; }
+</style></head><body>
+<h1 id="ops-manager-backup-overview">Ops Manager Backup — overview</h1>
+<h2 id="what-it-is">What it is</h2>
+<p><strong>Ops Manager (OM) Backup</strong> provides continuous, application-consistent backups of the MongoDB
+deployments that Ops Manager manages. Instead of periodic <code>mongodump</code> snapshots taken from outside,
+OM keeps a live copy of your data and a stream of oplog entries, which lets you:</p>
+<ul>
+<li><strong>Restore a full snapshot</strong> of a replica set or sharded cluster to a new or existing deployment.</li>
+<li><strong>Restore to any point in time</strong> (PITR) between snapshots, by replaying the oplog up to a chosen
+  timestamp — useful to recover from an accidental drop/delete.</li>
+<li><strong>Query a backup without restoring it</strong> (queryable backups).</li>
+<li>Meet retention/compliance requirements, optionally with <strong>immutable</strong> (WORM) backups.</li>
+</ul>
+<h2 id="why-you-need-it">Why you need it</h2>
+<ul>
+<li><strong>Disaster recovery</strong> — bring a deployment back after data loss, corruption, or a bad migration.</li>
+<li><strong>Operational safety net</strong> — roll back an erroneous bulk write to the exact moment before it.</li>
+<li><strong>Lower RPO/RTO</strong> than snapshot-only strategies, thanks to continuous oplog capture (PITR).</li>
+<li><strong>Centralized management</strong> — backup policies, snapshot schedules and restores are driven through
+  Ops Manager for every project it manages, rather than per-database tooling.</li>
+</ul>
+<h2 id="how-it-works-with-the-operator">How it works with the operator</h2>
+<p>When you enable Backup on a <code>MongoDBOpsManager</code> resource, the operator provisions and wires together
+these components:</p>
+<pre><code>   MongoDB deployments (agents)                  Ops Manager application
+            │  snapshots + oplog                          │  policies, schedules, restores
+            ▼                                              ▼
+      ┌──────────────┐        head DB (staging)     ┌──────────────────┐
+      │ Backup Daemon │◄──────────────────────────► │  snapshot store   │  (Blockstore or S3)
+      │  StatefulSet  │                              │  + oplog store    │  (PITR)
+      └──────────────┘                              └──────────────────┘
+</code></pre>
+<ul>
+<li><strong>Backup Daemon</strong> — a dedicated StatefulSet (separate from the OM application pods) that runs the
+  backup jobs: it maintains a local <strong>head database</strong> (staging copy of each backed-up deployment) and
+  writes snapshots to the configured store. Its state is reported under
+  <code>status.backup.phase</code> on the <code>MongoDBOpsManager</code> resource.</li>
+<li><strong>Snapshot store</strong> — where full snapshots live. Either an in-cluster <strong>Blockstore</strong> (a MongoDB
+  database) or an <strong>S3-compatible bucket</strong>.</li>
+<li><strong>Oplog store</strong> — a MongoDB database that stores the oplog slices enabling point-in-time restores.
+  Can also be backed by S3 (<code>s3OpLogStores</code>).</li>
+<li><strong>Metadata</strong> lives in the OM Application Database (AppDB).</li>
+</ul>
+<h2 id="enabling-backup">Enabling Backup</h2>
+<p>Backup is configured under <code>spec.backup</code> of the <code>MongoDBOpsManager</code> resource. Minimal shape:</p>
+<pre><code class="language-yaml">apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: ops-manager
+spec:
+  version: 8.0.7
+  applicationDatabase:
+    members: 3
+    version: 8.0.5-ent
+  backup:
+    enabled: true          # provisions the Backup Daemon StatefulSet
+    members: 1             # number of Backup Daemon pods
+    # --- snapshot store: pick ONE style ---
+    blockStores:           # in-cluster MongoDB blockstore(s)
+      - name: block-store
+        mongodbResourceRef:
+          name: backup-blockstore-db
+    # or S3 snapshot store:
+    # s3Stores:
+    #   - name: s3-snapshot
+    #     s3BucketName: my-om-snapshots
+    #     s3BucketEndpoint: s3.amazonaws.com
+    #     s3SecretRef: { name: s3-creds }
+    # --- oplog store (required for point-in-time restore) ---
+    opLogStores:
+      - name: oplog-store
+        mongodbResourceRef:
+          name: backup-oplog-db
+    # or S3-backed oplog: s3OpLogStores: [ ... ]
+</code></pre>
+<p>Key <code>spec.backup</code> fields (all optional unless noted):</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>Turns Backup on and provisions the Backup Daemon.</td>
+</tr>
+<tr>
+<td><code>members</code></td>
+<td>Number of Backup Daemon pods.</td>
+</tr>
+<tr>
+<td><code>headDB</code></td>
+<td>Persistence config for the daemon's local head database (size/StorageClass).</td>
+</tr>
+<tr>
+<td><code>blockStores</code></td>
+<td>In-cluster MongoDB <strong>snapshot</strong> store(s).</td>
+</tr>
+<tr>
+<td><code>s3Stores</code></td>
+<td>S3-compatible <strong>snapshot</strong> store(s).</td>
+</tr>
+<tr>
+<td><code>opLogStores</code></td>
+<td>MongoDB <strong>oplog</strong> store(s) — enables point-in-time restore.</td>
+</tr>
+<tr>
+<td><code>s3OpLogStores</code></td>
+<td>S3-backed oplog store(s).</td>
+</tr>
+<tr>
+<td><code>encryption.kmip</code></td>
+<td>KMIP-based backup encryption.</td>
+</tr>
+<tr>
+<td><code>assignmentLabels</code></td>
+<td>Labels that steer which deployments a daemon/store services.</td>
+</tr>
+<tr>
+<td><code>queryableBackupSecretRef</code></td>
+<td>PEM secret enabling queryable (restore-less) backups.</td>
+</tr>
+</tbody>
+</table>
+<p>For S3 stores you can enable <strong>S3 Object Lock</strong> for immutable backups, and (when the store's TLS is
+served by the same CA as the AppDB) reuse the AppDB CA as the S3 CA instead of supplying a separate
+one.</p>
+<h2 id="backup-and-the-external-appdb">Backup and the external AppDB</h2>
+<p>Backup metadata is stored in the AppDB, and both the OM application <strong>and the Backup Daemon</strong> connect
+to it. When the AppDB is an <strong>external</strong> <code>MongoDB</code> (<code>role: AppDB</code>) referenced through
+<code>spec.externalApplicationDatabaseRef</code> (see the <a href="./README.md">external-appdb runbooks</a>):</p>
+<ul>
+<li>The operator resolves the referenced <code>MongoDB</code> CR's TLS/CA and threads it into <strong>both</strong> the OM
+  StatefulSet <strong>and</strong> the Backup Daemon StatefulSet, so the daemon trusts a TLS-enabled external
+  AppDB exactly as it would an internal one.</li>
+<li>Enabling Backup is unchanged — you still set <code>spec.backup</code> on the primary OM. The only difference
+  is where the AppDB lives; the Backup Daemon connects using the same operator-computed AppDB
+  connection string (and CA) that the OM uses.</li>
+</ul>
+<h2 id="verifying">Verifying</h2>
+<pre><code class="language-bash"># Backup Daemon rollout state:
+kubectl get om &lt;om-name&gt; -n &lt;ns&gt; -o jsonpath='{.status.backup.phase}{&quot;\n&quot;}'   # -&gt; Running when ready
+
+# Backup Daemon StatefulSet and pods:
+kubectl get statefulset,pods -n &lt;ns&gt; -l app=&lt;om-name&gt;-backup-daemon
+</code></pre>
+<p>Once <code>status.backup.phase</code> is <code>Running</code>, configure snapshot schedules and run restores from the Ops
+Manager UI (or its API) for any project OM manages.</p>
+<h2 id="notes-caveats">Notes &amp; caveats</h2>
+<ul>
+<li><strong>Oplog store is required for point-in-time restores.</strong> With only a snapshot store you can restore
+  whole snapshots but not to an arbitrary timestamp.</li>
+<li><strong>Storage sizing</strong> — the head DB and snapshot store grow with your data and retention; size
+  <code>headDB</code> and the store databases/buckets accordingly.</li>
+<li><strong>Disabling Backup</strong> (<code>enabled: false</code>) removes the Backup Daemon but does not delete data already
+  written to external stores (S3 buckets, blockstore databases).
+</content></li>
+</ul>
+</body></html>
