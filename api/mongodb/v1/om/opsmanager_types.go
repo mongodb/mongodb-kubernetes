@@ -185,13 +185,18 @@ type ExternalAppDBRef struct {
 	Name string `json:"name"`
 
 	// Kind of the referenced resource.
-	// +kubebuilder:validation:Enum=MongoDB
+	// +kubebuilder:validation:Enum=MongoDB;MongoDBMultiCluster
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
 
 	// Transient fields
 	Namespace string `json:"-"`
 }
+
+const (
+	ExternalAppDBRefKindMongoDB             = "MongoDB"
+	ExternalAppDBRefKindMongoDBMultiCluster = "MongoDBMultiCluster"
+)
 
 type Logging struct {
 	// LogBackAccessRef points at a ConfigMap/key with the logback access configuration file to mount on the Pod
@@ -637,10 +642,12 @@ type MongoDBUserRef struct {
 }
 
 func (om *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON *MongoDBOpsManager
-	if err := json.Unmarshal(data, (MongoDBJSON)(om)); err != nil {
+	type mongoDBOpsManagerAlias MongoDBOpsManager
+	var alias mongoDBOpsManagerAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
 		return err
 	}
+	*om = MongoDBOpsManager(alias)
 	om.InitDefaultFields()
 
 	return nil
