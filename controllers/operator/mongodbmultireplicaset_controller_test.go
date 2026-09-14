@@ -1759,6 +1759,113 @@ func TestMDBMultiAppDBAdoptionGate_WiredIntoReconcileStatefulSets(t *testing.T) 
 	assert.NotContains(t, result.Annotations, util.AppDBMigrationReadyAnnotation)
 }
 
+func TestEnsureAppDBRoleUser_Multi(t *testing.T) {
+	ctx := context.Background()
+	secretName := func(mrs *mdbmulti.MongoDBMultiCluster) string {
+		return fmt.Sprintf("%s-om-password", mrs.Name)
+	}
+
+	tests := []struct {
+		name             string
+		role             string
+		setup            func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet)
+		expectedSecret   bool
+		expectedPassword string
+	}{
+		{
+			name:           "fresh start creates password secret and user",
+			role:           mdb.RoleAppDB,
+			expectedSecret: true,
+		},
+		{
+			name: "forward migration reuses existing password verbatim",
+			role: mdb.RoleAppDB,
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet) {
+				require.NoError(t, reconciler.SecretClient.CreateSecret(ctx, corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: secretName(mrs), Namespace: mrs.Namespace},
+					Data:       map[string][]byte{util.OpsManagerPasswordKey: []byte("pre-existing-password")},
+				}))
+			},
+			expectedSecret:   true,
+			expectedPassword: "pre-existing-password",
+		},
+		{
+			name:           "non-AppDB is a no-op",
+			role:           "",
+			expectedSecret: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs, reconciler, _, omConnectionFactory := newMultiClusterGateFixture(tt.role)
+			conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+			if tt.setup != nil {
+				tt.setup(t, mrs, reconciler)
+			}
+
+			err := reconciler.ensureAppDBRoleUser(ctx, mrs, conn)
+			require.NoError(t, err)
+
+			passwordSecret := corev1.Secret{}
+			passwordSecret, err = reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, secretName(mrs)))
+			if tt.expectedSecret {
+				require.NoError(t, err)
+				if tt.expectedPassword != "" {
+					assert.Equal(t, tt.expectedPassword, string(passwordSecret.Data[util.OpsManagerPasswordKey]))
+				} else {
+					assert.NotEmpty(t, passwordSecret.Data[util.OpsManagerPasswordKey])
+				}
+			} else {
+				assert.Error(t, err)
+			}
+
+			ac, err := conn.ReadAutomationConfig()
+			require.NoError(t, err)
+			if tt.role == mdb.RoleAppDB {
+				_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+				require.NotNil(t, createdUser)
+				assert.Equal(t, util.OpsManagerMongoDBUserName, createdUser.Username)
+				assertAppDBRoleUserRolesAndCreds(t, createdUser)
+			} else {
+				assert.Len(t, ac.Auth.Users, 0)
+			}
+		})
+	}
+}
+
+func TestAppDBSecretDistribution_Multi(t *testing.T) {
+	ctx := context.Background()
+	mrs, reconciler, _, omConnectionFactory := newMultiClusterGateFixture(mdb.RoleAppDB)
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	require.NoError(t, reconciler.ensureAppDBRoleUser(ctx, mrs, conn))
+	require.NoError(t, reconciler.ensureAppDBRoleKeyfile(ctx, mrs, conn))
+
+	passwordSecretName := fmt.Sprintf("%s-om-password", mrs.Name)
+	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
+	centralPasswordSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
+	require.NoError(t, err)
+	centralKeyfileSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
+	require.NoError(t, err)
+
+	for _, clusterName := range clusters {
+		t.Run(clusterName, func(t *testing.T) {
+			require.NoError(t, reconciler.copyAppDBRoleSecretsToMemberCluster(ctx, mrs, clusterName))
+
+			memberPasswordSecret, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
+			require.NoError(t, err)
+			assert.Equal(t, centralPasswordSecret.Data, memberPasswordSecret.Data)
+			assert.Empty(t, memberPasswordSecret.OwnerReferences)
+
+			memberKeyfileSecret, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
+			require.NoError(t, err)
+			assert.Equal(t, centralKeyfileSecret.Data, memberKeyfileSecret.Data)
+			assert.Empty(t, memberKeyfileSecret.OwnerReferences)
+		})
+	}
+}
+
 // specsAreEqual compares two different MongoDBMultiSpec instances and returns true if they are equal.
 // the specs need to be marshaled and bytes compared as this ensures that empty slices are converted to nil
 // ones and gives an accurate comparison.
