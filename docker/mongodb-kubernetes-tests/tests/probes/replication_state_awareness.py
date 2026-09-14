@@ -16,6 +16,7 @@ import pymongo
 import yaml
 from kubernetes.client.rest import ApiException
 from kubetester import find_fixture, try_load, wait_until
+from kubetester.kubetester import skip_if_static_containers
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_utils_replicaset import generic_replicaset
 from kubetester.mongotester import upload_random_data
@@ -76,12 +77,14 @@ def replica_set(namespace: str) -> MongoDB:
     return resource
 
 
+@skip_if_static_containers
 @mark.e2e_replication_state_awareness
 def test_replicaset_reaches_running_state(replica_set: MongoDB):
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
+@skip_if_static_containers
 @mark.e2e_replication_state_awareness
 def test_inserts_50k_documents(replica_set: MongoDB):
     client = replica_set.tester().client
@@ -94,6 +97,7 @@ def test_inserts_50k_documents(replica_set: MongoDB):
     )
 
 
+@skip_if_static_containers
 @mark.e2e_replication_state_awareness
 @mark.asyncio
 async def test_fill_up_database(replica_set: MongoDB):
@@ -109,6 +113,7 @@ async def test_fill_up_database(replica_set: MongoDB):
     logging.info("All uploaders have finished.")
 
 
+@skip_if_static_containers
 @mark.e2e_replication_state_awareness
 def test_kill_pod_while_writing(replica_set: MongoDB):
     """Keeps writing documents to the database while it is being
