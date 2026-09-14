@@ -1407,6 +1407,199 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 	}
 }
 
+func TestTelemetry_ExternalAppDBMultiCluster(t *testing.T) {
+	tests := map[string]struct {
+		objects                      []client.Object
+		expectedEventsWithProperties []map[string]any
+	}{
+		"MongoDBMultiCluster external AppDB with backup and cluster-specific domains": {
+			objects: []client.Object{
+				&mdbmulti.MongoDBMultiCluster{
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
+							ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+								ExternalDomain: ptr.To("some.default.domain"),
+							},
+							Backup: &mdbv1.Backup{
+								Mode: "enabled",
+							},
+						},
+						ClusterSpecList: []mdbv1.ClusterSpecItem{
+							{ClusterName: "cluster1", Members: 3, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster1.domain")}},
+							{ClusterName: "cluster2", Members: 3},
+							{ClusterName: "cluster3", Members: 3},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdbm-clusters-uid",
+						Name:      "om-ext-appdb-mdbm-clusters-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "om-ext-appdb-mdbm-clusters-db",
+							Kind: "MongoDBMultiCluster",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-mdbm-clusters-uid",
+						Name:      "om-ext-appdb-mdbm-clusters",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "ext-appdb-mdbm-clusters-uid",
+					"role":                     "AppDB",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           true,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainMixed,
+					"customRoles":              CustomRoleNone,
+					"databaseClusters":         float64(3),
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-mdbm-clusters-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDBMultiCluster",
+					"appDBBackupMode":          "enabled",
+					"externalDomains":          ExternalDomainMixed,
+					"appDBClusters":            float64(3),
+				},
+			},
+		},
+		"MongoDBMultiCluster external AppDB missing CR keeps kind and clears backup mode": {
+			objects: []client.Object{
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "missing-mdbm-db",
+							Kind: "MongoDBMultiCluster",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-mdbm-missing-uid",
+						Name:      "om-ext-appdb-mdbm-missing",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "ext-appdb-om-mdbm-missing-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDBMultiCluster",
+				},
+			},
+		},
+		"MongoDB external AppDB regression stays unchanged": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Role:         "AppDB",
+							Backup: &mdbv1.Backup{
+								Mode: "enabled",
+							},
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-mdb-backup-none-uid",
+						Name:      "om-ext-appdb-backup-none-db",
+						Namespace: "test-ns",
+					},
+				},
+				&omv1.MongoDBOpsManager{
+					Spec: omv1.MongoDBOpsManagerSpec{
+						Topology: "Single",
+						ExternalAppDBRef: &omv1.ExternalAppDBRef{
+							Name: "om-ext-appdb-backup-none-db",
+							Kind: "MongoDB",
+						},
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						UID:       "ext-appdb-om-backup-none-uid",
+						Name:      "om-ext-appdb-backup-none",
+						Namespace: "test-ns",
+					},
+				},
+			},
+			expectedEventsWithProperties: []map[string]any{
+				{
+					"deploymentUID":            "ext-appdb-mdb-backup-none-uid",
+					"role":                     "AppDB",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     string(mdbv1.ReplicaSet),
+					"IsRunningEnterpriseImage": false,
+					"externalDomains":          ExternalDomainNone,
+					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
+				},
+				{
+					"deploymentUID":            "ext-appdb-om-backup-none-uid",
+					"operatorID":               testOperatorUUID,
+					"architecture":             string(architectures.NonStatic),
+					"isMultiCluster":           false,
+					"type":                     "OpsManager",
+					"IsRunningEnterpriseImage": true,
+					"externalAppDB":            "MongoDB",
+					"appDBBackupMode":          "enabled",
+					"externalDomains":          ExternalDomainNone,
+				},
+			},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(test.objects...).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			ctx := context.Background()
+
+			beforeCallTimestamp := time.Now()
+			events := collectDeploymentsSnapshot(ctx, mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
+			afterCallTimestamp := time.Now()
+
+			require.Len(t, events, len(test.expectedEventsWithProperties), "expected and collected events count don't match")
+			for _, expectedEventWithProperties := range test.expectedEventsWithProperties {
+				deploymentUID := expectedEventWithProperties["deploymentUID"]
+				event := findEventWithDeploymentUID(events, deploymentUID.(string))
+				require.NotNil(t, "could not find event with deploymentUID %s", deploymentUID)
+
+				assert.Equal(t, Deployments, event.Source)
+				require.NotNilf(t, event.Timestamp, "event timestamp is nil for %s deployment", deploymentUID)
+				assert.LessOrEqual(t, beforeCallTimestamp, event.Timestamp)
+				assert.GreaterOrEqual(t, afterCallTimestamp, event.Timestamp)
+
+				assert.Equal(t, expectedEventWithProperties, event.Properties)
+			}
+		})
+	}
+}
+
 func findEventWithDeploymentUID(events []Event, deploymentUID string) *Event {
 	for _, event := range events {
 		if event.Properties["deploymentUID"] == deploymentUID {
