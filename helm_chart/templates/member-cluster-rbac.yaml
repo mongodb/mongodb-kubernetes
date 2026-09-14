@@ -1,5 +1,5 @@
 {{- /*
-Multi-cluster-only member-cluster RBAC.
+Member-cluster credentials (by default) and multi-cluster-only RBAC.
 
 Rendered only when `memberCluster.enabled=true`, which is set exclusively by
 `kubectl mongodb multicluster generate-member-resources` (never by helm install / OLM).
@@ -10,14 +10,17 @@ cluster is also configured as a member cluster.
 
 This file renders only what is member-specific:
 
+  - the member ServiceAccount and its token Secret (the credentials the operator
+    authenticates with) — rendered only in the default flow
+    (memberCluster.createCredentials=true); when the user passes
+    --member-cluster-service-account to the CLI (GitOps / pre-provisioned credentials),
+    the blocks are skipped and the user-provided SA is only referenced as the subject
+    of every member-mode binding;
   - mck-member-role-multicluster: the rules the operator needs ONLY because of
     multi-cluster operation (see the rule comments below).
 
-The member ServiceAccount and its token Secret (the credentials the operator
-authenticates with) are NOT rendered: they are provisioned by the user as a day-2
-configuration step before RBAC is applied, and the user passes the ServiceAccount
-name to the CLI (--member-cluster-service-account), which lands here as
-memberCluster.serviceAccount — the subject of every member-mode binding.
+memberCluster.serviceAccount always carries the SA name (the flag value, or the default
+mck-member-sa when the CLI renders the credentials).
 
 Everything else the member cluster needs is rendered by the dual-mode templates, which
 share one source with the base installation: the operator's shared workload-management
@@ -64,6 +67,28 @@ Scope model (set exclusively by the plugin):
 {{- $bindingNamespaces = list $namespace -}}
 {{- end }}
 {{- $rbacVersion := .Chart.Version | quote }}
+{{- if $memberCluster.createCredentials | default false }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $memberCluster.serviceAccount }}
+  namespace: {{ $namespace }}
+  annotations:
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+---
+# Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
+# longer auto-created, so we create one explicitly for the operator to authenticate with.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}-token
+  namespace: {{ $namespace }}
+  annotations:
+    kubernetes.io/service-account.name: {{ $memberCluster.serviceAccount }}
+    mongodb.com/rbac-version: {{ $rbacVersion }}
+type: kubernetes.io/service-account-token
+{{- end }}
 {{- range $idx, $ns := $bindingNamespaces }}
 ---
 kind: {{ $roleScope }}

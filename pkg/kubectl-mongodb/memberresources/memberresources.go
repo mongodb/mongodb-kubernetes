@@ -24,9 +24,10 @@ import (
 //     mck-member-role-multicluster holding the rules the operator needs only
 //     because of multi-cluster operation (deletecollection cleanup; the
 //     serviceaccounts get self-read for the parked rbac-version validation was
-//     removed with that scaffolding). The member ServiceAccount and its token
-//     Secret are NOT rendered: the user provisions them before applying RBAC
-//     and passes the ServiceAccount name via --member-cluster-service-account.
+//     removed with that scaffolding), plus — in the default flow
+//     (createCredentials=true) — the member ServiceAccount and its token Secret.
+//     When the user pre-provisions credentials (--member-cluster-service-account),
+//     createCredentials is false and only the bindings reference the given SA.
 //   - operator-roles-base.yaml: dual-mode; in member mode it renders
 //     mck-member-role-base — the operator's shared workload-management
 //     rules, identical to the base installation's role, from a single unconditional
@@ -54,9 +55,12 @@ var memberTemplates = []string{
 // Render renders the member-cluster templates from the embedded chart with the given
 // member-cluster values and returns the concatenated YAML.
 //
-//   - serviceAccount: name of the user-provisioned ServiceAccount on the member cluster
-//     the operator authenticates as; every rendered binding targets it as its subject.
-//     Must be non-empty.
+//   - serviceAccount: name of the member ServiceAccount the operator authenticates as —
+//     either the user-pre-provisioned one (--member-cluster-service-account) or the
+//     default the CLI resolved (mck-member-sa). Every rendered binding targets it as its
+//     subject. Must be non-empty.
+//   - createCredentials: also render the ServiceAccount itself and its token Secret (the
+//     default flow); false when the user pre-provisioned the credentials.
 //   - workloadNamespaces: namespaces where workloads run on the member cluster; workload
 //     ServiceAccounts/Roles are seeded in each, and (unless operatorClusterScoped) each operator
 //     role is rendered as a namespaced Role once per binding namespace — the union of the
@@ -70,7 +74,7 @@ var memberTemplates = []string{
 //   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding (cluster-scoped
 //     regardless of the mode above).
 //   - imagePullSecrets: when non-empty, set as the workload ServiceAccounts' imagePullSecrets.
-func Render(namespace string, serviceAccount string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
+func Render(namespace string, serviceAccount string, createCredentials bool, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
 	if strings.TrimSpace(serviceAccount) == "" {
 		return "", xerrors.Errorf("serviceAccount must be non-empty")
 	}
@@ -84,6 +88,7 @@ func Render(namespace string, serviceAccount string, workloadNamespaces []string
 		"memberCluster": map[string]any{
 			"enabled":            true,
 			"serviceAccount":     serviceAccount,
+			"createCredentials":  createCredentials,
 			"clusterScoped":      operatorClusterScoped,
 			"workloadNamespaces": workloadNamespaces,
 		},

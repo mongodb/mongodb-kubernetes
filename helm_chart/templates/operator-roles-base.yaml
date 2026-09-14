@@ -10,9 +10,10 @@ Operator RBAC for the clusters the operator manages workloads on. Dual-mode temp
   - Member mode (memberCluster.enabled=true, set exclusively by
     `kubectl mongodb multicluster generate-member-resources`): renders
     mck-member-role-base — ONLY the shared workload-management rules,
-    identical to the base-mode set (hence "-role-base") — bound to the user-provided
-    member ServiceAccount (memberCluster.serviceAccount, passed to the CLI via
-    --member-cluster-service-account), additive to the base installation RBAC.
+    identical to the base-mode set (hence "-role-base") — bound to the member
+    ServiceAccount (memberCluster.serviceAccount: the --member-cluster-service-account
+    value, or the default mck-member-sa the CLI renders the credentials under),
+    additive to the base installation RBAC.
     The central-only rules are excluded: Custom Resources live on the central cluster
     only. Rules the operator needs only because of multi-cluster operation
     (deletecollection cleanup) live in

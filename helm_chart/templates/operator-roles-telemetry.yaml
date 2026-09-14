@@ -6,8 +6,9 @@
 {{- $saName := .Values.operator.name }}
 {{- if $memberMode }}
 {{- /* Member mode (rendered only by `kubectl mongodb multicluster generate-member-resources`):
-       same rules bound to the user-provided member ServiceAccount
-       (memberCluster.serviceAccount), using the unified mck-member-*
+       same rules bound to the member ServiceAccount (memberCluster.serviceAccount: the
+       --member-cluster-service-account value, or the default mck-member-sa the CLI
+       renders the credentials under), using the unified mck-member-*
        naming (identical on every member cluster) so they are additive to the base
        installation RBAC. */}}
 {{- $memberPrefix := "mck-member" }}
