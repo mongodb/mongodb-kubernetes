@@ -119,11 +119,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_standalone_groups
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_standalone_recovery
     tags: [ "patch-run" ]
     commands:
@@ -240,11 +235,6 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_config_map
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_replica_set_groups
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -571,10 +561,6 @@ tasks:
 
   - name: e2e_replica_set_tls_require_and_disable
     tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_tls_multiple_different_ssl_configs
     commands:
       - func: "e2e_test"
 

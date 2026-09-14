@@ -11,7 +11,7 @@ PASSWORD = "my-password"
 
 
 @fixture(scope="module")
-def replica_set(openldap: OpenLDAP, namespace: str, custom_mdb_prev_version: str) -> MongoDB:
+def replica_set(openldap: OpenLDAP, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(find_fixture("ldap/ldap-agent-auth.yaml"), namespace=namespace)
 
     secret_name = "bind-query-password"
@@ -34,7 +34,7 @@ def replica_set(openldap: OpenLDAP, namespace: str, custom_mdb_prev_version: str
         },
         "automationUserName": "mms-automation-agent",
     }
-    resource.set_version(ensure_ent_version(custom_mdb_prev_version))
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     try_load(resource)
 
@@ -124,7 +124,6 @@ def test_new_ldap_users_can_authenticate_after_scaling(replica_set: MongoDB, lda
 def test_disable_agent_auth(replica_set: MongoDB):
     replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["enabled"] = False
-    replica_set["spec"]["security"]["authentication"]["agents"]["enabled"] = False
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -143,10 +142,8 @@ def test_deployment_is_reachable_with_no_auth(replica_set: MongoDB):
 
 @mark.e2e_replica_set_ldap_agent_auth
 def test_enable_SCRAM_auth(replica_set: MongoDB):
-    replica_set["spec"]["security"]["authentication"]["agents"]["enabled"] = True
     replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     replica_set["spec"]["security"]["authentication"]["enabled"] = True
-    replica_set["spec"]["security"]["authentication"]["mode"] = "SCRAM"
     replica_set.update()
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 

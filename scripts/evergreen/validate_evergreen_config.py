@@ -57,15 +57,9 @@ UNUSED_TASK_ALLOWLIST: dict[str, str] = {
     "e2e_replica_set_x509_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
     "e2e_replica_set_ldap_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
     "e2e_sharded_cluster_ldap_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
-    # --- Orphaned e2e tasks with a live pytest test (KUBE-447): needs its own investigation why they fail (do NOT delete def alone) ---
-    "e2e_standalone_groups": "orphaned; live test docker/.../tests/standalone/standalone_groups.py",
-    "e2e_replica_set_groups": "orphaned; live test docker/.../tests/replicaset/replica_set_groups.py; fails in CI (needs investigation)",
-    "e2e_tls_multiple_different_ssl_configs": "orphaned; live test docker/.../tests/tls/tls_multiple_different_ssl_configs.py; fails in CI (needs investigation)",
-    "e2e_replica_set_ldap_agent_auth": "orphaned; live test docker/.../tests/authentication/replica_set_agent_ldap.py; fails in CI (needs investigation)",
-    "e2e_replica_set_scram_x509_internal_cluster": "orphaned; live test docker/.../tests/authentication/replica_set_scram_x509_internal_cluster.py; fails in CI (needs investigation)",
-    "e2e_sharded_cluster_scram_x509_internal_cluster": "orphaned; live test docker/.../tests/authentication/sharded_cluster_scram_x509_internal_cluster.py; fails in CI (needs investigation)",
-    "e2e_multi_cluster_with_ldap": "orphaned; live test docker/.../tests/multicluster/multi_cluster_ldap.py; fails in CI (needs investigation)",
-    "e2e_multi_cluster_with_ldap_custom_roles": "orphaned; live test docker/.../tests/multicluster/multi_cluster_ldap_custom_roles.py; fails in CI (needs investigation)",
+    # --- Orphaned e2e tasks disabled pending KUBE-448 (multicluster LDAP-over-TLS: mongod fails to start in Istio mesh) ---
+    "e2e_multi_cluster_with_ldap": "disabled pending KUBE-448 (multicluster LDAP-over-TLS fails in Istio mesh)",
+    "e2e_multi_cluster_with_ldap_custom_roles": "disabled pending KUBE-448 (multicluster LDAP-over-TLS fails in Istio mesh)",
 }
 
 

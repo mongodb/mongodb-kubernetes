@@ -64,8 +64,7 @@ class TestParseValidationOutput:
         assert one not in result.stale_allowlist
 
     def test_stale_allowlist_entry_is_fatal(self):
-        dropped = "e2e_standalone_groups"
-        assert dropped in UNUSED_TASK_ALLOWLIST
+        dropped = next(iter(UNUSED_TASK_ALLOWLIST))
         lines = [_unused_line(t) for t in UNUSED_TASK_ALLOWLIST if t != dropped]
         result = parse_validation_output("\n".join(lines))
         assert not result.ok
