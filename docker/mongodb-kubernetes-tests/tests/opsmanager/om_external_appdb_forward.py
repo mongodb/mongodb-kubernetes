@@ -11,6 +11,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.common.cert.cert_issuer import create_appdb_certs
+from tests.conftest import get_member_cluster_clients
 from tests.opsmanager.om_external_appdb_test_helpers import (
     appdb_role_resource,
     appdb_tls_security,
@@ -18,11 +19,13 @@ from tests.opsmanager.om_external_appdb_test_helpers import (
     assert_project_exists,
     assert_sentinel_doc_present,
     configure_appdb_role_mongodb,
+    is_multicluster,
     meta_om_resource,
     password_secret_name,
     ref_kind_for_appdb,
     write_sentinel_doc,
 )
+from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 """
 E2E test coverage for External AppDB via MongoDB CR reference:
@@ -80,6 +83,8 @@ def primary_om(
     # start with a TLS-enabled internal AppDB so that after forward migration to the (also TLS)
     # external CR the connection string (ssl=true, same hosts) is unchanged.
     resource["spec"]["applicationDatabase"]["security"] = appdb_tls_security(appdb_ca_configmap, appdb_cert_prefix)
+    if is_multicluster():
+        enable_multi_cluster_deployment(resource, om_cluster_spec_list=[1, 1, 1], appdb_cluster_spec_list=[1, 1, 1])
     try_load(resource)
     return resource
 
@@ -111,9 +116,21 @@ class TestSentinelDocSurvivesForwardMigration:
     """Procedure 2: start with internal AppDB, write a sentinel doc, create the MongoDB (role: AppDB)
     CR named "<om-name>-db", set externalApplicationDatabaseRef, and wait for adoption."""
 
-    password_secret_before: ClassVar[dict[str, str]]
-    keyfile_secret_before: ClassVar[dict[str, str]]
-    connection_string_before: ClassVar[str]
+    password_secret_before: ClassVar[dict[int, dict[str, str]]]
+    keyfile_secret_before: ClassVar[dict[int, dict[str, str]]]
+    connection_string_secret_before: ClassVar[dict[str, str]]
+
+    def _member_cluster_secret_data(self, namespace: str, secret_name: str) -> dict[int, dict[str, str]]:
+        secrets: dict[int, dict[str, str]] = {}
+        for fallback_index, member_cluster in enumerate(get_member_cluster_clients()):
+            cluster_index = (
+                member_cluster.cluster_index if member_cluster.cluster_index is not None else fallback_index
+            )
+            secret = k8s_client.CoreV1Api(api_client=member_cluster.api_client).read_namespaced_secret(
+                secret_name, namespace
+            )
+            secrets[cluster_index] = secret.data
+        return secrets
 
     def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
         cnx_string = primary_om.read_appdb_connection_url()
@@ -122,9 +139,19 @@ class TestSentinelDocSurvivesForwardMigration:
         write_sentinel_doc(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_capture_state_before_migration(self, primary_om: MongoDBOpsManager, namespace: str):
-        self.__class__.password_secret_before = read_secret(namespace, password_secret_name(OM_NAME))
-        self.__class__.keyfile_secret_before = read_secret(namespace, f"{DB_NAME}-keyfile")
-        self.__class__.connection_string_before = primary_om.read_appdb_connection_url()
+        self.__class__.connection_string_secret_before = k8s_client.CoreV1Api().read_namespaced_secret(
+            primary_om.get_appdb_connection_url_secret_name(), namespace
+        ).data
+
+        if is_multicluster():
+            self.__class__.password_secret_before = self._member_cluster_secret_data(
+                namespace, password_secret_name(OM_NAME)
+            )
+            self.__class__.keyfile_secret_before = self._member_cluster_secret_data(namespace, f"{DB_NAME}-keyfile")
+            return
+
+        self.__class__.password_secret_before = {0: read_secret(namespace, password_secret_name(OM_NAME))}
+        self.__class__.keyfile_secret_before = {0: read_secret(namespace, f"{DB_NAME}-keyfile")}
 
     def test_create_external_appdb(self, external_appdb: MongoDB, meta_om: MongoDBOpsManager, namespace: str):
         configure_appdb_role_mongodb(external_appdb, meta_om, namespace)
@@ -162,15 +189,26 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_connection_string_unchanged_after_forward_migration(self, primary_om: MongoDBOpsManager):
         # same hosts + same password => the computed connection string value must not
         # change across the forward migration (and therefore OM pods never roll)
-        assert primary_om.read_appdb_connection_url() == self.connection_string_before
+        assert (
+            k8s_client.CoreV1Api()
+            .read_namespaced_secret(primary_om.get_appdb_connection_url_secret_name(), primary_om.namespace)
+            .data
+            == self.connection_string_secret_before
+        )
 
     def test_password_secret_unchanged_after_forward_migration(self, namespace: str):
-        password_secret_now = read_secret(namespace, password_secret_name(OM_NAME))
-        assert password_secret_now == self.password_secret_before
+        if is_multicluster():
+            assert self._member_cluster_secret_data(namespace, password_secret_name(OM_NAME)) == self.password_secret_before
+            return
+
+        assert read_secret(namespace, password_secret_name(OM_NAME)) == self.password_secret_before[0]
 
     def test_keyfile_secret_unchanged_after_forward_migration(self, namespace: str):
-        keyfile_secret_now = read_secret(namespace, f"{DB_NAME}-keyfile")
-        assert keyfile_secret_now == self.keyfile_secret_before
+        if is_multicluster():
+            assert self._member_cluster_secret_data(namespace, f"{DB_NAME}-keyfile") == self.keyfile_secret_before
+            return
+
+        assert read_secret(namespace, f"{DB_NAME}-keyfile") == self.keyfile_secret_before[0]
 
 
 @pytest.mark.e2e_om_external_appdb_forward
@@ -185,6 +223,10 @@ class TestReverseMigrationAfterForwardMigration:
 
     def test_reverse_migration_delete_mongodb_first(self, external_appdb: MongoDB, namespace: str):
         external_appdb.delete()
+
+        if is_multicluster():
+            KubernetesTester.wait_until(lambda: not try_load(external_appdb), timeout=300)
+            return
 
         def cr_is_gone():
             try:
@@ -202,6 +244,23 @@ class TestReverseMigrationAfterForwardMigration:
     def test_statefulset_garbage_collected(self, namespace: str):
         # plain deletion: the CR-owned StatefulSet goes with it; the OM in external mode reports
         # Failed on ref validation during the gap (tolerated, not asserted)
+        if is_multicluster():
+            def sts_is_gone():
+                for fallback_index, member_cluster in enumerate(get_member_cluster_clients()):
+                    cluster_index = (
+                        member_cluster.cluster_index if member_cluster.cluster_index is not None else fallback_index
+                    )
+                    try:
+                        member_cluster.read_namespaced_stateful_set(f"{DB_NAME}-{cluster_index}", namespace)
+                        return False
+                    except ApiException as e:
+                        if e.status != 404:
+                            raise
+                return True
+
+            KubernetesTester.wait_until(sts_is_gone, timeout=300)
+            return
+
         def sts_is_gone():
             try:
                 k8s_client.AppsV1Api().read_namespaced_stateful_set(DB_NAME, namespace)
@@ -216,6 +275,23 @@ class TestReverseMigrationAfterForwardMigration:
     def test_shared_secrets_garbage_collected(self, namespace: str):
         # the CR's OwnerReference on the shared secrets triggers their GC on CR deletion
         for name in [password_secret_name(OM_NAME), f"{DB_NAME}-keyfile"]:
+
+            if is_multicluster():
+
+                def secret_is_gone():
+                    for fallback_index, member_cluster in enumerate(get_member_cluster_clients()):
+                        try:
+                            k8s_client.CoreV1Api(api_client=member_cluster.api_client).read_namespaced_secret(
+                                name, namespace
+                            )
+                            return False
+                        except ApiException as e:
+                            if e.status != 404:
+                                raise
+                    return True
+
+                KubernetesTester.wait_until(secret_is_gone, timeout=300)
+                continue
 
             def secret_is_gone():
                 try:
@@ -247,6 +323,12 @@ class TestReverseMigrationAfterForwardMigration:
         # the data-preservation proof: written before the forward migration, survives CR deletion
         # and the recreate because the PVCs were retained. The internal AppDB security (TLS) is
         # inherited from the OM spec's applicationDatabase, so the reconnect is over TLS.
+        if is_multicluster():
+            assert_sentinel_doc_present(
+                primary_om.read_appdb_connection_url(), tls_ca_file=issuer_ca_filepath, timeout=600
+            )
+            return
+
         assert_sentinel_doc_present(primary_om.read_appdb_connection_url(), tls_ca_file=issuer_ca_filepath)
 
     def test_project_still_exists_after_reverse_migration(self, meta_om: MongoDBOpsManager):
