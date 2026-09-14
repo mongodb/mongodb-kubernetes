@@ -16,44 +16,64 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cryptorand "crypto/rand"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
 
-func TestParseFlags_RequiredFlags(t *testing.T) {
+func TestParseFlags(t *testing.T) {
 	original := flags
 	defer func() { flags = original }()
 
-	// All required flags set: the baseline each mutation below subtracts from.
+	// All required flags set: the baseline each mutation below builds on.
 	flags.memberCluster = "cluster-east"
 	flags.memberClusterContext = "east-ctx"
 	flags.memberClusterNamespace = "mongodb"
-	flags.memberClusterServiceAccount = "mck-member-sa"
+	flags.memberClusterServiceAccount = ""
 	flags.operatorNamespace = "mongodb"
 	flags.memberClusterLogicalName = ""
 	flags.memberClusterApiServer = ""
 	flags.memberClusterApiServerCA = ""
 
-	t.Run("all required flags set", func(t *testing.T) {
+	t.Run("service account unset resolves to the default", func(t *testing.T) {
 		opts, err := parseFlags()
 		require.NoError(t, err)
-		assert.Equal(t, "mck-member-sa", opts.MemberClusterServiceAccount)
+		assert.Equal(t, resourcenames.MemberClusterServiceAccountName, opts.MemberClusterServiceAccount)
 	})
 
-	t.Run("member-cluster-service-account missing", func(t *testing.T) {
-		flags.memberClusterServiceAccount = ""
-		defer func() { flags.memberClusterServiceAccount = "mck-member-sa" }()
+	t.Run("service account blank resolves to the default", func(t *testing.T) {
+		flags.memberClusterServiceAccount = "  "
+		defer func() { flags.memberClusterServiceAccount = "" }()
 
-		_, err := parseFlags()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "member-cluster-service-account")
+		opts, err := parseFlags()
+		require.NoError(t, err)
+		assert.Equal(t, resourcenames.MemberClusterServiceAccountName, opts.MemberClusterServiceAccount)
 	})
 
-	t.Run("member-cluster-service-account not RFC 1123", func(t *testing.T) {
+	t.Run("service account set is used as-is", func(t *testing.T) {
+		flags.memberClusterServiceAccount = "my-member-sa"
+		defer func() { flags.memberClusterServiceAccount = "" }()
+
+		opts, err := parseFlags()
+		require.NoError(t, err)
+		assert.Equal(t, "my-member-sa", opts.MemberClusterServiceAccount)
+	})
+
+	t.Run("service account not RFC 1123", func(t *testing.T) {
 		flags.memberClusterServiceAccount = "Invalid_SA"
-		defer func() { flags.memberClusterServiceAccount = "mck-member-sa" }()
+		defer func() { flags.memberClusterServiceAccount = "" }()
 
 		_, err := parseFlags()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid --member-cluster-service-account")
+	})
+
+	t.Run("required flags still enforced", func(t *testing.T) {
+		flags.memberCluster = ""
+		defer func() { flags.memberCluster = "cluster-east" }()
+
+		_, err := parseFlags()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "member-cluster")
 	})
 }
 

@@ -1,8 +1,9 @@
 // Package memberregistration produces the registration a member cluster needs so the MCK
 // operator can reach it: a credential Secret (a single-context kubeconfig) and a MemberCluster
-// CR referencing that Secret. It reads the token of the user-provisioned member ServiceAccount
-// (found via the kubernetes.io/service-account.name annotation on the ServiceAccount token
-// Secrets in the member namespace) and writes both resources as a multi-document YAML string.
+// CR referencing that Secret. It reads the token of the member ServiceAccount — rendered by
+// generate-member-resources under the default name, or pre-provisioned by the user — found
+// via the kubernetes.io/service-account.name annotation on the ServiceAccount token Secrets
+// in the member namespace, and writes both resources as a multi-document YAML string.
 // It holds the logic; the CLI wiring lives in cmd/kubectl-mongodb.
 package memberregistration
 
@@ -49,11 +50,12 @@ type Options struct {
 	// MemberClusterNamespace is the namespace on the member cluster holding the operator's
 	// credentials (the member ServiceAccount and its token Secret).
 	MemberClusterNamespace string
-	// MemberClusterServiceAccount is the name of the user-provisioned ServiceAccount on the
-	// member cluster the operator authenticates as. Its token Secret is discovered via the
+	// MemberClusterServiceAccount is the name of the ServiceAccount on the member cluster the
+	// operator authenticates as — either pre-provisioned by the user or rendered by
+	// generate-member-resources under the default name (the CLI resolves the default before
+	// calling Generate). Its token Secret is discovered via the
 	// kubernetes.io/service-account.name annotation. Must match the ServiceAccount the
-	// member-cluster RBAC is bound to (--member-cluster-service-account of
-	// generate-member-resources).
+	// member-cluster RBAC is bound to.
 	MemberClusterServiceAccount string
 	// OperatorNamespace is the namespace on the operator's cluster where the emitted CR and
 	// credential Secret are placed.
@@ -63,7 +65,8 @@ type Options struct {
 	// TokenWaitTimeout is how long Generate waits for the token Secret's data keys to be
 	// populated by Kubernetes's token controller before failing. It must be positive; the
 	// CLI passes DefaultTokenWaitTimeout. Only the data keys are awaited: the Secret itself
-	// must already exist (the user creates it together with the ServiceAccount).
+	// must already exist (created by generate-member-resources's default render, or by the
+	// user together with their pre-provisioned ServiceAccount).
 	TokenWaitTimeout time.Duration
 }
 

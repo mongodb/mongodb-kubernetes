@@ -5,23 +5,27 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
 
-func TestParseFlags_RequiredFlags(t *testing.T) {
+func TestParseFlags(t *testing.T) {
 	original := flags
 	defer func() { flags = original }()
 
 	tests := []struct {
-		name           string
-		memberNs       string
-		serviceAccount string
-		wantError      string
+		name                  string
+		memberNs              string
+		serviceAccount        string
+		wantServiceAccount    string
+		wantCreateCredentials bool
+		wantError             string
 	}{
-		{name: "both set", memberNs: "mongodb", serviceAccount: "mck-member-sa"},
-		{name: "member-cluster-namespace missing", serviceAccount: "mck-member-sa", wantError: "member-cluster-namespace"},
-		{name: "member-cluster-service-account missing", memberNs: "mongodb", wantError: "member-cluster-service-account"},
-		{name: "member-cluster-service-account blank", memberNs: "mongodb", serviceAccount: "  ", wantError: "member-cluster-service-account"},
-		{name: "member-cluster-service-account not RFC 1123", memberNs: "mongodb", serviceAccount: "Invalid_SA", wantError: "invalid --member-cluster-service-account"},
+		{name: "service account unset resolves to the default and renders credentials", memberNs: "mongodb", wantServiceAccount: resourcenames.MemberClusterServiceAccountName, wantCreateCredentials: true},
+		{name: "service account blank resolves to the default", memberNs: "mongodb", serviceAccount: "  ", wantServiceAccount: resourcenames.MemberClusterServiceAccountName, wantCreateCredentials: true},
+		{name: "service account set binds to it without rendering credentials", memberNs: "mongodb", serviceAccount: "my-member-sa", wantServiceAccount: "my-member-sa", wantCreateCredentials: false},
+		{name: "service account not RFC 1123", memberNs: "mongodb", serviceAccount: "Invalid_SA", wantError: "invalid --member-cluster-service-account"},
+		{name: "member-cluster-namespace missing", wantError: "member-cluster-namespace"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -29,13 +33,15 @@ func TestParseFlags_RequiredFlags(t *testing.T) {
 			flags.memberClusterServiceAccount = tc.serviceAccount
 			flags.workloadNamespaces = ""
 
-			_, err := parseFlags()
+			serviceAccount, createCredentials, _, err := parseFlags()
 			if tc.wantError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantError)
 				return
 			}
 			require.NoError(t, err)
+			assert.Equal(t, tc.wantServiceAccount, serviceAccount)
+			assert.Equal(t, tc.wantCreateCredentials, createCredentials)
 		})
 	}
 }

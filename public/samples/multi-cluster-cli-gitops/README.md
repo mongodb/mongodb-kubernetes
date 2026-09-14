@@ -13,7 +13,7 @@ The files in the [argocd](./argocd) directory contain an [AppProject](./argocd/p
 The central-cluster RBAC the operator needs for multi-cluster operation always ships with the operator installation, so nothing extra is required here.
 
 ### 2. Apply member-cluster credentials per member cluster
-Each member cluster needs a ServiceAccount the operator authenticates as, plus a long-lived token Secret for it. Users provision these themselves — the CLI does not render them. Apply the checked-in [credentials.yaml](./resources/credentials.yaml) (adjusting the namespace to match `--member-cluster-namespace`):
+Each member cluster needs a ServiceAccount the operator authenticates as, plus a long-lived token Secret for it. By default the CLI renders them for you (as part of step 3) — but in a GitOps flow you will typically pre-provision and manage them yourself, which is what this sample does. Apply the checked-in [credentials.yaml](./resources/credentials.yaml) (adjusting the namespace to match `--member-cluster-namespace`):
 
 ``` shell
 kubectl apply -f resources/credentials.yaml
@@ -22,7 +22,7 @@ kubectl apply -f resources/credentials.yaml
 The token Secret is discovered later by its `kubernetes.io/service-account.name` annotation, so it must exist before registration is generated.
 
 ### 3. Apply member-cluster RBAC per member cluster
-Each member cluster needs RBAC that lets the operator manage workloads on it, bound to the ServiceAccount created above. The canonical way to produce it is the CLI:
+Each member cluster needs RBAC that lets the operator manage workloads on it, bound to the ServiceAccount created above. The canonical way to produce it is the CLI — with `--member-cluster-service-account` pointing at the pre-provisioned ServiceAccount, so no credentials are rendered:
 
 ``` shell
 kubectl mongodb multicluster generate-member-resources \
