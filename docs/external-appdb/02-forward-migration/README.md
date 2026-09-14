@@ -28,23 +28,23 @@ source env_variables.sh
 Or step by step:
 
 ### Setup
-1. `./code_snippets/02_0040_validate_env.sh`
-2. `./code_snippets/02_0045_create_namespace.sh`
-3. `./code_snippets/02_0100_install_operator.sh`
-4. `./code_snippets/02_0200_create_om_admin_secret.sh`
-5. `./code_snippets/02_0210_deploy_management_om.sh`
-6. `./code_snippets/02_0215_wait_management_om.sh`
-7. `./code_snippets/02_0220_create_appdb_project_configmap.sh`
+1. `./code_snippets/eadb-02_0040_validate_env.sh`
+2. `./code_snippets/eadb-02_0045_create_namespace.sh`
+3. `./code_snippets/eadb-02_0100_install_operator.sh`
+4. `./code_snippets/eadb-02_0200_create_om_admin_secret.sh`
+5. `./code_snippets/eadb-02_0210_deploy_management_om.sh`
+6. `./code_snippets/eadb-02_0215_wait_management_om.sh`
+7. `./code_snippets/eadb-02_0220_create_appdb_project_configmap.sh`
 
 ### Migration
-8. `./code_snippets/02_0300_create_primary_om_internal.sh` — primary OM with an internal AppDB.
-9. `./code_snippets/02_0305_wait_internal_appdb.sh` — wait until Running.
-10. `./code_snippets/02_0310_create_appdb_mongodb.sh` — create the `MongoDB` (`role: AppDB`) CR
+8. `./code_snippets/eadb-02_0300_create_primary_om_internal.sh` — primary OM with an internal AppDB.
+9. `./code_snippets/eadb-02_0305_wait_internal_appdb.sh` — wait until Running.
+10. `./code_snippets/eadb-02_0310_create_appdb_mongodb.sh` — create the `MongoDB` (`role: AppDB`) CR
     (name `<primary-om-name>-db`).
-11. `./code_snippets/02_0315_wait_appdb_pending.sh` — confirm it is `Pending` on the adoption gate.
-12. `./code_snippets/02_0320_set_external_ref.sh` — add `externalApplicationDatabaseRef` to the OM.
-13. `./code_snippets/02_0325_wait_after_switch.sh` — AppDB CR adopts and becomes Running; OM Running.
-14. `./code_snippets/02_0400_verify.sh` — StatefulSet now owned by the CR; migration annotation cleared.
+11. `./code_snippets/eadb-02_0315_wait_appdb_pending.sh` — confirm it is `Pending` on the adoption gate.
+12. `./code_snippets/eadb-02_0320_set_external_ref.sh` — add `externalApplicationDatabaseRef` to the OM.
+13. `./code_snippets/eadb-02_0325_wait_after_switch.sh` — AppDB CR adopts and becomes Running; OM Running.
+14. `./code_snippets/eadb-02_0400_verify.sh` — StatefulSet now owned by the CR; migration annotation cleared.
 
 ## Troubleshooting
 

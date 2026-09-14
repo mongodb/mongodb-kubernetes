@@ -53,26 +53,26 @@ Run the whole runbook:
 
 ### Setup
 
-1. `./code_snippets/01_0040_validate_env.sh` — validate required environment variables.
-2. `./code_snippets/01_0045_create_namespace.sh` — create the namespace.
-3. `./code_snippets/01_0100_install_operator.sh` — install the operator via Helm.
-4. `./code_snippets/01_0200_create_om_admin_secret.sh` — create the Ops Manager admin secret.
-5. `./code_snippets/01_0210_deploy_management_om.sh` — deploy the management Ops Manager.
-6. `./code_snippets/01_0215_wait_management_om.sh` — wait until it is `Running`; note its
+1. `./code_snippets/eadb-01_0040_validate_env.sh` — validate required environment variables.
+2. `./code_snippets/eadb-01_0045_create_namespace.sh` — create the namespace.
+3. `./code_snippets/eadb-01_0100_install_operator.sh` — install the operator via Helm.
+4. `./code_snippets/eadb-01_0200_create_om_admin_secret.sh` — create the Ops Manager admin secret.
+5. `./code_snippets/eadb-01_0210_deploy_management_om.sh` — deploy the management Ops Manager.
+6. `./code_snippets/eadb-01_0215_wait_management_om.sh` — wait until it is `Running`; note its
    operator-provisioned API-key secret (used as the AppDB credentials).
-7. `./code_snippets/01_0220_create_appdb_project_configmap.sh` — create the project ConfigMap
+7. `./code_snippets/eadb-01_0220_create_appdb_project_configmap.sh` — create the project ConfigMap
    pointing the AppDB CR at the management OM.
 
 ### Fresh Start
 
-8. `./code_snippets/01_0300_create_appdb_mongodb.sh` — create the external AppDB `MongoDB`
+8. `./code_snippets/eadb-01_0300_create_appdb_mongodb.sh` — create the external AppDB `MongoDB`
    (`role: AppDB`, name `<primary-om-name>-db`).
-9. `./code_snippets/01_0305_wait_appdb.sh` — wait until the AppDB is `Running`.
-10. `./code_snippets/01_0310_create_primary_om.sh` — create the primary Ops Manager with
+9. `./code_snippets/eadb-01_0305_wait_appdb.sh` — wait until the AppDB is `Running`.
+10. `./code_snippets/eadb-01_0310_create_primary_om.sh` — create the primary Ops Manager with
     `externalApplicationDatabaseRef` and no `applicationDatabase`.
-11. `./code_snippets/01_0315_wait_primary_om.sh` — wait until the primary OM is `Running` and its
+11. `./code_snippets/eadb-01_0315_wait_primary_om.sh` — wait until the primary OM is `Running` and its
     AppDB status is `Disabled` (external AppDB is unmanaged by this OM).
-12. `./code_snippets/01_0400_verify.sh` — verify pods, StatefulSet ownership and the connection-string
+12. `./code_snippets/eadb-01_0400_verify.sh` — verify pods, StatefulSet ownership and the connection-string
     secret.
 
 ## Troubleshooting

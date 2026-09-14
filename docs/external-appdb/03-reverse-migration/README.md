@@ -27,27 +27,27 @@ source env_variables.sh
 Or step by step:
 
 ### Setup
-1. `./code_snippets/03_0040_validate_env.sh`
-2. `./code_snippets/03_0045_create_namespace.sh`
-3. `./code_snippets/03_0100_install_operator.sh`
-4. `./code_snippets/03_0200_create_om_admin_secret.sh`
-5. `./code_snippets/03_0210_deploy_management_om.sh`
-6. `./code_snippets/03_0215_wait_management_om.sh`
-7. `./code_snippets/03_0220_create_appdb_project_configmap.sh`
+1. `./code_snippets/eadb-03_0040_validate_env.sh`
+2. `./code_snippets/eadb-03_0045_create_namespace.sh`
+3. `./code_snippets/eadb-03_0100_install_operator.sh`
+4. `./code_snippets/eadb-03_0200_create_om_admin_secret.sh`
+5. `./code_snippets/eadb-03_0210_deploy_management_om.sh`
+6. `./code_snippets/eadb-03_0215_wait_management_om.sh`
+7. `./code_snippets/eadb-03_0220_create_appdb_project_configmap.sh`
 
 ### Reach the external-AppDB state
-8. `./code_snippets/03_0300_create_appdb_mongodb.sh`
-9. `./code_snippets/03_0305_wait_appdb.sh`
-10. `./code_snippets/03_0310_create_primary_om.sh`
-11. `./code_snippets/03_0315_wait_primary_om.sh`
+8. `./code_snippets/eadb-03_0300_create_appdb_mongodb.sh`
+9. `./code_snippets/eadb-03_0305_wait_appdb.sh`
+10. `./code_snippets/eadb-03_0310_create_primary_om.sh`
+11. `./code_snippets/eadb-03_0315_wait_primary_om.sh`
 
 ### Reverse migration
-12. `./code_snippets/03_0320_reconfigure_to_internal.sh` — remove `externalApplicationDatabaseRef`,
+12. `./code_snippets/eadb-03_0320_reconfigure_to_internal.sh` — remove `externalApplicationDatabaseRef`,
     add `applicationDatabase`.
-13. `./code_snippets/03_0325_wait_release_and_adopt.sh` — CR is released (`Pending`); OM re-adopts the
+13. `./code_snippets/eadb-03_0325_wait_release_and_adopt.sh` — CR is released (`Pending`); OM re-adopts the
     StatefulSet and its AppDB status returns to `Running`.
-14. `./code_snippets/03_0330_delete_mongodb_cr.sh` — delete the released `MongoDB` CR.
-15. `./code_snippets/03_0400_verify.sh` — StatefulSet owned by the OM; internal AppDB `Running`.
+14. `./code_snippets/eadb-03_0330_delete_mongodb_cr.sh` — delete the released `MongoDB` CR.
+15. `./code_snippets/eadb-03_0400_verify.sh` — StatefulSet owned by the OM; internal AppDB `Running`.
 
 ## Troubleshooting
 
