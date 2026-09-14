@@ -55,6 +55,34 @@ tasks:
               registry_override="${dryrun_registry_override}"
             fi
             scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
+      # CVE scan of the just-published production images (skipped automatically
+      # when IS_DRYRUN=true, since dry runs publish to an override registry).
+      # Covers the release image set promoted by mckci (images carrying a
+      # version-ref in build_info.json). Notify-only, never blocks the release.
+      - func: trivy_scan
+        vars:
+          image_name: operator
+          build_scenario: release
+      - func: trivy_scan
+        vars:
+          image_name: init-database
+          build_scenario: release
+      - func: trivy_scan
+        vars:
+          image_name: init-ops-manager
+          build_scenario: release
+      - func: trivy_scan
+        vars:
+          image_name: database
+          build_scenario: release
+      - func: trivy_scan
+        vars:
+          image_name: readiness-probe
+          build_scenario: release
+      - func: trivy_scan
+        vars:
+          image_name: upgrade-hook
+          build_scenario: release
 
 buildvariants:
   - name: release_decider
