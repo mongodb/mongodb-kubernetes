@@ -1,9 +1,11 @@
 package om
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -247,4 +249,22 @@ func TestIsAuthenticationTransitionMove(t *testing.T) {
 				"Move %s should not be recognized as authentication transition", move)
 		})
 	}
+}
+
+func TestWaitForReadyState_GivesUpWhenContextIsDone(t *testing.T) {
+	conn := NewMockedOmConnection(NewDeployment())
+	calls := 0
+	conn.ReadAutomationStatusFunc = func() (*AutomationStatus, error) {
+		calls++
+		return &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{{Name: "rs-0", LastGoalVersionAchieved: 0}}}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := WaitForReadyState(ctx, conn, []string{"rs-0"}, false, zap.S())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "haven't reached READY state")
+	assert.Equal(t, 1, calls, "no further attempts once the context is done")
 }

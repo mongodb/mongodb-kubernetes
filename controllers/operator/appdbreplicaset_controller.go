@@ -837,7 +837,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			// Because OM is not available when starting AppDB, we read the version from the mapping
 			// We plan to change this in the future, but for the sake of simplicity we leave it that way for the moment
 			// It avoids unnecessary reconciles, race conditions...
-			agentVersion, err := r.getAgentVersion(nil, opsManager.Spec.Version, true, log)
+			agentVersion, err := r.getAgentVersion(ctx, nil, opsManager.Spec.Version, true, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w. Please use spec.statefulSet to supply proper Agent version", err)), log)
@@ -1743,8 +1743,8 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 }
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppDB to the project
-func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []string, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
-	getHostsResult, err := conn.GetHosts()
+func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(ctx context.Context, hostnames []string, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
+	getHostsResult, err := conn.GetHosts(ctx)
 	if err != nil {
 		return xerrors.Errorf("error fetching existing hosts: %w", err)
 	}
@@ -1769,13 +1769,13 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 			// Need to se the Id first
 			appDbHost.Id = currentHost.Id
 
-			if err := conn.UpdateHost(appDbHost); err != nil {
+			if err := conn.UpdateHost(ctx, appDbHost); err != nil {
 				return xerrors.Errorf("error updating appdb host %w", err)
 			}
 		} else {
 			// This is a new host.
 			log.Debugf("Registering AppDB host %s with project %s", hostname, conn.GroupID())
-			if err := conn.AddHost(appDbHost); err != nil {
+			if err := conn.AddHost(ctx, appDbHost); err != nil {
 				return xerrors.Errorf("*** error adding appdb host %w", err)
 			}
 		}
@@ -1790,7 +1790,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 	for _, existingHost := range getHostsResult.Results {
 		if _, wanted := desiredHostnames[existingHost.Hostname]; !wanted {
 			log.Debugf("Removing AppDB host %s from monitoring as it's no longer needed", existingHost.Hostname)
-			if err := conn.RemoveHost(existingHost.Id); err != nil {
+			if err := conn.RemoveHost(ctx, existingHost.Id); err != nil {
 				return xerrors.Errorf("error removing appdb host %s: %w", existingHost.Hostname, err)
 			}
 		}
@@ -1802,7 +1802,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(hostnames []str
 // addPreferredHostnames will add the hostnames as preferred in Ops Manager
 // Ops Manager does not check for duplicates, so we need to treat it here.
 func (r *ReconcileAppDbReplicaSet) addPreferredHostnames(ctx context.Context, conn om.Connection, opsManager *omv1.MongoDBOpsManager, agentApiKey string, hostnames []string) error {
-	existingPreferredHostnames, err := conn.GetPreferredHostnames(agentApiKey)
+	existingPreferredHostnames, err := conn.GetPreferredHostnames(ctx, agentApiKey)
 	if err != nil {
 		return err
 	}
@@ -1814,7 +1814,7 @@ func (r *ReconcileAppDbReplicaSet) addPreferredHostnames(ctx context.Context, co
 
 	for _, hostname := range hostnames {
 		if _, ok := existingPreferredHostnamesMap[hostname]; !ok {
-			err := conn.AddPreferredHostname(agentApiKey, hostname, false)
+			err := conn.AddPreferredHostname(ctx, agentApiKey, hostname, false)
 			if err != nil {
 				return err
 			}
@@ -1960,7 +1960,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error getting existing project config: %w", err)
 	}
 
-	_, conn, err := project.ReadOrCreateProject(projectConfig, cred, r.omConnectionFactory, log)
+	_, conn, err := project.ReadOrCreateProject(ctx, projectConfig, cred, r.omConnectionFactory, log)
 	if err != nil {
 		return existingPodVars, xerrors.Errorf("error reading/creating project: %w", err)
 	}
@@ -1984,10 +1984,11 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
-	err = conn.ReadUpdateDeployment(func(d om.Deployment) error {
+	err = conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
 		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
 		return nil
 	}, log)
+
 	if err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
 			"Application Database has been configured with TLS enabled, but this will not be "+
@@ -1999,7 +2000,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error getting current appdb statefulset hostnames: %w", err)
 	}
 
-	if err := r.registerAppDBHostsWithProject(hostnames, conn, opsManagerUserPassword, log); err != nil {
+	if err := r.registerAppDBHostsWithProject(ctx, hostnames, conn, opsManagerUserPassword, log); err != nil {
 		return existingPodVars, xerrors.Errorf("error registering hosts with project: %w", err)
 	}
 
@@ -2008,7 +2009,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		return existingPodVars, xerrors.Errorf("error ensuring AppDB agent api key: %w", err)
 	}
 
-	if err := markAppDBAsBackingProject(conn, log); err != nil {
+	if err := markAppDBAsBackingProject(ctx, conn, log); err != nil {
 		return existingPodVars, xerrors.Errorf("error marking project has backing db: %w", err)
 	}
 
@@ -2450,9 +2451,9 @@ func (r *AppDBReconcilerHelper) migrateToNewDeploymentState(ctx context.Context,
 
 // markAppDBAsBackingProject will configure the AppDB project to be read only. Errors are ignored
 // if the OpsManager version does not support this feature.
-func markAppDBAsBackingProject(conn om.Connection, log *zap.SugaredLogger) error {
+func markAppDBAsBackingProject(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
 	log.Debugf("Configuring the project as a backing database project.")
-	err := conn.MarkProjectAsBackingDatabase(om.AppDBDatabaseType)
+	err := conn.MarkProjectAsBackingDatabase(ctx, om.AppDBDatabaseType)
 	if err != nil {
 		if apiErr, ok := err.(*apierror.Error); ok {
 			opsManagerDoesNotSupportApi := apiErr.Status != nil && *apiErr.Status == 404 && apiErr.ErrorCode == "RESOURCE_NOT_FOUND"

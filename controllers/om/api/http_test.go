@@ -79,7 +79,7 @@ func TestRequestWithContext_DeadlineAbortsHangingServer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			_, _, err = client.RequestWithContext(ctx, "GET", srv.URL, "/api/public/v1.0/groups", nil)
+			_, _, err = client.Request(ctx, "GET", srv.URL, "/api/public/v1.0/groups", nil)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), context.DeadlineExceeded.Error())

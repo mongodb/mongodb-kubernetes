@@ -21,7 +21,7 @@ func TestDoAndRetryWithContext_StopsOnCancel(t *testing.T) {
 	}
 
 	start := time.Now()
-	ok, msg := DoAndRetryWithContext(ctx, f, zap.NewNop().Sugar(), 10, 5)
+	ok, msg := DoAndRetry(ctx, f, zap.NewNop().Sugar(), 10, 5)
 
 	assert.False(t, ok)
 	assert.Equal(t, "not yet.", msg)
@@ -36,7 +36,7 @@ func TestDoAndRetryWithContext_RetriesUntilSuccess(t *testing.T) {
 		return "done", calls == 2
 	}
 
-	ok, msg := DoAndRetryWithContext(context.Background(), f, zap.NewNop().Sugar(), 5, 0)
+	ok, msg := DoAndRetry(context.Background(), f, zap.NewNop().Sugar(), 5, 0)
 
 	assert.True(t, ok)
 	assert.Equal(t, "done", msg)
@@ -50,7 +50,7 @@ func TestDoAndRetryWithContext_GivesUpAfterCount(t *testing.T) {
 		return "nope", false
 	}
 
-	ok, msg := DoAndRetryWithContext(context.Background(), f, zap.NewNop().Sugar(), 3, 0)
+	ok, msg := DoAndRetry(context.Background(), f, zap.NewNop().Sugar(), 3, 0)
 
 	assert.False(t, ok)
 	assert.Equal(t, "nope.", msg)

@@ -94,10 +94,11 @@ func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context,
 		}
 		omRS := om.NewReplicaSet(rsName, rs.Spec.Version)
 		rsWithProcesses := om.NewReplicaSetWithProcesses(omRS, processes, make([]automationconfig.MemberOptions, len(processes)), nil)
-		_ = mc.ReadUpdateDeployment(func(d om.Deployment) error {
+		_ = mc.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
 			d.MergeReplicaSet(rsWithProcesses, nil, nil, nil, zap.S())
 			return nil
 		}, zap.S())
+
 	})
 	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }

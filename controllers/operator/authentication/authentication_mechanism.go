@@ -16,9 +16,9 @@ import (
 // Mechanism is an interface that needs to be implemented for any Ops Manager authentication mechanism
 type Mechanism interface {
 	EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error
-	DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error
-	EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error
-	DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error
+	DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error
+	EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error
+	DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error
 	// IsAgentAuthenticationConfigured should not rely on util.MergoDelete since the method is always
 	// called directly after deserializing the response from OM which should not contain the util.MergoDelete value in any field.
 	IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool

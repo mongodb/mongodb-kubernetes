@@ -54,7 +54,7 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 		if agentKey == "" {
 			log.Info("Generating agent key as current project doesn't have it")
 
-			agentKey, err = agentKeyGenerator.GenerateAgentKey()
+			agentKey, err = agentKeyGenerator.GenerateAgentKey(ctx)
 			if err != nil {
 				return "", xerrors.Errorf("failed to generate agent key in OM: %w", err)
 			}
@@ -130,6 +130,12 @@ const StaleProcessDuration = time.Minute * 2
 // agentRegistrationTimeout bounds one wait for agents to register, including all retries. Overridden in tests.
 var agentRegistrationTimeout = 3 * time.Minute
 
+// WithRegistrationDeadline derives a context that bounds every registration wait made under it by a single
+// agentRegistrationTimeout, instead of one per wait.
+func WithRegistrationDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, agentRegistrationTimeout)
+}
+
 // ProcessState represents the state of the mongodb process.
 // Most importantly it contains the information whether the node is down (precisely whether the agent running next to mongod is actively reporting pings to OM),
 // what is the last version of the automation config achieved and the step on which the agent is currently executing the plan.
@@ -185,7 +191,7 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 		return MongoDBClusterStateInOM{}, xerrors.Errorf("error when reading automation agent pages: %v", err)
 	}
 
-	automationStatus, err := omConnection.ReadAutomationStatus()
+	automationStatus, err := omConnection.ReadAutomationStatus(ctx)
 	if err != nil {
 		return MongoDBClusterStateInOM{}, xerrors.Errorf("error reading automation status: %v", err)
 	}
@@ -327,7 +333,7 @@ func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *z
 		return agentCheck(ctx, omConnection, agentHostnames, log)
 	}
 
-	ok, msg := util.DoAndRetryWithContext(ctx, agentsCheckFunc, log, retrials, waitSeconds)
+	ok, msg := util.DoAndRetry(ctx, agentsCheckFunc, log, retrials, waitSeconds)
 	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		msg = fmt.Sprintf("%s (timed out after %s waiting for agents to register)", msg, agentRegistrationTimeout)
 	}
