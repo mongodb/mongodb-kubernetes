@@ -587,10 +587,10 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name                  string
-		appDBStsClusterNums   map[string]int
-		externalClusterNames  []string
-		expectedErrorContains string
+		name                 string
+		appDBStsClusterNums  map[string]int
+		externalClusterNames []string
+		expectedError        string
 	}{
 		{
 			name:                 "aligned internal and external multi-cluster AppDB passes",
@@ -598,22 +598,22 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 			externalClusterNames: []string{"cluster-1", "cluster-2", "cluster-3"},
 		},
 		{
-			name:                  "external cluster without an AppDB StatefulSet is rejected",
-			appDBStsClusterNums:   map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2},
-			externalClusterNames:  []string{"cluster-1", "cluster-2", "cluster-3", "cluster-4"},
-			expectedErrorContains: "cluster-4",
+			name:                 "external cluster without an AppDB StatefulSet is rejected",
+			appDBStsClusterNums:  map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2},
+			externalClusterNames: []string{"cluster-1", "cluster-2", "cluster-3", "cluster-4"},
+			expectedError:        "externalApplicationDatabaseRef my-namespace/test-om-db has incompatible topology: cluster cluster-4 of the external MongoDBMultiCluster has no AppDB StatefulSet",
 		},
 		{
-			name:                  "cluster number mismatch is rejected",
-			appDBStsClusterNums:   map[string]int{"cluster-1": 1, "cluster-2": 0, "cluster-3": 2},
-			externalClusterNames:  []string{"cluster-1", "cluster-2", "cluster-3"},
-			expectedErrorContains: "cluster-1",
+			name:                 "cluster number mismatch is rejected",
+			appDBStsClusterNums:  map[string]int{"cluster-1": 1, "cluster-2": 0, "cluster-3": 2},
+			externalClusterNames: []string{"cluster-1", "cluster-2", "cluster-3"},
+			expectedError:        "externalApplicationDatabaseRef my-namespace/test-om-db has incompatible topology: AppDB StatefulSet test-om-db-1 in cluster cluster-1 does not match the cluster number expected by the external MongoDBMultiCluster (test-om-db-0)",
 		},
 		{
-			name:                  "AppDB StatefulSet outside the external clusters is rejected",
-			appDBStsClusterNums:   map[string]int{"cluster-1": 0, "cluster-2": 1},
-			externalClusterNames:  []string{"cluster-1"},
-			expectedErrorContains: "cluster-2",
+			name:                 "AppDB StatefulSet outside the external clusters is rejected",
+			appDBStsClusterNums:  map[string]int{"cluster-1": 0, "cluster-2": 1},
+			externalClusterNames: []string{"cluster-1"},
+			expectedError:        "externalApplicationDatabaseRef my-namespace/test-om-db has incompatible topology: AppDB StatefulSet test-om-db-1 in cluster cluster-2 is not part of the external MongoDBMultiCluster clusters",
 		},
 		{
 			name:                 "fresh adoption without AppDB StatefulSets passes",
@@ -667,8 +667,8 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 			}
 
 			err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, testOm)
-			if tt.expectedErrorContains != "" {
-				require.ErrorContains(t, err, tt.expectedErrorContains)
+			if tt.expectedError != "" {
+				require.EqualError(t, err, tt.expectedError)
 				return
 			}
 
@@ -681,18 +681,18 @@ func TestValidateSingleClusterExternalAppDBTopology(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name                  string
-		appDBStsClusterNums   map[string]int
-		expectedErrorContains string
+		name                string
+		appDBStsClusterNums map[string]int
+		expectedError       string
 	}{
 		{
 			name:                "single-cluster external MongoDB without per-cluster AppDB StatefulSets passes",
 			appDBStsClusterNums: map[string]int{},
 		},
 		{
-			name:                  "per-cluster AppDB StatefulSet is rejected for a single-cluster external MongoDB",
-			appDBStsClusterNums:   map[string]int{"cluster-1": 0},
-			expectedErrorContains: "single-cluster external MongoDB",
+			name:                "per-cluster AppDB StatefulSet is rejected for a single-cluster external MongoDB",
+			appDBStsClusterNums: map[string]int{"cluster-1": 0},
+			expectedError:       "externalApplicationDatabaseRef my-namespace/test-om-db has incompatible topology: AppDB StatefulSet test-om-db-0 in cluster cluster-1 is not compatible with a single-cluster external MongoDB",
 		},
 	}
 
@@ -728,8 +728,8 @@ func TestValidateSingleClusterExternalAppDBTopology(t *testing.T) {
 			}
 
 			err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, testOm)
-			if tt.expectedErrorContains != "" {
-				require.ErrorContains(t, err, tt.expectedErrorContains)
+			if tt.expectedError != "" {
+				require.EqualError(t, err, tt.expectedError)
 				return
 			}
 
