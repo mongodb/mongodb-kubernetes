@@ -131,6 +131,8 @@ def external_appdb(namespace: str, custom_mdb_version: str, appdb_cert_prefix: s
 
 
 @pytest.mark.e2e_om_external_appdb_fresh
+@pytest.mark.e2e_om_external_appdb_fresh_mc
+
 class TestDeployMetaOpsManager:
     """Deploys the management-plane Ops Manager the AppDB-role MongoDB CRs are configured against."""
 
@@ -141,6 +143,8 @@ class TestDeployMetaOpsManager:
 
 
 @pytest.mark.e2e_om_external_appdb_fresh
+@pytest.mark.e2e_om_external_appdb_fresh_mc
+
 class TestFreshStartExternalAppDB:
     """Procedure 1: create the External AppDB (MongoDB role: AppDB) CR managed by Meta OM, then create the Primary
     OM CR with spec.externalApplicationDatabaseRef set from the start and no spec.applicationDatabase -
@@ -202,6 +206,8 @@ class TestFreshStartExternalAppDB:
 
 
 @pytest.mark.e2e_om_external_appdb_fresh
+@pytest.mark.e2e_om_external_appdb_fresh_mc
+
 class TestReverseMigrationAfterFreshStart:
     """Procedure 3: Reconfiguring the OM (remove spec.externalApplicationDatabaseRef, add
     spec.applicationDatabase) triggers the release handshake; the MongoDB CR is deleted only after the
