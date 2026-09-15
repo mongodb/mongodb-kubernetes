@@ -700,7 +700,7 @@ func resolveExternalAppDBProperties(ctx context.Context, operatorClusterClient k
 	appDBProperties := AppDBProperties{
 		ExternalAppDB: ref.Kind,
 	}
-	if ref.Kind == "MongoDB" {
+	if ref.Kind == omv1.ExternalAppDBRefKindMongoDB {
 		mdb := &mdbv1.MongoDB{}
 		if err := operatorClusterClient.Get(ctx, key, mdb); err != nil {
 			Logger.Warnf("Couldn't fetch MongoDB %s/%s for OpsManager external database reference: %v", ref.Namespace, ref.Name, err)
