@@ -68,6 +68,11 @@ func (m *MultiReplicaSetBuilder) SetVersion(version string) *MultiReplicaSetBuil
 	return m
 }
 
+func (m *MultiReplicaSetBuilder) SetRole(role string) *MultiReplicaSetBuilder {
+	m.Spec.Role = role
+	return m
+}
+
 func (m *MultiReplicaSetBuilder) SetSecurity(s *mdbv1.Security) *MultiReplicaSetBuilder {
 	m.Spec.Security = s
 	return m

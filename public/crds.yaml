@@ -3568,6 +3568,10 @@ spec:
             type: object
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
+            - message: spec.topology MultiCluster is not supported when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
+                || self.topology != ''MultiCluster'''
             - message: spec.members must be >= 3 when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.members)
                 && self.members >= 3)'
@@ -3590,10 +3594,6 @@ spec:
                 == true'
             - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
-            - message: spec.topology MultiCluster is not supported when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
-                || self.topology != ''MultiCluster'''
             - message: 'spec.role is immutable: it cannot be added, removed, or changed
                 after creation; to stop using a resource as AppDB, perform a reverse
                 migration (delete the resource)'
@@ -4833,8 +4833,10 @@ spec:
             type: object
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
-            - message: spec.role is not supported on MongoDBMultiCluster
-              rule: '!has(self.role) || self.role == ""'
+            - message: the total number of members across spec.clusterSpecList must
+                be >= 3 when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || self.clusterSpecList.map(c,
+                c.members).sum() >= 3'
             - message: spec.security.authentication must be enabled with modes [SCRAM]
                 only when spec.role is AppDB, or omitted entirely
               rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
@@ -4848,10 +4850,6 @@ spec:
                 == true'
             - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
-            - message: spec.topology MultiCluster is not supported when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
-                || self.topology != ''MultiCluster'''
             - message: 'spec.role is immutable: it cannot be added, removed, or changed
                 after creation; to stop using a resource as AppDB, perform a reverse
                 migration (delete the resource)'
@@ -8515,6 +8513,7 @@ spec:
                     description: Kind of the referenced resource.
                     enum:
                     - MongoDB
+                    - MongoDBMultiCluster
                     type: string
                   name:
                     description: |-
