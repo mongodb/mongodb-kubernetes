@@ -54,7 +54,7 @@ func newValidationClient(base client.Client, objects ...client.Object) client.Cl
 
 func (c *validationClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 	if mdbm, ok := obj.(*mdbmulti.MongoDBMultiCluster); ok {
-		if stored, ok := c.mdbmultiByKey[types.NamespacedName(key)]; ok {
+		if stored, ok := c.mdbmultiByKey[key]; ok {
 			*mdbm = *stored.DeepCopy()
 			return nil
 		}
