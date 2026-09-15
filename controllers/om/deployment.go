@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -702,7 +703,7 @@ func (d Deployment) GetRoles() []mdbv1.MongoDBRole {
 
 // GetAgentVersion returns the current version of all Agents in the deployment. It's empty until the
 // 'automationConfig/updateAgentVersions' endpoint is called the first time
-func (d Deployment) GetAgentVersion() string {
+func (d Deployment) GetAgentVersion(ctx context.Context) string {
 	agentVersionMap := util.ReadOrCreateMap(d, "agentVersion")
 	return maputil.ReadMapValueAsString(agentVersionMap, "name")
 }

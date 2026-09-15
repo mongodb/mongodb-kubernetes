@@ -917,7 +917,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
-		agents.UpgradeIfNeeded(sc, conn)
+		agents.UpgradeIfNeeded(ctx, sc, conn)
 	}
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
@@ -935,7 +935,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !sc.IsAgentImageOverridden() {
-			automationAgentVersion, err = r.commonController.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			automationAgentVersion, err = r.commonController.getAgentVersion(ctx, conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err)), log)
@@ -947,7 +947,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	// Connectivity dry-run: handle before any reconciliation that modifies state.
 	if sc.IsMigrationDryRun() {
-		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+		if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 		}
@@ -955,7 +955,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		if !imgStatus.IsOK() {
 			return r.updateStatus(ctx, sc, imgStatus, log)
 		}
-		currentAgentAuthMode, err := conn.GetAgentAuthMode()
+		currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
 		if err != nil {
 			return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 		}
@@ -976,7 +976,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, r.runConnectivityValidationDryRun(ctx, sc, opts, operatorImage, log), log)
 	}
 
-	if err := connection.EnsureTargetAutomationConfigSeeded(conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
+	if err := connection.EnsureTargetAutomationConfigSeeded(ctx, conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
@@ -1200,16 +1200,16 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
 
-	if status := checkExternalMembersDrift(conn, sc.Spec.GetExternalMembers()); !status.IsOK() {
+	if status := checkExternalMembersDrift(ctx, conn, sc.Spec.GetExternalMembers()); !status.IsOK() {
 		return status
 	}
 
-	if status := validateACForMigration(conn, sc); !status.IsOK() {
+	if status := validateACForMigration(ctx, conn, sc); !status.IsOK() {
 		return status
 	}
 
@@ -1218,7 +1218,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -1240,13 +1240,13 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		currentAgentAuthMode: currentAgentAuthMode,
 	}
 
-	if workflowStatus := validateMongoDBResource(sc, conn); !workflowStatus.IsOK() {
+	if workflowStatus := validateMongoDBResource(ctx, sc, conn); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
 	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 
-	if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
+	if workflowStatus := controlledfeature.EnsureFeatureControls(ctx, *sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
@@ -1781,7 +1781,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		log.Infow("Resource has external members, skipping Ops Manager cleanup on deletion",
 			"externalMembers", len(sc.Spec.GetExternalMembers()))
 		log.Infow("Clear feature control for group", "groupID", conn.GroupID())
-		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+		if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 		}
@@ -1790,10 +1790,10 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
 	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
-	preCleanupDeployment, preCleanupReadErr := conn.ReadDeployment()
+	preCleanupDeployment, preCleanupReadErr := conn.ReadDeployment(ctx)
 
 	processNames := make([]string, 0)
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName())
 			if e := d.RemoveShardedClusterByName(sc.GetShardedClusterName(), log); e != nil {
@@ -1801,8 +1801,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 			}
 			return nil
 		},
-		log,
-	)
+		log)
+
 	if err != nil {
 		return err
 	}
@@ -1816,13 +1816,13 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	} else {
 		healthyProcessNames := r.getHealthyProcessNamesToWaitForReadyState(ctx, preCleanupDeployment, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessNames, log.With("ctx", "cleanOpsManagerState"))
-		if err := om.WaitForReadyState(conn, healthyProcessNames, false, log); err != nil {
+		if err := om.WaitForReadyState(ctx, conn, healthyProcessNames, false, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 		}
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
-		if err := backup.StopBackupIfEnabled(conn, conn, sc.GetShardedClusterName(), backup.ShardedClusterType, log); err != nil {
+		if err := backup.StopBackupIfEnabled(ctx, conn, conn, sc.GetShardedClusterName(), backup.ShardedClusterType, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
@@ -1830,7 +1830,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	hostsToRemove := r.getAllHostnames(false)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
-	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -1840,7 +1840,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
-	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+	if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 		result.Log(log)
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
@@ -2018,14 +2018,14 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
-	dep, err := conn.ReadDeployment()
+	dep, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
 	} else if len(sc.Spec.GetExternalMembers()) > 0 {
-		opts.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		opts.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(ctx, conn)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
 		}
@@ -2045,7 +2045,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 	logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmDeploymentShardedCluster"))
-	if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+	if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		if !isRecovering {
 			if shardsRemoving {
 				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
@@ -2069,7 +2069,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 
 		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
-		if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+		if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 			if !isRecovering {
 				return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
 			}
@@ -2080,7 +2080,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	currentHosts := r.getAllHostnames(false)
 	wantedHosts := r.getAllHostnames(true)
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+	if err = host.CalculateDiffAndStopMonitoring(ctx, conn, currentHosts, wantedHosts, log); err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
@@ -2123,7 +2123,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		configSrvMemberCertPath = util.PEMKeyFilePathInContainer
 	}
 
-	existingDeployment, err := conn.ReadDeployment()
+	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return nil, false, workflow.Failed(err)
 	}
@@ -2147,7 +2147,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
 	// We can look into unifying this into updateOmAuthentication at a later stage.
-	if err := conn.ReadUpdateDeployment(func(d om.Deployment) error {
+	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
 		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.GetShardedClusterName(), configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths, isRecovering)
 		return nil
 	}, log); err != nil {
@@ -2168,10 +2168,10 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	var finalProcesses []string
 	shardsRemoving := false
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
-			// it is not possible to disable internal cluster authentication once enabled
+
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
@@ -2207,10 +2207,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				ShardAdditionalOptionsDesired:        sc.Spec.ShardSpec.AdditionalMongodConfig.ToMap(),
 				MongosAdditionalOptionsPrev:          lastMongosServerConf.ToMap(),
 				MongosAdditionalOptionsDesired:       sc.Spec.MongosSpec.AdditionalMongodConfig.ToMap(),
-				// ExternalCluster carries the automation config shard _id for each shard, which may differ from the
-				// rs name during VM-to-Kubernetes migration when ShardNameOverrides are set.
-				// ConfigServerMembers, ShardMembers, and MongosMembers preserve
-				// VM-managed processes in the automation config during the same migration.
+
 				ExternalCluster: buildExternalShardedCluster(sc),
 			}
 
@@ -2232,21 +2229,21 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			return nil
 		},
-		log,
-	)
+		log)
+
 	if err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
 	// Here we only support sc.Spec.Agent on purpose because logRotation for the agents and all processes
 	// are configured the same way, its unrelated what type of process it is.
-	if reconcileResult, _ := ReconcileLogRotateSetting(conn, sc.Spec.Agent, log); !reconcileResult.IsOK() {
+	if reconcileResult, _ := ReconcileLogRotateSetting(ctx, conn, sc.Spec.Agent, log); !reconcileResult.IsOK() {
 		return nil, shardsRemoving, reconcileResult
 	}
 
 	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(ctx, existingDeployment, conn, log)
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
-	if err := om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
@@ -2294,6 +2291,10 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 }
 
 func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(ctx context.Context, sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) error {
+	// one deadline for mongos, config server and every shard, so the total wait does not grow with the shard count
+	ctx, cancel := agents.WithRegistrationDeadline(ctx)
+	defer cancel()
+
 	var mongosHostnames []string
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		hostnames, _ := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))

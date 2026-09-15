@@ -483,3 +483,30 @@ func TestGetClusterState(t *testing.T) {
 		})
 	}
 }
+
+func TestWithRegistrationDeadline_IsSharedAcrossWaits(t *testing.T) {
+	original := agentRegistrationTimeout
+	agentRegistrationTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { agentRegistrationTimeout = original })
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	reads := 0
+	conn.ReadAutomationAgentsFunc = func(_ int) (om.Paginated, error) {
+		reads++
+		return om.AutomationAgentStatusResponse{}, nil
+	}
+
+	ctx, cancel := WithRegistrationDeadline(context.Background())
+	defer cancel()
+	params := retryParams{retrials: 100, waitSeconds: 1}
+
+	ok, _ := waitUntilRegistered(ctx, conn, zap.NewNop().Sugar(), params, "mongos-0")
+	require.False(t, ok)
+
+	// the first wait used up the shared deadline, so the second one gives up after a single check
+	reads = 0
+	ok, msg := waitUntilRegistered(ctx, conn, zap.NewNop().Sugar(), params, "shard-0-0")
+	assert.False(t, ok)
+	assert.Contains(t, msg, "timed out after")
+	assert.Equal(t, 1, reads)
+}

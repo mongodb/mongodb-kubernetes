@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -68,13 +69,13 @@ type HostCluster struct {
 }
 
 type HostClusterReader interface {
-	ReadHostCluster(clusterID string) (*HostCluster, error)
+	ReadHostCluster(ctx context.Context, clusterID string) (*HostCluster, error)
 }
 
 // StopBackupIfEnabled tries to find backup configuration for specified resource (can be Replica Set or Sharded Cluster -
 // Ops Manager doesn't backup Standalones) and disable it.
-func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader HostClusterReader, name string, resourceType MongoDbResourceType, log *zap.SugaredLogger) error {
-	response, err := readUpdater.ReadBackupConfigs()
+func StopBackupIfEnabled(ctx context.Context, readUpdater ConfigHostReadUpdater, hostClusterReader HostClusterReader, name string, resourceType MongoDbResourceType, log *zap.SugaredLogger) error {
+	response, err := readUpdater.ReadBackupConfigs(ctx)
 	if err != nil {
 		// If the operator can't read BackupConfigs, it might indicate that the Pods were removed before establishing
 		// or activating monitoring for the deployment. But if this is a deletion process of the MDB resource, it needs
@@ -98,7 +99,7 @@ func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader Ho
 		l.Debugw("Found backup/host config", "status", config.Status)
 		// Any status except for inactive will result in API rejecting the deletion of resource - we need to disable backup
 		if config.Status != Inactive {
-			cluster, err := hostClusterReader.ReadHostCluster(config.ClusterId)
+			cluster, err := hostClusterReader.ReadHostCluster(ctx, config.ClusterId)
 			if err != nil {
 				l.Errorf("Failed to read information about HostCluster: %s", err)
 			} else {
@@ -111,7 +112,7 @@ func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader Ho
 			if cluster.ClusterName == name &&
 				(resourceType == ReplicaSetType && cluster.TypeName == "REPLICA_SET" ||
 					resourceType == ShardedClusterType && cluster.TypeName == "SHARDED_REPLICA_SET") {
-				err = disableBackup(readUpdater, config, l)
+				err = disableBackup(ctx, readUpdater, config, l)
 				if err != nil {
 					return err
 				}
@@ -122,13 +123,13 @@ func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader Ho
 	return nil
 }
 
-func disableBackup(readUpdater ConfigHostReadUpdater, backupConfig *Config, log *zap.SugaredLogger) error {
+func disableBackup(ctx context.Context, readUpdater ConfigHostReadUpdater, backupConfig *Config, log *zap.SugaredLogger) error {
 	if backupConfig.Status == Started {
-		err := readUpdater.UpdateBackupStatus(backupConfig.ClusterId, Stopped)
+		err := readUpdater.UpdateBackupStatus(ctx, backupConfig.ClusterId, Stopped)
 		if err != nil {
 			log.Errorf("Failed to stop backup for host cluster: %s", err)
 		} else {
-			if ok, msg := waitUntilBackupReachesStatus(readUpdater, backupConfig, Stopped, log); ok {
+			if ok, msg := waitUntilBackupReachesStatus(ctx, readUpdater, backupConfig, Stopped, log); ok {
 				log.Debugw("Stopped backup for host cluster")
 			} else {
 				log.Warnf("Failed to stop backup for host cluster in Ops Manager (timeout exhausted): %s", msg)
@@ -136,22 +137,22 @@ func disableBackup(readUpdater ConfigHostReadUpdater, backupConfig *Config, log 
 		}
 	}
 	// We try to terminate in any case (it will fail if the backup config is not stopped)
-	err := readUpdater.UpdateBackupStatus(backupConfig.ClusterId, Terminating)
+	err := readUpdater.UpdateBackupStatus(ctx, backupConfig.ClusterId, Terminating)
 	if err != nil {
 		return err
 	}
-	if ok, msg := waitUntilBackupReachesStatus(readUpdater, backupConfig, Inactive, log); !ok {
+	if ok, msg := waitUntilBackupReachesStatus(ctx, readUpdater, backupConfig, Inactive, log); !ok {
 		return xerrors.Errorf("Failed to disable backup for host cluster in Ops Manager (timeout exhausted): %s", msg)
 	}
 	return nil
 }
 
-func waitUntilBackupReachesStatus(configReader ConfigReader, backupConfig *Config, status Status, log *zap.SugaredLogger) (bool, string) {
+func waitUntilBackupReachesStatus(ctx context.Context, configReader ConfigReader, backupConfig *Config, status Status, log *zap.SugaredLogger) (bool, string) {
 	waitSeconds := env.ReadIntOrPanic(util.BackupDisableWaitSecondsEnv) // nolint:forbidigo
 	retries := env.ReadIntOrPanic(util.BackupDisableWaitRetriesEnv)     // nolint:forbidigo
 
 	backupStatusFunc := func() (string, bool) {
-		config, err := configReader.ReadBackupConfig(backupConfig.ClusterId)
+		config, err := configReader.ReadBackupConfig(ctx, backupConfig.ClusterId)
 		if err != nil {
 			return fmt.Sprintf("Unable to read from OM API: %s", err), false
 		}
@@ -162,5 +163,5 @@ func waitUntilBackupReachesStatus(configReader ConfigReader, backupConfig *Confi
 		return fmt.Sprintf("Current status: %s", config.Status), false
 	}
 
-	return util.DoAndRetry(backupStatusFunc, log, retries, waitSeconds)
+	return util.DoAndRetry(ctx, backupStatusFunc, log, retries, waitSeconds)
 }

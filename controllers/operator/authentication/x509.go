@@ -18,9 +18,9 @@ func (x *connectionX509) GetName() MechanismName {
 	return MongoDBX509
 }
 
-func (x *connectionX509) EnableAgentAuthentication(_ context.Context, _ kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, _ kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	log.Info("Configuring x509 authentication")
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return err
 		}
@@ -42,30 +42,33 @@ func (x *connectionX509) EnableAgentAuthentication(_ context.Context, _ kubernet
 
 		return nil
 	}, log)
+
 	if err != nil {
 		return err
 	}
 
 	log.Info("Configuring backup agent user")
-	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+	err = conn.ReadUpdateBackupAgentConfig(ctx, func(config *om.BackupAgentConfig) error {
 		config.EnableX509Authentication(opts.AutomationSubject, opts.AutoPEMKeyFilePath)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
+
 	if err != nil {
 		return err
 	}
 
 	log.Info("Configuring monitoring agent user")
-	return conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+	return conn.ReadUpdateMonitoringAgentConfig(ctx, func(config *om.MonitoringAgentConfig) error {
 		config.EnableX509Authentication(opts.AutomationSubject, opts.AutoPEMKeyFilePath)
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
+
 }
 
-func (x *connectionX509) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (x *connectionX509) DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.AgentSSL = &om.AgentSSL{
 			AutoPEMKeyFilePath:    util.MergoDelete,
 			ClientCertificateMode: util.OptionalClientCertficates,
@@ -76,40 +79,44 @@ func (x *connectionX509) DisableAgentAuthentication(conn om.Connection, log *zap
 		}
 		return nil
 	}, log)
+
 	if err != nil {
 		return err
 	}
-	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+	err = conn.ReadUpdateMonitoringAgentConfig(ctx, func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
 	}, log)
+
 	if err != nil {
 		return err
 	}
 
-	return conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+	return conn.ReadUpdateBackupAgentConfig(ctx, func(config *om.BackupAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
 	}, log)
+
 }
 
-func (x *connectionX509) EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (x *connectionX509) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 		}
-		// AutomationConfig validation requires the CAFile path to be specified in the case of multiple auth
-		// mechanisms enabled. This is not required if only X509 is being configured
+
 		ac.AgentSSL.CAFilePath = opts.CAFilePath
 		return nil
 	}, log)
+
 }
 
-func (x *connectionX509) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (x *connectionX509) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 		return nil
 	}, log)
+
 }
 
 func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {

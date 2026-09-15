@@ -26,12 +26,12 @@ func (o *oidcAuthMechanism) EnableAgentAuthentication(_ context.Context, _ kuber
 	return xerrors.Errorf("OIDC agent authentication is not supported")
 }
 
-func (o *oidcAuthMechanism) DisableAgentAuthentication(_ om.Connection, _ *zap.SugaredLogger) error {
+func (o *oidcAuthMechanism) DisableAgentAuthentication(ctx context.Context, _ om.Connection, _ *zap.SugaredLogger) error {
 	return xerrors.Errorf("OIDC agent authentication is not supported")
 }
 
-func (o *oidcAuthMechanism) EnableDeploymentAuthentication(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (o *oidcAuthMechanism) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC)) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 		}
@@ -39,15 +39,17 @@ func (o *oidcAuthMechanism) EnableDeploymentAuthentication(conn om.Connection, o
 
 		return nil
 	}, log)
+
 }
 
-func (o *oidcAuthMechanism) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (o *oidcAuthMechanism) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 		ac.OIDCProviderConfigs = nil
 
 		return nil
 	}, log)
+
 }
 
 func (o *oidcAuthMechanism) IsAgentAuthenticationConfigured(*om.AutomationConfig, Options) bool {

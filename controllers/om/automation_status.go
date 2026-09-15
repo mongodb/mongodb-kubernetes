@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -41,7 +42,7 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 }
 
 // WaitForReadyState waits until the agents for relevant processes reach their state
-func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
+func WaitForReadyState(ctx context.Context, oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	if len(processNames) == 0 {
 		log.Infow("Not waiting for MongoDB agents to reach READY state (no expected processes to wait for)")
 		return nil
@@ -49,7 +50,7 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 
 	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
 	reachStateFunc := func() (string, bool) {
-		as, lastErr := oc.ReadAutomationStatus()
+		as, lastErr := oc.ReadAutomationStatus(ctx)
 		if lastErr != nil {
 			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
 		}
@@ -60,7 +61,7 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 			return fmt.Sprintf("MongoDB agents haven't reached READY state; %s", msg), false
 		}
 	}
-	ok, msg := util.DoAndRetry(reachStateFunc, log, 30, 3)
+	ok, msg := util.DoAndRetry(ctx, reachStateFunc, log, 30, 3)
 	if !ok {
 		if supressErrors {
 			log.Warnf("automation agents haven't reached READY state but the error is supressed")

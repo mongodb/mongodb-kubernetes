@@ -291,7 +291,7 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 	}
 
 	// we immediately create the certificate in a prior call, thus we need to retry to account for races.
-	if found, msg := util.DoAndRetry(validateCertificates, log, 10, 5); !found {
+	if found, msg := util.DoAndRetry(ctx, validateCertificates, log, 10, 5); !found {
 		return xerrors.Errorf(msg)
 	}
 	return nil
