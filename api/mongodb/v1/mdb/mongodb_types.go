@@ -1121,9 +1121,8 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 		secretName = fmt.Sprintf("%s-%s-%s", s.CertificatesSecretsPrefix, resourceName, util.AgentSecretName)
 	} else if s.IsManagedCertificateEnabled() {
 		// In managed-certificate mode there is no certsSecretPrefix (the two are mutually
-		// exclusive), yet the operator OWNS the agent Certificate/secret. Scope the name to the
-		// resource — like the member (<name>-cert) and clusterfile (<name>-clusterfile) certs —
-		// so two managed resources in the same namespace can't collide on a shared "agent-certs".
+		// exclusive), yet the operator owns the agent Certificate/secret. Prefix resource name in the secret name
+		// so two managed resources in the same namespace can't collide on a shared "agent-certs" secret name.
 		secretName = fmt.Sprintf("%s-%s", resourceName, util.AgentSecretName)
 	}
 	if s.ShouldUseClientCertificates() {
@@ -1960,10 +1959,10 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 	}
 }
 
-// SetStatusCondition upserts the given condition into the resource status
-// (in-memory; the next status update persists it). ObservedGeneration is stamped
-// with the current generation. Conditions are tracked independently of Phase, so a
-// renewal-degraded CertificatesReady=False does not require flipping Phase.
+// SetStatusCondition adds the given condition to the resource status, or updates it if one
+// of the same type is already there. This only changes the in-memory object. Conditions
+// don't necessarily change the resource's overall phase, because a failing cert renewal
+// doesn't mean the MongoDB resource is not ready.
 func (m *MongoDB) SetStatusCondition(condition metav1.Condition) {
 	condition.ObservedGeneration = m.GetGeneration()
 	apimeta.SetStatusCondition(&m.Status.Conditions, condition)
