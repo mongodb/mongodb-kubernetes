@@ -941,6 +941,317 @@ spec:
                         type: object
                       certsSecretPrefix:
                         type: string
+                      managedCertificate:
+                        description: |-
+                          ManagedCertificate makes the operator create and own the cert-manager
+                          Certificate(s) for every cert a resource needs (member/server TLS, the
+                          internal-cluster clusterfile when x509 internal auth is used, and the agent
+                          cert), so users do not hand-craft any certificate Secrets. Certificates are
+                          grouped into two categories, server (serverAuth) and client (clientAuth).
+                          Each signed either by a user-configured issuer (managedCertificate.server
+                          or managedCertificate.client) or, when no issuer is given, by an operator-managed
+                          self-signed CA. Setting managedCertificate enables TLS on its own
+                          (no need to also set security.tls.enabled) and is mutually exclusive with
+                          security.certsSecretPrefix.
+                        properties:
+                          client:
+                            description: |-
+                              Client configures signing and trust for the clientAuth certificates. Omit the
+                              block, or omit its issuerRef, to have the operator sign the client certs with
+                              its own self-signed CA. When you do set client.issuerRef, the issuer must be
+                              able to issue certificates with the clientAuth EKU; if it does
+                              not emit its CA in the issued secret's ca.crt, supply that CA via client.ca.
+                            properties:
+                              additionalTrustedCAs:
+                                description: |-
+                                  AdditionalTrustedCAs adds extra CA certificates to a category's trust bundle
+                                  (server certs are validated against one bundle, client certs against the other).
+                                  The operator issues no certs from these; used to trust extra client/application
+                                  CAs and to widen trust during a CA rotation.
+                                items:
+                                  properties:
+                                    key:
+                                      description: |-
+                                        Key within the ConfigMap/Secret holding the PEM CA certificate — e.g.
+                                        tls.crt for a cert-manager CA issuer's backing Secret, or ca.crt.
+                                      type: string
+                                    kind:
+                                      description: Kind is the source object type.
+                                      enum:
+                                      - ConfigMap
+                                      - Secret
+                                      type: string
+                                    name:
+                                      description: Name of the ConfigMap or Secret
+                                        holding the CA certificate.
+                                      type: string
+                                  required:
+                                  - key
+                                  - kind
+                                  - name
+                                  type: object
+                                type: array
+                              ca:
+                                description: |-
+                                  CA supplies a category's (client/server) CA trust anchor, used only when issuerRef
+                                  is set but the issuer does not emit its CA in the issued secret's ca.crt (e.g. a public/ACME
+                                  server issuer). Ignored when the operator's self-signed CA signs the certs.
+                                properties:
+                                  key:
+                                    description: |-
+                                      Key within the ConfigMap/Secret holding the PEM CA certificate — e.g.
+                                      tls.crt for a cert-manager CA issuer's backing Secret, or ca.crt.
+                                    type: string
+                                  kind:
+                                    description: Kind is the source object type.
+                                    enum:
+                                    - ConfigMap
+                                    - Secret
+                                    type: string
+                                  name:
+                                    description: Name of the ConfigMap or Secret holding
+                                      the CA certificate.
+                                    type: string
+                                required:
+                                - key
+                                - kind
+                                - name
+                                type: object
+                              duration:
+                                description: |-
+                                  Duration is the requested lifetime of a category's leaf certificates (not the
+                                  CA). When unset, defaults to 90 days.
+                                type: string
+                              issuerRef:
+                                description: |-
+                                  IssuerRef is the cert-manager Issuer/ClusterIssuer that signs a category's
+                                  certs. Omit to have the operator provision a self-signed CA and sign a
+                                  category (client or server) certs itself.
+                                properties:
+                                  kind:
+                                    default: Issuer
+                                    description: |-
+                                      Kind of the issuer, either Issuer (namespaced) or ClusterIssuer.
+                                      Defaults to Issuer.
+                                    enum:
+                                    - Issuer
+                                    - ClusterIssuer
+                                    type: string
+                                  name:
+                                    description: Name of the issuer.
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              renewBefore:
+                                description: |-
+                                  RenewBefore is how long before expiry cert-manager renews a category's leaf
+                                  certificates. When unset, defaults to 1/3 of duration.
+                                type: string
+                            type: object
+                          enabled:
+                            default: false
+                            description: |-
+                              Enabled turns on operator-managed certificates for this resource. It must be true
+                              for any server/client/subjects setting to take effect; when true with no server or
+                              client configured, the operator signs both category of certs with its own self-signed CAs.
+                              Mutually exclusive with security.certsSecretPrefix.
+                            type: boolean
+                          server:
+                            description: |-
+                              Server configures signing and trust for the serverAuth certificates.
+                              Omit the block, or omit its issuerRef, to have the operator sign the server
+                              certs with its own self-signed CA.
+                            properties:
+                              additionalTrustedCAs:
+                                description: |-
+                                  AdditionalTrustedCAs adds extra CA certificates to a category's trust bundle
+                                  (server certs are validated against one bundle, client certs against the other).
+                                  The operator issues no certs from these; used to trust extra client/application
+                                  CAs and to widen trust during a CA rotation.
+                                items:
+                                  properties:
+                                    key:
+                                      description: |-
+                                        Key within the ConfigMap/Secret holding the PEM CA certificate — e.g.
+                                        tls.crt for a cert-manager CA issuer's backing Secret, or ca.crt.
+                                      type: string
+                                    kind:
+                                      description: Kind is the source object type.
+                                      enum:
+                                      - ConfigMap
+                                      - Secret
+                                      type: string
+                                    name:
+                                      description: Name of the ConfigMap or Secret
+                                        holding the CA certificate.
+                                      type: string
+                                  required:
+                                  - key
+                                  - kind
+                                  - name
+                                  type: object
+                                type: array
+                              ca:
+                                description: |-
+                                  CA supplies a category's (client/server) CA trust anchor, used only when issuerRef
+                                  is set but the issuer does not emit its CA in the issued secret's ca.crt (e.g. a public/ACME
+                                  server issuer). Ignored when the operator's self-signed CA signs the certs.
+                                properties:
+                                  key:
+                                    description: |-
+                                      Key within the ConfigMap/Secret holding the PEM CA certificate — e.g.
+                                      tls.crt for a cert-manager CA issuer's backing Secret, or ca.crt.
+                                    type: string
+                                  kind:
+                                    description: Kind is the source object type.
+                                    enum:
+                                    - ConfigMap
+                                    - Secret
+                                    type: string
+                                  name:
+                                    description: Name of the ConfigMap or Secret holding
+                                      the CA certificate.
+                                    type: string
+                                required:
+                                - key
+                                - kind
+                                - name
+                                type: object
+                              duration:
+                                description: |-
+                                  Duration is the requested lifetime of a category's leaf certificates (not the
+                                  CA). When unset, defaults to 90 days.
+                                type: string
+                              issuerRef:
+                                description: |-
+                                  IssuerRef is the cert-manager Issuer/ClusterIssuer that signs a category's
+                                  certs. Omit to have the operator provision a self-signed CA and sign a
+                                  category (client or server) certs itself.
+                                properties:
+                                  kind:
+                                    default: Issuer
+                                    description: |-
+                                      Kind of the issuer, either Issuer (namespaced) or ClusterIssuer.
+                                      Defaults to Issuer.
+                                    enum:
+                                    - Issuer
+                                    - ClusterIssuer
+                                    type: string
+                                  name:
+                                    description: Name of the issuer.
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              renewBefore:
+                                description: |-
+                                  RenewBefore is how long before expiry cert-manager renews a category's leaf
+                                  certificates. When unset, defaults to 1/3 of duration.
+                                type: string
+                            type: object
+                          subjects:
+                            description: |-
+                              Subjects overrides the operator-computed X509 subjects. It is configurable by
+                              certificate identity (not by server/client category) because even diff category
+                              of certs can have same membership. For example the member (server) cert and
+                              clusterFile (client) cert should hold the same subject so that it can be treated
+                              as peer.
+                            properties:
+                              agent:
+                                description: |-
+                                  Agent is the automation agent cert's subject. It must differ from Membership in
+                                  at least one of organizations/organizationalUnits attributes, or mongod treats the
+                                  agent as a cluster peer and auth breaks. The operator registers the $external user
+                                  from the issued cert's actual subject.
+                                properties:
+                                  commonName:
+                                    type: string
+                                  countries:
+                                    items:
+                                      type: string
+                                    type: array
+                                  localities:
+                                    items:
+                                      type: string
+                                    type: array
+                                  organizationalUnits:
+                                    items:
+                                      type: string
+                                    type: array
+                                  organizations:
+                                    items:
+                                      type: string
+                                    type: array
+                                  provinces:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              membership:
+                                description: |-
+                                  Membership is the shared subject of the member cert (when internal cluster auth
+                                  is x509) and the internal-cluster clusterfile cert. A single field so the two
+                                  always match, mongod recognizes cluster peers by comparing subject O/OU.
+                                properties:
+                                  commonName:
+                                    type: string
+                                  countries:
+                                    items:
+                                      type: string
+                                    type: array
+                                  localities:
+                                    items:
+                                      type: string
+                                    type: array
+                                  organizationalUnits:
+                                    items:
+                                      type: string
+                                    type: array
+                                  organizations:
+                                    items:
+                                      type: string
+                                    type: array
+                                  provinces:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                              server:
+                                description: |-
+                                  Server is the subject for serverAuth certs that carry no identity: the member
+                                  cert when internal cluster auth is not x509 (no membership check is done on the
+                                  subject, so the member cert is just a plain server cert). mongod verifies these
+                                  certs by SAN, not subject, it exists only so a server issuer that enforces a DN
+                                  policy can be satisfied.
+                                properties:
+                                  commonName:
+                                    type: string
+                                  countries:
+                                    items:
+                                      type: string
+                                    type: array
+                                  localities:
+                                    items:
+                                      type: string
+                                    type: array
+                                  organizationalUnits:
+                                    items:
+                                      type: string
+                                    type: array
+                                  organizations:
+                                    items:
+                                      type: string
+                                    type: array
+                                  provinces:
+                                    items:
+                                      type: string
+                                    type: array
+                                type: object
+                            type: object
+                        required:
+                        - enabled
+                        type: object
                       roleRefs:
                         items:
                           properties:
@@ -1050,6 +1361,15 @@ spec:
                     - message: At most one of roles or roleRefs can be non-empty
                       rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
                         > 0 && self.roleRefs.size() > 0)'
+                    - message: security.certsSecretPrefix and an enabled security.managedCertificate
+                        are mutually exclusive
+                      rule: '!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size()
+                        > 0 && has(self.managedCertificate) && self.managedCertificate.enabled)'
+                    - message: security.managedCertificate.server/client/subjects
+                        require security.managedCertificate.enabled to be true
+                      rule: '!(has(self.managedCertificate) && !self.managedCertificate.enabled
+                        && (has(self.managedCertificate.server) || has(self.managedCertificate.client)
+                        || has(self.managedCertificate.subjects)))'
                   service:
                     description: this is an optional service, it will get the name
                       "<rsName>-svc" in case not provided
