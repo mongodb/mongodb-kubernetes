@@ -436,19 +436,6 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 		},
-		"externalApplicationDatabaseRef set, multi-cluster AppDB clusterSpecList rejected": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetName("om-test").
-				SetAppDBTopology(ClusterTopologyMultiCluster).
-				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
-					{ClusterName: "dup", Members: 1},
-					{ClusterName: "dup", Members: 1},
-				}).
-				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
-				Build(),
-			expectedPart:         status.OpsManager,
-			expectedErrorMessage: "forward migration between a multi-cluster internal AppDB and a MongoDB external AppDB is not supported",
-		},
 		"externalApplicationDatabaseRef set and OM-level validators still run": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
@@ -471,62 +458,6 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, status.None, part)
-			}
-		})
-	}
-}
-
-func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
-	tests := map[string]struct {
-		testedOm             *MongoDBOpsManager
-		expectedPart         status.Part
-		expectedErrorMessage string
-	}{
-		"single-cluster internal AppDB rejects MongoDBMultiCluster external refs": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetName("om-test").
-				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: ExternalAppDBRefKindMongoDBMultiCluster}).
-				Build(),
-			expectedPart:         status.OpsManager,
-			expectedErrorMessage: "forward migration between a single-cluster internal AppDB and a MongoDBMultiCluster external AppDB is not supported",
-		},
-		"multi-cluster internal AppDB rejects MongoDB external refs": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetName("om-test").
-				SetAppDBTopology(ClusterTopologyMultiCluster).
-				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{{ClusterName: "cluster-1", Members: 1}, {ClusterName: "cluster-2", Members: 1}}).
-				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
-				Build(),
-			expectedPart:         status.OpsManager,
-			expectedErrorMessage: "forward migration between a multi-cluster internal AppDB and a MongoDB external AppDB is not supported",
-		},
-		"single-cluster internal AppDB still accepts MongoDB external refs": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetName("om-test").
-				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
-				Build(),
-		},
-		"fresh-start external MongoDBMultiCluster skips topology guards": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetName("om-test").
-				SetAppDBToNil().
-				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: ExternalAppDBRefKindMongoDBMultiCluster}).
-				Build(),
-		},
-	}
-
-	for testName := range tests {
-		t.Run(testName, func(t *testing.T) {
-			testConfig := tests[testName]
-			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
-
-			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
-				assert.Equal(t, testConfig.expectedPart, part)
-				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
-			} else {
-				assert.Nil(t, err)
 				assert.Equal(t, status.None, part)
 			}
 		})

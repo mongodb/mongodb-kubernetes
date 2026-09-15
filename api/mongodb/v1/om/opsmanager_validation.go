@@ -220,25 +220,6 @@ func validateAppDBUniqueExternalDomains(os MongoDBOpsManagerSpec) v1.ValidationR
 	return v1.ValidationSuccess()
 }
 
-func validateExternalAppDBTopologyCompatibility(os MongoDBOpsManagerSpec) v1.ValidationResult {
-	if os.AppDB == nil || os.ExternalAppDBRef == nil {
-		return v1.ValidationSuccess()
-	}
-
-	switch os.ExternalAppDBRef.Kind {
-	case ExternalAppDBRefKindMongoDBMultiCluster:
-		if !os.AppDB.IsMultiCluster() {
-			return v1.OpsManagerResourceValidationError("forward migration between a single-cluster internal AppDB and a MongoDBMultiCluster external AppDB is not supported", status.OpsManager)
-		}
-	case ExternalAppDBRefKindMongoDB:
-		if os.AppDB.IsMultiCluster() {
-			return v1.OpsManagerResourceValidationError("forward migration between a multi-cluster internal AppDB and a MongoDB external AppDB is not supported", status.OpsManager)
-		}
-	}
-
-	return v1.ValidationSuccess()
-}
-
 func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	backup := os.Backup
 	if backup == nil || !backup.Enabled {
@@ -339,9 +320,6 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		expectedName := om.Name + "-db"
 		if om.Spec.ExternalAppDBRef.Name != expectedName {
 			validationResults = append(validationResults, v1.OpsManagerResourceValidationError(fmt.Sprintf("spec.externalApplicationDatabaseRef.name must be %s", expectedName), status.OpsManager))
-		}
-		if res := validateExternalAppDBTopologyCompatibility(om.Spec); res.Level > 0 {
-			validationResults = append(validationResults, res)
 		}
 	} else if om.Spec.AppDB != nil && om.Spec.AppDB.IsMultiCluster() {
 		// Explicit tests for AppDB multi-cluster

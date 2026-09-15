@@ -8692,6 +8692,15 @@ spec:
             - version
             type: object
             x-kubernetes-validations:
+            - message: 'forward migration between the internal AppDB and the external
+                Application Database requires matching topologies: a multi-cluster
+                internal AppDB requires kind MongoDBMultiCluster, and a single-cluster
+                internal AppDB requires kind MongoDB'
+              rule: '!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase)
+                || (self.externalApplicationDatabaseRef.kind == ''MongoDBMultiCluster''
+                ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology
+                == ''MultiCluster'') : !(has(oldSelf.applicationDatabase.topology)
+                && oldSelf.applicationDatabase.topology == ''MultiCluster''))'
             - message: at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef
                 must be set
               rule: has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)
