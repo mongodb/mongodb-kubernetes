@@ -98,7 +98,7 @@ type MongoDBOpsManagerList struct {
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase) || (self.externalApplicationDatabaseRef.kind == 'MongoDBMultiCluster' ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster') : !(has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster'))",message="forward migration between the internal AppDB and the external Application Database requires matching topologies: a multi-cluster internal AppDB requires kind MongoDBMultiCluster, and a single-cluster internal AppDB requires kind MongoDB"
+// +kubebuilder:validation:XValidation:rule="!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase) || (self.externalApplicationDatabaseRef.kind == 'MongoDBMultiCluster' ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster') : !(has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster'))",message="topology does not match between the current AppDB and the external AppDB"
 // +kubebuilder:validation:XValidation:rule="has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)",message="at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set"
 type MongoDBOpsManagerSpec struct {
 	// The configuration properties passed to Ops Manager/Backup Daemon

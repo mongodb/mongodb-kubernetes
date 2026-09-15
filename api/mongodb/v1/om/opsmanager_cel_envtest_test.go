@@ -104,13 +104,13 @@ func TestOpsManagerCELValidation_ExternalAppDBTopologyTransition(t *testing.T) {
 		{
 			name:             "single-cluster internal AppDB rejects MongoDBMultiCluster external ref",
 			newKind:          "MongoDBMultiCluster",
-			expectedErrorMsg: "forward migration between the internal AppDB and the external Application Database requires matching topologies: a multi-cluster internal AppDB requires kind MongoDBMultiCluster, and a single-cluster internal AppDB requires kind MongoDB",
+			expectedErrorMsg: "topology does not match between the current AppDB and the external AppDB",
 		},
 		{
 			name:             "multi-cluster internal AppDB rejects MongoDB external ref",
 			initialAppDBMC:   true,
 			newKind:          "MongoDB",
-			expectedErrorMsg: "forward migration between the internal AppDB and the external Application Database requires matching topologies: a multi-cluster internal AppDB requires kind MongoDBMultiCluster, and a single-cluster internal AppDB requires kind MongoDB",
+			expectedErrorMsg: "topology does not match between the current AppDB and the external AppDB",
 		},
 		{
 			name:    "single-cluster internal AppDB accepts MongoDB external ref",
