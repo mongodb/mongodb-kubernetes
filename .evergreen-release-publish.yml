@@ -25,10 +25,6 @@ tasks:
           include_expansions_in_env:
             - triggered_by_git_tag
           binary: scripts/dev/run_python.sh scripts/evergreen/decide_release_process.py
-      - command: expansions.update
-        params:
-          file: src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml
-          optional: true
       - command: generate.tasks
         params:
           files:
@@ -43,18 +39,27 @@ tasks:
         type: test
         params:
           shell: bash
+          add_expansions_to_env: true
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           script: |
             source .generated/context.export.env
+            annotation=$(git tag -l --format='%(contents:subject)' "${triggered_by_git_tag}" 2>/dev/null || true)
+            if echo "$annotation" | grep -qF '[dry-run]'; then
+              IS_DRYRUN=true
+            else
+              IS_DRYRUN=false
+            fi
             registry_override=""
-            if [[ "${IS_DRYRUN}" == "true" ]]; then
-              if [[ -z "${dryrun_registry_override:-}" ]]; then
+            if [[ "$IS_DRYRUN" == "true" ]]; then
+              if [[ -z "$dryrun_registry_override" ]]; then
                 echo "ERROR: IS_DRYRUN=true but dryrun_registry_override is unset" >&2
                 exit 1
               fi
-              registry_override="${dryrun_registry_override}"
+              registry_override="$dryrun_registry_override"
             fi
-            scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
+            release_commit="${target_commit:-${revision}}"
+            echo "TRACE: tag=${triggered_by_git_tag} IS_DRYRUN=$IS_DRYRUN commit=${release_commit}"
+            scripts/mckci release publish images --commit "${release_commit}" --latest-marker latest --registry-override "$registry_override"
 
 buildvariants:
   - name: release_decider

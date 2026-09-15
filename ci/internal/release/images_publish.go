@@ -17,6 +17,17 @@ type ImagesPublishResult struct {
 	Infos       []string
 }
 
+// isFailOnStomp returns true if name is in the failOnStomp list. An empty list
+// means no images fail on stomp (callers should default it before calling in).
+func isFailOnStomp(name string, failOnStomp []string) bool {
+	for _, n := range failOnStomp {
+		if name == n {
+			return true
+		}
+	}
+	return false
+}
+
 // overrideRepoPrefix replaces everything in originalRepo up to and including
 // the last "/" with override, keeping the final path segment (the
 // image-specific repo name) intact so multiple images pushed under the same
@@ -29,7 +40,7 @@ func overrideRepoPrefix(override, originalRepo string) string {
 	return strings.TrimSuffix(override, "/") + "/" + name
 }
 
-func PublishImages(images []ReleaseImage, commit, latestMarker, registryOverride string, force, dryRun bool, allowPartialSignatures bool, connect RegistryConnector) ([]ImagesPublishResult, error) {
+func PublishImages(images []ReleaseImage, commit, latestMarker, registryOverride string, force, dryRun bool, allowPartialSignatures bool, failOnStomp []string, connect RegistryConnector) ([]ImagesPublishResult, error) {
 	if commit == "" {
 		return nil, errors.New("commit is required")
 	}
@@ -70,7 +81,7 @@ func PublishImages(images []ReleaseImage, commit, latestMarker, registryOverride
 		if err != nil {
 			return nil, fmt.Errorf("check %s (%s): %w", img.Name, srcRef, err)
 		}
-		if conflict != "" {
+		if conflict != "" && isFailOnStomp(img.Name, failOnStomp) {
 			conflicts = append(conflicts, fmt.Sprintf("%s: %s", img.Name, conflict))
 		}
 		prep = append(prep, prepared{img: img, reg: reg, host: host, prodPath: path, version: version, releaseRepo: releaseRepo})

@@ -95,29 +95,34 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Show Evergreen links
+        run: |
+          echo "## 🔗 Evergreen Links" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The tag has been pushed. Check Evergreen for the triggered build:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **[Tag-triggered builds (waterfall)](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/waterfall?requesters=git_tag_request)**" >> $GITHUB_STEP_SUMMARY
+          echo "- **[All project patches](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/patches)**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Once the Evergreen publish pipeline completes successfully, approve the next job to continue." >> $GITHUB_STEP_SUMMARY
+
   wait_for_evergreen_and_prep_pr:
     name: Wait for Evergreen & Synthesize PR Link
     runs-on: ubuntu-latest
     needs: create_tag_and_draft_release
+    environment: production # Manual gate: user checks EVG before approving
     permissions:
       contents: read
       checks: read
     steps:
-      - name: Wait for Evergreen build to complete
-        uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
-        id: wait_for_evg
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          checkName: "evergreen" # Ensure this matches the status check context EVG posts
-          ref: ${{ needs.create_tag_and_draft_release.outputs.commit }}
-          timeoutSeconds: 1800
-          intervalSeconds: 30
-
-      - name: Fail if Evergreen failed
-        if: steps.wait_for_evg.outputs.conclusion != 'success'
+      - name: Show Evergreen links
         run: |
-          echo "Evergreen publish pipeline failed or timed out!"
-          exit 1
+          echo "## 🔗 Evergreen Links" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Confirm the Evergreen publish pipeline has completed successfully:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **[Tag-triggered builds (waterfall)](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/waterfall?requesters=git_tag_request)**" >> $GITHUB_STEP_SUMMARY
+          echo "- **[All project patches](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/patches)**" >> $GITHUB_STEP_SUMMARY
 
       - name: Generate RedHat PR Links in Job Summary
         run: |
@@ -125,7 +130,7 @@ jobs:
           COMMUNITY_REPO="community-operators"
           CERTIFIED_REPO="certified-operators"
           VERSION="${{ needs.create_tag_and_draft_release.outputs.version }}"
-          RH_BRANCH="mck-release-${VERSION}"
+          RH_BRANCH="mongodb-kubernetes-${VERSION}"
 
           COMMUNITY_PR_CREATION_URL="https://github.com/k8s-operatorhub/community-operators/compare/main...${RH_FORK_ORG}:${COMMUNITY_REPO}:${RH_BRANCH}?quick_pull=1"
           CERTIFIED_PR_CREATION_URL="https://github.com/redhat-openshift-ecosystem/certified-operators/compare/main...${RH_FORK_ORG}:${CERTIFIED_REPO}:${RH_BRANCH}?quick_pull=1"
@@ -133,7 +138,7 @@ jobs:
           echo "Evergreen successfully created the release branches on the RedHat fork." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "👉 **[Click here to create the RedHat Community Operators PR](${COMMUNITY_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
-          echo "👉 **[Click here to createi the RedHat Certified Operators PR](${CERTIFIED_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
+          echo "👉 **[Click here to create the RedHat Certified Operators PR](${CERTIFIED_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
 
   publish_release:
     name: Publish Release
