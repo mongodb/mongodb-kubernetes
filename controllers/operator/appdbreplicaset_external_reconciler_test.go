@@ -154,20 +154,17 @@ func validExternalAppDBMongoDB() *mdbv1.MongoDB {
 }
 
 func validExternalAppDBMongoDBWithTLS(tlsEnabled bool, caConfigMapName string) *mdbv1.MongoDB {
-	builder := mdbv1.NewReplicaSetBuilder().
+	mdb := mdbv1.NewReplicaSetBuilder().
 		SetName("test-om-db").
 		SetNamespace(mock.TestNamespace).
 		SetVersion("6.0.0").
 		SetMembers(3).
-		EnableAuth([]mdbv1.AuthMode{util.SCRAM})
-	if tlsEnabled {
-		builder = builder.SetSecurityTLSEnabled()
-	}
-	mdb := builder.Build()
+		SetSecurity(&mdbv1.Security{
+			TLSConfig:      &mdbv1.TLSConfig{Enabled: tlsEnabled, CA: caConfigMapName},
+			Authentication: &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}},
+		}).
+		Build()
 	mdb.Spec.Role = mdbv1.RoleAppDB
-	if tlsEnabled {
-		mdb.Spec.Security.TLSConfig.CA = caConfigMapName
-	}
 	return mdb
 }
 
