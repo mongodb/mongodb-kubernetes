@@ -68,7 +68,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -407,6 +409,224 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 }
 
+func ownsStatefulSet(sts appsv1.StatefulSet, ownerUID types.UID) bool {
+	for _, ref := range sts.OwnerReferences {
+		if ref.UID == ownerUID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) validateAppDBForwardMigration(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, sts appsv1.StatefulSet, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
+		return workflow.OK()
+	}
+
+	if wasTLSSecretMounted(ctx, secretGetter, sts, mdb.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: mrs.Namespace}}, log) {
+		if !mrs.Spec.Security.IsTLSEnabled() {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
+		}
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && mrs.Spec.Security.TLSConfig.CA != caVolume.ConfigMap.Name {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
+		}
+	}
+
+	if sts.Spec.Replicas != nil && item.Members != int(*sts.Spec.Replicas) {
+		return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.members must remain %d", *sts.Spec.Replicas))
+	}
+
+	return workflow.OK()
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reclaimAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
+	sts.OwnerReferences = kube.BaseOwnerReference(mrs)
+	if err := memberClient.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) releaseAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, sts appsv1.StatefulSet) error {
+	sts.OwnerReferences = nil
+	if err := memberClient.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, memberClient client.Client, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if mrs.Spec.Role != mdb.RoleAppDB {
+		return workflow.OK()
+	}
+
+	stsName := mrs.StatefulSetNameForCluster(item.ClusterName)
+	sts := appsv1.StatefulSet{}
+	var err error
+	if err = memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, stsName), &sts); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return workflow.OK()
+		}
+		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
+	}
+
+	ownedByThisMongoDB := ownsStatefulSet(sts, mrs.UID)
+
+	if validationStatus := r.validateAppDBForwardMigration(ctx, mrs, item, sts, secretGetter, log); !validationStatus.IsOK() {
+		return validationStatus
+	}
+
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		if len(sts.OwnerReferences) == 0 {
+			if err := r.reclaimAppDBStatefulsetOwnership(ctx, memberClient, mrs, sts); err != nil {
+				return workflow.Failed(err)
+			}
+			return workflow.OK()
+		}
+
+		if ownedByThisMongoDB {
+			return workflow.OK()
+		}
+
+		return workflow.Failed(xerrors.New("Cannot take ownership of the AppDB Statefulset: it has other owner"))
+	}
+
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+		if ownedByThisMongoDB {
+			if err := r.releaseAppDBStatefulsetOwnership(ctx, memberClient, sts); err != nil {
+				return workflow.Failed(err)
+			}
+		}
+		return workflow.Pending("This AppDB resource is under Reverse Migration to Ops Manager CR")
+	}
+
+	if !ownedByThisMongoDB {
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource")
+	}
+
+	return workflow.OK()
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBRoleUser(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) error {
+	if mrs.Spec.Role != mdb.RoleAppDB {
+		return nil
+	}
+
+	secretName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
+	secretObjectKey := kube.ObjectKey(mrs.Namespace, secretName)
+
+	password, err := secret.ReadKey(ctx, r.SecretClient, util.OpsManagerPasswordKey, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to read password secret %s: %w", secretName, err)
+	}
+	if password == "" {
+		password, err = generate.RandomFixedLengthStringOfSize(20)
+		if err != nil {
+			return xerrors.Errorf("failed to generate password: %w", err)
+		}
+	}
+
+	newSecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(mrs.Namespace).
+		SetField(util.OpsManagerPasswordKey, password).
+		SetOwnerReferences(kube.BaseOwnerReference(mrs)).
+		Build()
+	if err := secret.CreateOrUpdate(ctx, r.SecretClient, newSecret); err != nil {
+		return xerrors.Errorf("failed to create/update password secret: %w", err)
+	}
+
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		omUser := om.MongoDBUser{
+			Username:                   util.OpsManagerMongoDBUserName,
+			Database:                   util.DefaultUserDatabase,
+			Roles:                      []*om.Role{},
+			AuthenticationRestrictions: []string{},
+			Mechanisms:                 []string{},
+		}
+		for _, role := range omv1.AppDBUserRoles {
+			omUser.AddRole(&om.Role{Role: role.Name, Database: role.Database})
+		}
+		if _, err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
+			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
+		}
+		ac.Auth.EnsureUser(omUser)
+		return nil
+	}, zap.S())
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBRoleKeyfile(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) error {
+	if mrs.Spec.Role != mdb.RoleAppDB {
+		return nil
+	}
+
+	secretName := fmt.Sprintf("%s-keyfile", mrs.Name)
+	secretObjectKey := kube.ObjectKey(mrs.Namespace, secretName)
+
+	sharedKey, err := secret.ReadKey(ctx, r.SecretClient, constants.AgentKeyfileKey, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to read keyfile secret %s: %w", secretName, err)
+	}
+
+	var projectKey string
+	if err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if sharedKey != "" {
+			ac.Auth.Key = sharedKey
+			return nil
+		}
+		if err := ac.EnsureKeyFileContents(); err != nil {
+			return xerrors.Errorf("failed to ensure keyfile contents: %w", err)
+		}
+		projectKey = ac.Auth.Key
+		return nil
+	}, zap.S()); err != nil {
+		return err
+	}
+	if sharedKey == "" {
+		sharedKey = projectKey
+	}
+
+	newSecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(mrs.Namespace).
+		SetField(constants.AgentKeyfileKey, sharedKey).
+		SetOwnerReferences(kube.BaseOwnerReference(mrs)).
+		Build()
+	if err := secret.CreateOrUpdate(ctx, r.SecretClient, newSecret); err != nil {
+		return xerrors.Errorf("failed to create/update keyfile secret: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) copyAppDBRoleSecretsToMemberCluster(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, clusterName string) error {
+	if mrs.Spec.Role != mdb.RoleAppDB {
+		return nil
+	}
+
+	memberSecretClient, ok := r.memberClusterSecretClientsMap[clusterName]
+	if !ok {
+		return xerrors.Errorf("missing secret client for cluster %s", clusterName)
+	}
+
+	passwordSecretName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
+	passwordSecretKey := kube.ObjectKey(mrs.Namespace, passwordSecretName)
+	if err := secret.CopySecret(ctx, r.SecretClient, memberSecretClient, passwordSecretKey, passwordSecretKey); err != nil {
+		return xerrors.Errorf("failed to copy password secret to cluster %s: %w", clusterName, err)
+	}
+
+	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
+	keyfileSecretKey := kube.ObjectKey(mrs.Namespace, keyfileSecretName)
+	if err := secret.CopySecret(ctx, r.SecretClient, memberSecretClient, keyfileSecretKey, keyfileSecretKey); err != nil {
+		return xerrors.Errorf("failed to copy keyfile secret to cluster %s: %w", clusterName, err)
+	}
+
+	return nil
+}
+
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash, agentCertPath string) workflow.Status {
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
@@ -428,6 +648,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	// stateful-sets in parallel.
 	scalingFirstTime := len(processes) == 0
 
+	if mrs.Spec.Role == mdb.RoleAppDB {
+		if err := r.ensureAppDBRoleUser(ctx, mrs, conn); err != nil {
+			return workflow.Failed(err)
+		}
+		if err := r.ensureAppDBRoleKeyfile(ctx, mrs, conn); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
@@ -441,6 +670,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
+		ownershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, secretMemberClient, log)
+		if !ownershipStatus.IsOK() {
+			workflowStatus = workflowStatus.Merge(ownershipStatus)
+			continue
+		}
+		if mrs.Spec.Role == mdb.RoleAppDB {
+			if err := r.copyAppDBRoleSecretsToMemberCluster(ctx, mrs, item.ClusterName); err != nil {
+				workflowStatus = workflowStatus.Merge(workflow.Failed(err))
+				continue
+			}
+		}
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(mrs, item)
 		clusterNum := mrs.ClusterNum(item.ClusterName)
 		if err != nil {

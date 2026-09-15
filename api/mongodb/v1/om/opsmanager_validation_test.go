@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -377,11 +378,11 @@ func TestOpsManagerValidation(t *testing.T) {
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 
 			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, status.None, part)
 			}
 
@@ -435,17 +436,6 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
 				Build(),
 		},
-		"externalApplicationDatabaseRef set, multi-cluster AppDB clusterSpecList ignored": {
-			testedOm: NewOpsManagerBuilderDefault().
-				SetName("om-test").
-				SetAppDBTopology(ClusterTopologyMultiCluster).
-				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
-					{ClusterName: "dup", Members: 1},
-					{ClusterName: "dup", Members: 1},
-				}).
-				SetExternalAppDBRef(ExternalAppDBRef{Name: "om-test-db", Kind: "MongoDB"}).
-				Build(),
-		},
 		"externalApplicationDatabaseRef set and OM-level validators still run": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetName("om-test").
@@ -463,11 +453,11 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 
 			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, status.None, part)
 			}
 		})

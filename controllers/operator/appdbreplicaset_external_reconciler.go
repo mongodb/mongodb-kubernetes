@@ -3,9 +3,12 @@ package operator
 import (
 	"context"
 	"slices"
+	"strings"
 
+	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,14 +31,23 @@ import (
 // state comes from the referenced MongoDB CR instead.
 type ReconcileExternalAppDBReplicaSet struct {
 	*ReconcileCommonController
-	log *zap.SugaredLogger
+	memberClustersMap map[string]client.Client
+	log               *zap.SugaredLogger
 }
 
 func (r *OpsManagerReconciler) createNewExternalAppDBReconciler(log *zap.SugaredLogger) *ReconcileExternalAppDBReplicaSet {
 	return &ReconcileExternalAppDBReplicaSet{
 		ReconcileCommonController: r.ReconcileCommonController,
+		memberClustersMap:         r.memberClustersMap,
 		log:                       log,
 	}
+}
+
+type appDBClusterWorkItem struct {
+	clusterName         string
+	client              client.Client
+	stsName             string
+	legacySingleCluster bool
 }
 
 // ReconcileAppDB validates the externalApplicationDatabaseRef, performs the one-time
@@ -92,38 +104,157 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
 	}
 
+	if err := refObject.ValidateTopology(ctx, opsManager, e.memberClustersMap); err != nil {
+		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s has incompatible topology: %w", ref.Namespace, ref.Name, err)
+	}
+
 	return nil
 }
 
-// ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
-//   - absent: nothing to detach - Fresh Start, the referenced CR creates its own StatefulSet
-//   - owned by this OM: strip OM's OwnerReference and set util.AppDBMigrationReadyAnnotation
-//     so the referenced MongoDB CR can adopt
-//   - foreign-owned (a MongoDB CR) or already detached: no-op - the CR owns the StatefulSet
-func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
-	sts := appsv1.StatefulSet{}
-	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.ExternalAppDBRef.Name)
-	if err := e.client.Get(ctx, stsKey, &sts); err != nil {
-		if apiErrors.IsNotFound(err) {
-			return nil // Fresh Start, nothing to detach
-		}
-		return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
+func validateMultiClusterAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClustersMap map[string]client.Client, mdbm *mdbmultiv1.MongoDBMultiCluster) error {
+	// Both the expected clusters and their StatefulSet names come from the referenced
+	// MongoDBMultiCluster. The AppDB spec (and the deployment state derived from it) is deliberately
+	// not used here, because the user may remove spec.applicationDatabase as part of the migration.
+	expectedStsByCluster := map[string]string{}
+	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
+		expectedStsByCluster[clusterSpec.ClusterName] = mdbm.StatefulSetNameForCluster(clusterSpec.ClusterName)
 	}
 
-	ownedByThisOM := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
-		return ref.UID == opsManager.UID
-	})
+	actualStsByCluster, err := appDBStatefulSetsByCluster(ctx, opsManager, memberClustersMap)
+	if err != nil {
+		return err
+	}
 
-	// If not owned by this Ops Manager, no-op
-	if !ownedByThisOM {
+	// No internal AppDB StatefulSet exists in any member cluster: this is a fresh adoption of an
+	// external AppDB, so there is no topology to reconcile.
+	if len(actualStsByCluster) == 0 {
 		return nil
 	}
 
-	// Request forward migration if owned by this Ops Manager
-	return e.requestAppDBForwardMigration(ctx, sts)
+	expectedClusterNames := sortedKeys(expectedStsByCluster)
+	for _, clusterName := range expectedClusterNames {
+		actualSts, ok := actualStsByCluster[clusterName]
+		if !ok {
+			return xerrors.Errorf("cluster %s of the external MongoDBMultiCluster has no AppDB StatefulSet", clusterName)
+		}
+		if expectedSts := expectedStsByCluster[clusterName]; actualSts != expectedSts {
+			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s does not match the cluster number expected by the external MongoDBMultiCluster (%s)", actualSts, clusterName, expectedSts)
+		}
+	}
+
+	for _, clusterName := range sortedKeys(actualStsByCluster) {
+		if _, ok := expectedStsByCluster[clusterName]; !ok {
+			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s is not part of the external MongoDBMultiCluster clusters", actualStsByCluster[clusterName], clusterName)
+		}
+	}
+
+	return nil
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx context.Context, sts appsv1.StatefulSet) error {
+func validateSingleClusterAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClustersMap map[string]client.Client) error {
+	actualStsByCluster, err := appDBStatefulSetsByCluster(ctx, opsManager, memberClustersMap)
+	if err != nil {
+		return err
+	}
+
+	// A single-cluster external MongoDB cannot adopt per-cluster AppDB StatefulSets, so a StatefulSet
+	// named with a cluster suffix means the internal AppDB was multi-cluster.
+	for _, clusterName := range sortedKeys(actualStsByCluster) {
+		if stsName := actualStsByCluster[clusterName]; stsName != opsManager.AppDBName() {
+			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s is not compatible with a single-cluster external MongoDB", stsName, clusterName)
+		}
+	}
+
+	return nil
+}
+
+func appDBStatefulSetsByCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClustersMap map[string]client.Client) (map[string]string, error) {
+	appDBName := opsManager.AppDBName()
+
+	result := map[string]string{}
+	for _, clusterName := range sortedKeys(memberClustersMap) {
+		memberClient := memberClustersMap[clusterName]
+		if memberClient == nil {
+			return nil, xerrors.Errorf("member cluster %s client is not available", clusterName)
+		}
+
+		stsList := &appsv1.StatefulSetList{}
+		if err := memberClient.List(ctx, stsList, client.InNamespace(opsManager.Namespace)); err != nil {
+			return nil, xerrors.Errorf("failed to list StatefulSets in member cluster %s: %w", clusterName, err)
+		}
+
+		for i := range stsList.Items {
+			name := stsList.Items[i].Name
+			if name == appDBName || strings.HasPrefix(name, appDBName+"-") {
+				result[clusterName] = name
+				break
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
+	workList, err := e.buildAppDBClusterWorkList(ctx, opsManager)
+	if err != nil {
+		return err
+	}
+
+	var errs error
+	for _, workItem := range workList {
+		if workItem.client == nil {
+			if workItem.legacySingleCluster {
+				return xerrors.Errorf("failed to fetch StatefulSet %s: member cluster client is not available", workItem.stsName)
+			}
+
+			errs = multierror.Append(errs, xerrors.Errorf("member cluster %s client is not available", workItem.clusterName))
+			continue
+		}
+
+		sts := appsv1.StatefulSet{}
+		stsKey := kube.ObjectKey(opsManager.Namespace, workItem.stsName)
+		if err := workItem.client.Get(ctx, stsKey, &sts); err != nil {
+			if apiErrors.IsNotFound(err) {
+				continue
+			}
+
+			if workItem.legacySingleCluster {
+				return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
+			}
+
+			errs = multierror.Append(errs, xerrors.Errorf("failed to fetch StatefulSet %s for cluster %s: %w", stsKey.Name, workItem.clusterName, err))
+			continue
+		}
+
+		if !slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+			return ref.UID == opsManager.UID
+		}) {
+			continue
+		}
+
+		if err := e.requestAppDBForwardMigration(ctx, workItem.client, sts); err != nil {
+			if workItem.legacySingleCluster {
+				return err
+			}
+
+			errs = multierror.Append(errs, xerrors.Errorf("failed to detach StatefulSet %s for cluster %s: %w", stsKey.Name, workItem.clusterName, err))
+		}
+	}
+
+	return errs
+}
+
+func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx context.Context, c client.Client, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = nil
 
 	if sts.Annotations == nil {
@@ -132,16 +263,69 @@ func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx cont
 	sts.Annotations[util.AppDBMigrationReadyAnnotation] = trueString
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 
-	if err := e.client.Update(ctx, &sts); err != nil {
+	if err := c.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to strip OwnerReferences and annotate StatefulSet %s: %w", sts.GetName(), err)
 	}
 
 	return nil
 }
 
+func (e *ReconcileExternalAppDBReplicaSet) buildAppDBClusterWorkList(ctx context.Context, opsManager *omv1.MongoDBOpsManager) ([]appDBClusterWorkItem, error) {
+	ref := opsManager.Spec.ExternalAppDBRef
+	if ref == nil {
+		return nil, xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
+	}
+
+	switch ref.Kind {
+	case "MongoDB":
+		return []appDBClusterWorkItem{{client: e.client, stsName: ref.Name, legacySingleCluster: true}}, nil
+	case omv1.ExternalAppDBRefKindMongoDBMultiCluster:
+		mdbm := &mdbmultiv1.MongoDBMultiCluster{}
+		objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
+		if err := e.client.Get(ctx, objectKey, mdbm); err != nil {
+			if apiErrors.IsNotFound(err) {
+				return nil, xerrors.Errorf("externalApplicationDatabaseRef points to MongoDBMultiCluster %s which does not exist", objectKey)
+			}
+
+			return nil, xerrors.Errorf("failed to fetch referenced MongoDBMultiCluster %s: %w", objectKey, err)
+		}
+
+		workList := make([]appDBClusterWorkItem, 0, len(mdbm.Spec.ClusterSpecList))
+		for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
+			workList = append(workList, appDBClusterWorkItem{
+				clusterName: clusterSpec.ClusterName,
+				client:      e.memberClustersMap[clusterSpec.ClusterName],
+				stsName:     mdbm.StatefulSetNameForCluster(clusterSpec.ClusterName),
+			})
+		}
+
+		return workList, nil
+	}
+
+	return nil, xerrors.Errorf("externalApplicationDatabaseRef.kind %q is not supported", ref.Kind)
+}
+
 type externalAppDBRefObject struct {
 	connectionstring.ConnectionStringBuilder
 	mdbv1.DbCommonSpec
+}
+
+type singleClusterExternalAppDBRefObject struct {
+	externalAppDBRefObject
+	*mdbv1.MongoDB
+}
+
+func (o *singleClusterExternalAppDBRefObject) ValidateTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClustersMap map[string]client.Client) error {
+	return validateSingleClusterAppDBTopology(ctx, opsManager, memberClustersMap)
+}
+
+type multiClusterExternalAppDBRefObject struct {
+	externalAppDBRefObject
+	*mdbmultiv1.MongoDBMultiCluster
+}
+
+func (o *multiClusterExternalAppDBRefObject) ValidateTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClustersMap map[string]client.Client) error {
+	return validateMultiClusterAppDBTopology(ctx, opsManager, memberClustersMap, o.MongoDBMultiCluster)
 }
 
 // GetCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
@@ -164,6 +348,7 @@ type ExternalAppDB interface {
 	GetRole() string
 	GetCAConfigMapName() string
 	IsTLSEnabled() bool
+	ValidateTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, memberClustersMap map[string]client.Client) error
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (ExternalAppDB, error) {
@@ -177,9 +362,12 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 			}
 			return nil, xerrors.Errorf("failed to fetch referenced MongoDB %s: %w", objectKey, err)
 		}
-		return &externalAppDBRefObject{
-			ConnectionStringBuilder: mongodb,
-			DbCommonSpec:            mongodb.Spec.DbCommonSpec,
+		return &singleClusterExternalAppDBRefObject{
+			externalAppDBRefObject: externalAppDBRefObject{
+				ConnectionStringBuilder: mongodb,
+				DbCommonSpec:            mongodb.Spec.DbCommonSpec,
+			},
+			MongoDB: mongodb,
 		}, nil
 	case omv1.ExternalAppDBRefKindMongoDBMultiCluster:
 		mdbm := &mdbmultiv1.MongoDBMultiCluster{}
@@ -190,9 +378,12 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 			}
 			return nil, xerrors.Errorf("failed to fetch referenced MongoDBMultiCluster %s: %w", objectKey, err)
 		}
-		return &externalAppDBRefObject{
-			ConnectionStringBuilder: mdbm,
-			DbCommonSpec:            mdbm.Spec.DbCommonSpec,
+		return &multiClusterExternalAppDBRefObject{
+			externalAppDBRefObject: externalAppDBRefObject{
+				ConnectionStringBuilder: mdbm,
+				DbCommonSpec:            mdbm.Spec.DbCommonSpec,
+			},
+			MongoDBMultiCluster: mdbm,
 		}, nil
 	}
 
