@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestDoAndRetryWithContext_StopsOnCancel(t *testing.T) {
+func TestDoAndRetry_StopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -29,7 +29,7 @@ func TestDoAndRetryWithContext_StopsOnCancel(t *testing.T) {
 	assert.Less(t, time.Since(start), 5*time.Second, "must not wait out the interval once the context is cancelled")
 }
 
-func TestDoAndRetryWithContext_StopsOnCancelWithZeroInterval(t *testing.T) {
+func TestDoAndRetry_StopsOnCancelWithZeroInterval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -49,7 +49,7 @@ func TestDoAndRetryWithContext_StopsOnCancelWithZeroInterval(t *testing.T) {
 	assert.Equal(t, 1, calls, "no further attempts once the context is cancelled, even with a zero interval")
 }
 
-func TestDoAndRetryWithContext_NoAttemptWhenContextAlreadyDone(t *testing.T) {
+func TestDoAndRetry_NoAttemptWhenContextAlreadyDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -66,7 +66,7 @@ func TestDoAndRetryWithContext_NoAttemptWhenContextAlreadyDone(t *testing.T) {
 	assert.Equal(t, context.Canceled.Error(), msg)
 }
 
-func TestDoAndRetryWithContext_RetriesUntilSuccess(t *testing.T) {
+func TestDoAndRetry_RetriesUntilSuccess(t *testing.T) {
 	calls := 0
 	f := func() (string, bool) {
 		calls++
@@ -80,7 +80,7 @@ func TestDoAndRetryWithContext_RetriesUntilSuccess(t *testing.T) {
 	assert.Equal(t, 2, calls)
 }
 
-func TestDoAndRetryWithContext_GivesUpAfterCount(t *testing.T) {
+func TestDoAndRetry_GivesUpAfterCount(t *testing.T) {
 	calls := 0
 	f := func() (string, bool) {
 		calls++
