@@ -231,6 +231,8 @@ def workload_mdb(workload_namespace: str) -> MongoDB:
 
 
 @pytest.mark.e2e_om_external_appdb_backup_and_restore
+@pytest.mark.e2e_om_external_appdb_backup_and_restore_mc
+
 class TestInitialSetup:
     """Phase 1: Deploy Meta OM, external AppDB, Primary OM, Backup Metadata DBs, Workload MongoDB."""
 
@@ -406,6 +408,8 @@ class TestInitialSetup:
 
 
 @pytest.mark.e2e_om_external_appdb_backup_and_restore
+@pytest.mark.e2e_om_external_appdb_backup_and_restore_mc
+
 class TestDisaster:
     """Phase 2: Wipe primary-mongodb and workloads-mongodb namespaces."""
 
@@ -451,6 +455,8 @@ class TestDisaster:
 
 
 @pytest.mark.e2e_om_external_appdb_backup_and_restore
+@pytest.mark.e2e_om_external_appdb_backup_and_restore_mc
+
 class TestRestore:
     """Phase 3: Ordered restore — AppDB, Backup Meta DB, Primary OM, Workload MongoDB, verify."""
 

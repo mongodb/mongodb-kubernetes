@@ -98,6 +98,8 @@ def external_appdb(namespace: str, custom_mdb_version: str, appdb_cert_prefix: s
 
 
 @pytest.mark.e2e_om_external_appdb_forward
+@pytest.mark.e2e_om_external_appdb_forward_mc
+
 class TestDeployInitialState:
     """Deploys the management-plane Ops Manager and the primary Ops Manager with internal AppDB."""
 
@@ -112,6 +114,8 @@ class TestDeployInitialState:
 
 
 @pytest.mark.e2e_om_external_appdb_forward
+@pytest.mark.e2e_om_external_appdb_forward_mc
+
 class TestSentinelDocSurvivesForwardMigration:
     """Procedure 2: start with internal AppDB, write a sentinel doc, create the MongoDB (role: AppDB)
     CR named "<om-name>-db", set externalApplicationDatabaseRef, and wait for adoption."""
@@ -212,6 +216,8 @@ class TestSentinelDocSurvivesForwardMigration:
 
 
 @pytest.mark.e2e_om_external_appdb_forward
+@pytest.mark.e2e_om_external_appdb_forward_mc
+
 class TestReverseMigrationAfterForwardMigration:
     """Procedure 3 v2 fallback path, continuing from TestSentinelDocSurvivesForwardMigration's end
     state (a completed Forward Migration): the MongoDB CR is deleted FIRST - plain Kubernetes
