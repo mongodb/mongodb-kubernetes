@@ -146,11 +146,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.12.1
+  version: 1.13.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.12.1
+  version: 1.13.0
 
 ## Ops Manager
 opsManager:
@@ -158,7 +158,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.12.1
+  version: 1.13.0
 
 agent:
   name: mongodb-agent
