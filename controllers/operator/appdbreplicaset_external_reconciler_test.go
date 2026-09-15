@@ -586,25 +586,25 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name                    string
-		appDBClusterNames       []string
-		clusterMapping          map[string]string
-		externalClusterNames     []string
-		externalRefKind         string
-		expectedErrorContains   string
+		name                  string
+		appDBClusterNames     []string
+		clusterMapping        map[string]string
+		externalClusterNames  []string
+		externalRefKind       string
+		expectedErrorContains string
 	}{
 		{
-			name:                  "aligned internal and external multi-cluster AppDB passes",
-			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
-			clusterMapping:        map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
-			externalClusterNames:   []string{"cluster-1", "cluster-2", "cluster-3"},
-			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			name:                 "aligned internal and external multi-cluster AppDB passes",
+			appDBClusterNames:    []string{"cluster-1", "cluster-2", "cluster-3"},
+			clusterMapping:       map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
+			externalClusterNames: []string{"cluster-1", "cluster-2", "cluster-3"},
+			externalRefKind:      omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 		},
 		{
 			name:                  "external multi-cluster extra cluster is rejected",
 			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
 			clusterMapping:        map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
-			externalClusterNames:   []string{"cluster-1", "cluster-2", "cluster-3", "cluster-4"},
+			externalClusterNames:  []string{"cluster-1", "cluster-2", "cluster-3", "cluster-4"},
 			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 			expectedErrorContains: "cluster-4",
 		},
@@ -612,7 +612,7 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 			name:                  "cluster index mismatch is rejected",
 			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
 			clusterMapping:        map[string]string{"cluster-1": "1", "cluster-2": "0", "cluster-3": "2"},
-			externalClusterNames:   []string{"cluster-1", "cluster-2", "cluster-3"},
+			externalClusterNames:  []string{"cluster-1", "cluster-2", "cluster-3"},
 			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 			expectedErrorContains: "cluster-1",
 		},

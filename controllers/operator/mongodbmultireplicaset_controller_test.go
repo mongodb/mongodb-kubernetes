@@ -1813,9 +1813,9 @@ func TestMDBMultiAppDBSharedSecrets_WiredIntoReconcileStatefulSets(t *testing.T)
 				require.NotNil(t, createdUser)
 				assertAppDBRoleUserRolesAndCreds(t, createdUser)
 
-				passwordSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
+				passwordSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
 				require.NoError(t, err)
-				keyfileSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
+				keyfileSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
 				require.NoError(t, err)
 				assert.NotEmpty(t, passwordSecret.Data[util.OpsManagerPasswordKey])
 				assert.NotEmpty(t, keyfileSecret.Data[constants.AgentKeyfileKey])
@@ -1876,7 +1876,7 @@ func TestEnsureAppDBRoleUser_Multi(t *testing.T) {
 			name: "forward migration reuses existing password verbatim",
 			role: mdb.RoleAppDB,
 			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet) {
-				require.NoError(t, reconciler.SecretClient.CreateSecret(ctx, corev1.Secret{
+				require.NoError(t, reconciler.CreateSecret(ctx, corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{Name: secretName(mrs), Namespace: mrs.Namespace},
 					Data:       map[string][]byte{util.OpsManagerPasswordKey: []byte("pre-existing-password")},
 				}))
@@ -1902,8 +1902,7 @@ func TestEnsureAppDBRoleUser_Multi(t *testing.T) {
 			err := reconciler.ensureAppDBRoleUser(ctx, mrs, conn)
 			require.NoError(t, err)
 
-			passwordSecret := corev1.Secret{}
-			passwordSecret, err = reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, secretName(mrs)))
+			passwordSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, secretName(mrs)))
 			if tt.expectedSecret {
 				require.NoError(t, err)
 				if tt.expectedPassword != "" {
@@ -1939,9 +1938,9 @@ func TestAppDBSecretDistribution_Multi(t *testing.T) {
 
 	passwordSecretName := fmt.Sprintf("%s-om-password", mrs.Name)
 	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
-	centralPasswordSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
+	centralPasswordSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
 	require.NoError(t, err)
-	centralKeyfileSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
+	centralKeyfileSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
 	require.NoError(t, err)
 
 	for _, clusterName := range clusters {
