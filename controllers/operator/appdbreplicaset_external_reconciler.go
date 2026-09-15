@@ -104,21 +104,14 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
 	}
 
-	if ref.Kind == omv1.ExternalAppDBRefKindMongoDBMultiCluster {
-		mdbm, ok := refObject.(*externalAppDBRefObject).ConnectionStringBuilder.(*mdbmultiv1.MongoDBMultiCluster)
-		if !ok {
-			return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must reference a MongoDBMultiCluster", ref.Namespace, ref.Name)
-		}
-
-		if err := e.validateExternalAppDBTopology(ctx, opsManager, mdbm); err != nil {
-			return err
-		}
+	if err := refObject.validateExternalAppDBTopology(ctx, e, opsManager); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, mdbm *mdbmultiv1.MongoDBMultiCluster) error {
+func (e *ReconcileExternalAppDBReplicaSet) validateMultiClusterAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, mdbm *mdbmultiv1.MongoDBMultiCluster) error {
 	// Both the expected clusters and their StatefulSet names come from the referenced
 	// MongoDBMultiCluster. The AppDB spec (and the deployment state derived from it) is deliberately
 	// not used here, because the user may remove spec.applicationDatabase as part of the migration.
@@ -152,6 +145,24 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBTopology(ctx con
 	for _, clusterName := range sortedKeys(actualStsByCluster) {
 		if _, ok := expectedStsByCluster[clusterName]; !ok {
 			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s is not part of the external MongoDBMultiCluster clusters", actualStsByCluster[clusterName], clusterName)
+		}
+	}
+
+	return nil
+}
+
+func (e *ReconcileExternalAppDBReplicaSet) validateSingleClusterAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
+	appDBName := opsManager.Spec.ExternalAppDBRef.Name
+	actualStsByCluster, err := e.appDBStatefulSetsByCluster(ctx, opsManager, appDBName)
+	if err != nil {
+		return err
+	}
+
+	// A single-cluster external MongoDB cannot adopt per-cluster AppDB StatefulSets, so a StatefulSet
+	// named with a cluster suffix means the internal AppDB was multi-cluster.
+	for _, clusterName := range sortedKeys(actualStsByCluster) {
+		if stsName := actualStsByCluster[clusterName]; stsName != appDBName {
+			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s is not compatible with a single-cluster external MongoDB", stsName, clusterName)
 		}
 	}
 
@@ -314,11 +325,23 @@ func (o *externalAppDBRefObject) IsTLSEnabled() bool {
 	return o.IsSecurityTLSConfigEnabled()
 }
 
+func (o *externalAppDBRefObject) validateExternalAppDBTopology(ctx context.Context, e *ReconcileExternalAppDBReplicaSet, opsManager *omv1.MongoDBOpsManager) error {
+	switch db := o.ConnectionStringBuilder.(type) {
+	case *mdbmultiv1.MongoDBMultiCluster:
+		return e.validateMultiClusterAppDBTopology(ctx, opsManager, db)
+	case *mdbv1.MongoDB:
+		return e.validateSingleClusterAppDBTopology(ctx, opsManager)
+	default:
+		return nil
+	}
+}
+
 type ExternalAppDB interface {
 	connectionstring.ConnectionStringBuilder
 	GetRole() string
 	GetCAConfigMapName() string
 	IsTLSEnabled() bool
+	validateExternalAppDBTopology(ctx context.Context, e *ReconcileExternalAppDBReplicaSet, opsManager *omv1.MongoDBOpsManager) error
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (ExternalAppDB, error) {

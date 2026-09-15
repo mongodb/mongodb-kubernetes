@@ -677,6 +677,67 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 	}
 }
 
+func TestValidateSingleClusterExternalAppDBTopology(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name                  string
+		appDBStsClusterNums   map[string]int
+		expectedErrorContains string
+	}{
+		{
+			name:                "single-cluster external MongoDB without per-cluster AppDB StatefulSets passes",
+			appDBStsClusterNums: map[string]int{},
+		},
+		{
+			name:                  "per-cluster AppDB StatefulSet is rejected for a single-cluster external MongoDB",
+			appDBStsClusterNums:   map[string]int{"cluster-1": 0},
+			expectedErrorContains: "single-cluster external MongoDB",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetCurrMockedAdmin(t)
+
+			opsManager := DefaultOpsManagerBuilder().SetName("test-om").Build()
+			testOm := withExternalAppDBRef(opsManager, &omv1.ExternalAppDBRef{
+				Name:      "test-om-db",
+				Kind:      omv1.ExternalAppDBRefKindMongoDB,
+				Namespace: mock.TestNamespace,
+			})
+
+			clusterNames := make([]string, 0, len(tt.appDBStsClusterNums))
+			for clusterName := range tt.appDBStsClusterNums {
+				clusterNames = append(clusterNames, clusterName)
+			}
+			slices.Sort(clusterNames)
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			memberClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusterNames, omConnectionFactory)
+			reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClusterMap, omConnectionFactory, architectures.NonStatic)
+
+			require.NoError(t, reconciler.client.Create(ctx, validExternalAppDBMongoDB()))
+
+			for clusterName, clusterNum := range tt.appDBStsClusterNums {
+				sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("test-om-db-%d", clusterNum),
+					Namespace: mock.TestNamespace,
+				}}
+				require.NoError(t, memberClusterMap[clusterName].Create(ctx, sts))
+			}
+
+			err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, testOm)
+			if tt.expectedErrorContains != "" {
+				require.ErrorContains(t, err, tt.expectedErrorContains)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testing.T) {
 	// real UIDs needed: the ownership check compares OwnerReference UIDs, and empty test UIDs
 	// ("" == "") would make every StatefulSet look OM-owned
