@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -914,6 +915,8 @@ type SharedConnectionSpec struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
+// +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate) && self.managedCertificate.enabled)",message="security.certsSecretPrefix and an enabled security.managedCertificate are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.managedCertificate) && !self.managedCertificate.enabled && (has(self.managedCertificate.server) || has(self.managedCertificate.client) || has(self.managedCertificate.subjects)))",message="security.managedCertificate.server/client/subjects require security.managedCertificate.enabled to be true"
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
@@ -926,6 +929,29 @@ type Security struct {
 
 	// +optional
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
+
+	// ManagedCertificate makes the operator create and own the cert-manager
+	// Certificate(s) for every cert a resource needs (member/server TLS, the
+	// internal-cluster clusterfile when x509 internal auth is used, and the agent
+	// cert), so users do not hand-craft any certificate Secrets. Certificates are
+	// grouped into two categories, server (serverAuth) and client (clientAuth).
+	// Each signed either by a user-configured issuer (managedCertificate.server
+	// or managedCertificate.client) or, when no issuer is given, by an operator-managed
+	// self-signed CA. Setting managedCertificate enables TLS on its own
+	// (no need to also set security.tls.enabled) and is mutually exclusive with
+	// security.certsSecretPrefix.
+	// +optional
+	ManagedCertificate *ManagedCertificate `json:"managedCertificate,omitempty"`
+}
+
+// IsManagedCertificateEnabled reports whether the operator should create and own
+// the cert-manager Certificate(s) for this resource's certs (nil-safe). It requires
+// managedCertificate.enabled to be true, an issuer is still optional per category
+// (its absence means the operator signs that category's certs with its own self-signed CA), so
+// managedCertificate: {enabled: true} (no issuer at all) is valid and operator users self signed
+// CA for both categories.
+func (s *Security) IsManagedCertificateEnabled() bool {
+	return s != nil && s.ManagedCertificate != nil && s.ManagedCertificate.Enabled
 }
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
@@ -1040,6 +1066,13 @@ func (s *Security) IsTLSEnabled() bool {
 			return true
 		}
 	}
+	// managedCertificate provisions TLS certs, so enabling it enables TLS on its own.
+	// It is mutually exclusive with certsSecretPrefix, so it is the only non-deprecated
+	// TLS-on signal a managed user has (they cannot rely on the deprecated tls.enabled
+	// field).
+	if s.IsManagedCertificateEnabled() {
+		return true
+	}
 	return s.CertificatesSecretsPrefix != ""
 }
 
@@ -1086,6 +1119,12 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 
 	if s.CertificatesSecretsPrefix != "" {
 		secretName = fmt.Sprintf("%s-%s-%s", s.CertificatesSecretsPrefix, resourceName, util.AgentSecretName)
+	} else if s.IsManagedCertificateEnabled() {
+		// In managed-certificate mode there is no certsSecretPrefix (the two are mutually
+		// exclusive), yet the operator OWNS the agent Certificate/secret. Scope the name to the
+		// resource — like the member (<name>-cert) and clusterfile (<name>-clusterfile) certs —
+		// so two managed resources in the same namespace can't collide on a shared "agent-certs".
+		secretName = fmt.Sprintf("%s-%s", resourceName, util.AgentSecretName)
 	}
 	if s.ShouldUseClientCertificates() {
 		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
@@ -1418,6 +1457,143 @@ func (t *TLSConfig) GetCAFilePath(defaultPath string) string {
 		return defaultPath
 	}
 	return t.CAFilePath
+}
+
+// ManagedCertificate configures operator-managed TLS certificates via
+// cert-manager. The operator creates and owns a cert-manager Certificate
+// referencing the provided issuer; the operator computes the SANs, secret name
+// and usages.
+type ManagedCertificate struct {
+	// Enabled turns on operator-managed certificates for this resource. It must be true
+	// for any server/client/subjects setting to take effect; when true with no server or
+	// client configured, the operator signs both category of certs with its own self-signed CAs.
+	// Mutually exclusive with security.certsSecretPrefix.
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
+
+	// Server configures signing and trust for the serverAuth certificates.
+	// Omit the block, or omit its issuerRef, to have the operator sign the server
+	// certs with its own self-signed CA.
+	// +optional
+	Server *CertificateConfig `json:"server,omitempty"`
+
+	// Client configures signing and trust for the clientAuth certificates. Omit the
+	// block, or omit its issuerRef, to have the operator sign the client certs with
+	// its own self-signed CA. When you do set client.issuerRef, the issuer must be
+	// able to issue certificates with the clientAuth EKU; if it does
+	// not emit its CA in the issued secret's ca.crt, supply that CA via client.ca.
+	// +optional
+	Client *CertificateConfig `json:"client,omitempty"`
+
+	// Subjects overrides the operator-computed X509 subjects. It is configurable by
+	// certificate identity (not by server/client category) because even diff category
+	// of certs can have same membership. For example the member (server) cert and
+	// clusterFile (client) cert should hold the same subject so that it can be treated
+	// as peer.
+	// +optional
+	Subjects *CertSubjects `json:"subjects,omitempty"`
+}
+
+// CertificateConfig configures one certificate category (server or client): who
+// signs it, its CA trust input, extra trusted CAs, and the leaf certs renewal cadence.
+type CertificateConfig struct {
+	// IssuerRef is the cert-manager Issuer/ClusterIssuer that signs a category's
+	// certs. Omit to have the operator provision a self-signed CA and sign a
+	// category (client or server) certs itself.
+	// +optional
+	IssuerRef *IssuerRef `json:"issuerRef,omitempty"`
+
+	// CA supplies a category's (client/server) CA trust anchor, used only when issuerRef
+	// is set but the issuer does not emit its CA in the issued secret's ca.crt (e.g. a public/ACME
+	// server issuer). Ignored when the operator's self-signed CA signs the certs.
+	// +optional
+	CA *CARef `json:"ca,omitempty"`
+
+	// AdditionalTrustedCAs adds extra CA certificates to a category's trust bundle
+	// (server certs are validated against one bundle, client certs against the other).
+	// The operator issues no certs from these; used to trust extra client/application
+	// CAs and to widen trust during a CA rotation.
+	// +optional
+	AdditionalTrustedCAs []CARef `json:"additionalTrustedCAs,omitempty"`
+
+	// Duration is the requested lifetime of a category's leaf certificates (not the
+	// CA). When unset, defaults to 90 days.
+	// +optional
+	Duration *metav1.Duration `json:"duration,omitempty"`
+
+	// RenewBefore is how long before expiry cert-manager renews a category's leaf
+	// certificates. When unset, defaults to 1/3 of duration.
+	// +optional
+	RenewBefore *metav1.Duration `json:"renewBefore,omitempty"`
+}
+
+// CertSubjects overrides the operator-computed X509 subjects. Any unset subject (or unset
+// field within one) falls back to an operator-computed default.
+type CertSubjects struct {
+	// Membership is the shared subject of the member cert (when internal cluster auth
+	// is x509) and the internal-cluster clusterfile cert. A single field so the two
+	// always match, mongod recognizes cluster peers by comparing subject O/OU.
+	// +optional
+	Membership *X509Subject `json:"membership,omitempty"`
+
+	// Agent is the automation agent cert's subject. It must differ from Membership in
+	// at least one of organizations/organizationalUnits attributes, or mongod treats the
+	// agent as a cluster peer and auth breaks. The operator registers the $external user
+	// from the issued cert's actual subject.
+	// +optional
+	Agent *X509Subject `json:"agent,omitempty"`
+
+	// Server is the subject for serverAuth certs that carry no identity: the member
+	// cert when internal cluster auth is not x509 (no membership check is done on the
+	// subject, so the member cert is just a plain server cert). mongod verifies these
+	// certs by SAN, not subject, it exists only so a server issuer that enforces a DN
+	// policy can be satisfied.
+	// +optional
+	Server *X509Subject `json:"server,omitempty"`
+}
+
+// X509Subject is a configurable X509 Distinguished Name. All fields are optional; unset
+// fields fall back to operator-computed defaults. CommonName is accepted for issuer
+// DN-policy compliance but is not used for hostname verification.
+type X509Subject struct {
+	// +optional
+	Organizations []string `json:"organizations,omitempty"`
+	// +optional
+	OrganizationalUnits []string `json:"organizationalUnits,omitempty"`
+	// +optional
+	Countries []string `json:"countries,omitempty"`
+	// +optional
+	Localities []string `json:"localities,omitempty"`
+	// +optional
+	Provinces []string `json:"provinces,omitempty"`
+	// +optional
+	CommonName string `json:"commonName,omitempty"`
+}
+
+type CARef struct {
+	// Name of the ConfigMap or Secret holding the CA certificate.
+	Name string `json:"name"`
+
+	// Kind is the source object type.
+	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	Kind string `json:"kind"`
+
+	// Key within the ConfigMap/Secret holding the PEM CA certificate — e.g.
+	// tls.crt for a cert-manager CA issuer's backing Secret, or ca.crt.
+	Key string `json:"key"`
+}
+
+// IssuerRef references a cert-manager issuer.
+type IssuerRef struct {
+	// Name of the issuer.
+	Name string `json:"name"`
+
+	// Kind of the issuer, either Issuer (namespaced) or ClusterIssuer.
+	// Defaults to Issuer.
+	// +kubebuilder:validation:Enum=Issuer;ClusterIssuer
+	// +kubebuilder:default=Issuer
+	// +optional
+	Kind string `json:"kind,omitempty"`
 }
 
 func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
@@ -1782,6 +1958,15 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 			m.Status.ShardCount = m.Spec.ShardCount
 		}
 	}
+}
+
+// SetStatusCondition upserts the given condition into the resource status
+// (in-memory; the next status update persists it). ObservedGeneration is stamped
+// with the current generation. Conditions are tracked independently of Phase, so a
+// renewal-degraded CertificatesReady=False does not require flipping Phase.
+func (m *MongoDB) SetStatusCondition(condition metav1.Condition) {
+	condition.ObservedGeneration = m.GetGeneration()
+	apimeta.SetStatusCondition(&m.Status.Conditions, condition)
 }
 
 func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {
