@@ -642,12 +642,10 @@ type MongoDBUserRef struct {
 }
 
 func (om *MongoDBOpsManager) UnmarshalJSON(data []byte) error {
-	type mongoDBOpsManagerAlias MongoDBOpsManager
-	var alias mongoDBOpsManagerAlias
-	if err := json.Unmarshal(data, &alias); err != nil {
+	type MongoDBJSON *MongoDBOpsManager
+	if err := json.Unmarshal(data, (MongoDBJSON)(om)); err != nil {
 		return err
 	}
-	*om = MongoDBOpsManager(alias)
 	om.InitDefaultFields()
 
 	return nil
