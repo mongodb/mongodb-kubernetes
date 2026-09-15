@@ -223,15 +223,16 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 	et := Deployments
 
 	tests := []struct {
-		name             string
-		frequencySetting string
-		configMapData    map[string]string
-		shouldCollect    bool
-		expectedErr      bool
-		description      string
+		name          string
+		frequency     time.Duration
+		configMapData map[string]string
+		shouldCollect bool
+		expectedErr   bool
+		description   string
 	}{
 		{
-			name: "Default one-week check - outdated",
+			name:      "One-week frequency - outdated",
+			frequency: 168 * time.Hour,
 			configMapData: map[string]string{
 				et.GetTimeStampKey(): strconv.FormatInt(time.Now().Add(-8*24*time.Hour).Unix(), 10), // 8 days ago
 			},
@@ -240,7 +241,8 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 			description:   "Timestamp is older than one week",
 		},
 		{
-			name: "Default one-week check - recent",
+			name:      "One-week frequency - recent",
+			frequency: 168 * time.Hour,
 			configMapData: map[string]string{
 				et.GetTimeStampKey(): strconv.FormatInt(time.Now().Add(-6*24*time.Hour).Unix(), 10), // 6 days ago
 			},
@@ -249,37 +251,42 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 			description:   "Timestamp is within one week",
 		},
 		{
-			name:             "Custom duration from env - below minimum, will default to 1h",
-			frequencySetting: "5m",
+			// The function uses the supplied frequency verbatim (no runtime floor); the OperatorConfig
+			// CEL validation enforces the real minimum of 1h before a value ever reaches here, so a
+			// sub-hour value like 5m cannot occur in production. This case only pins the pure-function
+			// contract: any positive duration is honoured as-is.
+			name:      "Positive frequency honoured verbatim - outdated",
+			frequency: 5 * time.Minute,
+			configMapData: map[string]string{
+				et.GetTimeStampKey(): strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
+			},
+			shouldCollect: true,
+			expectedErr:   false,
+			description:   "Timestamp is older than the supplied 5-minute frequency",
+		},
+		{
+			name:      "Custom frequency - recent",
+			frequency: 30 * time.Minute,
 			configMapData: map[string]string{
 				et.GetTimeStampKey(): strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
 			},
 			shouldCollect: false,
 			expectedErr:   false,
-			description:   "Timestamp is older than configured 5-minute threshold",
+			description:   "Timestamp is within the configured 30-minute threshold",
 		},
 		{
-			name:             "Custom duration from env - recent",
-			frequencySetting: "30m",
+			name:      "Non-positive frequency defaults to one week",
+			frequency: 0,
 			configMapData: map[string]string{
 				et.GetTimeStampKey(): strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
 			},
 			shouldCollect: false,
 			expectedErr:   false,
-			description:   "Timestamp is within configured 30-minute threshold",
+			description:   "A non-positive frequency falls back to the 168h default, so a recent timestamp is not collected",
 		},
 		{
-			name:             "Invalid duration format",
-			frequencySetting: "invalid",
-			configMapData: map[string]string{
-				et.GetTimeStampKey(): strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10),
-			},
-			shouldCollect: false,
-			expectedErr:   false,
-			description:   "Should default to 168h",
-		},
-		{
-			name: "Missing timestamp key",
+			name:      "Missing timestamp key",
+			frequency: 168 * time.Hour,
 			configMapData: map[string]string{
 				"someOtherKey": "1650000000",
 			},
@@ -288,7 +295,8 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 			description:   "Should return error due to missing timestamp key",
 		},
 		{
-			name: "Initial timestamp value",
+			name:      "Initial timestamp value",
+			frequency: 168 * time.Hour,
 			configMapData: map[string]string{
 				et.GetTimeStampKey(): TimestampInitialValue,
 			},
@@ -297,7 +305,8 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 			description:   "Should return true for initial timestamp",
 		},
 		{
-			name: "Invalid timestamp format",
+			name:      "Invalid timestamp format",
+			frequency: 168 * time.Hour,
 			configMapData: map[string]string{
 				et.GetTimeStampKey(): "invalid_timestamp",
 			},
@@ -309,8 +318,6 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Setenv(SendFrequency, test.frequencySetting)
-
 			fakeClient := fake.NewClientBuilder().
 				WithObjects(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
@@ -321,7 +328,7 @@ func TestIsTimestampOlderThanConfiguredFrequency(t *testing.T) {
 				}).
 				Build()
 
-			result, err := isTimestampOlderThanConfiguredFrequency(ctx, fakeClient, namespace, configMapName, et)
+			result, err := isTimestampOlderThanConfiguredFrequency(ctx, fakeClient, namespace, configMapName, et, test.frequency)
 
 			assert.Equal(t, test.shouldCollect, result, test.description)
 

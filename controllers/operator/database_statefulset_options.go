@@ -62,6 +62,12 @@ func ServiceName(serviceName string) func(options *construct.DatabaseStatefulSet
 	}
 }
 
+func ServiceAccountName(serviceAccountName string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ServiceAccountName = serviceAccountName
+	}
+}
+
 // CertificateHash will assign the given CertificateHash during StatefulSet construction.
 func CertificateHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
@@ -172,6 +178,12 @@ func WithAgentDebugImage(debugImage string) func(options *construct.DatabaseStat
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.DefaultArchitecture = defaultArchitecture
+	}
+}
+
+func WithProxyEnvPropagation(propagateProxyEnv bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.PropagateProxyEnv = propagateProxyEnv
 	}
 }
 

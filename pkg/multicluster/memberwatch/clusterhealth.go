@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/zap"
 
-	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -32,6 +31,10 @@ var (
 	DefaultRetryMax     = 10
 )
 
+// DefaultClientTimeout is the fallback timeout for the member-cluster health-check
+// HTTP client when no explicit timeout is supplied via WithTimeout.
+const DefaultClientTimeout = 10 * time.Second
+
 // HealthCheckOption is a functional option for configuring MemberHealthCheck
 type HealthCheckOption func(*retryablehttp.Client)
 
@@ -41,6 +44,13 @@ func WithRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) Hea
 		client.RetryWaitMin = retryWaitMin
 		client.RetryWaitMax = retryWaitMax
 		client.RetryMax = retryMax
+	}
+}
+
+// WithTimeout configures the timeout of the health check client's underlying HTTP client.
+func WithTimeout(timeout time.Duration) HealthCheckOption {
+	return func(client *retryablehttp.Client) {
+		client.HTTPClient.Timeout = timeout
 	}
 }
 
@@ -69,7 +79,7 @@ func NewMemberHealthCheck(server string, ca []byte, token string, log *zap.Sugar
 	client := &retryablehttp.Client{
 		HTTPClient: &http.Client{
 			Transport: transport,
-			Timeout:   time.Duration(env.ReadIntOrDefault(multicluster.ClusterClientTimeoutEnv, 10)) * time.Second, // nolint:forbidigo
+			Timeout:   DefaultClientTimeout,
 		},
 		RetryWaitMin: DefaultRetryWaitMin,
 		RetryWaitMax: DefaultRetryWaitMax,
