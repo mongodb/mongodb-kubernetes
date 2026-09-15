@@ -2,6 +2,7 @@ package util
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5" //nolint //Part of the algorithm
 	"encoding/gob"
 	"encoding/hex"
@@ -81,6 +82,11 @@ func StripEnt(version string) string {
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
 // between retries. String return parameter contains the fail message that is printed in case of failure.
 func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
+	return DoAndRetryWithContext(context.Background(), f, log, count, interval)
+}
+
+// DoAndRetryWithContext is like DoAndRetry but gives up as soon as ctx is done, without waiting out the interval.
+func DoAndRetryWithContext(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
 	var ok bool
 	var msg string
 	for i := 0; i < count; i++ {
@@ -92,7 +98,13 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 			msg += "."
 		}
 		log.Debugf("%s Retrying %d/%d (waiting for %d more seconds)", msg, i+1, count, interval)
-		time.Sleep(time.Duration(interval) * time.Second)
+		timer := time.NewTimer(time.Duration(interval) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false, msg
+		case <-timer.C:
+		}
 	}
 	return false, msg
 }
