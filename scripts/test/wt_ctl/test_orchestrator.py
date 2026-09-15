@@ -584,5 +584,22 @@ class ReconcileTests(unittest.TestCase):
                 self.assertNotIn(str(target / ".devcontainer" / "compose.yml"), joined)
 
 
+class FileDigestTests(unittest.TestCase):
+    """``_file_digest`` feeds content-sensitivity into phase hashes (the dc_up
+    hash includes the tooling overlay manifest, so editing the overlay
+    invalidates a cached dc_up and recreates the container)."""
+
+    def test_changes_with_content_and_missing_is_empty(self) -> None:
+        from wt_ctl.orchestrator import _file_digest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest"
+            path.write_text("a\n")
+            first = _file_digest(path)
+            path.write_text("b\n")
+            self.assertNotEqual(first, _file_digest(path))
+            self.assertEqual(_file_digest(Path(tmp) / "missing"), "")
+
+
 if __name__ == "__main__":
     unittest.main()

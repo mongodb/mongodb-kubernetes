@@ -99,32 +99,26 @@ sync() {
 # Overlay the tooling's own scripts on top of the synced worktree so the
 # remote commands (switch_context.sh, devenv, recreate_kind_*, wt-ctl)
 # work even when the worktree's branch doesn't carry them. Idempotent and
-# a no-op diff when worktree == tooling checkout. Caveat: if the feature
-# branch modifies one of these files, the tooling's copy wins on the
-# remote host.
+# a no-op diff when worktree == tooling checkout. The manifest is shared
+# with the devcontainer overlay in initialize.py — see
+# scripts/dev/tooling-overlay.manifest. Caveat: if the feature branch
+# modifies one of these files, the tooling's copy wins on the remote host.
 sync_tooling_overlay() {
-  local manifest=(
-    scripts/dev/devenv
-    scripts/dev/wt-ctl
-    scripts/dev/wt_ctl
-    scripts/dev/switch_context.sh
-    scripts/dev/set_env_context.sh
-    scripts/dev/print_operator_env.sh
-    scripts/dev/contexts/site-context
-    scripts/dev/contexts/root-context
-    scripts/dev/contexts/root-devc-context
-    scripts/dev/recreate_kind_cluster.sh
-    scripts/dev/recreate_kind_clusters.sh
-    scripts/dev/setup_kind_cluster.sh
-    scripts/dev/prepare_local_e2e_run.sh
-    scripts/dev/e2e_run.sh
-    scripts/dev/op_run.sh
-    scripts/funcs/kind_network
-    scripts/funcs/errors
-    scripts/funcs/kubernetes
-    scripts/funcs/multicluster
-    scripts/funcs/printing
-  )
+  local manifest_file="${evg_host_tooling_root}/scripts/dev/tooling-overlay.manifest"
+  if [[ ! -f "${manifest_file}" ]]; then
+    echo "sync_tooling_overlay: manifest ${manifest_file} missing; skipping overlay" >&2
+    return 0
+  fi
+  local manifest=()
+  local line
+  while IFS= read -r line; do
+    [[ -z "${line}" || "${line}" == \#* ]] && continue
+    manifest+=("${line}")
+  done < "${manifest_file}"
+  if [[ ${#manifest[@]} -eq 0 ]]; then
+    echo "sync_tooling_overlay: manifest empty; skipping overlay" >&2
+    return 0
+  fi
   (cd "${evg_host_tooling_root}" && rsync --archive --compress --human-readable --relative \
     --exclude='__pycache__' \
     -e ssh \

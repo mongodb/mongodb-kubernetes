@@ -536,20 +536,30 @@ class Registry:
         branch_dir: Optional[str] = None,
         *,
         auto_prune: bool = True,
+        auto_prune_networks: bool = True,
         repo_root: Optional[Path] = None,
         emit_warning: Optional[callable] = None,
+        honor_env: bool = False,
     ) -> StackParams:
         """Allocate (or return existing) stack parameters for ``branch_dir``.
 
         Returns a ``StackParams``. Callers that just want the index can
         read ``.index``. The CLI wrapper composes the env-var lines.
 
-        ``MCK_DEVC_NET_PREFIX`` env override is honored — caller takes
-        ownership; we skip both the registry and the docker scan and
-        return synthesized StackParams.
+        The ``MCK_DEVC_NET_PREFIX`` env var is **not** honored by default:
+        an inherited value (e.g. leaked from the invoking checkout's stale
+        ``.generated/context.env``) must never bypass the registry's
+        collision checks. Pass ``honor_env=True`` for the deliberate
+        caller-owns-the-index escape hatch.
+
+        ``auto_prune_networks`` (default on) removes orphan compose
+        networks — 0 attached containers AND no surviving worktree — before
+        picking a slot, so dead stacks from old runs stop blocking new ones.
         """
+        warn = emit_warning if emit_warning is not None else (lambda m: sys.stderr.write(m + "\n"))
+
         env_pref = os.environ.get("MCK_DEVC_NET_PREFIX")
-        if env_pref:
+        if honor_env and env_pref:
             if env_pref.isdigit():
                 v = int(env_pref)
                 if INDEX_LO <= v <= INDEX_HI:
@@ -557,8 +567,11 @@ class Registry:
             raise RegistryError(
                 f"MCK_DEVC_NET_PREFIX='{env_pref}' is not a valid stack index " f"[{INDEX_LO},{INDEX_HI}]"
             )
-
-        warn = emit_warning if emit_warning is not None else (lambda m: sys.stderr.write(m + "\n"))
+        if env_pref:
+            # An inherited value (e.g. leaked from the invoking checkout's
+            # stale .generated/context.env) must never bypass the registry's
+            # collision checks — allocate a fresh, validated slot instead.
+            warn(f"Ignoring inherited MCK_DEVC_NET_PREFIX={env_pref}; allocating via the registry.")
 
         with _registry_lock():
             rows = self._read()
@@ -583,6 +596,20 @@ class Registry:
                 if pruned > 0:
                     self._write(kept)
                     rows = kept
+
+            # Auto-prune orphan compose networks (0 containers, no surviving
+            # worktree) so dead stacks from prior runs stop blocking slots.
+            if auto_prune_networks:
+                git_names_scan = self._git_worktree_basenames(repo_root) if repo_root else set()
+                scan_out = StringIO()
+                self._scan_orphan_networks(
+                    scan_out,
+                    dry_run=False,
+                    repo_root=repo_root,
+                    git_names=git_names_scan,
+                )
+                for line in scan_out.getvalue().splitlines():
+                    warn(f"[network] {line}")
 
             used_indices: set[int] = {row.params.index for row in rows}
 
@@ -611,6 +638,50 @@ class Registry:
                 f"{len(docker_nets)} docker networks in 172.[16-31].x.x block the rest; "
                 "run 'wt-ctl network prune --networks' to reclaim orphans)"
             )
+
+    def register(self, branch_dir: str, params: StackParams) -> bool:
+        """Ensure ``branch_dir`` has a registry row for ``params``.
+
+        Repairs the registry when a worktree's ``.devcontainer/.env`` pin
+        exists but the row was lost (e.g. an older run took the env-override
+        path and never wrote the registry). Returns True when a row was
+        added/replaced, False when the same mapping already existed.
+        """
+        with _registry_lock():
+            rows = self._read()
+            for i, row in enumerate(rows):
+                if row.branch_dir == branch_dir:
+                    if row.params.index == params.index:
+                        return False
+                    rows[i] = _RegistryRow(branch_dir=branch_dir, params=params)
+                    self._write(rows)
+                    return True
+            rows.append(_RegistryRow(branch_dir=branch_dir, params=params))
+            self._write(rows)
+            return True
+
+    def conflict_for(self, branch_dir: str, params: StackParams) -> Optional[str]:
+        """Return a human-readable reason the pinned ``params`` collide with
+        another stack, or None when the slot is safe to use.
+
+        Checks both the registry (other branches) and live docker networks,
+        excluding this branch's own compose network (a resumed stack's
+        network legitimately holds its own slot).
+        """
+        slot = ipaddress.ip_network(params.subnet, strict=False)
+        with _registry_lock():
+            for row in self._read():
+                if row.branch_dir == branch_dir:
+                    continue
+                if row.params.subnet == params.subnet:
+                    return f"registry entry '{row.branch_dir}' holds {params.subnet}"
+        own_net = f"{branch_dir.lower()}_devcontainer_devcontainer"
+        for net in self._docker_networks_in_range():
+            if not net.subnet or net.name.lower() == own_net:
+                continue
+            if slot.overlaps(ipaddress.ip_network(net.subnet, strict=False)):
+                return f"docker network '{net.name}' occupies {net.subnet}"
+        return None
 
     # ------------------------------------------------------------------
     # rendering
@@ -800,7 +871,22 @@ class NetworkDomain:
     def release(self, branch_dir: str, *, dry_run: bool = False) -> str:
         return self._registry.release(branch_dir, dry_run=dry_run)
 
-    def allocate(self, branch_dir: Optional[str] = None) -> str:
+    def register(self, branch_dir: str, params: StackParams) -> bool:
+        """Repair/insert the registry row for an existing ``.env`` pin."""
+        return self._registry.register(branch_dir, params)
+
+    def conflict_for(self, branch_dir: str, params: StackParams) -> Optional[str]:
+        """Describe a collision for a pinned slot, or None when safe."""
+        return self._registry.conflict_for(branch_dir, params)
+
+    def allocate(
+        self,
+        branch_dir: Optional[str] = None,
+        *,
+        emit_warning: Optional[callable] = None,
+        auto_prune_networks: bool = True,
+        honor_env: bool = False,
+    ) -> str:
         """Allocate a stack and return the env-var block compose.yml needs.
 
         Output format (terminated, multiple lines):
@@ -814,7 +900,10 @@ class NetworkDomain:
         params = self._registry.allocate(
             branch_dir=branch_dir,
             auto_prune=True,
+            auto_prune_networks=auto_prune_networks,
             repo_root=self.repo_root,
+            emit_warning=emit_warning,
+            honor_env=honor_env,
         )
         return "\n".join(env_lines_for(params)) + "\n"
 

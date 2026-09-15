@@ -13,6 +13,7 @@ best-effort (logged and continued on failure) with no state file.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import platform
 import sys
@@ -339,40 +340,35 @@ class CreateOrchestrator:
         # ---- net_allocate -------------------------------------------------
         def _do_net_allocate() -> None:
             env_file = devc_env_dir(wt) / ".env"
+            nw = NetworkDomain(self.runner, wt)
             existing_prefix = _read_existing_prefix(env_file)
             if existing_prefix is not None:
-                # Prefix already pinned. If a prior run crashed before writing the
-                # four derived vars (NET_X / NET_Y_BASE / NET_Y_VIP / PROXY_PORT),
-                # compose.yml falls back to its ${VAR:-default} and clobbers other
-                # worktrees' subnets — repair in place rather than re-allocating,
-                # keeping the registry-owned index.
-                missing_derived = _missing_derived_env_keys(env_file)
-                if missing_derived:
-                    params = stack_params(existing_prefix)
-                    all_lines = env_lines_for(params)
-                    key_to_line = {ln.split("=", 1)[0]: ln for ln in all_lines}
-                    repair_lines = [
-                        key_to_line[key] for key in DERIVED_ENV_KEYS if key in missing_derived and key in key_to_line
-                    ]
-                    if repair_lines:
-                        with env_file.open("a") as fh:
-                            cur = env_file.read_text()
-                            if cur and not cur.endswith("\n"):
-                                fh.write("\n")
-                            fh.write("\n".join(repair_lines) + "\n")
-                return
-            block = NetworkDomain(self.runner, wt).allocate(i.branch_dir)
+                params = stack_params(existing_prefix)
+                # A resumed run must not trust a stale pin blindly: another
+                # stack (or a foreign /16 like kind) may have taken the subnet
+                # since the pin was written. Re-allocate when it collides.
+                conflict = nw.conflict_for(i.branch_dir, params)
+                if conflict is None:
+                    # Rewrite the full 5-line block (repairs a partial
+                    # first-write) and make sure the registry owns the pin —
+                    # older runs could write the .env via the env-override
+                    # path without a registry row.
+                    _upsert_net_env_block(env_file, "\n".join(env_lines_for(params)) + "\n")
+                    nw.register(i.branch_dir, params)
+                    _apply_net_env_to_process(params)
+                    return
+                sys.stderr.write(
+                    f"[net_allocate] pinned MCK_DEVC_NET_PREFIX={existing_prefix} "
+                    f"({params.subnet}) collides: {conflict}; reallocating\n"
+                )
+            block = nw.allocate(i.branch_dir)
             if not block.startswith("MCK_DEVC_NET_PREFIX="):
                 raise WtCtlError(f"NetworkDomain.allocate produced unexpected output: {block!r}")
-            # Append the 5-line block, preserving any other keys.
-            env_file.parent.mkdir(parents=True, exist_ok=True)
-            with env_file.open("a") as fh:
-                # Guard against a hand-edited .env lacking a trailing newline.
-                if env_file.exists():
-                    cur = env_file.read_text()
-                    if cur and not cur.endswith("\n"):
-                        fh.write("\n")
-                fh.write(block)
+            _upsert_net_env_block(env_file, block)
+            # Pin the orchestrator's own env too: child processes
+            # (switch_context.sh → root-devc-context NAMESPACE suffix) must see
+            # THIS stack's prefix, not one inherited from the invoking checkout.
+            _apply_net_env_to_process(stack_params(int(block.splitlines()[0].split("=", 1)[1])))
 
         # ---- evg_prepare --------------------------------------------------
         def _do_evg_prepare() -> None:
@@ -640,6 +636,27 @@ class CreateOrchestrator:
                     in_devc=False,
                     emit=lambda m: sys.stderr.write(f"[local-kind] {m}\n"),
                 )
+            else:
+                # prepare-local-e2e just wrote multicluster.devc.kubeconfig
+                # (member servers = EVG host loopback ports). Re-run the
+                # idempotent refresh so the file gets proxy-urls before op_run
+                # starts the operator; otherwise member informers dial
+                # 127.0.0.1 in the devc and the manager dies on cache-sync
+                # timeout ~2 minutes after going ready.
+                self.runner.run_streaming(
+                    _devc_bash(
+                        wt,
+                        "set -Eeou pipefail; "
+                        "cd /workspace; "
+                        ". /mck-tooling/scripts/dev/devenv; "
+                        '/mck-tooling/scripts/dev/switch_context.sh "$(cat .generated/.current_context)"; '
+                        "/mck-tooling/scripts/dev/wt-ctl --quiet kubeconfig refresh",
+                    ),
+                    prefix="[prepare-e2e] ",
+                    log_path=log_dir / "refresh_kubeconfig.log",
+                    cwd=wt,
+                )
+            self._preflight_multi_cluster_kubeconfigs(wt, log_dir)
 
         # ---- op_run ------------------------------------------------------
         def _do_op_run() -> None:
@@ -725,7 +742,18 @@ class CreateOrchestrator:
             Phase(
                 name="dc_up",
                 run=_do_dc_up,
-                input_hash=lambda: _h({"branch_dir": i.branch_dir}),
+                # The tooling overlay is rendered into compose.generated.yml by
+                # initializeCommand during `devcontainer up`; hashing the
+                # manifest makes an edited overlay invalidate dc_up so resumes
+                # recreate the container with the new mounts.
+                input_hash=lambda: _h(
+                    {
+                        "branch_dir": i.branch_dir,
+                        "overlay": _file_digest(
+                            tooling_root() / "scripts" / "dev" / "tooling-overlay.manifest",
+                        ),
+                    }
+                ),
                 skip=lambda: i.skip_devcontainer,
                 log_relpath="logs/setup_worktree/dc_up.log",
             ),
@@ -997,6 +1025,48 @@ class CreateOrchestrator:
                     f"{last_stderr or '(empty)'}"
                 )
             time.sleep(interval_s)
+
+    def _preflight_multi_cluster_kubeconfigs(self, wt: Path, log_dir: Path) -> None:
+        """Fail prepare_e2e early when multi-cluster member kubeconfigs are
+        unusable from the devcontainer.
+
+        The failure this guards against: ``multicluster.devc.kubeconfig``
+        exists but has no ``proxy-url`` (EVG-host members live on the host's
+        loopback). The operator starts, passes the readiness probe, then dies
+        on controller-runtime's cache-sync timeout (~2 min) because member
+        informers can't connect. Better to fail here, before op_run.
+        """
+        if not self.inputs.multi_cluster:
+            return
+        script = (
+            "set -Eeou pipefail; "
+            "cd /workspace; "
+            ". /mck-tooling/scripts/dev/devenv; "
+            'kc=.generated/multicluster.devc.kubeconfig; '
+            'if [[ ! -f "$kc" ]]; then '
+            '  echo "preflight: $kc missing (multi-cluster prepare did not produce it)"; exit 1; '
+            "fi; "
+            'if [[ -z "${MEMBER_CLUSTERS:-}" ]]; then '
+            '  echo "preflight: MEMBER_CLUSTERS unset; skipping member probes"; exit 0; '
+            "fi; "
+            "rc=0; "
+            "for c in ${MEMBER_CLUSTERS}; do "
+            '  if kubectl --request-timeout=10s --kubeconfig "$kc" --context "$c" '
+            "get --raw=/readyz >/dev/null 2>&1; then "
+            '    echo "preflight: member $c reachable"; '
+            "  else "
+            '    echo "preflight: member $c UNREACHABLE via $kc"; rc=1; '
+            "  fi; "
+            "done; "
+            'if [[ $rc -ne 0 ]]; then echo "preflight: fix member kubeconfigs (proxy-url) before op_run"; fi; '
+            "exit $rc"
+        )
+        self.runner.run_streaming(
+            _devc_bash(wt, script),
+            prefix="[preflight] ",
+            log_path=log_dir / "preflight_multicluster.log",
+            cwd=wt,
+        )
 
     def _join_kind_network(self, wt: Path, project: str, log_path: Path) -> None:
         """Join the devc + k8s-proxy containers to the shared ``kind`` docker
@@ -1313,6 +1383,32 @@ def _is_same_path(a: Path, b: Path) -> bool:
         return False
 
 
+def _file_digest(path: Path) -> str:
+    """Short content digest of a file, or "" when it can't be read.
+
+    Used to make phase hashes sensitive to tooling-side content (e.g. the
+    devcontainer overlay manifest) without hard-coding versions.
+    """
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+def _apply_net_env_to_process(params) -> None:
+    """Export this stack's network params into the orchestrator's own env.
+
+    Child processes inherit the parent env (Runner merges os.environ), and
+    root-devc-context derives NAMESPACE/WATCH_NAMESPACE from
+    MCK_DEVC_NET_PREFIX. Without this, creating from a checkout whose
+    ``.generated`` pins a different prefix would suffix the namespace with
+    the wrong index while the network uses the registry's allocation.
+    """
+    for line in env_lines_for(params):
+        key, value = line.split("=", 1)
+        os.environ[key] = value
+
+
 def _read_existing_prefix(env_file: Path) -> Optional[int]:
     if not env_file.is_file():
         return None
@@ -1326,6 +1422,31 @@ def _read_existing_prefix(env_file: Path) -> Optional[int]:
     except OSError:
         return None
     return None
+
+
+def _upsert_net_env_block(env_file: Path, block: str) -> None:
+    """Replace the network-pin block in ``env_file`` with ``block``.
+
+    ``block`` is the 5-line ``MCK_DEVC_*`` output of
+    ``env_lines_for``/``NetworkDomain.allocate``. Existing lines for those
+    keys are dropped (so a re-allocation doesn't leave stale octets), all
+    other keys are preserved.
+    """
+    new_lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+    keys = {ln.split("=", 1)[0] for ln in new_lines}
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    kept: list[str] = []
+    if env_file.is_file():
+        for ln in env_file.read_text().splitlines():
+            if ln.split("=", 1)[0] in keys:
+                continue
+            kept.append(ln)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    if kept:
+        kept.append("")
+    kept.extend(new_lines)
+    env_file.write_text("\n".join(kept) + "\n")
 
 
 def _missing_derived_env_keys(env_file: Path) -> list[str]:

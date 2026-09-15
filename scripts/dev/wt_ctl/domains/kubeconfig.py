@@ -145,6 +145,32 @@ def _set_proxy_url(kc: dict[str, Any], proxy_url: Optional[str]) -> None:
             inner["proxy-url"] = proxy_url
 
 
+def _load_multicluster_base(gen: Path, emit: Any) -> Optional[dict[str, Any]]:
+    """Load the bare multi-cluster kubeconfig, seeding it from the devc
+    flavor when the base is absent.
+
+    ``make prepare-local-e2e`` (the local-operator path) writes only
+    ``multicluster.devc.kubeconfig`` with member servers on the EVG host's
+    loopback; the bare base is normally fetched by the host-side
+    ``remote-prepare-local-e2e-run`` flow. Without this seed the refresh
+    would no-op and the operator's member clients would dial
+    ``127.0.0.1:<kind-port>`` directly inside the devcontainer (refused),
+    wedging cache sync until the manager exits. Treating the devc flavor as
+    the bare base lets both flavors get their proxy-urls.
+    """
+    base = gen / "multicluster_kubeconfig"
+    if base.is_file():
+        return _load_yaml(base)
+    devc = gen / "multicluster.devc.kubeconfig"
+    if not devc.is_file():
+        return None
+    seed = _load_yaml(devc)
+    _set_proxy_url(seed, None)
+    _dump_yaml(base, seed)
+    emit(f"Seeded {base} from {devc} (bare member kubeconfig)")
+    return _load_yaml(base)
+
+
 def _strip_kubeconfig_suffix(kc: dict[str, Any], port: str) -> None:
     """Inverse of ``_suffix_kubeconfig_names``: strip the ``-<port>`` tail
     from every cluster/context/user name (plus cross-refs and
@@ -491,12 +517,12 @@ class KubeconfigDomain:
     ) -> None:
         """EVG-host mode: derive the two multi-cluster flavors from the bare
         base. Host flavor gets ``host_proxy`` in place; devc flavor gets
-        ``devc_proxy`` (only available inside the container). No-op when the
-        base file hasn't been produced yet."""
-        base = gen / "multicluster_kubeconfig"
-        if not base.is_file():
+        ``devc_proxy`` (only available inside the container). No-op when no
+        multi-cluster kubeconfig has been produced yet."""
+        data = _load_multicluster_base(gen, emit)
+        if data is None:
             return
-        data = _load_yaml(base)
+        base = gen / "multicluster_kubeconfig"
         _set_proxy_url(data, host_proxy)
         emit(f"Patching {base}: proxy={host_proxy} (member clusters, host flavor)")
         _dump_yaml(base, data)
@@ -510,10 +536,10 @@ class KubeconfigDomain:
         """local-kind / BYOC mode: host flavor is the bare base (laptop kind
         is directly reachable from host shells); devc flavor rewrites loopback
         member servers to host.docker.internal. No-op without a base file."""
-        base = gen / "multicluster_kubeconfig"
-        if not base.is_file():
+        data = _load_multicluster_base(gen, emit)
+        if data is None:
             return
-        data = _load_yaml(base)
+        base = gen / "multicluster_kubeconfig"
         _set_proxy_url(data, None)
         _dump_yaml(base, data)
         devc_path = gen / "multicluster.devc.kubeconfig"

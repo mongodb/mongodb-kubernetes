@@ -86,7 +86,14 @@ fi
 (
   cd "${worktree_path}"
   make switch context="$(cat ".generated/.current_context")"
-  . "${PROJECT_DIR}/scripts/dev/devenv"
+  # devenv ships with the tooling, but PROJECT_DIR is the *invoking* checkout,
+  # which may be a branch that doesn't carry it (plain master). Prefer the
+  # invoking checkout's copy when present; otherwise source the tooling's.
+  if [[ -f "${PROJECT_DIR}/scripts/dev/devenv" ]]; then
+    . "${PROJECT_DIR}/scripts/dev/devenv"
+  else
+    . "${script_dir}/devenv"
+  fi
 )
 
 echo "Worktree $(realpath "${worktree_path}") has been prepared"

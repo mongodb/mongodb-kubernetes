@@ -261,6 +261,22 @@ class KubeconfigRefreshTests(unittest.TestCase):
         self.assertFalse(self.mc_base.exists())
         self.assertFalse(self.mc_devc.exists())
 
+    def test_evg_host_seeds_base_from_devc_flavor(self) -> None:
+        """prepare-local-e2e writes only multicluster.devc.kubeconfig (member
+        servers on the EVG host loopback). refresh must seed the bare base
+        from it and still produce proxied host + devc flavors; otherwise the
+        operator's member clients dial 127.0.0.1 in the devc and die on
+        cache-sync timeout."""
+        self.host_kc.write_text(_KIND_KUBECONFIG)
+        self.evg_pin.write_text("my-evg-host")
+        self.mc_devc.write_text(_MC_KUBECONFIG)
+        self._refresh(MCK_DEVC_PROXY_PORT="8000", EVG_HOST_PROXY="http://gost-proxy:8080")
+        base = yaml.safe_load(self.mc_base.read_text())
+        self.assertEqual([c["cluster"]["proxy-url"] for c in base["clusters"]], ["http://127.0.0.1:8000"] * 2)
+        devc = yaml.safe_load(self.mc_devc.read_text())
+        self.assertEqual([c["cluster"]["proxy-url"] for c in devc["clusters"]], ["http://gost-proxy:8080"] * 2)
+        self.assertEqual(devc["clusters"][0]["cluster"]["server"], "https://127.0.0.1:37737")
+
     def test_local_kind_multicluster_devc_host_docker_internal(self) -> None:
         self.host_kc.write_text(_KIND_KUBECONFIG)
         self.mc_base.write_text(_MC_KUBECONFIG)

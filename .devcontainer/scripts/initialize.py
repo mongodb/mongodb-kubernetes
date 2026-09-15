@@ -89,6 +89,66 @@ def mirror_local_features(tooling_root, workspace_root):
     return "../../.devcontainer/features/"
 
 
+def tooling_overlay_volumes(tooling_root, workspace_root):
+    """Read-only bind mounts that overlay tooling-owned scripts onto the
+    in-container ``/workspace`` copy.
+
+    Same manifest as the EVG-host rsync overlay
+    (``scripts/dev/tooling-overlay.manifest``), so a branch that predates
+    the tooling (e.g. plain master) gets the tooling's versions of the
+    local-dev scripts without writing anything into the worktree. Targets
+    that don't exist on the branch are skipped: Docker materializes the
+    mountpoint on the host otherwise, dirtying the checkout.
+
+    The bootstrap chain (devenv / wt-ctl / switch_context / contexts) is
+    deliberately **not** overlaid here: those files locate each other via
+    their own path (``set_env_context.sh`` sources a sibling ``devenv``),
+    so mounting a partial subset would mix versions and break in-container
+    ``make switch``. The orchestrator drives the chain via ``/mck-tooling``
+    explicitly; the overlay only replaces the flow scripts the devc runs.
+
+    Opt out with ``MCK_DEVC_TOOLING_OVERLAY=0`` (e.g. while editing one of
+    the manifest files on a feature branch)."""
+    if os.environ.get("MCK_DEVC_TOOLING_OVERLAY", "1") == "0":
+        print("tooling overlay: disabled via MCK_DEVC_TOOLING_OVERLAY=0")
+        return []
+    manifest_path = os.path.join(tooling_root, "scripts", "dev", "tooling-overlay.manifest")
+    if not os.path.exists(manifest_path):
+        print(f"tooling overlay: manifest {manifest_path} missing; skipping")
+        return []
+    # Must be mounted as a complete set — see docstring. In-container code
+    # paths use /mck-tooling/scripts/dev/<file> for these.
+    bootstrap_chain = {
+        "scripts/dev/devenv",
+        "scripts/dev/wt-ctl",
+        "scripts/dev/wt_ctl",
+        "scripts/dev/switch_context.sh",
+        "scripts/dev/set_env_context.sh",
+        "scripts/dev/contexts/root-context",
+        "scripts/dev/contexts/root-devc-context",
+        "scripts/dev/contexts/site-context",
+    }
+    entries = []
+    with open(manifest_path) as fh:
+        rels = [raw.strip() for raw in fh if raw.strip() and not raw.lstrip().startswith("#")]
+    for rel in rels:
+        if rel in bootstrap_chain:
+            print(f"tooling overlay: skipping {rel} (bootstrap chain uses /mck-tooling)")
+            continue
+        src = os.path.join(tooling_root, rel)
+        dst = os.path.join(workspace_root, rel)
+        if not os.path.exists(src):
+            print(f"tooling overlay: skipping {rel} (missing in tooling checkout)")
+            continue
+        if not os.path.exists(dst):
+            print(f"tooling overlay: skipping {rel} (not present in worktree)")
+            continue
+        entries.append(f"{src}:/workspace/{rel}:ro")
+    if entries:
+        print(f"tooling overlay: mounting {len(entries)} path(s) read-only into /workspace")
+    return entries
+
+
 def render_config(tooling_root, workspace_root, devc_dir):
     """Render the per-worktree devcontainer config next to the compose
     override:
@@ -189,6 +249,13 @@ def main():
         entry = f"{src}:{dst}:ro"
         volumes.append(entry)
         print(f"Added tmux config volume: {entry}")
+
+    for entry in tooling_overlay_volumes(
+        os.environ["TOOLING_ROOT"],
+        os.environ["WORKSPACE_ROOT"],
+    ):
+        volumes.append(entry)
+        print(f"Added tooling overlay volume: {entry}")
 
     devcontainer = {}
     if environment:

@@ -583,5 +583,196 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(len(rows), 1)
 
 
+# ---------------------------------------------------------------------------
+# env override (must NOT bypass collision checks by default)
+# ---------------------------------------------------------------------------
+
+
+class EnvOverrideTests(unittest.TestCase):
+    def test_allocate_ignores_inherited_env_prefix(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                (wt_parent / "newcomer").mkdir()
+                runner = _MakeFakes().runner()
+                reg = Registry(runner, worktree_parent=wt_parent)
+                warnings: list[str] = []
+                with patch.dict(os.environ, {"MCK_DEVC_NET_PREFIX": "24"}):
+                    params = reg.allocate(
+                        branch_dir="newcomer",
+                        auto_prune=False,
+                        emit_warning=warnings.append,
+                    )
+                # 24 is ignored: the registry allocates index 0 and owns it.
+                self.assertEqual(params.index, 0)
+                self.assertEqual([r.branch_dir for r in reg._read()], ["newcomer"])
+                self.assertTrue(
+                    any("Ignoring inherited MCK_DEVC_NET_PREFIX=24" in w for w in warnings),
+                    msg=f"expected ignore warning; got {warnings}",
+                )
+
+    def test_allocate_honor_env_opt_in(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                runner = _MakeFakes().runner()
+                reg = Registry(runner, worktree_parent=wt_parent)
+                with patch.dict(os.environ, {"MCK_DEVC_NET_PREFIX": "24"}):
+                    params = reg.allocate(
+                        branch_dir="pinned",
+                        auto_prune=False,
+                        honor_env=True,
+                    )
+                self.assertEqual(params.index, 24)
+                self.assertEqual(reg._read(), [])
+
+
+# ---------------------------------------------------------------------------
+# pinned-slot conflict detection + registry repair
+# ---------------------------------------------------------------------------
+
+
+def _runner_with_net(name: str, subnet: str, containers: str = "0") -> Runner:
+    fake = FakePopenFactory(
+        mapping={
+            ("docker", "network", "ls", "--format", "{{.Name}}"): (f"{name}\n", "", 0),
+            (
+                "docker",
+                "network",
+                "inspect",
+                name,
+                "--format",
+                "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
+            ): (subnet, "", 0),
+            (
+                "docker",
+                "network",
+                "inspect",
+                name,
+                "--format",
+                "{{len .Containers}}",
+            ): (containers, "", 0),
+        },
+        default=("", "", 0),
+    )
+    return Runner(popen_factory=fake, which=fake_which)
+
+
+class ConflictTests(unittest.TestCase):
+    def test_conflict_for_flags_foreign_docker_network(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                reg = Registry(_runner_with_net("other_devcontainer_devcontainer", "172.16.48.0/23"), worktree_parent=wt_parent)
+                conflict = reg.conflict_for("mine", stack_params(24))
+                self.assertIsNotNone(conflict)
+                assert conflict is not None
+                self.assertIn("other_devcontainer_devcontainer", conflict)
+
+    def test_conflict_for_ignores_own_network(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                reg = Registry(_runner_with_net("mine_devcontainer_devcontainer", "172.16.48.0/23"), worktree_parent=wt_parent)
+                self.assertIsNone(reg.conflict_for("mine", stack_params(24)))
+
+    def test_conflict_for_flags_other_registry_row(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                reg = Registry(_MakeFakes().runner(), worktree_parent=wt_parent)
+                reg._write([_RegistryRow("other", stack_params(24))])
+                conflict = reg.conflict_for("mine", stack_params(24))
+                self.assertIsNotNone(conflict)
+                assert conflict is not None
+                self.assertIn("other", conflict)
+
+    def test_register_repairs_missing_row_and_is_idempotent(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                reg = Registry(_MakeFakes().runner(), worktree_parent=wt_parent)
+                self.assertTrue(reg.register("mine", stack_params(6)))
+                self.assertFalse(reg.register("mine", stack_params(6)))
+                rows = reg._read()
+                self.assertEqual([(r.branch_dir, r.params.index) for r in rows], [("mine", 6)])
+                # A different index replaces the stale row.
+                self.assertTrue(reg.register("mine", stack_params(7)))
+                self.assertEqual([r.params.index for r in reg._read()], [7])
+
+
+# ---------------------------------------------------------------------------
+# allocate auto-prunes orphan docker networks
+# ---------------------------------------------------------------------------
+
+
+class AutoPruneNetworksTests(unittest.TestCase):
+    def test_allocate_removes_orphan_network(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            with _patch_registry_dir(Path(td)):
+                wt_parent = Path(td) / "mdb"
+                wt_parent.mkdir()
+                (wt_parent / "newcomer").mkdir()
+                fake = FakePopenFactory(
+                    mapping={
+                        ("docker", "network", "ls", "--format", "{{.Name}}"): (
+                            "deadstack_devcontainer_devcontainer\n",
+                            "",
+                            0,
+                        ),
+                        (
+                            "docker",
+                            "network",
+                            "inspect",
+                            "deadstack_devcontainer_devcontainer",
+                            "--format",
+                            "{{range .IPAM.Config}}{{.Subnet}}{{end}}",
+                        ): ("172.16.12.0/23", "", 0),
+                        (
+                            "docker",
+                            "network",
+                            "inspect",
+                            "deadstack_devcontainer_devcontainer",
+                            "--format",
+                            "{{len .Containers}}",
+                        ): ("0", "", 0),
+                    },
+                    default=("", "", 0),
+                )
+                runner = Runner(popen_factory=fake, which=fake_which)
+                reg = Registry(runner, worktree_parent=wt_parent)
+                params = reg.allocate(
+                    branch_dir="newcomer",
+                    auto_prune=False,
+                    auto_prune_networks=True,
+                    emit_warning=lambda _m: None,
+                )
+                self.assertEqual(params.index, 0)
+                self.assertTrue(
+                    any("docker" in c and "network" in c and "rm" in c for c in fake.calls),
+                    msg=f"orphan network was not removed; calls={fake.calls}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
