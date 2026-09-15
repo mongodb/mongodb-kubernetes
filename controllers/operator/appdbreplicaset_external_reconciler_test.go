@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -586,34 +588,37 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 
 	tests := []struct {
 		name                  string
-		appDBClusterNames     []string
-		clusterMapping        map[string]string
+		appDBStsClusterNums   map[string]int
 		externalClusterNames  []string
-		externalRefKind       string
 		expectedErrorContains string
 	}{
 		{
 			name:                 "aligned internal and external multi-cluster AppDB passes",
-			appDBClusterNames:    []string{"cluster-1", "cluster-2", "cluster-3"},
-			clusterMapping:       map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
+			appDBStsClusterNums:  map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2},
 			externalClusterNames: []string{"cluster-1", "cluster-2", "cluster-3"},
-			externalRefKind:      omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 		},
 		{
-			name:                  "external multi-cluster extra cluster is rejected",
-			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
-			clusterMapping:        map[string]string{"cluster-1": "0", "cluster-2": "1", "cluster-3": "2"},
+			name:                  "external cluster without an AppDB StatefulSet is rejected",
+			appDBStsClusterNums:   map[string]int{"cluster-1": 0, "cluster-2": 1, "cluster-3": 2},
 			externalClusterNames:  []string{"cluster-1", "cluster-2", "cluster-3", "cluster-4"},
-			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 			expectedErrorContains: "cluster-4",
 		},
 		{
-			name:                  "cluster index mismatch is rejected",
-			appDBClusterNames:     []string{"cluster-1", "cluster-2", "cluster-3"},
-			clusterMapping:        map[string]string{"cluster-1": "1", "cluster-2": "0", "cluster-3": "2"},
+			name:                  "cluster number mismatch is rejected",
+			appDBStsClusterNums:   map[string]int{"cluster-1": 1, "cluster-2": 0, "cluster-3": 2},
 			externalClusterNames:  []string{"cluster-1", "cluster-2", "cluster-3"},
-			externalRefKind:       omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 			expectedErrorContains: "cluster-1",
+		},
+		{
+			name:                  "AppDB StatefulSet outside the external clusters is rejected",
+			appDBStsClusterNums:   map[string]int{"cluster-1": 0, "cluster-2": 1},
+			externalClusterNames:  []string{"cluster-1"},
+			expectedErrorContains: "cluster-2",
+		},
+		{
+			name:                 "fresh adoption without AppDB StatefulSets passes",
+			appDBStsClusterNums:  map[string]int{},
+			externalClusterNames: []string{"cluster-1", "cluster-2"},
 		},
 	}
 
@@ -621,26 +626,29 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resetCurrMockedAdmin(t)
 
-			opsManager := DefaultOpsManagerBuilder().
-				SetName("test-om").
-				SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
-				SetAppDBClusterSpecList(makeClusterSpecList(tt.appDBClusterNames...)).
-				Build()
+			opsManager := DefaultOpsManagerBuilder().SetName("test-om").Build()
 			testOm := withExternalAppDBRef(opsManager, &omv1.ExternalAppDBRef{
 				Name:      "test-om-db",
-				Kind:      tt.externalRefKind,
+				Kind:      omv1.ExternalAppDBRefKindMongoDBMultiCluster,
 				Namespace: mock.TestNamespace,
 			})
 
-			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-			memberClusterMap := getAppDBFakeMultiClusterMapWithClusters(tt.appDBClusterNames, omConnectionFactory)
-			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClusterMap, omConnectionFactory, architectures.NonStatic)
-
-			mappingData := make(map[string]string, len(tt.clusterMapping))
-			for name, index := range tt.clusterMapping {
-				mappingData[name] = index
+			allClusters := map[string]struct{}{}
+			for clusterName := range tt.appDBStsClusterNums {
+				allClusters[clusterName] = struct{}{}
 			}
-			require.NoError(t, kubeClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: testOm.Name + "-db-cluster-mapping", Namespace: mock.TestNamespace}, Data: mappingData}))
+			for _, clusterName := range tt.externalClusterNames {
+				allClusters[clusterName] = struct{}{}
+			}
+			clusterNames := make([]string, 0, len(allClusters))
+			for clusterName := range allClusters {
+				clusterNames = append(clusterNames, clusterName)
+			}
+			slices.Sort(clusterNames)
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			memberClusterMap := getAppDBFakeMultiClusterMapWithClusters(clusterNames, omConnectionFactory)
+			reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClusterMap, omConnectionFactory, architectures.NonStatic)
 
 			external := mdbmulti.DefaultMultiReplicaSetBuilder().
 				SetName("test-om-db").
@@ -648,8 +656,15 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 				SetClusterSpecList(tt.externalClusterNames).
 				Build()
 			external.Namespace = mock.TestNamespace
-
 			require.NoError(t, reconciler.client.Create(ctx, external))
+
+			for clusterName, clusterNum := range tt.appDBStsClusterNums {
+				sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("test-om-db-%d", clusterNum),
+					Namespace: mock.TestNamespace,
+				}}
+				require.NoError(t, memberClusterMap[clusterName].Create(ctx, sts))
+			}
 
 			err := reconciler.createNewExternalAppDBReconciler(zap.S()).validateExternalAppDBReference(ctx, testOm)
 			if tt.expectedErrorContains != "" {

@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -103,7 +104,7 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 		return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must have spec.role set to %q", ref.Namespace, ref.Name, mdbv1.RoleAppDB)
 	}
 
-	if ref.Kind == omv1.ExternalAppDBRefKindMongoDBMultiCluster && opsManager.Spec.AppDB != nil && opsManager.Spec.AppDB.IsMultiCluster() {
+	if ref.Kind == omv1.ExternalAppDBRefKindMongoDBMultiCluster {
 		mdbm, ok := refObject.(*externalAppDBRefObject).ConnectionStringBuilder.(*mdbmultiv1.MongoDBMultiCluster)
 		if !ok {
 			return xerrors.Errorf("externalApplicationDatabaseRef %s/%s must reference a MongoDBMultiCluster", ref.Namespace, ref.Name)
@@ -118,44 +119,78 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBTopology(ctx context.Context, opsManager *omv1.MongoDBOpsManager, mdbm *mdbmultiv1.MongoDBMultiCluster) error {
-	helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, e.ReconcileCommonController, e.memberClustersMap, e.log)
+	// Both the expected clusters and their StatefulSet names come from the referenced
+	// MongoDBMultiCluster. The AppDB spec (and the deployment state derived from it) is deliberately
+	// not used here, because the user may remove spec.applicationDatabase as part of the migration.
+	expectedStsByCluster := map[string]string{}
+	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
+		expectedStsByCluster[clusterSpec.ClusterName] = mdbm.StatefulSetNameForCluster(clusterSpec.ClusterName)
+	}
+
+	actualStsByCluster, err := e.appDBStatefulSetsByCluster(ctx, opsManager, mdbm.Name)
 	if err != nil {
-		return xerrors.Errorf("failed to initialize read-only AppDB helper: %w", err)
+		return err
 	}
 
-	// The internal AppDB spec may have been removed by the user as part of the migration, so the
-	// internal member cluster set is taken from the persisted deployment state instead.
-	internalClusterMapping := helper.deploymentState.ClusterMapping
-	internalClusterNames := make([]string, 0, len(internalClusterMapping))
-	for clusterName := range internalClusterMapping {
-		internalClusterNames = append(internalClusterNames, clusterName)
-	}
-	slices.Sort(internalClusterNames)
-
-	externalClusterNames := map[string]struct{}{}
-	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
-		externalClusterNames[clusterSpec.ClusterName] = struct{}{}
+	// No internal AppDB StatefulSet exists in any member cluster: this is a fresh adoption of an
+	// external AppDB, so there is no topology to reconcile.
+	if len(actualStsByCluster) == 0 {
+		return nil
 	}
 
-	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
-		if _, ok := internalClusterMapping[clusterSpec.ClusterName]; !ok {
-			return xerrors.Errorf("cluster %s is not present in internal AppDB cluster mapping", clusterSpec.ClusterName)
+	expectedClusterNames := sortedKeys(expectedStsByCluster)
+	for _, clusterName := range expectedClusterNames {
+		actualSts, ok := actualStsByCluster[clusterName]
+		if !ok {
+			return xerrors.Errorf("cluster %s of the external MongoDBMultiCluster has no AppDB StatefulSet", clusterName)
+		}
+		if expectedSts := expectedStsByCluster[clusterName]; actualSts != expectedSts {
+			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s does not match the cluster number expected by the external MongoDBMultiCluster (%s)", actualSts, clusterName, expectedSts)
 		}
 	}
 
-	for _, clusterName := range internalClusterNames {
-		if _, ok := externalClusterNames[clusterName]; !ok {
-			return xerrors.Errorf("cluster %s is not present in external MongoDBMultiCluster clusterSpecList", clusterName)
-		}
-
-		internalIndex := internalClusterMapping[clusterName]
-		externalIndex := mdbm.ClusterNum(clusterName)
-		if internalIndex != externalIndex {
-			return xerrors.Errorf("cluster %s index mismatch: internal %d external %d", clusterName, internalIndex, externalIndex)
+	for _, clusterName := range sortedKeys(actualStsByCluster) {
+		if _, ok := expectedStsByCluster[clusterName]; !ok {
+			return xerrors.Errorf("AppDB StatefulSet %s in cluster %s is not part of the external MongoDBMultiCluster clusters", actualStsByCluster[clusterName], clusterName)
 		}
 	}
 
 	return nil
+}
+
+func (e *ReconcileExternalAppDBReplicaSet) appDBStatefulSetsByCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDBName string) (map[string]string, error) {
+	result := map[string]string{}
+
+	for _, clusterName := range sortedKeys(e.memberClustersMap) {
+		memberClient := e.memberClustersMap[clusterName]
+		if memberClient == nil {
+			return nil, xerrors.Errorf("member cluster %s client is not available", clusterName)
+		}
+
+		stsList := &appsv1.StatefulSetList{}
+		if err := memberClient.List(ctx, stsList, client.InNamespace(opsManager.Namespace)); err != nil {
+			return nil, xerrors.Errorf("failed to list StatefulSets in member cluster %s: %w", clusterName, err)
+		}
+
+		for i := range stsList.Items {
+			name := stsList.Items[i].Name
+			if name == appDBName || strings.HasPrefix(name, appDBName+"-") {
+				result[clusterName] = name
+				break
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
