@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"errors"
 
 	"go.uber.org/zap"
@@ -13,12 +14,12 @@ import (
 // make OM stop displaying old hosts from Processes view.
 // Note, that the method tries to delete as many hosts as possible and doesn't give up on errors, returns
 // the last error instead
-func StopMonitoring(getRemover GetRemover, hostnames []string, log *zap.SugaredLogger) error {
+func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []string, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
 	}
 
-	hosts, err := getRemover.GetHosts()
+	hosts, err := getRemover.GetHosts(ctx)
 	if err != nil {
 		return err
 	}
@@ -28,7 +29,7 @@ func StopMonitoring(getRemover GetRemover, hostnames []string, log *zap.SugaredL
 		for _, h := range hosts.Results {
 			if h.Hostname == hostname {
 				found = true
-				err = getRemover.RemoveHost(h.Id)
+				err = getRemover.RemoveHost(ctx, h.Id)
 				if err != nil {
 					log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", h.Hostname, err)
 					errorHappened = true
@@ -50,12 +51,12 @@ func StopMonitoring(getRemover GetRemover, hostnames []string, log *zap.SugaredL
 }
 
 // stopMonitoringHosts removes monitoring for this list of hosts from Ops Manager.
-func stopMonitoringHosts(getRemover GetRemover, hosts []string, log *zap.SugaredLogger) error {
+func stopMonitoringHosts(ctx context.Context, getRemover GetRemover, hosts []string, log *zap.SugaredLogger) error {
 	if len(hosts) == 0 {
 		return nil
 	}
 
-	if err := StopMonitoring(getRemover, hosts, log); err != nil {
+	if err := StopMonitoring(ctx, getRemover, hosts, log); err != nil {
 		return xerrors.Errorf("Failed to stop monitoring on hosts %s: %w", hosts, err)
 	}
 
@@ -64,6 +65,6 @@ func stopMonitoringHosts(getRemover GetRemover, hosts []string, log *zap.Sugared
 
 // CalculateDiffAndStopMonitoringHosts checks hosts that are present in hostsBefore but not hostsAfter, and removes
 // monitoring from them.
-func CalculateDiffAndStopMonitoring(getRemover GetRemover, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
-	return stopMonitoringHosts(getRemover, util.FindLeftDifference(hostsBefore, hostsAfter), log)
+func CalculateDiffAndStopMonitoring(ctx context.Context, getRemover GetRemover, hostsBefore, hostsAfter []string, log *zap.SugaredLogger) error {
+	return stopMonitoringHosts(ctx, getRemover, util.FindLeftDifference(hostsBefore, hostsAfter), log)
 }

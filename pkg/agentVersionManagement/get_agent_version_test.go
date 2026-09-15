@@ -77,6 +77,7 @@ var jsonContents = `
 `
 
 func TestGetAgentVersionManager(t *testing.T) {
+	ctx := t.Context()
 	type args struct {
 		omConnection    om.Connection
 		omVersion       string
@@ -173,7 +174,7 @@ func TestGetAgentVersionManager(t *testing.T) {
 
 	for _, tt := range getAgentVersionTests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := versionManager.GetAgentVersion(tt.args.omConnection, tt.args.omVersion, tt.args.readFromMapping)
+			got, err := versionManager.GetAgentVersion(ctx, tt.args.omConnection, tt.args.omVersion, tt.args.readFromMapping)
 			if tt.wantErr {
 				assert.Error(t, err, "GetAgentVersion() should return an error")
 			} else {

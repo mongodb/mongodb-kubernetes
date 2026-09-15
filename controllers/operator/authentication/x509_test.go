@@ -37,7 +37,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,12 +67,13 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 }
 
 func TestX509_DeploymentConfigured(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{AgentMechanism: "SCRAM", CAFilePath: util.CAFilePathInContainer}
 
 	assertDeploymentMechanismsConfigured(t, mongoDBX509Mechanism, conn, opts)
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, ac.AgentSSL.CAFilePath, util.CAFilePathInContainer)
 }

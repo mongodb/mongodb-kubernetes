@@ -181,17 +181,17 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	if !architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {
-		agents.UpgradeIfNeeded(s, conn)
+		agents.UpgradeIfNeeded(ctx, s, conn)
 	}
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, s.Name, nil, log)
+	reconcileResult := checkIfHasExcessProcesses(ctx, conn, s.Name, nil, log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, s, reconcileResult, log)
 	}
 
-	if status := controlledfeature.EnsureFeatureControls(*s, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
+	if status := controlledfeature.EnsureFeatureControls(ctx, *s, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 
@@ -202,14 +202,14 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled"), log)
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
 
 	podVars := newPodVars(conn, projectConfig, s.Spec.LogLevel)
 
-	if status := validateMongoDBResource(s, conn); !status.IsOK() {
+	if status := validateMongoDBResource(ctx, s, conn); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 
@@ -251,7 +251,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !s.IsAgentImageOverridden() {
-			automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			automationAgentVersion, err = r.getAgentVersion(ctx, conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				status := workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
@@ -262,7 +262,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	var externalAgentVersion string
 	if len(s.Spec.GetExternalMembers()) > 0 {
-		externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+		externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(ctx, conn)
 		if err != nil {
 			status := workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
 			return r.updateStatus(ctx, s, status, log)
@@ -371,7 +371,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	}
 
 	standaloneOmObject := createProcess(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, set, util.DatabaseContainerName, s, r.defaultArchitecture)
-	err := conn.ReadUpdateDeployment(
+	err := conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			excessProcesses := d.GetNumberOfExcessProcesses(s.Name, nil)
 			if excessProcesses > 0 {
@@ -389,13 +389,13 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 			d.ConfigureTLS(s.Spec.GetSecurity(), caFilePath)
 			return nil
 		},
-		log,
-	)
+		log)
+
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	if err := om.WaitForReadyState(conn, []string{set.Name}, isRecovering, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, []string{set.Name}, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -423,18 +423,17 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	}
 
 	processNames := make([]string, 0)
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.Standalone{}, s.Name)
-			// error means that process is not in the deployment - it's ok and we can proceed (could happen if
-			// deletion cleanup happened twice and the first one cleaned OM state already)
+
 			if e := d.RemoveProcessByName(s.Name, log); e != nil {
 				log.Warnf("Failed to remove standalone from automation config: %s", e)
 			}
 			return nil
 		},
-		log,
-	)
+		log)
+
 	if err != nil {
 		return xerrors.Errorf("failed to update Ops Manager automation config: %w", err)
 	}
@@ -443,13 +442,13 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	// This ensures we attempt all cleanup operations even if some fail.
 	var errs error
 
-	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, processNames, false, log); err != nil {
 		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1, nil)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -461,7 +460,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	r.resourceWatcher.RemoveDependentWatchedResources(s.ObjectKey())
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
-	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+	if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 		result.Log(log)
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}

@@ -108,12 +108,12 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 		if isRecovering {
 			return nil
 		}
-		return om.WaitForReadyState(conn, opts.ProcessNames, false, log)
+		return om.WaitForReadyState(ctx, conn, opts.ProcessNames, false, log)
 	}
 
 	// we need to make sure the desired authentication mechanism for the agent exists. If the desired agent
 	// authentication mechanism does not exist in auth.deploymentAuthMechanisms, it is an invalid config
-	if err := ensureDeploymentsMechanismsExist(conn, opts, log); err != nil {
+	if err := ensureDeploymentsMechanismsExist(ctx, conn, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
@@ -121,7 +121,7 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 	}
 
 	// we make sure that the AuthoritativeSet options in the AC is correct
-	if err := ensureAuthoritativeSetIsConfigured(conn, opts.AuthoritativeSet, log); err != nil {
+	if err := ensureAuthoritativeSetIsConfigured(ctx, conn, opts.AuthoritativeSet, log); err != nil {
 		return xerrors.Errorf("error ensuring that authoritative set is configured: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
@@ -139,7 +139,7 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 
 	// once we have successfully enabled auth for the agents, we need to remove mechanisms we don't need.
 	// this ensures we don't have mechanisms enabled that have not been configured.
-	if err := removeUnsupportedAgentMechanisms(conn, opts, log); err != nil {
+	if err := removeUnsupportedAgentMechanisms(ctx, conn, opts, log); err != nil {
 		return xerrors.Errorf("error removing unused authentication mechanisms %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
@@ -148,7 +148,7 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 
 	// we remove any unsupported deployment auth mechanisms. This will generally be mechanisms
 	// that we are disabling.
-	if err := removeUnsupportedDeploymentMechanisms(conn, opts, log); err != nil {
+	if err := removeUnsupportedDeploymentMechanisms(ctx, conn, opts, log); err != nil {
 		return xerrors.Errorf("error removing unsupported deployment mechanisms: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
@@ -156,7 +156,7 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 	}
 
 	// Adding a client certificate for agents
-	if err := addOrRemoveAgentClientCertificate(conn, opts, log); err != nil {
+	if err := addOrRemoveAgentClientCertificate(ctx, conn, opts, log); err != nil {
 		return xerrors.Errorf("error adding client certificates for the agents: %w", err)
 	}
 	if err := waitForReadyStateIfNeeded(); err != nil {
@@ -169,7 +169,7 @@ func Configure(ctx context.Context, client kubernetesClient.Client, conn om.Conn
 // Disable disables all authentication mechanisms, and waits for the agents to reach goal state. It is still required to provide
 // automation agent username, password and keyfile contents to ensure a valid Automation Config.
 func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, deleteUsers bool, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -181,20 +181,21 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 	if ac.Auth.IsEnabled() {
 		log.Info("Disabling authentication")
 
-		err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 			ac.Auth.Disabled = true
 			return nil
 		}, log)
+
 		if err != nil {
 			return xerrors.Errorf("error read/updating automation config: %w", err)
 		}
 
-		if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
+		if err := om.WaitForReadyState(ctx, conn, opts.ProcessNames, false, log); err != nil {
 			return xerrors.Errorf("error waiting for ready state: %w", err)
 		}
 	}
 
-	err = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	err = conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if err := ac.EnsureKeyFileContents(); err != nil {
 			return xerrors.Errorf("error ensuring keyfile contents: %w", err)
 		}
@@ -202,19 +203,13 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 			return xerrors.Errorf("error ensuring agent password: %w", err)
 		}
 
-		// deleteUsers=true: Full deployment deletion - safe to remove all credentials.
-		// deleteUsers=false: Auth transition (e.g., X509→SCRAM) - agents need credentials preserved
-		// to re-authenticate when auth is re-enabled. Deleting them causes agents to get stuck.
 		if deleteUsers {
 			ac.Auth.Users = []*om.MongoDBUser{}
-			// Clear automation agent credentials to prevent Ops Manager from propagating stale
-			// credentials to monitoring/backup agents. Without this, redeploying a new MDB causes
-			// 409 "version not available" errors because the monitoring agent tries to authenticate
-			// with old SCRAM credentials against the new deployment.
+
 			ac.Auth.AutoUser = util.MergoDelete
 			ac.Auth.AutoPwd = util.MergoDelete
 		} else {
-			// Preserve AutoUser and AutoPwd so agents can re-authenticate when auth is re-enabled.
+
 			ac.Auth.AutoUser = util.AutomationAgentName
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
@@ -226,6 +221,7 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
 		return nil
 	}, log)
+
 	if err != nil {
 		return xerrors.Errorf("error read/updating automation config: %w", err)
 	}
@@ -233,23 +229,25 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 	// In 3-agent environments, monitoring and backup agents have separate configs with their own
 	// X509 authentication settings. Without explicitly disabling X509 in these configs, the agents
 	// would continue attempting X509 auth against MongoDB instances that no longer support it.
-	err = conn.ReadUpdateMonitoringAgentConfig(func(config *om.MonitoringAgentConfig) error {
+	err = conn.ReadUpdateMonitoringAgentConfig(ctx, func(config *om.MonitoringAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
 	}, log)
+
 	if err != nil {
 		return xerrors.Errorf("error read/updating monitoring config: %w", err)
 	}
 
-	err = conn.ReadUpdateBackupAgentConfig(func(config *om.BackupAgentConfig) error {
+	err = conn.ReadUpdateBackupAgentConfig(ctx, func(config *om.BackupAgentConfig) error {
 		config.DisableX509Authentication()
 		return nil
 	}, log)
+
 	if err != nil {
 		return xerrors.Errorf("error read/updating backup agent config: %w", err)
 	}
 
-	if err := om.WaitForReadyState(conn, opts.ProcessNames, false, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, opts.ProcessNames, false, log); err != nil {
 		return xerrors.Errorf("error waiting for ready state: %w", err)
 	}
 
@@ -258,8 +256,8 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 
 // removeUnsupportedAgentMechanisms removes authentication mechanism that were previously enabled, or were required
 // as part of the transition process.
-func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
+func removeUnsupportedAgentMechanisms(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -272,7 +270,7 @@ func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap
 	for _, mechanism := range unsupportedMechanisms {
 		if mechanism.IsAgentAuthenticationConfigured(ac, opts) {
 			log.Infof("disabling authentication mechanism %s", mechanism.GetName())
-			if err := mechanism.DisableAgentAuthentication(conn, log); err != nil {
+			if err := mechanism.DisableAgentAuthentication(ctx, conn, log); err != nil {
 				return xerrors.Errorf("error disabling agent authentication: %w", err)
 			}
 		} else {
@@ -286,7 +284,7 @@ func removeUnsupportedAgentMechanisms(conn om.Connection, opts Options, log *zap
 // enableAgentAuthentication determines which agent authentication mechanism should be configured
 // and enables it in Ops Manager
 func enableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -303,8 +301,8 @@ func enableAgentAuthentication(ctx context.Context, client kubernetesClient.Clie
 
 // ensureAuthoritativeSetIsConfigured makes sure that the authoritativeSet options is correctly configured
 // in Ops Manager
-func ensureAuthoritativeSetIsConfigured(conn om.Connection, authoritativeSet bool, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
+func ensureAuthoritativeSetIsConfigured(ctx context.Context, conn om.Connection, authoritativeSet bool, log *zap.SugaredLogger) error {
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -314,16 +312,17 @@ func ensureAuthoritativeSetIsConfigured(conn om.Connection, authoritativeSet boo
 		return nil
 	}
 
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.AuthoritativeSet = authoritativeSet
 		return nil
 	}, log)
+
 }
 
 // ensureDeploymentsMechanismsExist makes sure that the corresponding deployment mechanisms which are required
 // in order to enable the desired agent auth mechanisms are configured.
-func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
+func ensureDeploymentsMechanismsExist(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -333,7 +332,7 @@ func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap
 	automationConfigMechanisms := convertToMechanismList(opts.Mechanisms, ac)
 
 	log.Debugf("Automation config authentication mechanisms: %+v", automationConfigMechanisms)
-	if err := ensureDeploymentMechanisms(conn, ac, automationConfigMechanisms, opts, log); err != nil {
+	if err := ensureDeploymentMechanisms(ctx, conn, ac, automationConfigMechanisms, opts, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms: %w", err)
 	}
 
@@ -342,8 +341,8 @@ func ensureDeploymentsMechanismsExist(conn om.Connection, opts Options, log *zap
 
 // removeUnsupportedDeploymentMechanisms updates the given AutomationConfig struct to enable all the given
 // authentication mechanisms.
-func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	ac, err := conn.ReadAutomationConfig()
+func removeUnsupportedDeploymentMechanisms(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return xerrors.Errorf("error reading automation config: %w", err)
 	}
@@ -354,7 +353,7 @@ func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log
 	unsupportedMechanisms := mechanismsToDisable(automationConfigAuthMechanisms)
 
 	log.Infow("Removing unsupported deployment authentication mechanisms", "Mechanisms", unsupportedMechanisms)
-	if err := ensureDeploymentMechanismsAreDisabled(conn, ac, unsupportedMechanisms, log); err != nil {
+	if err := ensureDeploymentMechanismsAreDisabled(ctx, conn, ac, unsupportedMechanisms, log); err != nil {
 		return xerrors.Errorf("error ensuring deployment mechanisms are disabled: %w", err)
 	}
 
@@ -365,13 +364,12 @@ func removeUnsupportedDeploymentMechanisms(conn om.Connection, opts Options, log
 // client TLS authentication.
 // This function will not change the automation config if x509 agent authentication has been
 // enabled already (by the x509 auth package).
-func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *zap.SugaredLogger) error {
+func addOrRemoveAgentClientCertificate(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	// If x509 is not enabled but still Client Certificates are, this automation config update
 	// will add the required configuration.
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if convertToMechanismOrPanic(opts.AgentMechanism, ac).GetName() == MongoDBX509 {
-			// If TLS client authentication is managed by x509, we won't disable or enable it
-			// in here.
+
 			return nil
 		}
 
@@ -389,6 +387,7 @@ func addOrRemoveAgentClientCertificate(conn om.Connection, opts Options, log *za
 		}
 		return nil
 	}, log)
+
 }
 
 // ensureAgentAuthenticationIsConfigured will configure the agent authentication settings based on the desiredAgentAuthMechanism
@@ -404,7 +403,7 @@ func ensureAgentAuthenticationIsConfigured(ctx context.Context, client kubernete
 
 // ensureDeploymentMechanisms configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mechanisms MechanismList, opts Options, log *zap.SugaredLogger) error {
+func ensureDeploymentMechanisms(ctx context.Context, conn om.Connection, ac *om.AutomationConfig, mechanisms MechanismList, opts Options, log *zap.SugaredLogger) error {
 	mechanismsToEnable := make([]Mechanism, 0)
 	for _, mechanism := range mechanisms {
 		if !mechanism.IsDeploymentAuthenticationConfigured(ac, opts) {
@@ -421,7 +420,7 @@ func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mec
 
 	for _, mechanism := range mechanismsToEnable {
 		log.Debugf("Enabling deployment mechanism %s", mechanism.GetName())
-		if err := mechanism.EnableDeploymentAuthentication(conn, opts, log); err != nil {
+		if err := mechanism.EnableDeploymentAuthentication(ctx, conn, opts, log); err != nil {
 			return xerrors.Errorf("error enabling deployment authentication: %w", err)
 		}
 	}
@@ -431,7 +430,7 @@ func ensureDeploymentMechanisms(conn om.Connection, ac *om.AutomationConfig, mec
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to
 // authenticate using the specified mechanisms
-func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, log *zap.SugaredLogger) error {
+func ensureDeploymentMechanismsAreDisabled(ctx context.Context, conn om.Connection, ac *om.AutomationConfig, mechanismsToDisable MechanismList, log *zap.SugaredLogger) error {
 	deploymentMechanismsToDisable := make([]Mechanism, 0)
 	for _, mechanism := range mechanismsToDisable {
 		if mechanism.IsDeploymentAuthenticationEnabled(ac) {
@@ -446,7 +445,7 @@ func ensureDeploymentMechanismsAreDisabled(conn om.Connection, ac *om.Automation
 
 	for _, mechanism := range deploymentMechanismsToDisable {
 		log.Debugf("disabling deployment mechanism %s", mechanism.GetName())
-		if err := mechanism.DisableDeploymentAuthentication(conn, log); err != nil {
+		if err := mechanism.DisableDeploymentAuthentication(ctx, conn, log); err != nil {
 			return xerrors.Errorf("error disabling deployment authentication: %w", err)
 		}
 	}

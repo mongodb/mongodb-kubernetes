@@ -81,14 +81,10 @@ func StripEnt(version string) string {
 
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
 // between retries. String return parameter contains the fail message that is printed in case of failure.
-func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
-	return DoAndRetryWithContext(context.Background(), f, log, count, interval)
-}
-
-// DoAndRetryWithContext is like DoAndRetry but gives up as soon as ctx is done, without waiting out the interval.
+// Gives up as soon as ctx is done, without waiting out the interval.
 // Once ctx is done, f is never invoked again, and if ctx is already done on entry the context error is
 // returned as the fail message.
-func DoAndRetryWithContext(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
+func DoAndRetry(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
 	var ok bool
 	var msg string
 	for i := 0; i < count; i++ {
