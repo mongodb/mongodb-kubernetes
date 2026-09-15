@@ -135,6 +135,9 @@ func (r SecretClient) PutSecretIfChanged(ctx context.Context, s corev1.Secret, b
 		if err != nil || !reflect.DeepEqual(secret, DataToStringData(s.Data)) {
 			return r.PutSecret(ctx, s, basePath)
 		}
+		// The Vault copy is already up to date. We must not fall through to the Kubernetes
+		// write below: on a Vault backend the secret is only ever meant to live in Vault.
+		return nil
 	}
 
 	return secret.CreateOrUpdateIfNeeded(ctx, r.KubeClient, s)
