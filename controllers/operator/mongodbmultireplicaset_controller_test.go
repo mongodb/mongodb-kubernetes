@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -24,6 +23,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -764,12 +764,12 @@ func TestAppDBFallbackDeleteCRFirst_MultiCluster(t *testing.T) {
 			Build()))
 	}
 
-	require.NoError(t, reconciler.SecretClient.CreateSecret(ctx, secret.Builder().
+	require.NoError(t, reconciler.CreateSecret(ctx, secret.Builder().
 		SetName(passwordSecretName).
 		SetNamespace(mrs.Namespace).
 		SetField(util.OpsManagerPasswordKey, "central-password").
 		Build()))
-	require.NoError(t, reconciler.SecretClient.CreateSecret(ctx, secret.Builder().
+	require.NoError(t, reconciler.CreateSecret(ctx, secret.Builder().
 		SetName(keyfileSecretName).
 		SetNamespace(mrs.Namespace).
 		SetField(constants.AgentKeyfileKey, "central-keyfile").
@@ -794,11 +794,11 @@ func TestAppDBFallbackDeleteCRFirst_MultiCluster(t *testing.T) {
 		assert.Empty(t, keyfileSecret)
 	}
 
-	centralPasswordSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
+	centralPasswordSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
 	require.NoError(t, err)
 	assert.Equal(t, "central-password", string(centralPasswordSecret.Data[util.OpsManagerPasswordKey]))
 
-	centralKeyfileSecret, err := reconciler.SecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
+	centralKeyfileSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
 	require.NoError(t, err)
 	assert.Equal(t, "central-keyfile", string(centralKeyfileSecret.Data[constants.AgentKeyfileKey]))
 }

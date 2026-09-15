@@ -2335,8 +2335,8 @@ func TestReverseMigrationPerCluster(t *testing.T) {
 		opsManagerName = "test-om"
 		omUID          = types.UID("om-uid-1111")
 		mdbmUID        = types.UID("mdbm-uid-2222")
-		passwordValue   = "reverse-password"
-		keyfileValue    = "reverse-keyfile"
+		passwordValue  = "reverse-password"
+		keyfileValue   = "reverse-keyfile"
 	)
 
 	tests := []struct {
