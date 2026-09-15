@@ -1431,8 +1431,8 @@ func (m *MongoDbSpec) GetTLSConfig() *TLSConfig {
 // UnmarshalJSON when unmarshalling a MongoDB instance, we don't want to have any nil references
 // these are replaced with an empty instance to prevent nil references by calling InitDefaults
 func (m *MongoDB) UnmarshalJSON(data []byte) error {
-	type MongoDBJSON MongoDB
-	if err := json.Unmarshal(data, (*MongoDBJSON)(m)); err != nil {
+	type MongoDBJSON *MongoDB
+	if err := json.Unmarshal(data, (MongoDBJSON)(m)); err != nil {
 		return err
 	}
 
