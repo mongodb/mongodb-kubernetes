@@ -123,10 +123,14 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBTopology(ctx con
 		return xerrors.Errorf("failed to initialize read-only AppDB helper: %w", err)
 	}
 
-	internalClusterNames := map[string]struct{}{}
-	for _, clusterSpec := range opsManager.Spec.AppDB.ClusterSpecList {
-		internalClusterNames[clusterSpec.ClusterName] = struct{}{}
+	// The internal AppDB spec may have been removed by the user as part of the migration, so the
+	// internal member cluster set is taken from the persisted deployment state instead.
+	internalClusterMapping := helper.deploymentState.ClusterMapping
+	internalClusterNames := make([]string, 0, len(internalClusterMapping))
+	for clusterName := range internalClusterMapping {
+		internalClusterNames = append(internalClusterNames, clusterName)
 	}
+	slices.Sort(internalClusterNames)
 
 	externalClusterNames := map[string]struct{}{}
 	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
@@ -134,24 +138,20 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBTopology(ctx con
 	}
 
 	for _, clusterSpec := range mdbm.Spec.ClusterSpecList {
-		if _, ok := internalClusterNames[clusterSpec.ClusterName]; !ok {
-			return xerrors.Errorf("cluster %s is not present in internal AppDB clusterSpecList", clusterSpec.ClusterName)
+		if _, ok := internalClusterMapping[clusterSpec.ClusterName]; !ok {
+			return xerrors.Errorf("cluster %s is not present in internal AppDB cluster mapping", clusterSpec.ClusterName)
 		}
 	}
 
-	for _, clusterSpec := range opsManager.Spec.AppDB.ClusterSpecList {
-		if _, ok := externalClusterNames[clusterSpec.ClusterName]; !ok {
-			return xerrors.Errorf("cluster %s is not present in external MongoDBMultiCluster clusterSpecList", clusterSpec.ClusterName)
+	for _, clusterName := range internalClusterNames {
+		if _, ok := externalClusterNames[clusterName]; !ok {
+			return xerrors.Errorf("cluster %s is not present in external MongoDBMultiCluster clusterSpecList", clusterName)
 		}
 
-		internalIndex, ok := helper.deploymentState.ClusterMapping[clusterSpec.ClusterName]
-		if !ok {
-			return xerrors.Errorf("cluster %s has no persisted cluster mapping", clusterSpec.ClusterName)
-		}
-
-		externalIndex := mdbm.ClusterNum(clusterSpec.ClusterName)
+		internalIndex := internalClusterMapping[clusterName]
+		externalIndex := mdbm.ClusterNum(clusterName)
 		if internalIndex != externalIndex {
-			return xerrors.Errorf("cluster %s index mismatch: internal %d external %d", clusterSpec.ClusterName, internalIndex, externalIndex)
+			return xerrors.Errorf("cluster %s index mismatch: internal %d external %d", clusterName, internalIndex, externalIndex)
 		}
 	}
 
