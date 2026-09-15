@@ -30,36 +30,7 @@ import (
 
 func newOpsManagerReconcilerForValidation(objects ...client.Object) *OpsManagerReconciler {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(objects...)
-	return NewOpsManagerReconciler(context.Background(), newValidationClient(kubeClient, objects...), map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
-}
-
-type validationClient struct {
-	client.Client
-	mdbmultiByKey map[types.NamespacedName]*mdbmulti.MongoDBMultiCluster
-}
-
-func newValidationClient(base client.Client, objects ...client.Object) client.Client {
-	wrappedClient := &validationClient{
-		Client:        base,
-		mdbmultiByKey: map[types.NamespacedName]*mdbmulti.MongoDBMultiCluster{},
-	}
-	for _, object := range objects {
-		if mdbm, ok := object.(*mdbmulti.MongoDBMultiCluster); ok {
-			key := types.NamespacedName{Name: mdbm.Name, Namespace: mdbm.Namespace}
-			wrappedClient.mdbmultiByKey[key] = mdbm.DeepCopy()
-		}
-	}
-	return wrappedClient
-}
-
-func (c *validationClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-	if mdbm, ok := obj.(*mdbmulti.MongoDBMultiCluster); ok {
-		if stored, ok := c.mdbmultiByKey[key]; ok {
-			*mdbm = *stored.DeepCopy()
-			return nil
-		}
-	}
-	return c.Client.Get(ctx, key, obj, opts...)
+	return NewOpsManagerReconciler(context.Background(), kubeClient, map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
 }
 
 func TestValidateExternalAppDBReference(t *testing.T) {
@@ -164,45 +135,6 @@ func TestValidateExternalAppDBReference(t *testing.T) {
 	}
 }
 
-func TestFetchExternalAppDBRefObject_KindMultiCluster(t *testing.T) {
-	ctx := context.Background()
-
-	tests := []struct {
-		name                    string
-		objects                 []client.Object
-		expectedIsTLSEnabled    bool
-		expectedCAConfigMapName string
-	}{
-		{
-			name:    "referenced MongoDBMultiCluster is valid",
-			objects: []client.Object{validExternalAppDBMongoDBMultiCluster()},
-		},
-		{
-			name: "referenced MongoDBMultiCluster with TLS returns CA name",
-			objects: func() []client.Object {
-				mdbm := validExternalAppDBMongoDBMultiCluster()
-				mdbm.Spec.Security.TLSConfig.Enabled = true
-				mdbm.Spec.Security.TLSConfig.CA = "app-db-issuer-ca"
-				return []client.Object{mdbm}
-			}(),
-			expectedIsTLSEnabled:    true,
-			expectedCAConfigMapName: "app-db-issuer-ca",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			reconciler := newOpsManagerReconcilerForValidation(tt.objects...)
-			ref := &omv1.ExternalAppDBRef{Name: "test-om-db", Namespace: mock.TestNamespace, Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster}
-			got, err := reconciler.createNewExternalAppDBReconciler(zap.S()).fetchExternalAppDBRefObject(ctx, ref)
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, tt.expectedIsTLSEnabled, got.IsTLSEnabled())
-			assert.Equal(t, tt.expectedCAConfigMapName, got.GetCAConfigMapName())
-		})
-	}
-}
-
 func validExternalAppDBRef() *omv1.ExternalAppDBRef {
 	return &omv1.ExternalAppDBRef{
 		Name:      "test-om-db",
@@ -218,6 +150,24 @@ func validExternalAppDBMongoDB() *mdbv1.MongoDB {
 		SetVersion("6.0.0").
 		Build()
 	mdb.Spec.Role = mdbv1.RoleAppDB
+	return mdb
+}
+
+func validExternalAppDBMongoDBWithTLS(tlsEnabled bool, caConfigMapName string) *mdbv1.MongoDB {
+	builder := mdbv1.NewReplicaSetBuilder().
+		SetName("test-om-db").
+		SetNamespace(mock.TestNamespace).
+		SetVersion("6.0.0").
+		SetMembers(3).
+		EnableAuth([]mdbv1.AuthMode{util.SCRAM})
+	if tlsEnabled {
+		builder = builder.SetSecurityTLSEnabled()
+	}
+	mdb := builder.Build()
+	mdb.Spec.Role = mdbv1.RoleAppDB
+	if tlsEnabled {
+		mdb.Spec.Security.TLSConfig.CA = caConfigMapName
+	}
 	return mdb
 }
 
@@ -317,81 +267,99 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 	ctx := context.Background()
 	const password = "test-password"
 
+	variants := []struct {
+		kind  string
+		build func(tlsEnabled bool, caConfigMapName string) client.Object
+	}{
+		{
+			kind: omv1.ExternalAppDBRefKindMongoDB,
+			build: func(tlsEnabled bool, caConfigMapName string) client.Object {
+				return validExternalAppDBMongoDBWithTLS(tlsEnabled, caConfigMapName)
+			},
+		},
+		{
+			kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			build: func(tlsEnabled bool, caConfigMapName string) client.Object {
+				return validExternalAppDBMongoDBMultiClusterWithTLS(tlsEnabled, caConfigMapName)
+			},
+		},
+	}
+
 	tests := []struct {
 		name                    string
-		buildExternalAppDB      func() *mdbmulti.MongoDBMultiCluster
+		tlsEnabled              bool
+		caConfigMapName         string
 		createPasswordSecret    bool
 		expectedIsTLSEnabled    bool
 		expectedCAConfigMapName string
 		expectedErrorContains   string
 	}{
 		{
-			name:                    "TLS disabled returns empty CA and disabled flag",
-			buildExternalAppDB:      func() *mdbmulti.MongoDBMultiCluster { return validExternalAppDBMongoDBMultiClusterWithTLS(false, "") },
-			createPasswordSecret:    true,
-			expectedIsTLSEnabled:    false,
-			expectedCAConfigMapName: "",
+			name:                 "TLS disabled returns empty CA and disabled flag",
+			createPasswordSecret: true,
 		},
 		{
-			name: "TLS enabled with CA returns resolved TLS config",
-			buildExternalAppDB: func() *mdbmulti.MongoDBMultiCluster {
-				return validExternalAppDBMongoDBMultiClusterWithTLS(true, "app-db-issuer-ca")
-			},
+			name:                    "TLS enabled with CA returns resolved TLS config",
+			tlsEnabled:              true,
+			caConfigMapName:         "app-db-issuer-ca",
 			createPasswordSecret:    true,
 			expectedIsTLSEnabled:    true,
 			expectedCAConfigMapName: "app-db-issuer-ca",
 		},
 		{
-			name:                  "MongoDBMultiCluster without password secret returns an error",
-			buildExternalAppDB:    func() *mdbmulti.MongoDBMultiCluster { return validExternalAppDBMongoDBMultiClusterWithTLS(false, "") },
+			name:                  "without password secret returns an error",
 			createPasswordSecret:  false,
 			expectedErrorContains: "failed to read shared password secret",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			externalAppDB := tt.buildExternalAppDB()
+	for _, v := range variants {
+		for _, tt := range tests {
+			t.Run(v.kind+"/"+tt.name, func(t *testing.T) {
+				externalAppDB := v.build(tt.tlsEnabled, tt.caConfigMapName)
+				connectionStringBuilder, ok := externalAppDB.(connectionstring.ConnectionStringBuilder)
+				require.True(t, ok, "referenced external app DB must build connection strings")
 
-			testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
-				Name: "test-om-db",
-				Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+				testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+					Name: "test-om-db",
+					Kind: v.kind,
+				})
+
+				omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+				reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+				require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+				if tt.createPasswordSecret {
+					require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+						SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+						SetNamespace(testOm.Namespace).
+						SetField(util.OpsManagerPasswordKey, password).
+						Build()))
+				}
+
+				cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())
+				if tt.expectedErrorContains != "" {
+					require.ErrorContains(t, err, tt.expectedErrorContains)
+					return
+				}
+
+				require.NoError(t, err)
+				expectedConnectionString := connectionStringBuilder.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
+				assert.Equal(t, expectedConnectionString, cfg.ConnectionString)
+				assert.Equal(t, tt.expectedIsTLSEnabled, cfg.IsTLSEnabled)
+				assert.Equal(t, tt.expectedCAConfigMapName, cfg.CAConfigMapName)
+
+				helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, reconciler.memberClustersMap, zap.S())
+				require.NoError(t, err)
+
+				for _, memberCluster := range helper.getHealthyMemberClusters() {
+					require.NoError(t, reconciler.ensureAppDBConnectionStringInMemberCluster(ctx, testOm, cfg.ConnectionString, memberCluster, zap.S()))
+				}
+
+				result := corev1.Secret{}
+				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), &result))
+				assert.Contains(t, string(result.Data[util.AppDbConnectionStringKey]), util.OpsManagerMongoDBUserName)
 			})
-
-			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
-			require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
-			if tt.createPasswordSecret {
-				require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
-					SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
-					SetNamespace(testOm.Namespace).
-					SetField(util.OpsManagerPasswordKey, password).
-					Build()))
-			}
-
-			cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())
-			if tt.expectedErrorContains != "" {
-				require.ErrorContains(t, err, tt.expectedErrorContains)
-				return
-			}
-
-			require.NoError(t, err)
-			expectedConnectionString := externalAppDB.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
-			assert.Equal(t, expectedConnectionString, cfg.ConnectionString)
-			assert.Equal(t, tt.expectedIsTLSEnabled, cfg.IsTLSEnabled)
-			assert.Equal(t, tt.expectedCAConfigMapName, cfg.CAConfigMapName)
-
-			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, reconciler.memberClustersMap, zap.S())
-			require.NoError(t, err)
-
-			for _, memberCluster := range helper.getHealthyMemberClusters() {
-				require.NoError(t, reconciler.ensureAppDBConnectionStringInMemberCluster(ctx, testOm, cfg.ConnectionString, memberCluster, zap.S()))
-			}
-
-			result := corev1.Secret{}
-			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), &result))
-			assert.Contains(t, string(result.Data[util.AppDbConnectionStringKey]), util.OpsManagerMongoDBUserName)
-		})
+		}
 	}
 }
 
