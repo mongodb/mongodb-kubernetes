@@ -20,7 +20,6 @@ import (
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	api "github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -620,9 +619,7 @@ func TestValidateExternalAppDBTopologyGuards(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			previousAdmin := api.CurrMockedAdmin
-			api.CurrMockedAdmin = nil
-			defer func() { api.CurrMockedAdmin = previousAdmin }()
+			resetCurrMockedAdmin(t)
 
 			opsManager := DefaultOpsManagerBuilder().
 				SetName("test-om").

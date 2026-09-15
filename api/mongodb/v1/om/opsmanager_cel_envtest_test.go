@@ -96,21 +96,21 @@ func TestOpsManagerCELValidation_ExternalAppDBTopologyTransition(t *testing.T) {
 	k8sClient := env.Shared(t).Client
 
 	tests := []struct {
-		name            string
-		initialAppDBMC  bool
-		newKind         string
-		expectedInvalid bool
+		name             string
+		initialAppDBMC   bool
+		newKind          string
+		expectedErrorMsg string
 	}{
 		{
-			name:            "single-cluster internal AppDB rejects MongoDBMultiCluster external ref",
-			newKind:         "MongoDBMultiCluster",
-			expectedInvalid: true,
+			name:             "single-cluster internal AppDB rejects MongoDBMultiCluster external ref",
+			newKind:          "MongoDBMultiCluster",
+			expectedErrorMsg: "forward migration between the internal AppDB and the external Application Database requires matching topologies: a multi-cluster internal AppDB requires kind MongoDBMultiCluster, and a single-cluster internal AppDB requires kind MongoDB",
 		},
 		{
-			name:            "multi-cluster internal AppDB rejects MongoDB external ref",
-			initialAppDBMC:  true,
-			newKind:         "MongoDB",
-			expectedInvalid: true,
+			name:             "multi-cluster internal AppDB rejects MongoDB external ref",
+			initialAppDBMC:   true,
+			newKind:          "MongoDB",
+			expectedErrorMsg: "forward migration between the internal AppDB and the external Application Database requires matching topologies: a multi-cluster internal AppDB requires kind MongoDBMultiCluster, and a single-cluster internal AppDB requires kind MongoDB",
 		},
 		{
 			name:    "single-cluster internal AppDB accepts MongoDB external ref",
@@ -152,13 +152,13 @@ func TestOpsManagerCELValidation_ExternalAppDBTopologyTransition(t *testing.T) {
 			om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: name + "-db", Kind: tc.newKind}
 			err := k8sClient.Update(ctx, om)
 
-			if !tc.expectedInvalid {
+			if tc.expectedErrorMsg == "" {
 				require.NoError(t, err)
 				return
 			}
 			require.Error(t, err)
 			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
-			assert.Contains(t, err.Error(), "forward migration between the internal AppDB")
+			assert.Contains(t, err.Error(), tc.expectedErrorMsg)
 		})
 	}
 }
