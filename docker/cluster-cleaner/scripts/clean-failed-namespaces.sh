@@ -64,6 +64,7 @@ for namespace in $(kubectl get namespace -l "${LABELS}" -o name 2>error.log); do
     delete_resources_safely "mdbmc" "${namespace_name}"
     delete_resources_safely "om" "${namespace_name}"
     delete_resources_safely "clustermongodbroles" "${namespace_name}"
+    delete_resources_safely "validatingwebhookconfiguration" "mdbpolicy.${namespace_name}.mongodb.com"
 
     echo "Attempting to delete namespace: ${namespace_name}"
 
