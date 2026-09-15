@@ -12,15 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: 'Commit hash of the promoted commit to release. Must have a corresponding promoted-{commit}-{version} tag in the staging registry.'
+        description: 'Full SHA of the commit hash to release'
         type: string
         required: true
       version:
-        description: 'Expected release version implied by the given commit (version at release.json .mongodbOperator field). The release fails if they do not match.'
+        description: 'Expected release version'
         required: true
         type: string
       dry_run:
-        description: 'Dry run: creates a draft GitHub release (never published) and triggers the EVG pipeline with IS_DRYRUN=true. The tag annotation includes "[dry-run]". Requires the Evergreen project var "dryrun_registry_override" to be set.'
+        description: 'Dry run: do not publish for real'
         required: false
         type: boolean
         default: false
@@ -30,8 +30,8 @@ jobs:
     name: Create Draft Release & Push Tag
     runs-on: ubuntu-latest
     outputs:
-      commit: ${{ steps.verify_release_commit.outputs.commit }}
-      version: ${{ steps.verify_release_commit.outputs.version }}
+      commit: ${{ github.event.inputs.commit_sha }}
+      version: ${{ github.event.inputs.version }}
     permissions:
       contents: write
     steps:
@@ -45,21 +45,19 @@ jobs:
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
 
-      - name: Log in to quay.io (staging)
-        run: scripts/release/quay_staging_login.sh
+      - name: Validate commit SHA
         env:
-          QUAY_STAGING_USERNAME: ${{ secrets.QUAY_STAGING_USERNAME }}
-          QUAY_STAGING_PASSWORD: ${{ secrets.QUAY_STAGING_ROBOT_TOKEN }}
-
-      - name: Verify Release Commit
-        id: verify_release_commit
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
         run: |
-          output=$(scripts/evergreen/release/verify_release_commit.sh \
-            --commit "${{ github.event.inputs.commit_sha }}" \
-            --version "${{ github.event.inputs.version }}")
-          echo "$output" | while IFS= read -r line; do
-            echo "$line" >> "$GITHUB_OUTPUT"
-          done
+          if ! echo "$COMMIT_SHA" | grep -qP '^[0-9a-f]{40}$'; then
+            echo "Error: commit_sha '$COMMIT_SHA' is not a valid 40-character hex SHA"
+            exit 1
+          fi
+          if ! git cat-file -e "$COMMIT_SHA^{commit}" 2>/dev/null; then
+            echo "Error: commit_sha '$COMMIT_SHA' does not exist in the repository"
+            exit 1
+          fi
+          echo "Commit SHA $COMMIT_SHA is valid"
 
       - name: Generate Release Notes
         id: generate_release_notes
@@ -76,8 +74,8 @@ jobs:
           fi
           gh release create "$VERSION" --target "$COMMIT_SHA" --draft --latest --notes-file release_notes_final.md --title "$release_title"
         env:
-          VERSION: ${{ steps.verify_release_commit.outputs.version }}
-          COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
+          VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -92,8 +90,8 @@ jobs:
           git tag -a "$VERSION" -m "${annotation}" "$COMMIT_SHA"
           git push origin "$VERSION"
         env:
-          VERSION: ${{ steps.verify_release_commit.outputs.version }}
-          COMMIT_SHA: ${{ steps.verify_release_commit.outputs.commit }}
+          VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

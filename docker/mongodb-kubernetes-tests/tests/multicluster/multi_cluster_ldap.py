@@ -40,13 +40,7 @@ def mongodb_multi_unmarshalled(
     custom_mdb_version: str,
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
-    # This test has always been tested with 5.0.5-ent. After trying to unify its variant and upgrading it
-    # to MDB 6 we realized that our EVG hosts contain outdated docker and seccomp libraries in the host which
-    # cause MDB process to exit. It might be a good idea to try uncommenting it after migrating to newer EVG hosts.
-    # See https://github.com/docker-library/mongo/issues/606 for more information
-    # resource.set_version(ensure_ent_version(custom_mdb_version))
-
-    resource.set_version(ensure_ent_version("5.0.5-ent"))
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     # Setting the initial clusterSpecList to more members than we need to generate
     # the certificates for all the members once the RS is scaled up.
@@ -327,7 +321,6 @@ def test_new_ldap_user_can_authenticate_after_scaling(
 def test_disable_agent_auth(mongodb_multi: MongoDBMulti):
     mongodb_multi.reload()
     mongodb_multi["spec"]["security"]["authentication"]["enabled"] = False
-    mongodb_multi["spec"]["security"]["authentication"]["agents"]["enabled"] = False
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)
 

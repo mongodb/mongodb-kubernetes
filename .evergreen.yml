@@ -354,7 +354,7 @@ tasks:
 
   # Runs on every merge - detects release.json changes and releases appropriate images
   - name: release_om_and_agents
-    allowed_requesters: [ "patch" , "commit"]
+    allowed_requesters: [ "commit" ]
     commands:
       - func: clone
       - func: python_venv
@@ -443,15 +443,13 @@ tasks:
   - name: rebuild_specific_agent
     # this enables us to run this manually (patch) and rebuild specific agent versions to verify
     # Dockerfile, script changes etc.
+    # You need to specify agent_version and agent_tools_version for this task via --param flag!
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
       - func: quay_login
       - func: pipeline
-        include_expansions_in_env:
-          - agent_version # You need to specify agent version for this task via --param flag!
-          - agent_tools_version # You need to specify tool version for this task --param flag!
         vars:
           image_name: agent
           flags: "--skip-if-exists=false"
@@ -778,6 +776,9 @@ task_groups:
       - e2e_standalone_agent_flags
       - e2e_replica_set_process_hostnames
       - e2e_replica_set_member_options
+      # e2e_replication_state_awareness: skipped on static containers (@skip_if_static_containers) since
+      # it fails on e2e_static_mdb_kind_ubi_cloudqa; needs investigation.
+      - e2e_replication_state_awareness
       # e2e_tls_task_group
       - e2e_replica_set_tls_allow
       - e2e_replica_set_tls_prefer
@@ -804,6 +805,7 @@ task_groups:
       - e2e_replica_set_tls_certs_secret_prefix
       - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
+      - e2e_replica_set_tls_require_to_allow
       # e2e_x509_task_group
       - e2e_configure_tls_and_x509_simultaneously_rs
       - e2e_configure_tls_and_x509_simultaneously_sc
@@ -819,7 +821,7 @@ task_groups:
       - e2e_sharded_cluster_ldap
       - e2e_replica_set_ldap_tls
       - e2e_replica_set_ldap_user_to_dn_mapping
-      # e2e_replica_set_ldap_agent_auth
+      - e2e_replica_set_ldap_agent_auth
       - e2e_replica_set_ldap_agent_client_certs
       - e2e_replica_set_ldap_custom_roles
       - e2e_replica_set_update_roles_no_privileges
@@ -831,10 +833,12 @@ task_groups:
       - e2e_replica_set_scram_sha_1_user_connectivity
       - e2e_replica_set_scram_sha_1_upgrade
       - e2e_replica_set_scram_x509_ic_manual_certs
+      - e2e_replica_set_scram_x509_internal_cluster
       - e2e_sharded_cluster_scram_sha_1_upgrade
       - e2e_sharded_cluster_scram_sha_256_user_connectivity
       - e2e_sharded_cluster_scram_sha_1_user_connectivity
       - e2e_sharded_cluster_scram_x509_ic_manual_certs
+      - e2e_sharded_cluster_scram_x509_internal_cluster
       - e2e_sharded_cluster_external_access
       - e2e_replica_set_scram_sha_256_switch_project
       - e2e_sharded_cluster_scram_sha_256_switch_project
@@ -1090,8 +1094,7 @@ task_groups:
       - e2e_multi_cluster_tls_with_x509
       - e2e_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
-      # e2e_multi_cluster_with_ldap
-      # e2e_multi_cluster_with_ldap_custom_roles
+      - e2e_multi_cluster_clusterwide
       - e2e_multi_cluster_mtls_test
       - e2e_multi_cluster_replica_set_deletion
       - e2e_multi_cluster_replica_set_scale_up
@@ -1147,6 +1150,9 @@ task_groups:
       - e2e_sharded_cluster_oidc_m2m_user
       - e2e_multi_cluster_oidc_m2m_group
       - e2e_multi_cluster_oidc_m2m_user
+      # KUBE-448 - disabled: multicluster LDAP-over-TLS fails in the Istio mesh (member mongod never starts)
+      # e2e_multi_cluster_with_ldap
+      # e2e_multi_cluster_with_ldap_custom_roles
       - e2e_search_simulated_mc_rs
       - e2e_search_simulated_mc_sharded
 
@@ -2022,7 +2028,6 @@ buildvariants:
 
   - name: init_test_run
     display_name: init_test_run
-    max_hosts: -1
     tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
@@ -2045,7 +2050,6 @@ buildvariants:
 
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power
-    max_hosts: -1
     tags: [ "staging" ]
     run_on:
       - rhel9-power-small
@@ -2058,7 +2062,6 @@ buildvariants:
 
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
-    max_hosts: -1
     tags: [ "staging" ]
     run_on:
       - rhel9-zseries-small
@@ -2071,7 +2074,6 @@ buildvariants:
 
   - name: init_test_run_arm
     display_name: init_test_run_arm
-    max_hosts: -1
     tags: [ "staging" ]
     run_on:
       - ubuntu2204-arm64-small
@@ -2082,7 +2084,6 @@ buildvariants:
       - name: build_test_image_arm
 
   - name: run_pre_commit
-    priority: 70
     display_name: run_pre_commit
     allowed_requesters: [ "patch", "github_pr" ]
     tags: [ "pr_patch_static", "auto_bump" ]
@@ -2132,7 +2133,6 @@ buildvariants:
     run_on:
       - rhel90-large
     allowed_requesters: [ "commit" ]
-    patchable: false
     depends_on:
       - name: release_om_and_agents
         variant: release_om_and_agents
@@ -2212,10 +2212,10 @@ buildvariants:
   # Runs on every merge to master and releases images auxiliary to the operator release like OM and the Agent
   - name: release_om_and_agents
     display_name: release_om_and_agents
-    allowed_requesters: [ "patch" , "commit"]
+    tags: [ "staging" ]
+    allowed_requesters: [ "commit" ]  # Only run on commit builds
     run_on:
       - release-ubuntu2404-small
-    patchable: false  # Only run on commit builds
     tasks:
       - name: release_om_and_agents
 

@@ -304,6 +304,16 @@ functions:
     - *setup_chart_testing_cli
     - *setup_prek
     - command: subprocess.exec
+      type: setup
+      params:
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        add_to_path:
+          - ${workdir}/bin
+        include_expansions_in_env:
+          - EVERGREEN_USER
+          - EVERGREEN_API_KEY
+        command: scripts/evergreen/setup_evergreen_cli.sh
+    - command: subprocess.exec
       type: test
       params:
         add_to_path:

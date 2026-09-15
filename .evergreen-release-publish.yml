@@ -1,5 +1,5 @@
 # New release process. Triggered when the tag annotation starts with
-# "[new]" (see decide_release_process.sh). Unlike the legacy process
+# "[new]" (see decide_release_process.py). Unlike the legacy process
 # (.evergreen-release.yml, deprecated), this does not rebuild or retest
 # images: it publishes the images already
 # promoted for the tagged commit (via the mainline mckci_release_promote task)
@@ -12,18 +12,27 @@ include:
   - filename: .evergreen-functions.yml
 
 tasks:
-  # Reads the tag annotation to decide which release pipeline to run,
-  # then creates an Evergreen patch via the matching alias and waits for it.
+  # Reads the tag annotation to decide which release pipeline to run
+  # and generates the matching build variants via generate.tasks.
   - name: decide_release_process
     commands:
       - func: clone
+      - func: python_venv
       - command: subprocess.exec
         type: test
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           include_expansions_in_env:
             - triggered_by_git_tag
-          binary: scripts/evergreen/decide_release_process.sh ${triggered_by_git_tag}
+          binary: scripts/dev/run_python.sh scripts/evergreen/decide_release_process.py
+      - command: expansions.update
+        params:
+          file: src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml
+          optional: true
+      - command: generate.tasks
+        params:
+          files:
+            - evergreen_tasks.json
 
   - name: mckci_release_publish_images
     allowed_requesters: [ "patch", "github_tag" ]
@@ -47,26 +56,11 @@ tasks:
             fi
             scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
 
-  # Trigger docs snippets refresh using the published images. Runs after
-  # the publish variant succeeds (order is enforced by the build variant
-  # dependency below).
-  - name: publish_doc_snippets
-    commands:
-      - func: clone
-      - command: subprocess.exec
-        type: test
-        params:
-          working_dir: src/github.com/mongodb/mongodb-kubernetes
-          include_expansions_in_env:
-            - revision
-            - triggered_by_git_tag
-          binary: scripts/dev/trigger_public_docs_snippets.sh
-
 buildvariants:
   - name: release_decider
     display_name: release_decider
     tags: [ "release-decider" ]
-    allowed_requesters: [ "github_tag" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -202,9 +196,12 @@ buildvariants:
     tasks:
       - name: add_releaseinfo_to_github_assets
 
-  # Trigger docs snippets using the images just published.
-  - name: trigger_public_docs_snippets_publish
-    display_name: trigger_public_docs_snippets_publish
+  # Public docs snippet generation against the already-published images.
+  # Uses the same task groups as the manual public snippet variants
+  # (.evergreen-snippets.yml) but wired into the release pipeline so that
+  # the public docs are updated automatically once images are live.
+  - name: release_gke_snippets_publish
+    display_name: release_gke_snippets_publish
     tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small
@@ -213,5 +210,17 @@ buildvariants:
       - name: "*"
         variant: release_publish
     tasks:
-      - name: publish_doc_snippets
+      - name: gke_code_snippets_task_group
+
+  - name: release_kind_snippets_publish
+    display_name: release_kind_snippets_publish
+    tags: [ "release-publish" ]
+    run_on:
+      - ubuntu2404-large
+    allowed_requesters: [ "patch", "github_tag" ]
+    depends_on:
+      - name: "*"
+        variant: release_publish
+    tasks:
+      - name: kind_code_snippets_task_group
 

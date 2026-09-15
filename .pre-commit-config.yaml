@@ -132,6 +132,15 @@ repos:
         stages: [pre-commit]
         priority: 6
 
+      - id: validate-evergreen-config
+        name: validate-evergreen-config
+        entry: scripts/evergreen/validate_evergreen_config.py
+        language: system
+        pass_filenames: false
+        files: ^\.evergreen.*\.yml$
+        stages: [pre-commit]
+        priority: 6
+
       - id: ty
         name: ty
         entry: bash -c 'cd docker/mongodb-kubernetes-tests && uvx ty check tests/'

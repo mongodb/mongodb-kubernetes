@@ -27,13 +27,7 @@ LDAP_NAME = "openldap"
 @fixture(scope="module")
 def mongodb_multi_unmarshalled(namespace: str, member_cluster_names, custom_mdb_version: str) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
-
-    # This test has always been tested with 5.0.5-ent. After trying to unify its variant and upgrading it
-    # to MDB 6 we realized that our EVG hosts contain outdated docker and seccomp libraries in the host which
-    # cause MDB process to exit. It might be a good idea to try uncommenting it after migrating to newer EVG hosts.
-    # See https://github.com/docker-library/mongo/issues/606 for more information
-    # resource.set_version(ensure_ent_version(custom_mdb_version))
-    resource.set_version("5.0.5-ent")
+    resource.set_version(ensure_ent_version(custom_mdb_version))
 
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, [2, 1, 2])
 
