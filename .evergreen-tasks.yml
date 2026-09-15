@@ -841,15 +841,36 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_external_appdb_forward_mc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+        vars:
+          TEST_NAME_OVERRIDE: e2e_om_external_appdb_forward
+
   - name: e2e_om_external_appdb_fresh
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_external_appdb_fresh_mc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+        vars:
+          TEST_NAME_OVERRIDE: e2e_om_external_appdb_fresh
+
   - name: e2e_om_external_appdb_backup_and_restore
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
+
+  - name: e2e_om_external_appdb_backup_and_restore_mc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+        vars:
+          TEST_NAME_OVERRIDE: e2e_om_external_appdb_backup_and_restore
 
   - name: e2e_om_external_connectivity
     tags: [ "patch-run" ]
