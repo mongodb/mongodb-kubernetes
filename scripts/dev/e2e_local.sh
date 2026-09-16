@@ -114,7 +114,7 @@ test_rc=$?
 set -e
 phase test_end
 
-summary_line="$(grep -Eo '[0-9]+ (passed|failed).*' logs/test.log 2>/dev/null | tail -n1 || true)"
+summary_line="$(grep -Eo '[0-9]+ (passed|failed).*' logs/test.log 2>/dev/null | tail -n1 | sed -E $'s/\x1b\\[[0-9;]*m//g' || true)"
 echo "RESULT test_rc=${test_rc} marker=${marker} branch=${branch}${summary_line:+ summary=\"${summary_line}\"}"
 
 {
@@ -126,6 +126,7 @@ echo "RESULT test_rc=${test_rc} marker=${marker} branch=${branch}${summary_line:
   echo "test_rc=${test_rc}"
   echo "summary=${summary_line}"
 } > logs/oneshot-summary.txt
+echo "${test_rc}" > logs/oneshot.exit
 
 if [[ ${teardown} -eq 1 ]]; then
   phase teardown_started
