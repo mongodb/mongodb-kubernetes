@@ -353,7 +353,6 @@ func (a *DefaultOmAdmin) CreateGlobalAPIKey(ctx context.Context, description str
 		Description: description,
 		Roles:       []string{"GLOBAL_OWNER"},
 	})
-
 	if err != nil {
 		return Key{}, err
 	}

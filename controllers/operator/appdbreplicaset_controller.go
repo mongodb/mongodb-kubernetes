@@ -1988,7 +1988,6 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
 		return nil
 	}, log)
-
 	if err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
 			"Application Database has been configured with TLS enabled, but this will not be "+

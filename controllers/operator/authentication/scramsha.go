@@ -39,7 +39,6 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
 		return nil
 	}, log)
-
 }
 
 func (s *automationConfigScramSha) DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -47,7 +46,6 @@ func (s *automationConfigScramSha) DisableAgentAuthentication(ctx context.Contex
 		ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(s.MechanismName))
 		return nil
 	}, log)
-
 }
 
 func (s *automationConfigScramSha) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -55,7 +53,6 @@ func (s *automationConfigScramSha) DisableDeploymentAuthentication(ctx context.C
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 		return nil
 	}, log)
-
 }
 
 func (s *automationConfigScramSha) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, _ Options, log *zap.SugaredLogger) error {
@@ -65,7 +62,6 @@ func (s *automationConfigScramSha) EnableDeploymentAuthentication(ctx context.Co
 		}
 		return nil
 	}, log)
-
 }
 
 func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {

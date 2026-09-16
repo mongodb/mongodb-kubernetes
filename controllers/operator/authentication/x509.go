@@ -42,7 +42,6 @@ func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, _ kubern
 
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -53,7 +52,6 @@ func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, _ kubern
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -64,7 +62,6 @@ func (x *connectionX509) EnableAgentAuthentication(ctx context.Context, _ kubern
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
-
 }
 
 func (x *connectionX509) DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -79,7 +76,6 @@ func (x *connectionX509) DisableAgentAuthentication(ctx context.Context, conn om
 		}
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -87,7 +83,6 @@ func (x *connectionX509) DisableAgentAuthentication(ctx context.Context, conn om
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -96,7 +91,6 @@ func (x *connectionX509) DisableAgentAuthentication(ctx context.Context, conn om
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 }
 
 func (x *connectionX509) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
@@ -108,7 +102,6 @@ func (x *connectionX509) EnableDeploymentAuthentication(ctx context.Context, con
 		ac.AgentSSL.CAFilePath = opts.CAFilePath
 		return nil
 	}, log)
-
 }
 
 func (x *connectionX509) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -116,7 +109,6 @@ func (x *connectionX509) DisableDeploymentAuthentication(ctx context.Context, co
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
 		return nil
 	}, log)
-
 }
 
 func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, opts Options) bool {

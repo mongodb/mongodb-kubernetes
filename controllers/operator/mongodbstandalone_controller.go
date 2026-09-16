@@ -390,7 +390,6 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -433,7 +432,6 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return xerrors.Errorf("failed to update Ops Manager automation config: %w", err)
 	}

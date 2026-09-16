@@ -755,7 +755,6 @@ func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, aut
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, automationConfigOption)
 			return nil
 		}, nil)
-
 	})
 
 	builder := DefaultReplicaSetBuilder().EnableAuth().SetAuthModes(authModes).SetName("my-rs")
@@ -835,7 +834,6 @@ func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, a
 			ac.Auth.Disabled = false
 			return nil
 		}, nil)
-
 	})
 	return reconciler, kubeClient, omConnectionFactory
 }

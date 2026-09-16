@@ -1802,7 +1802,6 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return err
 	}
@@ -2230,7 +2229,6 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}

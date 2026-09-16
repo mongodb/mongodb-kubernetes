@@ -98,7 +98,6 @@ func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context,
 			d.MergeReplicaSet(rsWithProcesses, nil, nil, nil, zap.S())
 			return nil
 		}, zap.S())
-
 	})
 	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }

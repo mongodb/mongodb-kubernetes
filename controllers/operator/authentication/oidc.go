@@ -39,7 +39,6 @@ func (o *oidcAuthMechanism) EnableDeploymentAuthentication(ctx context.Context, 
 
 		return nil
 	}, log)
-
 }
 
 func (o *oidcAuthMechanism) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -49,7 +48,6 @@ func (o *oidcAuthMechanism) DisableDeploymentAuthentication(ctx context.Context,
 
 		return nil
 	}, log)
-
 }
 
 func (o *oidcAuthMechanism) IsAgentAuthenticationConfigured(*om.AutomationConfig, Options) bool {
