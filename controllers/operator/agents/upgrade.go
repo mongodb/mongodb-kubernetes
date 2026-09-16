@@ -75,7 +75,7 @@ func doUpgrade(ctx context.Context, conn om.Connection, key types.NamespacedName
 
 	currentVersion := ""
 	if deployment, err := conn.ReadDeployment(ctx); err == nil {
-		currentVersion = deployment.GetAgentVersion(ctx)
+		currentVersion = deployment.GetAgentVersion()
 	}
 	version, err := conn.UpgradeAgentsToLatest(ctx)
 	if err != nil {
