@@ -605,6 +605,10 @@ class CreateOrchestrator:
             # never re-runs — but a compose recreate drops the attachment. Re-apply.
             if i.local_kind and platform.system() == "Linux":
                 self._join_kind_network(wt, project_name_for(wt), log_dir / "dc_up.log")
+            # Confirm the devc -> EVG host SSH path before the destructive
+            # prepare-local-e2e reset and the apiserver probe: a missing agent
+            # key otherwise surfaces as a misleading readyz timeout.
+            self._preflight_evg_tunnel(wt, log_dir)
             # prepare-local-e2e's first kubectl request is unbuffered and can race
             # k8s-proxy / autossh stabilisation right after up, 503-ing the whole
             # phase. Poll readyz until 200 first.
@@ -1066,6 +1070,55 @@ class CreateOrchestrator:
             prefix="[preflight] ",
             log_path=log_dir / "preflight_multicluster.log",
             cwd=wt,
+        )
+
+    def _preflight_evg_tunnel(self, wt: Path, log_dir: Path) -> None:
+        """Fail prepare_e2e fast when the devc cannot SSH to the EVG host.
+
+        The devcontainer has no ``~/.ssh``; its only route to the host is
+        autossh inside the ``evg-host-proxy`` compose service, which
+        authenticates solely through the forwarded ssh-agent. A fresh spawn
+        host whose key is missing from the agent leaves autossh in a
+        publickey-denied restart loop; without this check the first visible
+        symptom is a 60 s apiserver-readyz timeout whose message points at
+        nothing. Probe the real path (agent socket + target) from inside the
+        proxy container and surface its log tail on failure.
+        """
+        if self.inputs.local_kind:
+            return
+        project = project_name_for(wt)
+        ps = self.runner.run(
+            ["docker", "compose", "-p", project, "ps", "-q", "evg-host-proxy"],
+            check=False,
+            cwd=wt,
+        )
+        cid = (ps.stdout.strip().splitlines() or [""])[0]
+        if not cid:
+            raise WtCtlError("evg-host-proxy container is not running; the devcontainer cannot reach the EVG host")
+        probe = (
+            "set -Eeou pipefail; "
+            'addr="$(cat /generated/.current-evg-host-address 2>/dev/null || true)"; '
+            'if [[ -z "$addr" ]]; then echo "no .generated/.current-evg-host-address available"; exit 3; fi; '
+            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "
+            '-o UserKnownHostsFile=/tmp/preflight_known_hosts ubuntu@"$addr" true'
+        )
+        for attempt in range(1, 16):
+            result = self.runner.run(["docker", "exec", cid, "bash", "-c", probe], check=False, cwd=wt)
+            if result.rc == 0:
+                sys.stderr.write(f"[evg-tunnel] ssh to EVG host ok (attempt {attempt})\n")
+                return
+            if attempt in (1, 5, 10, 15):
+                lines = (result.stderr or result.stdout or "").strip().splitlines()
+                sys.stderr.write(f"[evg-tunnel] attempt {attempt}: {lines[-1] if lines else '(no output)'}\n")
+            time.sleep(2)
+        logs = self.runner.run(["docker", "logs", "--tail", "15", cid], check=False, cwd=wt)
+        tail = "\n".join(((logs.stdout or "") + (logs.stderr or "")).strip().splitlines()[-15:])
+        raise WtCtlError(
+            "devc -> EVG host SSH tunnel is not working. evg-host-proxy log tail:\n"
+            f"{tail}\n"
+            "If this shows 'Permission denied (publickey)', the forwarded ssh-agent "
+            "lacks the EVG host key. Fix on the host: ssh-add ~/.ssh/evg-host, then "
+            "re-run: wt-ctl create --resume <branch>"
         )
 
     def _join_kind_network(self, wt: Path, project: str, log_path: Path) -> None:

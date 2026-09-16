@@ -3,6 +3,23 @@
 
 set -euo pipefail
 
+# Repair the base image's ~/.bash_logout. `devcontainer exec … bash -lc` is how
+# the orchestrator and make targets run in-container commands; clear_console
+# fails when TERM is unset/dumb (non-tty) and its non-zero status becomes the
+# login shell's, making successful commands look failed. Kept in sync with
+# on-create/02-bash-logout.sh so containers created before that script existed
+# self-heal on every restart.
+if ! grep -q 'MCK devcontainer: only clear' "${HOME}/.bash_logout" 2>/dev/null; then
+    cat >"${HOME}/.bash_logout" <<'EOF'
+# ~/.bash_logout: executed by bash(1) when login shell exits.
+# MCK devcontainer: only clear for interactive login sessions — non-tty
+# `bash -lc` consumers (orchestrator, make) must not fail on clear_console.
+if [[ "$SHLVL" = 1 && -t 0 ]]; then
+    [ -x /usr/bin/clear_console ] && /usr/bin/clear_console -q
+fi
+EOF
+fi
+
 # In-container k8s-proxy doesn't persist its registered kubeconfig, so
 # every restart (force-recreate from a compose.user.yml override
 # reconcile, OOM, manual `docker compose restart`) drops it and silently

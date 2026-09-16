@@ -106,6 +106,40 @@ if ! "${script_dir}/evg_host.sh" ssh -o ConnectTimeout=20 -o BatchMode=yes -- 'e
   exit 1
 fi
 
+# 4b. Fail fast when no key in the forwarded ssh-agent is authorized on the
+#     host. Step 4 succeeds via on-disk keys (~/.ssh/config), but the
+#     devcontainer has no ~/.ssh mount and reaches the host only through
+#     autossh + the forwarded agent. Without this check, kind recreation and
+#     devc prepare run first and the first visible symptom is an apiserver
+#     "Service Unavailable" ~10 minutes later. Set EVG_HOST_AGENT_CHECK=0 to
+#     bypass (e.g. agentless setups).
+if [[ "${EVG_HOST_AGENT_CHECK:-1}" != "0" ]]; then
+  echo "==> Checking that the ssh-agent carries a key authorized on ${evg_host_name}"
+  agent_fps="$(ssh-add -L 2>/dev/null | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' | sort -u || true)"
+  host_fps="$(
+    "${script_dir}/evg_host.sh" ssh -o ConnectTimeout=20 -o BatchMode=yes -- 'cat ~/.ssh/authorized_keys 2>/dev/null' 2>/dev/null \
+      | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print $i, $(i + 1); break }}' \
+      | while read -r key; do printf '%s\n' "${key}" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}'; done \
+      | sort -u || true
+  )"
+  agent_authorized=0
+  if [[ -n "${agent_fps}" && -n "${host_fps}" ]] \
+      && comm -12 <(printf '%s\n' "${agent_fps}") <(printf '%s\n' "${host_fps}") | grep -q .; then
+    agent_authorized=1
+  fi
+  if [[ ${agent_authorized} -ne 1 ]]; then
+    echo "ERROR: no key in the ssh-agent is authorized on ${evg_host_name}." >&2
+    echo "       The devcontainer reaches the EVG host only through the forwarded" >&2
+    echo "       agent (it has no ~/.ssh mount), so bring-up would later fail with" >&2
+    echo "       an apiserver 'Service Unavailable'." >&2
+    echo "       Fix: ssh-add <the identity ~/.ssh/config uses for EVG hosts>" >&2
+    echo "            e.g. ssh-add ~/.ssh/evg-host" >&2
+    echo "       Then: wt-ctl create --resume <branch>" >&2
+    exit 1
+  fi
+  echo "==> ssh-agent key check: ok"
+fi
+
 # 5. Recreate kind clusters unless explicitly suppressed.
 if [[ ${skip_recreate} -eq 1 ]]; then
   echo "==> --skip-recreate set; skipping kind cluster recreation"
