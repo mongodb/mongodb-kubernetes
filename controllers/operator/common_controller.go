@@ -213,7 +213,6 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return workflow.Failed(err)
 	}

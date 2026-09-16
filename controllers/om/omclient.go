@@ -228,7 +228,6 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(ctx context.Context, log
 			config.SetLogRotate(*logRotateSetting.BackupAgent.LogRotate)
 			return nil
 		}, log)
-
 	}
 
 	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && logRotateSetting.MonitoringAgent.LogRotate != nil {
@@ -236,7 +235,6 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(ctx context.Context, log
 			config.SetLogRotate(*logRotateSetting.MonitoringAgent.LogRotate)
 			return nil
 		}, log)
-
 	}
 
 	return err

@@ -1235,7 +1235,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return err
 	}

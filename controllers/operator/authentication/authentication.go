@@ -185,7 +185,6 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 			ac.Auth.Disabled = true
 			return nil
 		}, log)
-
 		if err != nil {
 			return xerrors.Errorf("error read/updating automation config: %w", err)
 		}
@@ -209,7 +208,6 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 			ac.Auth.AutoUser = util.MergoDelete
 			ac.Auth.AutoPwd = util.MergoDelete
 		} else {
-
 			ac.Auth.AutoUser = util.AutomationAgentName
 		}
 		ac.Auth.AutoAuthMechanisms = []string{}
@@ -221,7 +219,6 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		ac.AgentSSL.AutoPEMKeyFilePath = util.MergoDelete
 		return nil
 	}, log)
-
 	if err != nil {
 		return xerrors.Errorf("error read/updating automation config: %w", err)
 	}
@@ -233,7 +230,6 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return xerrors.Errorf("error read/updating monitoring config: %w", err)
 	}
@@ -242,7 +238,6 @@ func Disable(ctx context.Context, client kubernetesClient.Client, conn om.Connec
 		config.DisableX509Authentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return xerrors.Errorf("error read/updating backup agent config: %w", err)
 	}
@@ -316,7 +311,6 @@ func ensureAuthoritativeSetIsConfigured(ctx context.Context, conn om.Connection,
 		ac.Auth.AuthoritativeSet = authoritativeSet
 		return nil
 	}, log)
-
 }
 
 // ensureDeploymentsMechanismsExist makes sure that the corresponding deployment mechanisms which are required
@@ -369,7 +363,6 @@ func addOrRemoveAgentClientCertificate(ctx context.Context, conn om.Connection, 
 	// will add the required configuration.
 	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if convertToMechanismOrPanic(opts.AgentMechanism, ac).GetName() == MongoDBX509 {
-
 			return nil
 		}
 
@@ -387,7 +380,6 @@ func addOrRemoveAgentClientCertificate(ctx context.Context, conn om.Connection, 
 		}
 		return nil
 	}, log)
-
 }
 
 // ensureAgentAuthenticationIsConfigured will configure the agent authentication settings based on the desiredAgentAuthMechanism

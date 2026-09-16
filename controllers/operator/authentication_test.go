@@ -291,7 +291,6 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 			ac.Auth.AutoUser = "my-custom-agent-name"
 			return nil
 		}, nil)
-
 		if err != nil {
 			panic(err)
 		}

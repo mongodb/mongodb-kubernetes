@@ -478,7 +478,6 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 		auth.EnsureUser(desiredUser)
 		return nil
 	}, log)
-
 	if err != nil {
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
@@ -598,7 +597,6 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
 		return nil
 	}, log)
-
 	if err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to perform AutomationConfig cleanup: %w", err)), log)
 	}

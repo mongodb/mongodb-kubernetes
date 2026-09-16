@@ -36,7 +36,6 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(ctx context.Context, _ kub
 		auth.AutoAuthMechanisms = []string{string(LDAPPlain)}
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -47,7 +46,6 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(ctx context.Context, _ kub
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -58,7 +56,6 @@ func (l *ldapAuthMechanism) EnableAgentAuthentication(ctx context.Context, _ kub
 		config.SetLdapGroupDN(opts.AutoLdapGroupDN)
 		return nil
 	}, log)
-
 }
 
 func (l *ldapAuthMechanism) DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -68,7 +65,6 @@ func (l *ldapAuthMechanism) DisableAgentAuthentication(ctx context.Context, conn
 		}
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -77,7 +73,6 @@ func (l *ldapAuthMechanism) DisableAgentAuthentication(ctx context.Context, conn
 		config.DisableLdapAuthentication()
 		return nil
 	}, log)
-
 	if err != nil {
 		return err
 	}
@@ -86,7 +81,6 @@ func (l *ldapAuthMechanism) DisableAgentAuthentication(ctx context.Context, conn
 		config.DisableLdapAuthentication()
 		return nil
 	}, log)
-
 }
 
 func (l *ldapAuthMechanism) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
@@ -98,7 +92,6 @@ func (l *ldapAuthMechanism) EnableDeploymentAuthentication(ctx context.Context, 
 
 		return nil
 	}, log)
-
 }
 
 func (l *ldapAuthMechanism) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
@@ -107,7 +100,6 @@ func (l *ldapAuthMechanism) DisableDeploymentAuthentication(ctx context.Context,
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
 		return nil
 	}, log)
-
 }
 
 func (l *ldapAuthMechanism) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {

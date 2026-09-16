@@ -1289,7 +1289,6 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 			ClusterId: uuidStr,
 			Status:    backup.Inactive,
 		})
-
 		if err != nil {
 			panic(err)
 		}

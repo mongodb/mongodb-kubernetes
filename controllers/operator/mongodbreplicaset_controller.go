@@ -1063,7 +1063,6 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 		ac.Auth.EnsureUser(omUser)
 		return nil
 	}, r.log)
-
 }
 
 func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) error {
@@ -1199,7 +1198,6 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 			return nil
 		},
 		log)
-
 	if err != nil {
 		return err
 	}
