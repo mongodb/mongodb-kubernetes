@@ -266,5 +266,6 @@ func TestWaitForReadyState_GivesUpWhenContextIsDone(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "haven't reached READY state")
-	assert.Equal(t, 1, calls, "no further attempts once the context is done")
+	assert.Contains(t, err.Error(), "context canceled")
+	assert.Equal(t, 0, calls, "f must not be invoked when the context is already done")
 }
