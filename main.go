@@ -27,18 +27,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	golog "log"
+	localruntime "runtime"
+
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	golog "log"
-	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 
 	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -94,6 +97,7 @@ func init() {
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(vaiv1.AddToScheme(scheme))
+	utilruntime.Must(certmanagerv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
