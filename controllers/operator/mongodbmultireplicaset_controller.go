@@ -151,16 +151,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
 	}
 
-	// Operator-managed certificates (spec.security.managedCertificate) are not yet
-	// implemented for MongoDBMultiCluster. The field is shared via DbCommonSpec, so
-	// reject it explicitly rather than silently ignoring it. The multi-cluster
-	// design (issue centrally, replicate the secret to member clusters) is covered
-	// in cert-manager-automation.md and replaces this guard when implemented.
-	if mrs.GetSecurity().IsManagedCertificateEnabled() {
-		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf(
-			"operator-managed certificates (security.managedCertificate) are not yet supported for MongoDBMultiCluster")), log)
-	}
-
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Error reading project config and credentials: %w", err)), log)
