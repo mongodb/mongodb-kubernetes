@@ -100,6 +100,16 @@ services:
       CLUSTER_DOMAIN: svc.cluster.local
       LOG_LEVEL: info
     command: ["--dns"]
+    # The image ships a HEALTHCHECK against :8080/readyz, but this stack
+    # binds the HTTP listener to :80 (HTTP_LISTEN above). Override it so the
+    # container doesn't sit at "(unhealthy)" on every stack — a red herring
+    # that costs debugging time.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/readyz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
     networks:
       devcontainer:
         ipv4_address: *proxy_address

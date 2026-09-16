@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -21,7 +23,7 @@ from .domains.worktree import WorktreeDomain
 from .errors import ExternalCommandFailed, NotInWorktree, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .header import emit_banner
 from .orchestrator import CreateInputs, CreateOrchestrator, DeleteInputs, DeleteOrchestrator
-from .paths import WorktreeRefs, devc_env_dir, logs_dir, resolve_worktree
+from .paths import WorktreeRefs, devc_env_dir, logs_dir, resolve_worktree, state_dir
 from .runner import Runner
 from .state import GlobalStatus, KfpHostState, NetState, OrphanRegistration, WorktreeRow, WorktreeStatus
 
@@ -132,6 +134,29 @@ def build_parser() -> argparse.ArgumentParser:
             "run from it. Phases (in order): " + ", ".join(orchestrator_state.PHASE_ORDER) + "."
         ),
     )
+    sc.add_argument(
+        "--detach",
+        action="store_true",
+        help=(
+            "fork the create into the background and return immediately. "
+            "Log: <worktree>/logs/setup_worktree/create.log; exit code is "
+            "written to <worktree>/.generated/wt-ctl/create.exit. Wait with "
+            "`wt-ctl wait` (or `wt-ctl wait <branch>` from outside the worktree)."
+        ),
+    )
+
+    sw = sub.add_parser(
+        "wait",
+        help="block until a detached `create` (or, with --test, a detached e2e run) finishes.",
+    )
+    sw.add_argument("branch", nargs="?", help="branch (or worktree dir) to wait on; default: the current worktree.")
+    sw.add_argument(
+        "--test",
+        action="store_true",
+        help="wait for logs/test.exit (e2e_run.sh) instead of .generated/wt-ctl/create.exit.",
+    )
+    sw.add_argument("--timeout", type=float, default=5400.0, help="give up after this many seconds (default: 5400).")
+    sw.add_argument("--poll", type=float, default=3.0, help="poll interval in seconds (default: 3).")
 
     sd = sub.add_parser(
         "delete",
@@ -353,6 +378,7 @@ def main(argv: list[str]) -> int:
         (cmd == "status" and getattr(args, "all_", False))
         or (cmd == "status" and getattr(args, "branch", None))
         or cmd == "create"
+        or cmd == "wait"
         or (cmd == "delete" and getattr(args, "branch", None))
         or cmd == "kfp"
     )
@@ -377,6 +403,8 @@ def main(argv: list[str]) -> int:
                 return 2
             refs = target_refs
         emit_banner(refs, quiet=args.quiet)
+        if cmd == "create" and getattr(args, "detach", False):
+            return _spawn_detached_create(runner, refs, args, [a for a in argv if a != "--detach"])
         return _dispatch(args, runner, refs)
     except WtCtlError as exc:
         sys.stderr.write(f"[wt-ctl] error: {exc.render()}\n")
@@ -395,6 +423,8 @@ def _dispatch(args: argparse.Namespace, runner: Runner, refs: Optional[WorktreeR
         return cmd_status(runner, refs, args)
     if cmd == "create":
         return cmd_create(runner, refs, args)
+    if cmd == "wait":
+        return cmd_wait(runner, refs, args)
     if cmd == "delete":
         return cmd_delete(runner, refs, args)
     if cmd == "up":
@@ -1035,20 +1065,123 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
             inputs = inputs.with_persisted_flags(prior.inputs)
     _ensure_host_kfp(runner, args.skip_evg)
 
-    orch = CreateOrchestrator(runner, inputs)
+    # Progress/exit bookkeeping for `wt-ctl wait` (works for both foreground
+    # and --detach runs): pid + exit code live next to state.json.
+    run_state_dir = state_dir(worktree_path)
+    run_state_dir.mkdir(parents=True, exist_ok=True)
+    exit_path = run_state_dir / "create.exit"
+    (run_state_dir / "create.pid").write_text(f"{os.getpid()}\n")
+    exit_path.unlink(missing_ok=True)
+
+    rc = 1
     try:
-        orch.run(
-            resume=args.resume,
-            restart_from=args.restart_from,
-            emit=lambda msg: sys.stderr.write(msg + "\n"),
+        orch = CreateOrchestrator(runner, inputs)
+        try:
+            orch.run(
+                resume=args.resume,
+                restart_from=args.restart_from,
+                emit=lambda msg: sys.stderr.write(msg + "\n"),
+            )
+            rc = 0
+        except WtCtlError as exc:
+            # Record the failing phase + resume hint for the user.
+            sys.stderr.write(
+                f"[wt-ctl] error: {exc.render()}\n" f"[wt-ctl] resume with: scripts/dev/wt-ctl create {branch} --resume\n"
+            )
+            rc = getattr(exc, "exit_code", 1)
+    finally:
+        exit_path.write_text(f"{rc}\n")
+    return rc
+
+
+def _spawn_detached_create(
+    runner: Runner,
+    refs: Optional[WorktreeRefs],
+    args: argparse.Namespace,
+    child_argv: list[str],
+) -> int:
+    """Fork `wt-ctl create` into the background.
+
+    The child is re-executed with the original argv minus ``--detach`` so the
+    resumed/foreground behaviour stays identical. Its stdout/stderr stream to
+    ``<worktree>/logs/setup_worktree/create.log`` and its exit code lands in
+    ``<worktree>/.generated/wt-ctl/create.exit`` (written by cmd_create) —
+    poll with ``wt-ctl wait``.
+    """
+    branch: str = args.branch
+    branch_dir = branch.replace("/", "_")
+    _, worktree_path, _ = _resolve_create_paths(runner, refs, branch_dir)
+    log_path = logs_dir(worktree_path) / "create.log"
+    exit_path = state_dir(worktree_path) / "create.exit"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    exit_path.parent.mkdir(parents=True, exist_ok=True)
+    exit_path.unlink(missing_ok=True)
+
+    cmd = [sys.executable, "-m", "wt_ctl", *child_argv]
+    with open(log_path, "ab") as logf:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            cwd=os.getcwd(),
         )
-    except WtCtlError as exc:
-        # Record the failing phase + resume hint for the user.
-        sys.stderr.write(
-            f"[wt-ctl] error: {exc.render()}\n" f"[wt-ctl] resume with: scripts/dev/wt-ctl create {branch} --resume\n"
-        )
-        return getattr(exc, "exit_code", 1)
+    sys.stderr.write(
+        f"[wt-ctl] create detached: pid {proc.pid}\n"
+        f"[wt-ctl]   log:  {log_path}\n"
+        f"[wt-ctl]   exit: {exit_path}\n"
+        f"[wt-ctl]   wait: wt-ctl wait {branch}\n"
+    )
     return 0
+
+
+def cmd_wait(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
+    """Block until a background run writes its exit-code file.
+
+    Default target is the worktree's ``create.exit`` (``wt-ctl create``,
+    including ``--detach``); ``--test`` switches to ``logs/test.exit``
+    written by ``e2e_run.sh``.
+    """
+    if getattr(args, "branch", None):
+        branch_dir = args.branch.replace("/", "_")
+        _, worktree_path, _ = _resolve_create_paths(runner, refs, branch_dir)
+    elif refs is not None:
+        worktree_path = refs.worktree_root
+    else:
+        sys.stderr.write("[wt-ctl] error: `wait` needs a worktree (cd into one) or an explicit branch\n")
+        return 2
+
+    if args.test:
+        exit_path = worktree_path / "logs" / "test.exit"
+        log_path = worktree_path / "logs" / "test.log"
+        what = "e2e run"
+    else:
+        exit_path = state_dir(worktree_path) / "create.exit"
+        log_path = logs_dir(worktree_path) / "create.log"
+        what = "create"
+
+    deadline = time.monotonic() + args.timeout
+    while not exit_path.is_file():
+        if time.monotonic() >= deadline:
+            sys.stderr.write(
+                f"[wt-ctl] wait: timed out after {args.timeout:.0f}s waiting for {what} ({exit_path})\n"
+            )
+            return 124
+        time.sleep(args.poll)
+
+    try:
+        rc = int(exit_path.read_text().strip() or "1")
+    except ValueError:
+        rc = 1
+    if rc != 0:
+        sys.stderr.write(f"[wt-ctl] wait: {what} failed (exit {rc}) — {exit_path}\n")
+        if log_path.is_file():
+            tail = log_path.read_text(errors="replace").splitlines()[-25:]
+            sys.stderr.write(f"[wt-ctl] last {len(tail)} log lines ({log_path}):\n" + "\n".join(tail) + "\n")
+    else:
+        print(f"[wt-ctl] wait: {what} finished (exit 0) — {exit_path}")
+    return rc
 
 
 _DELETE_HELP = """\
