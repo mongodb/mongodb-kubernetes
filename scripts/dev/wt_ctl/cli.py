@@ -23,7 +23,7 @@ from .domains.worktree import WorktreeDomain
 from .errors import ExternalCommandFailed, NotInWorktree, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .header import emit_banner
 from .orchestrator import CreateInputs, CreateOrchestrator, DeleteInputs, DeleteOrchestrator
-from .paths import WorktreeRefs, devc_env_dir, logs_dir, resolve_worktree, state_dir
+from .paths import WorktreeRefs, create_artifacts_dir, devc_env_dir, logs_dir, resolve_worktree
 from .runner import Runner
 from .state import GlobalStatus, KfpHostState, NetState, OrphanRegistration, WorktreeRow, WorktreeStatus
 
@@ -1066,11 +1066,13 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     _ensure_host_kfp(runner, args.skip_evg)
 
     # Progress/exit bookkeeping for `wt-ctl wait` (works for both foreground
-    # and --detach runs): pid + exit code live next to state.json.
-    run_state_dir = state_dir(worktree_path)
+    # and --detach runs). Staged OUTSIDE the worktree: the target path must
+    # stay untouched until worktree_init runs `git worktree add` (which
+    # refuses non-empty targets).
+    run_state_dir = create_artifacts_dir()
     run_state_dir.mkdir(parents=True, exist_ok=True)
-    exit_path = run_state_dir / "create.exit"
-    (run_state_dir / "create.pid").write_text(f"{os.getpid()}\n")
+    exit_path = run_state_dir / f"{branch_dir}.exit"
+    (run_state_dir / f"{branch_dir}.pid").write_text(f"{os.getpid()}\n")
     exit_path.unlink(missing_ok=True)
 
     rc = 1
@@ -1103,18 +1105,17 @@ def _spawn_detached_create(
     """Fork `wt-ctl create` into the background.
 
     The child is re-executed with the original argv minus ``--detach`` so the
-    resumed/foreground behaviour stays identical. Its stdout/stderr stream to
-    ``<worktree>/logs/setup_worktree/create.log`` and its exit code lands in
-    ``<worktree>/.generated/wt-ctl/create.exit`` (written by cmd_create) —
-    poll with ``wt-ctl wait``.
+    resumed/foreground behaviour stays identical. Log and exit-code files are
+    staged in :func:`create_artifacts_dir` — **nothing** is written under the
+    target worktree path, which must stay empty until ``worktree_init`` runs
+    ``git worktree add``.
     """
     branch: str = args.branch
     branch_dir = branch.replace("/", "_")
-    _, worktree_path, _ = _resolve_create_paths(runner, refs, branch_dir)
-    log_path = logs_dir(worktree_path) / "create.log"
-    exit_path = state_dir(worktree_path) / "create.exit"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    exit_path.parent.mkdir(parents=True, exist_ok=True)
+    artifacts = create_artifacts_dir()
+    artifacts.mkdir(parents=True, exist_ok=True)
+    log_path = artifacts / f"{branch_dir}.log"
+    exit_path = artifacts / f"{branch_dir}.exit"
     exit_path.unlink(missing_ok=True)
 
     cmd = [sys.executable, "-m", "wt_ctl", *child_argv]
@@ -1139,14 +1140,15 @@ def _spawn_detached_create(
 def cmd_wait(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namespace) -> int:
     """Block until a background run writes its exit-code file.
 
-    Default target is the worktree's ``create.exit`` (``wt-ctl create``,
-    including ``--detach``); ``--test`` switches to ``logs/test.exit``
-    written by ``e2e_run.sh``.
+    Default target is the create exit file staged in
+    :func:`create_artifacts_dir` (works before/after the worktree exists);
+    ``--test`` switches to ``logs/test.exit`` written by ``e2e_run.sh``.
     """
     if getattr(args, "branch", None):
         branch_dir = args.branch.replace("/", "_")
         _, worktree_path, _ = _resolve_create_paths(runner, refs, branch_dir)
     elif refs is not None:
+        branch_dir = refs.branch_dir
         worktree_path = refs.worktree_root
     else:
         sys.stderr.write("[wt-ctl] error: `wait` needs a worktree (cd into one) or an explicit branch\n")
@@ -1157,8 +1159,8 @@ def cmd_wait(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namesp
         log_path = worktree_path / "logs" / "test.log"
         what = "e2e run"
     else:
-        exit_path = state_dir(worktree_path) / "create.exit"
-        log_path = logs_dir(worktree_path) / "create.log"
+        exit_path = create_artifacts_dir() / f"{branch_dir}.exit"
+        log_path = create_artifacts_dir() / f"{branch_dir}.log"
         what = "create"
 
     deadline = time.monotonic() + args.timeout

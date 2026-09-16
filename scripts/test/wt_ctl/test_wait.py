@@ -20,7 +20,11 @@ from wt_ctl import cli  # noqa: E402
 
 
 def _refs(anchor: Path):
-    return types.SimpleNamespace(worktree_root=anchor, main_repo_root=anchor.parent)
+    return types.SimpleNamespace(
+        worktree_root=anchor,
+        main_repo_root=anchor.parent,
+        branch_dir=anchor.name,
+    )
 
 
 class WaitTests(unittest.TestCase):
@@ -36,24 +40,28 @@ class WaitTests(unittest.TestCase):
     def test_create_exit_code_is_returned(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             anchor = Path(td) / "anchor"
-            state = anchor / ".generated" / "wt-ctl"
-            state.mkdir(parents=True)
-            (state / "create.exit").write_text("0\n")
+            anchor.mkdir()
+            artifacts = Path(td) / "artifacts"
+            artifacts.mkdir()
+            (artifacts / "anchor.exit").write_text("0\n")
             args = types.SimpleNamespace(branch=None, test=False, timeout=1.0, poll=0.01)
-            self.assertEqual(cli.cmd_wait(mock.Mock(), _refs(anchor), args), 0)
+            with mock.patch("wt_ctl.cli.create_artifacts_dir", return_value=artifacts):
+                self.assertEqual(cli.cmd_wait(mock.Mock(), _refs(anchor), args), 0)
 
     def test_failure_tails_the_log(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             anchor = Path(td) / "anchor"
-            state = anchor / ".generated" / "wt-ctl"
-            state.mkdir(parents=True)
-            (state / "create.exit").write_text("7\n")
-            logs = anchor / "logs" / "setup_worktree"
-            logs.mkdir(parents=True)
-            (logs / "create.log").write_text("line1\nboom\n")
+            anchor.mkdir()
+            artifacts = Path(td) / "artifacts"
+            artifacts.mkdir()
+            (artifacts / "anchor.exit").write_text("7\n")
+            (artifacts / "anchor.log").write_text("line1\nboom\n")
             args = types.SimpleNamespace(branch=None, test=False, timeout=1.0, poll=0.01)
             stderr = io.StringIO()
-            with mock.patch("sys.stderr", stderr):
+            with (
+                mock.patch("wt_ctl.cli.create_artifacts_dir", return_value=artifacts),
+                mock.patch("sys.stderr", stderr),
+            ):
                 rc = cli.cmd_wait(mock.Mock(), _refs(anchor), args)
             self.assertEqual(rc, 7)
             self.assertIn("boom", stderr.getvalue())
@@ -82,11 +90,14 @@ class SpawnDetachedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             parent = Path(td)
             (parent / "anchor").mkdir()
+            artifacts = parent / "artifacts"
+            artifacts.mkdir()
             args = types.SimpleNamespace(branch="lsierant/detach-me")
             fake = mock.Mock()
             fake.pid = 4321
             stderr = io.StringIO()
             with (
+                mock.patch("wt_ctl.cli.create_artifacts_dir", return_value=artifacts),
                 mock.patch("wt_ctl.cli.subprocess.Popen", return_value=fake) as pop,
                 mock.patch("wt_ctl.cli.os.getcwd", return_value=td),
                 mock.patch("sys.stderr", stderr),
@@ -97,7 +108,10 @@ class SpawnDetachedTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertTrue(pop.call_args.kwargs["start_new_session"])
             self.assertEqual(pop.call_args.kwargs["stdin"], cli.subprocess.DEVNULL)
-            self.assertTrue((parent / "lsierant_detach-me" / ".generated" / "wt-ctl").is_dir())
+            # The target worktree must stay untouched: git worktree add
+            # refuses a non-empty target.
+            self.assertFalse((parent / "lsierant_detach-me").exists())
+            self.assertTrue((artifacts / "lsierant_detach-me.log").is_file())
             out = stderr.getvalue()
             self.assertIn("create detached: pid 4321", out)
             self.assertIn("lsierant_detach-me", out)

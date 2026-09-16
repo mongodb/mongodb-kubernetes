@@ -108,6 +108,18 @@ def state_dir(worktree_root: Path) -> Path:
     return worktree_root / ".generated" / "wt-ctl"
 
 
+def create_artifacts_dir() -> Path:
+    """Host-side staging directory for create logs / pid / exit codes.
+
+    Deliberately *outside* any worktree: ``wt-ctl create --detach`` returns
+    before the target worktree exists, and ``git worktree add`` refuses a
+    non-empty target — so no bookkeeping file may be written under the
+    target path before ``worktree_init`` has created it. Files are keyed by
+    ``branch_dir`` (``<branch_dir>.log`` / ``.exit`` / ``.pid``).
+    """
+    return Path.home() / ".cache" / "mck-devc" / "create-logs"
+
+
 def package_root() -> Path:
     """Absolute path of the wt_ctl package directory (used by the bash shim
     to set PYTHONPATH).
