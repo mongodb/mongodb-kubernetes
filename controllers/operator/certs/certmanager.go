@@ -29,31 +29,21 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// The per-category CA ConfigMap keys live in pkg/tls as the single source of truth shared
-// with the AC wiring (om package):
-//   - tls.CAConfigMapKey ("ca-pem") → SERVER CA ConfigMap (ManagedServerCABundleConfigMapName),
-//     mounted at TLSCaMountPath and wired to mongod's net.tls.CAFile (egress validation).
-//   - tls.ClusterCAConfigMapKey ("clusterca-pem") → CLIENT CA ConfigMap
-//     (ManagedClientCABundleConfigMapName), a SEPARATE ConfigMap mounted at
-//     TLSClusterCaMountPath and wired to net.tls.clusterCAFile (ingress validation).
-
 const (
 	// ConditionCertificatesReady is the status condition type reporting the aggregate
 	// health of the operator-managed cert-manager Certificates for a resource. It is
-	// tracked INDEPENDENTLY of the top-level Phase: a failing renewal sets it False
+	// tracked independently of the top-level Phase. A failing renewal sets it False
 	// while the deployment keeps running on the still-valid current cert (Phase stays
-	// Running) — flipping Phase there would be a false alarm.
+	// Running).
 	ConditionCertificatesReady = "CertificatesReady"
 
-	// reasonAllCertificatesReady: every managed cert is issued and current.
+	// every managed cert is issued and up to date.
 	reasonAllCertificatesReady = "AllCertificatesReady"
-	// reasonCertificatesIssuing: a usable cert is not yet available (first issuance or
-	// scale-widen) — this is the genuine gate that also holds Phase in Pending.
+	// a usable cert is not yet available this also holds overall Phase in Pending.
 	reasonCertificatesIssuing = "Issuing"
-	// reasonCertificateIssuanceError: cert-manager returned an API/CRD error.
+	// cert-manager returned an API/CRD error.
 	reasonCertificateIssuanceError = "IssuanceFailed"
-	// reasonCertificateRenewalFailed: a renewal is failing but the current cert is
-	// still valid, so the deployment keeps running (off the critical path).
+	// a renewal is failing but the current cert is still valid, so the deployment keeps running.
 	reasonCertificateRenewalFailed = "RenewalFailed"
 )
 
@@ -68,12 +58,8 @@ const (
 	categoryClient certCategory = "client"
 )
 
-// CertificateOwner is the minimal view of the CR that owns the operator-issued
-// cert-manager Certificate(s): it supplies the ownerReference and the security
-// config that drives issuance. Both *mdbv1.MongoDB (standalone / replica set /
-// sharded) and *mdbmulti.MongoDBMultiCluster satisfy it, so the same issuance
-// machinery serves every topology — the caller supplies the per-component
-// certs.Options.
+// CertificateOwner is the minimal view of a mongod-family CR (MongoDB, MongoDBMultiCluster,
+// AppDB) that owns the operator-issued cert-manager Certificate(s).
 type CertificateOwner interface {
 	// ObjectOwner gives GetName/GetNamespace/GetUID/GetKind (for ownerRefs).
 	v1.ObjectOwner
@@ -82,20 +68,12 @@ type CertificateOwner interface {
 	GetSecurity() *mdbv1.Security
 }
 
-// memberServerCertUsages are the X509 key usages for the member/server cert (#1). In
-// operator-managed mode the member cert is ONLY ever a TLS server: in keyfile internal-
-// auth mode it is natively server-only, and in X509 internal-auth mode the operator
-// always issues a SEPARATE clusterfile cert (#2) that carries the TLS-client role. So it
-// requests serverAuth only — which lets a serverAuth-only server issuer sign it.
 var memberServerCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
 	certmanagerv1.UsageServerAuth,
 }
 
-// clientAuthCertUsages are the X509 key usages for the purely-client certs — the
-// internal-cluster (clusterFile) cert and the automation agent cert. Both only ever act
-// as TLS clients, so they need clientAuth (not serverAuth).
 var clientAuthCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
