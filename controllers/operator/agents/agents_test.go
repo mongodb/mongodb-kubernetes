@@ -503,10 +503,10 @@ func TestWithRegistrationDeadline_IsSharedAcrossWaits(t *testing.T) {
 	ok, _ := waitUntilRegistered(ctx, conn, zap.NewNop().Sugar(), params, "mongos-0")
 	require.False(t, ok)
 
-	// the first wait used up the shared deadline, so the second one gives up after a single check
+	// the first wait used up the shared deadline, so the second one gives up immediately, without any further check
 	reads = 0
 	ok, msg := waitUntilRegistered(ctx, conn, zap.NewNop().Sugar(), params, "shard-0-0")
 	assert.False(t, ok)
 	assert.Contains(t, msg, "timed out after")
-	assert.Equal(t, 1, reads)
+	assert.Equal(t, 0, reads, "the shared deadline is already spent, so the second wait must not start another check")
 }
