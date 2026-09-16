@@ -86,10 +86,18 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 }
 
 // DoAndRetryWithContext is like DoAndRetry but gives up as soon as ctx is done, without waiting out the interval.
+// Once ctx is done, f is never invoked again, and if ctx is already done on entry the context error is
+// returned as the fail message.
 func DoAndRetryWithContext(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
 	var ok bool
 	var msg string
 	for i := 0; i < count; i++ {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if msg == "" {
+				msg = ctxErr.Error()
+			}
+			return false, msg
+		}
 		msg, ok = f()
 		if ok {
 			return true, msg

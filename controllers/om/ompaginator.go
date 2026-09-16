@@ -76,7 +76,10 @@ func TraversePages(ctx context.Context, reader PageReader, predicate PageItemPre
 			return false, xerrors.Errorf("%w: stopped after %d pages", ErrPageLimitExceeded, maxPages)
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return false, xerrors.Errorf("timed out traversing Ops Manager pages after %d pages: %w", pageNum-1, ctxErr)
+			if errors.Is(ctxErr, context.DeadlineExceeded) {
+				return false, xerrors.Errorf("timed out traversing Ops Manager pages after %d pages: %w", pageNum-1, ctxErr)
+			}
+			return false, xerrors.Errorf("context canceled traversing Ops Manager pages after %d pages: %w", pageNum-1, ctxErr)
 		}
 
 		paginated, err = readPage(ctx, reader, pageNum)

@@ -143,6 +143,31 @@ func TestPagination_CancelledParentContextStopsBeforeNextPage(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+	assert.Contains(t, err.Error(), "context canceled traversing Ops Manager pages after 1 pages")
+	assert.Equal(t, 1, pagesRead)
+}
+
+func TestPagination_DeadlineBetweenPages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	pagesRead := 0
+	reader := func(ctx context.Context, pageNum int) (Paginated, error) {
+		pagesRead++
+		if pageNum == 1 {
+			// Page 1 only answers once the deadline has passed, so the deadline is noticed
+			// before page 2 is requested and the message must say timed out.
+			<-ctx.Done()
+			return endlessOrganizationsPage(), nil
+		}
+		return nil, errors.New("no further page may be requested")
+	}
+
+	_, err := TraversePages(ctx, reader, func(interface{}) bool { return false })
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Contains(t, err.Error(), "timed out traversing Ops Manager pages after 1 pages")
 	assert.Equal(t, 1, pagesRead)
 }
 
