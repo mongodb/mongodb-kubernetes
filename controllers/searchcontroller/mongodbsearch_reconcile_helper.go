@@ -655,7 +655,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	switch readiness.phase {
 	case status.PhaseFailed:
 		return workflow.Failed(xerrors.New(readiness.message)).
-			WithAdditionalOptions([]status.Option{versionOption, clusterStatusesOption})
+			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	case status.PhasePending:
 		return workflow.Pending("%s", readiness.message).
 			WithResourcesNotReady(readiness.resourcesNotReady).

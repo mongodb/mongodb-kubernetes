@@ -494,6 +494,31 @@ func TestConnectionStringSecret_UsesSpecDb_AsAuthSource(t *testing.T) {
 	assert.NotContains(t, connectionString, "authSource=admin")
 }
 
+func TestConnectionStringSecret_PutsConnectionStringDatabase_InURIPath(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().
+		SetMongoDBResourceName("my-rs").
+		SetDatabase("admin").
+		SetConnectionStringDatabase("myapp").
+		Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connectionString := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, connectionString, "authSource=admin")
+	assert.Contains(t, connectionString, "/myapp?")
+}
+
 func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
 	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
@@ -513,13 +538,38 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 		"mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
 			"my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
 			"my-rs-2.my-rs-svc.my-namespace.svc.cluster.local:27017"+
-			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		string(secret.Data["connectionString.standard"]))
 
 	assert.Equal(t,
 		"mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local"+
-			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000",
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		string(secret.Data["connectionString.standardSrv"]))
+}
+
+func TestConnectionStringSecret_ExternalUser_OnScramAndX509Resource_HasNoAuthMechanism(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().EnableX509().SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	for _, key := range []string{"connectionString.standard", "connectionString.standardSrv"} {
+		cs := string(secret.Data[key])
+		assert.Contains(t, cs, "authSource=$external", "authSource should be $external (%s)", key)
+		assert.NotContains(t, cs, "authMechanism", "no authMechanism must be set for an external user (%s)", key)
+		assert.NotContains(t, cs, "@", "no credentials must appear in the URI for an external user (%s)", key)
+	}
+
+	assert.NotContains(t, secret.Data, "password", "password key must be omitted for an external user")
 }
 
 func TestConnectionStringSecret_ScramSHA1_UsesSpecDb_AsAuthSource(t *testing.T) {
@@ -606,7 +656,7 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 	connectionString := string(secret.Data["connectionString.standard"])
 	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
 		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
-		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000"
+		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false"
 	assert.Equal(t, expectedConnectionString, connectionString)
 }
 
@@ -789,14 +839,21 @@ func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, a
 }
 
 type MongoDBUserBuilder struct {
-	project             string
-	passwordRef         userv1.SecretKeyRef
-	roles               []userv1.Role
-	username            string
-	database            string
-	resourceName        string
-	mongodbResourceName string
-	namespace           string
+	project                    string
+	passwordRef                userv1.SecretKeyRef
+	roles                      []userv1.Role
+	username                   string
+	database                   string
+	connectionStringDatabase   string
+	connectionStringSecretName string
+	resourceName               string
+	mongodbResourceName        string
+	namespace                  string
+}
+
+func (b *MongoDBUserBuilder) SetConnectionStringSecretName(name string) *MongoDBUserBuilder {
+	b.connectionStringSecretName = name
+	return b
 }
 
 func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
@@ -821,6 +878,11 @@ func (b *MongoDBUserBuilder) SetNamespace(namespace string) *MongoDBUserBuilder 
 
 func (b *MongoDBUserBuilder) SetDatabase(db string) *MongoDBUserBuilder {
 	b.database = db
+	return b
+}
+
+func (b *MongoDBUserBuilder) SetConnectionStringDatabase(db string) *MongoDBUserBuilder {
+	b.connectionStringDatabase = db
 	return b
 }
 
@@ -877,13 +939,233 @@ func (b *MongoDBUserBuilder) Build() *userv1.MongoDBUser {
 			Namespace: b.namespace,
 		},
 		Spec: userv1.MongoDBUserSpec{
-			Roles:                b.roles,
-			PasswordSecretKeyRef: b.passwordRef,
-			Username:             b.username,
-			Database:             b.database,
+			Roles:                      b.roles,
+			PasswordSecretKeyRef:       b.passwordRef,
+			Username:                   b.username,
+			Database:                   b.database,
+			ConnectionStringDatabase:   b.connectionStringDatabase,
+			ConnectionStringSecretName: b.connectionStringSecretName,
 			MongoDBResourceRef: userv1.MongoDBResourceRef{
 				Name: b.mongodbResourceName,
 			},
 		},
 	}
+}
+
+func TestUserReconciler_ConnectionString_IncludesExternalMembers(t *testing.T) {
+	ctx := context.Background()
+
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		EnableAuth().
+		AgentAuthMode("SCRAM").
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod"},
+		{ProcessName: "vm-1", Hostname: "vm-1.example.com:27017", Type: "mongod"},
+	}
+
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").Build()
+	reconciler, kubeClient, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	require.NoError(t, kubeClient.Create(ctx, rs))
+	createUserControllerConfigMap(ctx, kubeClient)
+	createPasswordSecret(ctx, kubeClient, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connStr := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, connStr, "vm-0.example.com:27017")
+	assert.Contains(t, connStr, "vm-1.example.com:27017")
+	assert.Contains(t, connStr, "my-rs-0.my-rs-svc.")
+}
+
+func TestMdbUserIndexBuilder(t *testing.T) {
+	cases := map[string]struct {
+		user *userv1.MongoDBUser
+		want []string
+	}{
+		"explicit namespace and name": {
+			user: &userv1.MongoDBUser{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "user-ns", Name: "u"},
+				Spec: userv1.MongoDBUserSpec{
+					MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "foo", Namespace: "bar"},
+				},
+			},
+			want: []string{"bar/foo"},
+		},
+		"empty namespace defaults to user's own namespace": {
+			user: &userv1.MongoDBUser{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "user-ns", Name: "u"},
+				Spec: userv1.MongoDBUserSpec{
+					MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "foo"},
+				},
+			},
+			want: []string{"user-ns/foo"},
+		},
+		"empty name returns nil": {
+			user: &userv1.MongoDBUser{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "user-ns", Name: "u"},
+				Spec:       userv1.MongoDBUserSpec{},
+			},
+			want: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := mdbUserIndexBuilder(tc.user)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestEnqueueUsersForMongoDBRef(t *testing.T) {
+	ctx := context.Background()
+
+	userA1 := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-a-1", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alice",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-a", Namespace: "ns-1"},
+		},
+	}
+	userA2 := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-a-2", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alex",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-a", Namespace: "ns-1"},
+		},
+	}
+	userB := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-b-1", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "bob",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-b", Namespace: "ns-1"},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder).
+		WithObjects(userA1, userA2, userB).
+		Build()
+
+	got := enqueueUsersForMongoDBRef(ctx, c, "ns-1", "mdb-a")
+
+	assert.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: kube.ObjectKey("ns-1", "u-a-1")},
+		{NamespacedName: kube.ObjectKey("ns-1", "u-a-2")},
+	}, got)
+}
+
+func TestEnqueueUsersForMongoDBRef_NoMatch_ReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+
+	user := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "u-1", Namespace: "ns-1"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alice",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-a", Namespace: "ns-1"},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder).
+		WithObjects(user).
+		Build()
+
+	got := enqueueUsersForMongoDBRef(ctx, c, "ns-1", "mdb-not-referenced")
+
+	assert.Empty(t, got, "no users reference mdb-not-referenced — must return no requests")
+}
+
+func TestEnqueueUsersForMongoDBRef_CrossNamespace(t *testing.T) {
+	ctx := context.Background()
+
+	// User lives in user-ns but references an MDB in mdb-ns. The index
+	// builder must store the ref's namespace, not the user's.
+	user := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "cross-u", Namespace: "user-ns"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "alice",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-x", Namespace: "mdb-ns"},
+		},
+	}
+	// Decoy user in user-ns referencing a same-named MDB in user-ns.
+	decoy := &userv1.MongoDBUser{
+		ObjectMeta: metav1.ObjectMeta{Name: "decoy-u", Namespace: "user-ns"},
+		Spec: userv1.MongoDBUserSpec{
+			Username:           "bob",
+			MongoDBResourceRef: userv1.MongoDBResourceRef{Name: "mdb-x", Namespace: "user-ns"},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithIndex(&userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder).
+		WithObjects(user, decoy).
+		Build()
+
+	// Enqueue for the MDB in mdb-ns: only the cross-namespace user matches.
+	gotMdbNs := enqueueUsersForMongoDBRef(ctx, c, "mdb-ns", "mdb-x")
+	assert.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: kube.ObjectKey("user-ns", "cross-u")},
+	}, gotMdbNs)
+
+	// Enqueue for the MDB in user-ns: only the decoy matches.
+	gotUserNs := enqueueUsersForMongoDBRef(ctx, c, "user-ns", "mdb-x")
+	assert.ElementsMatch(t, []reconcile.Request{
+		{NamespacedName: kube.ObjectKey("user-ns", "decoy-u")},
+	}, gotUserNs)
+}
+
+func TestUpdateConnectionStringSecret_RejectsUnownedPreExistingSecret(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().
+		SetMongoDBResourceName("my-rs").
+		SetConnectionStringSecretName("victim-app-secret").
+		Build()
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	// Pre-create a Secret with the custom name, no controller owner at all,
+	// containing canary data that should NOT be overwritten.
+	preExistingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "victim-app-secret",
+			Namespace: mock.TestNamespace,
+		},
+		Data: map[string][]byte{
+			"original-data": []byte("do-not-overwrite"),
+		},
+	}
+	require.NoError(t, client.Create(ctx, preExistingSecret))
+
+	// Set up the usual reconciliation prerequisites.
+	require.NoError(t, client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().AgentAuthMode("SCRAM").
+		SetName("my-rs").Build()))
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+
+	// The reconciliation MUST fail: the pre-existing secret has no owner
+	// (existingController == nil), so the guard at line 322-327 passes
+	// through, and the controller attempts to adopt it — this is the bug.
+	// With the fix, the controller should reject unowned pre-existing secrets.
+	// Note: Failed status is surfaced via the resource status, not the return error.
+	require.NoError(t, err)
+	assert.True(t, result.RequeueAfter > 0, "expected requeue after failure")
+	updatedUser := &userv1.MongoDBUser{}
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(user.Namespace, user.Name), updatedUser))
+	assert.Equal(t, status.PhaseFailed, updatedUser.Status.Phase)
+	assert.Contains(t, updatedUser.Status.Message, "Connection string secret")
+
+	// Verify the canary data was not overwritten.
+	secretAfter := &corev1.Secret{}
+	_ = client.Get(ctx, kube.ObjectKey(mock.TestNamespace, "victim-app-secret"), secretAfter)
+	assert.Equal(t, []byte("do-not-overwrite"), secretAfter.Data["original-data"],
+		"the pre-existing secret should not have been overwritten")
 }

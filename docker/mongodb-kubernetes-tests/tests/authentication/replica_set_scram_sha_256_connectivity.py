@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import pytest
 from kubetester import (
@@ -13,7 +13,20 @@ from kubetester import (
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import (
+    assert_connection_string_with_mongosh,
+    connection_string_with_patched_path,
+    connection_string_without_query_param,
+)
 from kubetester.phase import Phase
+from kubetester.scram import (
+    assert_creds_preserved,
+    assert_user_mechanisms,
+    build_scram_user_resource,
+    build_sha256_creds,
+    get_ac_user,
+    seed_user_in_ac,
+)
 from pytest import fixture, mark
 
 MDB_RESOURCE = "my-replica-set"
@@ -22,6 +35,18 @@ PASSWORD_SECRET_NAME = "mms-user-1-password"
 CONNECTION_STRING_SECRET_NAME = "my-replica-set-connection-string"
 USER_PASSWORD = "my-password"
 USER_DATABASE = "admin"
+
+# User that already exists in Ops Manager with only SHA-256 creds and the SCRAM-SHA-256 mechanism.
+OM_SHA256_USER_NAME = "om-user-sha256"
+OM_SHA256_USER_PASSWORD = "om-sha256-password-1"
+OM_SHA256_USER_PASSWORD_SECRET = "om-user-sha256-password"
+SEEDED_SHA256_CREDS = build_sha256_creds(OM_SHA256_USER_PASSWORD)
+
+# User that already exists in Ops Manager with no mechanisms list and only SHA-256 creds.
+OM_NO_MECH_USER_NAME = "om-user-no-mech"
+OM_NO_MECH_USER_PASSWORD = "om-no-mech-password-1"
+OM_NO_MECH_USER_PASSWORD_SECRET = "om-user-no-mech-password"
+SEEDED_NO_MECH_SHA256_CREDS = build_sha256_creds(OM_NO_MECH_USER_PASSWORD)
 
 NON_ADMIN_USER_NAME = "mms-user-2"
 NON_ADMIN_PASSWORD_SECRET_NAME = "mms-user-2-password"
@@ -35,6 +60,11 @@ SPACE_PASSWORD_USER_PASSWORD = "my pass word"
 PLUS_PASSWORD_USER_NAME = "mms-user-4"
 PLUS_PASSWORD_SECRET_NAME = "mms-user-4-password"
 PLUS_PASSWORD_USER_PASSWORD = "my:p@ss/w?rd# %[+]!$&'()*,;=~-._"
+
+DIFFERENT_DATABASE_USER_NAME = "mms-user-5"
+DIFFERENT_DATABASE_SECRET_NAME = "mms-user-5-password"
+DIFFERENT_DATABASE_USER_PASSWORD = "my-password-5"
+DIFFERENT_CONNECTION_STRING_DATABASE = "myapp"
 
 
 def create_password_secret(namespace: str) -> str:
@@ -97,8 +127,49 @@ def plus_password_standard_secret(replica_set: MongoDB):
 
 
 @fixture(scope="function")
+def different_database_standard_secret(replica_set: MongoDB):
+    # the connection string secret name is keyed by spec.db, not connectionStringDatabase
+    secret_name = "{}-{}-{}".format(replica_set.name, DIFFERENT_DATABASE_USER_NAME, USER_DATABASE)
+    return read_secret(replica_set.namespace, secret_name)
+
+
+@fixture(scope="function")
 def connection_string_secret(replica_set: MongoDB):
     return read_secret(replica_set.namespace, CONNECTION_STRING_SECRET_NAME)
+
+
+def _seed_sha256_user_in_ac(replica_set: MongoDB) -> None:
+    seed_user_in_ac(
+        om_tester=replica_set.get_om_tester(),
+        username=OM_SHA256_USER_NAME,
+        db=USER_DATABASE,
+        roles=[{"role": "readWrite", "db": USER_DATABASE}],
+        mechanisms=["SCRAM-SHA-256"],
+        sha256_creds=SEEDED_SHA256_CREDS,
+    )
+
+
+def _build_sha256_user_in_k8s(namespace: str) -> MongoDBUser:
+    return build_scram_user_resource(
+        namespace, OM_SHA256_USER_NAME, OM_SHA256_USER_PASSWORD, OM_SHA256_USER_PASSWORD_SECRET, MDB_RESOURCE
+    )
+
+
+def _seed_no_mech_user_in_ac(replica_set: MongoDB) -> None:
+    seed_user_in_ac(
+        om_tester=replica_set.get_om_tester(),
+        username=OM_NO_MECH_USER_NAME,
+        db=USER_DATABASE,
+        roles=[{"role": "readWrite", "db": USER_DATABASE}],
+        mechanisms=None,
+        sha256_creds=SEEDED_NO_MECH_SHA256_CREDS,
+    )
+
+
+def _build_no_mech_user_in_k8s(namespace: str) -> MongoDBUser:
+    return build_scram_user_resource(
+        namespace, OM_NO_MECH_USER_NAME, OM_NO_MECH_USER_PASSWORD, OM_NO_MECH_USER_PASSWORD_SECRET, MDB_RESOURCE
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -195,6 +266,8 @@ def test_credentials_secret_is_created(replica_set: MongoDB, standard_secret: Di
     # authSource in the connection string must match the user's spec.db
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in standard_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -216,16 +289,34 @@ def test_non_admin_db_credentials_secret_is_created(replica_set: MongoDB, non_ad
     # authSource in the connection string must match the user's spec.db (non-admin database)
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standard"]
     assert f"authSource={NON_ADMIN_USER_DATABASE}" in non_admin_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in non_admin_standard_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standard"], tls=False)
+    conn = standard_secret["connectionString.standard"]
+    replica_set.assert_connectivity_from_connection_string(conn, tls=False)
+    # mongosh uses the secret URI as-is, like a customer would — no separate TLS/auth kwargs.
+    assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_secret: Dict[str, str]):
-    replica_set.assert_connectivity_from_connection_string(standard_secret["connectionString.standardSrv"], tls=False)
+    conn = standard_secret["connectionString.standardSrv"]
+    replica_set.assert_connectivity_from_connection_string(conn, tls=False)
+
+    # mongodb+srv defaults to TLS unless ssl=false is present in the generated secret.
+    assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
+
+    # Prove ssl=false is required: without it, mongosh assumes TLS and cannot reach a non-TLS cluster.
+    conn_without_ssl_false = connection_string_without_query_param(conn, "ssl")
+    assert "ssl=false" not in conn_without_ssl_false
+    assert_connection_string_with_mongosh(
+        conn_without_ssl_false,
+        expect_success=False,
+        eval_script="db.runCommand({ping: 1})",
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -242,6 +333,17 @@ def test_non_admin_credentials_can_connect_to_db_with_srv(
     replica_set.assert_connectivity_from_connection_string(
         non_admin_standard_secret["connectionString.standardSrv"], tls=False
     )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_empty_path_connection_string_fails_with_mongosh(standard_secret: Dict[str, str]):
+    """Enterprise connection strings omit the URI path; mongosh then defaults to "test".
+
+    Regardless of authSource, using the secret connection string as-is is expected to
+    fail when mongosh writes to that implicit default database.
+    """
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        assert_connection_string_with_mongosh(standard_secret[key], expect_success=False)
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -266,6 +368,8 @@ def test_space_password_credentials_secret_is_created(space_password_standard_se
     assert "connectionString.standardSrv" in space_password_standard_secret
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in space_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in space_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in space_password_standard_secret["connectionString.standard"]
     # space must be encoded as %20, not + — check only the userinfo segment to avoid false positives
     for key in ("connectionString.standard", "connectionString.standardSrv"):
         conn = space_password_standard_secret[key]
@@ -313,6 +417,8 @@ def test_plus_password_credentials_secret_is_created(plus_password_standard_secr
     assert "connectionString.standardSrv" in plus_password_standard_secret
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in plus_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in plus_password_standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in plus_password_standard_secret["connectionString.standard"]
     # literal + in password must be percent-encoded as %2B in userinfo so that pymongo's
     # unquote_plus does not decode it as a space character
     for key in ("connectionString.standard", "connectionString.standardSrv"):
@@ -340,12 +446,92 @@ def test_plus_password_credentials_can_connect_to_db_with_srv(
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_create_user_with_different_connection_string_database(replica_set: MongoDB, namespace: str):
+    """spec.db and spec.connectionStringDatabase are independent: this user authenticates
+    against USER_DATABASE ("admin") but has a different connectionStringDatabase, which must
+    show up in the connection string URI path while authSource stays "admin" in the query."""
+    create_or_update_secret(namespace, DIFFERENT_DATABASE_SECRET_NAME, {"password": DIFFERENT_DATABASE_USER_PASSWORD})
+    resource = MongoDBUser(name=DIFFERENT_DATABASE_USER_NAME, namespace=namespace)
+    resource["spec"] = {
+        "username": DIFFERENT_DATABASE_USER_NAME,
+        "db": USER_DATABASE,
+        "connectionStringDatabase": DIFFERENT_CONNECTION_STRING_DATABASE,
+        "mongodbResourceRef": {"name": replica_set.name},
+        "passwordSecretKeyRef": {"name": DIFFERENT_DATABASE_SECRET_NAME, "key": "password"},
+        # Grant access only on connectionStringDatabase, not on admin, so connectivity must
+        # use the URI path database rather than succeeding via admin privileges.
+        "roles": [{"db": DIFFERENT_CONNECTION_STRING_DATABASE, "name": "readWrite"}],
+    }
+    try_load(resource)
+    resource.update()
+    resource.assert_reaches_phase(Phase.Updated, timeout=150)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_different_connection_string_database_credentials_secret_is_created(
+    different_database_standard_secret: Dict[str, str],
+):
+    assert "connectionString.standard" in different_database_standard_secret
+    assert "connectionString.standardSrv" in different_database_standard_secret
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        conn = different_database_standard_secret[key]
+        # authSource must reflect spec.db, not connectionStringDatabase
+        assert f"authSource={USER_DATABASE}" in conn
+        # the URI path segment must reflect connectionStringDatabase, not spec.db
+        assert f"/{DIFFERENT_CONNECTION_STRING_DATABASE}?" in conn
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_user_with_default_database_can_connect_to_db_with_mongosh(
+    replica_set: MongoDB,
+    different_database_standard_secret: Dict[str, str],
+):
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        conn_with_path = different_database_standard_secret[key]
+        replica_set.assert_connectivity_from_connection_string(conn_with_path, tls=False)
+        # mongosh uses the secret URI as-is, like a customer would — no separate TLS/auth kwargs.
+        assert_connection_string_with_mongosh(
+            conn_with_path, expect_success=True, eval_script="db.runCommand({ping: 1})"
+        )
+        # insertOne writes to the URI path database (connectionStringDatabase), not authSource.
+        assert_connection_string_with_mongosh(conn_with_path, expect_success=True)
+
+        # Removing connectionStringDatabase from the URI path makes mongosh default to "test" and fail.
+        conn_empty_path = connection_string_with_patched_path(conn_with_path, "")
+        assert_connection_string_with_mongosh(conn_empty_path, expect_success=False)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_user_with_no_default_database_cannot_connect_to_db_with_mongosh(
+    standard_secret: Dict[str, str],
+):
+    for key in ("connectionString.standard", "connectionString.standardSrv"):
+        conn = standard_secret[key]
+        # Users without connectionStringDatabase get an empty URI path. mongosh defaults to "test", so insertOne fails.
+        assert_connection_string_with_mongosh(conn, expect_success=False)
+
+        # Manually patching the URI path to a database this user can write to fixes mongosh.
+        conn_patched = connection_string_with_patched_path(conn, USER_DATABASE)
+        assert_connection_string_with_mongosh(conn_patched, expect_success=True)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
 def test_update_user_with_connection_string_secret(scram_user: MongoDBUser):
     scram_user.load()
     scram_user["spec"]["connectionStringSecretName"] = CONNECTION_STRING_SECRET_NAME
     scram_user.update()
 
     scram_user.assert_reaches_phase(Phase.Updated)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_connection_string_secret_is_created(connection_string_secret: Dict[str, str]):
+    assert "connectionString.standard" in connection_string_secret
+    assert "connectionString.standardSrv" in connection_string_secret
+    assert f"authSource={USER_DATABASE}" in connection_string_secret["connectionString.standard"]
+    assert f"authSource={USER_DATABASE}" in connection_string_secret["connectionString.standardSrv"]
+    assert "ssl=false" in connection_string_secret["connectionString.standardSrv"]
+    assert "ssl=false" in connection_string_secret["connectionString.standard"]
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -358,6 +544,178 @@ def test_credentials_can_connect_to_db_with_connection_string_secret(
     replica_set.assert_connectivity_from_connection_string(
         connection_string_secret["connectionString.standardSrv"], tls=False
     )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+class TestK8sUserHasEmptyMechanisms(KubernetesTester):
+    def test_k8s_user_mechanisms_empty_in_ac(self, replica_set: MongoDB):
+        """K8s-originated user must have mechanisms=[] regardless of which creds are present."""
+        tester = replica_set.get_automation_config_tester()
+        tester.assert_has_user(USER_NAME)
+        assert_user_mechanisms(tester, USER_NAME, [])
+
+    def test_k8s_user_has_both_creds(self, replica_set: MongoDB):
+        """Both SHA-256 and SHA-1 creds must exist even though mechanisms is []."""
+        tester = replica_set.get_automation_config_tester()
+        user = get_ac_user(tester, USER_NAME)
+        assert user.get("scramSha256Creds"), "scramSha256Creds should be present"
+        assert user.get("scramSha1Creds"), "scramSha1Creds should be present"
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+class TestScramDisabledAndReenabled(KubernetesTester):
+    def test_disable_scram(self, replica_set: MongoDB):
+        replica_set["spec"]["security"]["authentication"] = {"enabled": False}
+        replica_set.update()
+        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_reenable_scram(self, replica_set: MongoDB):
+        replica_set["spec"]["security"]["authentication"] = {
+            "ignoreUnknownUsers": True,
+            "enabled": True,
+            "modes": ["SCRAM"],
+        }
+        replica_set.update()
+        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_k8s_user_mechanisms_still_empty_after_recovery(self, replica_set: MongoDB):
+        assert_user_mechanisms(replica_set.get_automation_config_tester(), USER_NAME, [])
+
+
+# Tests importing a user that already exists in Ops Manager into K8s management.
+# The user has only SHA-256 creds. The two setup steps below must run in order:
+# step 1 creates the user directly in Ops Manager, step 2 registers it with the operator
+# via a MongoDBUser resource. TestOMUserSha256OnlyPreserved then checks that the original
+# SHA-256 creds are kept intact and that the operator generates the missing SHA-1 creds.
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_seed_sha256_user_in_ac(replica_set: MongoDB):
+    _seed_sha256_user_in_ac(replica_set)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_om_user_sha256_created(namespace: str):
+    resource = _build_sha256_user_in_k8s(namespace)
+    resource.update()
+    resource.assert_reaches_phase(Phase.Updated)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+class TestOMUserSha256OnlyPreserved(KubernetesTester):
+    def test_om_user_sha256_mechanisms_empty_after_transition(self, replica_set: MongoDB):
+        # Once Ops Manager processes the password and the operator reconciles again,
+        # it treats the imported user as K8s-managed (mechanisms=[]).
+        tester = replica_set.get_automation_config_tester()
+        tester.assert_has_user(OM_SHA256_USER_NAME)
+        assert_user_mechanisms(tester, OM_SHA256_USER_NAME, [])
+
+    def test_om_user_sha256_creds_preserved_byte_for_byte(self, replica_set: MongoDB):
+        # The SHA-256 creds set in Ops Manager before the import must remain unchanged.
+        # Only the missing SHA-1 creds should be added.
+        assert_creds_preserved(
+            replica_set.get_automation_config_tester(),
+            OM_SHA256_USER_NAME,
+            sha256_creds=SEEDED_SHA256_CREDS,
+        )
+
+    def test_om_user_sha256_gets_sha1_creds_after_transition(self, replica_set: MongoDB):
+        # After the import the operator generates only the missing SHA-1 creds.
+        user = get_ac_user(replica_set.get_automation_config_tester(), OM_SHA256_USER_NAME)
+        assert user.get("scramSha256Creds"), "SHA-256 creds must be present"
+        assert user.get("scramSha1Creds"), "SHA-1 creds must be present after the follow-up reconcile"
+
+    def test_om_user_sha256_can_authenticate_after_transition(self, replica_set: MongoDB):
+        replica_set.tester().assert_scram_sha_authentication(
+            password=OM_SHA256_USER_PASSWORD,
+            username=OM_SHA256_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+            attempts=20,
+        )
+
+    def test_om_user_sha256_password_can_change(self, namespace: str, replica_set: MongoDB):
+        ac_version = replica_set.get_automation_config_tester().automation_config["version"]
+        new_password = "om-sha256-password-new-1"
+        update_secret(namespace, OM_SHA256_USER_PASSWORD_SECRET, {"password": new_password})
+
+        wait_until(
+            lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
+            timeout=600,
+        )
+
+        assert_user_mechanisms(replica_set.get_automation_config_tester(), OM_SHA256_USER_NAME, [])
+        replica_set.tester().assert_scram_sha_authentication(
+            password=new_password,
+            username=OM_SHA256_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+        )
+
+
+# Same import scenario as above, but the user has no mechanisms list set in Ops Manager.
+# The operator treats this the same as a K8s-managed user: it keeps the existing SHA-256
+# creds and generates the missing SHA-1 creds in the same reconcile pass.
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_seed_no_mech_user_in_ac(replica_set: MongoDB):
+    _seed_no_mech_user_in_ac(replica_set)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_om_user_no_mech_created(namespace: str):
+    resource = _build_no_mech_user_in_k8s(namespace)
+    resource.update()
+    resource.assert_reaches_phase(Phase.Updated)
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
+    def test_om_user_no_mech_mechanisms_empty_after_transition(self, replica_set: MongoDB):
+        # Once Ops Manager processes the password and the operator reconciles again,
+        # it treats the imported user as K8s-managed (mechanisms=[]).
+        tester = replica_set.get_automation_config_tester()
+        tester.assert_has_user(OM_NO_MECH_USER_NAME)
+        assert_user_mechanisms(tester, OM_NO_MECH_USER_NAME, [])
+
+    def test_om_user_no_mech_sha256_creds_preserved(self, replica_set: MongoDB):
+        # The SHA-256 creds set in Ops Manager before the import must remain unchanged.
+        # Only the missing SHA-1 creds should be added.
+        assert_creds_preserved(
+            replica_set.get_automation_config_tester(),
+            OM_NO_MECH_USER_NAME,
+            sha256_creds=SEEDED_NO_MECH_SHA256_CREDS,
+        )
+
+    def test_om_user_no_mech_gets_sha1_creds_after_transition(self, replica_set: MongoDB):
+        # After the import the operator generates only the missing SHA-1 creds.
+        user = get_ac_user(replica_set.get_automation_config_tester(), OM_NO_MECH_USER_NAME)
+        assert user.get("scramSha256Creds"), "SHA-256 creds must be present"
+        assert user.get("scramSha1Creds"), "SHA-1 creds must be present after the follow-up reconcile"
+
+    def test_om_user_no_mech_can_authenticate_after_transition(self, replica_set: MongoDB):
+        replica_set.tester().assert_scram_sha_authentication(
+            password=OM_NO_MECH_USER_PASSWORD,
+            username=OM_NO_MECH_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+            attempts=20,
+        )
+
+    def test_om_user_no_mech_password_can_change(self, namespace: str, replica_set: MongoDB):
+        ac_version = replica_set.get_automation_config_tester().automation_config["version"]
+        new_password = "om-no-mech-password-new-1"
+        update_secret(namespace, OM_NO_MECH_USER_PASSWORD_SECRET, {"password": new_password})
+
+        wait_until(
+            lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
+            timeout=600,
+        )
+
+        assert_user_mechanisms(replica_set.get_automation_config_tester(), OM_NO_MECH_USER_NAME, [])
+        replica_set.tester().assert_scram_sha_authentication(
+            password=new_password,
+            username=OM_NO_MECH_USER_NAME,
+            auth_mechanism="SCRAM-SHA-256",
+        )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -374,7 +732,9 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
             tester.assert_has_user(USER_NAME)
             tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
             tester.assert_authentication_enabled()
-            tester.assert_expected_users(4)
+            # 5 K8s MongoDBUsers (mms-user-1..5) plus the 2 OM-seeded users
+            # (om-user-sha256, om-user-no-mech) added by the tests above.
+            tester.assert_expected_users(7)
             tester.assert_authoritative_set(False)
             return True
         except AssertionError:
@@ -396,7 +756,9 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         # we have explicitly set authentication to be disabled
         try:
             tester.assert_has_user(USER_NAME)
-            tester.assert_authentication_disabled(remaining_users=4)
+            # 5 K8s MongoDBUsers (mms-user-1..5) plus the 2 OM-seeded users
+            # (om-user-sha256, om-user-no-mech) added by the tests above.
+            tester.assert_authentication_disabled(remaining_users=7)
             return True
         except AssertionError:
             return False

@@ -296,6 +296,18 @@ class KubernetesTester(object):
         cls.clients("appsv1").create_namespaced_deployment(body=body, namespace=namespace)
 
     @classmethod
+    def create_or_update_statefulset(
+        cls, namespace: str, body: Dict, api_client: Optional[kubernetes.client.ApiClient] = None
+    ):
+        try:
+            cls.clients("appsv1", api_client=api_client).create_namespaced_stateful_set(body=body, namespace=namespace)
+        except client.rest.ApiException as e:
+            if e.status == 409:
+                cls.clients("appsv1", api_client=api_client).patch_namespaced_stateful_set(
+                    name=body["metadata"]["name"], body=body, namespace=namespace
+                )
+
+    @classmethod
     def create_service(
         cls,
         namespace: str,
@@ -303,6 +315,18 @@ class KubernetesTester(object):
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
+
+    @classmethod
+    def create_or_update_service(
+        cls, namespace: str, body: Dict, api_client: Optional[kubernetes.client.ApiClient] = None
+    ):
+        try:
+            cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
+        except client.rest.ApiException as e:
+            if e.status == 409:
+                cls.clients("corev1", api_client=api_client).patch_namespaced_service(
+                    name=body["metadata"]["name"], body=body, namespace=namespace
+                )
 
     @classmethod
     def create_or_update_pvc(
@@ -884,35 +908,6 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
-    def remove_group(group_id):
-        """Remove a group/project from Ops Manager.
-
-        If the group is already deleted (GROUP_NOT_FOUND), this succeeds silently
-        since the desired state (group doesn't exist) is already achieved.
-        """
-        url = build_om_group_endpoint(KubernetesTester.get_om_base_url(), group_id)
-        try:
-            KubernetesTester.om_request("delete", url)
-        except OpsManagerGroupNotFoundError:
-            logger.debug(f"OM group {group_id} already deleted - nothing to remove")
-
-    @staticmethod
-    def remove_group_by_name(group_name):
-        orgid = KubernetesTester.get_om_org_id()
-        project_id = KubernetesTester.query_group(group_name, orgid)["id"]
-        KubernetesTester.remove_group(project_id)
-
-    @staticmethod
-    def create_organization(org_name):
-        """
-        Creates the organization with specified name in Ops Manager, returns its ID
-        """
-        url = build_om_org_endpoint(KubernetesTester.get_om_base_url())
-        response = KubernetesTester.om_request("post", url, {"name": org_name})
-
-        return response.json()["id"]
-
-    @staticmethod
     def find_organizations(org_name):
         """
         Finds all organization with specified name, iterates over max 200 pages to find all matching organizations
@@ -939,24 +934,6 @@ class KubernetesTester(object):
             page += 1
 
         return ids
-
-    @staticmethod
-    def remove_organization(org_id):
-        """
-        Removes the organization with specified id from Ops Manager
-        """
-        url = build_om_one_org_endpoint(KubernetesTester.get_om_base_url(), org_id)
-        KubernetesTester.om_request("delete", url)
-
-    @staticmethod
-    def get_groups_in_organization_first_page(org_id):
-        """
-        :return: the first page of groups  (100 items for OM 4.0 and 500 for OM 4.1)
-        """
-        url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, 1)
-        response = KubernetesTester.om_request("get", url)
-
-        return response.json()
 
     @staticmethod
     def find_groups_in_organization(org_id, group_name):
@@ -1572,20 +1549,12 @@ def build_om_group_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
 
 
-def build_om_org_endpoint(base_url):
-    return "{}/api/public/v1.0/orgs".format(base_url)
-
-
 def build_om_org_list_endpoint(base_url: str, page_num: int):
     return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(base_url, page_num)
 
 
 def build_om_org_list_by_name_endpoint(base_url: str, name: str):
     return "{}/api/public/v1.0/orgs?name={}".format(base_url, name)
-
-
-def build_om_one_org_endpoint(base_url, org_id):
-    return "{}/api/public/v1.0/orgs/{}".format(base_url, org_id)
 
 
 def build_om_groups_in_org_endpoint(base_url, org_id, page_num):

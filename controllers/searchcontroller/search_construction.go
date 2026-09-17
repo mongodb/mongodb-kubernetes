@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -88,6 +89,17 @@ type SearchSourceShardedDeployment interface {
 	GetShardNames() []string
 	GetUnmanagedLBEndpointForShard(shardName string) string
 	MongosHostsAndPorts() []string
+}
+
+var errExternalDomainNotSupported = xerrors.New("MongoDB Search is not supported on operator-managed MongoDB resources with spec.externalAccess.externalDomain set")
+
+// validateSearchSourceExternalDomain rejects sources with externalDomain set: mongot connects
+// via the internal service DNS, which doesn't match the externally advertised member identities.
+func validateSearchSourceExternalDomain(spec *mdb.MongoDbSpec) error {
+	if spec.GetExternalDomain() != nil {
+		return errExternalDomainNotSupported
+	}
+	return nil
 }
 
 type TLSSourceConfig struct {

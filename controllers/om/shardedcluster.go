@@ -65,15 +65,21 @@ func NewShardedClusterFromInterface(i interface{}) ShardedCluster {
 	return i.(map[string]interface{})
 }
 
-// NewShardedCluster builds a shard configuration with shards by replicasets names
-func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses) ShardedCluster {
+// NewShardedCluster builds a shard configuration with shards by replicasets names.
+// shardIds is a parallel slice of automation config shard _id values, indexed by shard position.
+// When shardIds[i] is empty or shardIds is shorter than replicaSets, the rs name is used as the _id.
+func NewShardedCluster(name, configRsName string, replicaSets []ReplicaSetWithProcesses, shardIds []string) ShardedCluster {
 	ans := ShardedCluster{}
 	ans.setName(name)
 	ans.setConfigServerRsName(configRsName)
 
 	shards := make([]Shard, len(replicaSets))
 	for k, v := range replicaSets {
-		s := newShard(v.Rs.Name())
+		shardId := v.Rs.Name()
+		if k < len(shardIds) && shardIds[k] != "" {
+			shardId = shardIds[k]
+		}
+		s := newShard(v.Rs.Name(), shardId)
 		shards[k] = s
 	}
 	ans.setShards(shards)
@@ -90,14 +96,15 @@ func (s ShardedCluster) ConfigServerRsName() string {
 
 // ***************************************** Private methods ***********************************************************
 
-func newShard(name string) Shard {
+func newShard(rsName, shardId string) Shard {
 	s := Shard{}
-	s.setId(name)
-	s.setRs(name)
+	s.setId(shardId)
+	s.setRs(rsName)
 	return s
 }
 
-// mergeFrom merges the other (Kuberenetes owned) cluster configuration into OM one
+// mergeFrom merges the other (Kubernetes owned) cluster configuration into OM one.
+// It returns the replica set names of the shards that were removed from the cluster.
 func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 	s.setName(operatorCluster.Name())
 	s.setConfigServerRsName(operatorCluster.ConfigServerRsName())
@@ -115,8 +122,13 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 	}
 
 	// find OM shards that will be removed from cluster. This can be either the result of shard cluster reconfiguration
-	// or just OM added some shards on its own
-	removedMembers := findDifferentKeys(omMap, operatorMap)
+	// or just OM added some shards on its own. Replica set names are returned as callers clean up by rs name.
+	removedMembers := make([]string, 0)
+	for k, shard := range omMap {
+		if _, ok := operatorMap[k]; !ok {
+			removedMembers = append(removedMembers, shard.Rs())
+		}
+	}
 
 	// update cluster shards back
 	shards := make([]Shard, len(operatorMap))
@@ -126,7 +138,7 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 		i++
 	}
 	sort.Slice(shards, func(i, j int) bool {
-		return shards[i].id() < shards[j].id()
+		return shards[i].Id() < shards[j].Id()
 	})
 	s.setShards(shards)
 
@@ -135,11 +147,11 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 
 // mergeFrom merges the operator shard into OM one. Only some fields are overriden, the others stay untouched
 func (s Shard) mergeFrom(operatorShard Shard) {
-	s.setId(operatorShard.id())
-	s.setRs(operatorShard.rs())
+	s.setId(operatorShard.Id())
+	s.setRs(operatorShard.Rs())
 }
 
-func (s ShardedCluster) shards() []Shard {
+func (s ShardedCluster) Shards() []Shard {
 	switch v := s["shards"].(type) {
 	case []Shard:
 		return v
@@ -211,17 +223,26 @@ func (s ShardedCluster) removeDraining() {
 	delete(s, "draining")
 }
 
+// ShardRsToIdMap returns a map of shard replica set name to shard _id for all shards of the cluster.
+func (s ShardedCluster) ShardRsToIdMap() map[string]string {
+	rsToId := make(map[string]string)
+	for _, shard := range s.Shards() {
+		rsToId[shard.Rs()] = shard.Id()
+	}
+	return rsToId
+}
+
 // getAllReplicaSets returns all replica sets associated with sharded cluster
 func (s ShardedCluster) getAllReplicaSets() []string {
 	var ans []string
-	for _, s := range s.shards() {
-		ans = append(ans, s.rs())
+	for _, s := range s.Shards() {
+		ans = append(ans, s.Rs())
 	}
 	ans = append(ans, s.ConfigServerRsName())
 	return ans
 }
 
-func (s Shard) id() string {
+func (s Shard) Id() string {
 	return s["_id"].(string)
 }
 
@@ -229,7 +250,8 @@ func (s Shard) setId(id string) {
 	s["_id"] = id
 }
 
-func (s Shard) rs() string {
+// Rs returns the shard's replica set name (the "rs" field).
+func (s Shard) Rs() string {
 	return s["rs"].(string)
 }
 
@@ -237,22 +259,11 @@ func (s Shard) setRs(rsName string) {
 	s["rs"] = rsName
 }
 
-// Returns keys that exist in leftMap but don't exist in right one
-func findDifferentKeys(leftMap map[string]Shard, rightMap map[string]Shard) []string {
-	ans := make([]string, 0)
-	for k := range leftMap {
-		if _, ok := rightMap[k]; !ok {
-			ans = append(ans, k)
-		}
-	}
-	return ans
-}
-
 // Builds the map[<shard name>]<shard>. This makes intersection easier
 func buildMapOfShards(sh ShardedCluster) map[string]Shard {
 	ans := make(map[string]Shard)
-	for _, r := range sh.shards() {
-		ans[r.id()] = r
+	for _, r := range sh.Shards() {
+		ans[r.Id()] = r
 	}
 	return ans
 }

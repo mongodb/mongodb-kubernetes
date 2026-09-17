@@ -8,7 +8,7 @@ variables:
       - func: download_kube_tools
       - func: switch_context
       - func: python_venv
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/amd64
     teardown_task:
@@ -55,7 +55,7 @@ variables:
       - func: setup_building_host
       - func: setup_kubernetes_environment
       - func: setup_cloud_qa
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/amd64
     teardown_task:
@@ -161,6 +161,24 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_external_appdb_fresh_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_forward_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_reverse_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
   - name: test_kind_search_external_sharded_managed_lb_snippets.sh
     tags: [ "code_snippets", "patch-run" ]
     commands:
@@ -212,6 +230,9 @@ task_groups:
       - test_kind_search_community_snippets.sh
       - test_kind_search_enterprise_snippets.sh
       - test_kind_search_external_mongod_snippets.sh
+      - test_kind_external_appdb_fresh_snippets.sh
+      - test_kind_external_appdb_forward_snippets.sh
+      - test_kind_external_appdb_reverse_snippets.sh
       - test_kind_search_external_sharded_managed_lb_snippets.sh
       - test_kind_search_sharded_managed_lb_snippets.sh
       - test_kind_search_external_rs_managed_lb_snippets.sh
@@ -228,7 +249,9 @@ buildvariants:
   # NOTE: public_gke|kind_code_snippets are docs-publishing jobs, not release-gating tests - they run
   # the released public Helm chart and feed output to docs-mongodb-internal (update_docs_snippets.sh).
   # They can only succeed once a release is public, so never add them to a ".staging"/"e2e_test_suite"
-  # group. Auto-triggered post-release (master only) by trigger_public_docs_snippets.sh.
+  # group. Manually triggered only (manual_patch alias). Post-release snippet generation
+  # is handled directly by the release pipelines (.evergreen-release*.yml) via
+  # release_gke_snippets / release_kind_snippets variants.
   # More details in the TD: https://docs.google.com/document/d/1fuTxfRtP8QPtn7sKYxQM_AGcD6xycTZH8svngGxyKhc/edit?tab=t.0#bookmark=id.e8uva0393mbe
   - name: public_gke_code_snippets
     display_name: public_gke_code_snippets

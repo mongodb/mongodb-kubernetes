@@ -39,7 +39,7 @@ evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -
 
 ### Legacy release scenario (deprecated, to be removed soon):
 
-Rebuilds and retests every image before publishing. Triggered normally by pushing an "old-X.Y.Z" git tag; the command below runs the same variants via patch. See .evergreen-release.yml.
+Rebuilds and retests every image before publishing. Triggered when the tag annotation does NOT start with "[new]"; the CLI patch below runs the same variants. See .evergreen-release.yml.
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a deprecated-release -d "Test release build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
@@ -47,7 +47,7 @@ evergreen patch -p mongodb-kubernetes -a deprecated-release -d "Test release bui
 
 ### New release-publish scenario:
 
-Publishes already-promoted images straight to production — no rebuild, no retest. Triggered normally by pushing a "new-X.Y.Z" git tag; the command below runs the same variants via patch. See .evergreen-release-publish.yml.
+Publishes already-promoted images straight to production — no rebuild, no retest. Triggered when the tag annotation starts with "[new]"; the CLI patch below runs the same variants. See .evergreen-release-publish.yml.
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc

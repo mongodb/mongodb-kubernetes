@@ -15,7 +15,7 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, run_periodically
+from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, fcv_from_version, run_periodically
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
@@ -26,6 +26,8 @@ from tests.common.ops_manager.cloud_manager import is_cloud_qa
 skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in Cloud Manager")
 
 logger = test_logger.get_test_logger(__name__)
+
+from kubetester.scram import build_sha1_creds, build_sha256_creds
 
 
 class BackupStatus(str, Enum):
@@ -106,7 +108,21 @@ class OMTester(object):
 
     def ensure_group_id(self):
         if self.context.project_id is None:
-            self.context.project_id = self.find_group_id()
+            try:
+                self.context.project_id = self.find_group_id()
+            except Exception as e:
+                print(f"Failed to find group id for group name {self.context.group_name} with error {e}")
+                self.ensure_new_group_and_agent_api_key()
+
+    def ensure_new_group_and_agent_api_key(self):
+        if self.context.agent_api_key is None or self.context.project_id is None:
+            res = self.api_create_group()
+            self.context.project_id = res["id"]
+            self.context.agent_api_key = res["agentApiKey"]
+
+    def ensure_agent_api_key(self):
+        if self.context.agent_api_key is None:
+            self.context.agent_api_key = self.api_create_agent_api_key()
 
     def get_project_events(self):
         return self.om_request("get", f"/groups/{self.context.project_id}/events")
@@ -127,21 +143,34 @@ class OMTester(object):
     def get_latest_backup_completion_time(self):
         return self.latest_backup_completion_time or 0
 
-    def create_restore_job_pit(self, pit_milliseconds: int, retry: int = 120, timeout_seconds: int = 600):
+    def create_restore_job_pit(
+        self,
+        pit_milliseconds: int,
+        retry: int = 120,
+        timeout_seconds: int = 600,
+        cluster_id: Optional[str] = None,
+    ) -> str:
         """Creates a restore job to restore the mongodb cluster to some version specified by the parameter.
+
+        Returns the restore job id.
 
         Retries on 409 Conflict or 'Invalid restore point' until the request succeeds or
         timeout_seconds is reached (the API can return 409 temporarily until the restore point is available).
+
+        If cluster_id is provided, it is used directly instead of looking up the backup config.
+        This is needed when a project has multiple backup configs (e.g. after a disaster restore)
+        and the caller wants to target a specific one.
         """
-        cluster_id = self.get_backup_cluster_id()
+        if cluster_id is None:
+            cluster_id = self.get_backup_cluster_id()
         start_time = time.time()
         attempt = 0
         while retry > 0:
             try:
                 span = trace.get_current_span()
                 span.set_attribute(key="mck.pit_retries", value=retry)
-                self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
-                return
+                response = self.api_create_restore_job_pit(cluster_id, pit_milliseconds)
+                return response.json()["results"][0]["id"]
             except Exception as e:
                 elapsed = time.time() - start_time
                 if elapsed >= timeout_seconds:
@@ -233,8 +262,8 @@ class OMTester(object):
 
     def get_backup_cluster_id(self, expected_config_count: int = 1, is_sharded_cluster: bool = False) -> str:
         configs = self.api_read_backup_configs()
-        assert len(configs) == expected_config_count
 
+        assert len(configs) == expected_config_count
         if not is_sharded_cluster:
             # we can use the first config as there's only one MongoDB in deployment
             return configs[0]["clusterId"]
@@ -244,6 +273,17 @@ class OMTester(object):
             if cluster["typeName"] == "SHARDED_REPLICA_SET":
                 return cluster["id"]
         raise AssertionError("No SHARDED_REPLICA_SET cluster found")
+
+    def get_cluster_availability(self, name: str) -> Optional[str]:
+        clusters = self.api_read_clusters()
+        for cluster in clusters:
+            if cluster["name"] == name:
+                return cluster["availability"]
+        return None
+
+    def assert_cluster_available(self, name: str):
+        availability = self.get_cluster_availability(name)
+        assert availability == "available", f"Cluster {name} is not available, current availability: {availability}"
 
     def assert_healthiness(self):
         self.do_assert_healthiness(self.context.base_url)
@@ -568,7 +608,11 @@ class OMTester(object):
 
     def api_get_group_in_organization(self, org_id: str, group_name: str) -> str:
         encoded_group_name = urllib.parse.quote_plus(group_name)
-        json = self.om_request("get", f"/orgs/{org_id}/groups?name={encoded_group_name}").json()
+        try:
+            json = self.om_request("get", f"/orgs/{org_id}/groups?name={encoded_group_name}").json()
+        except Exception as e:
+            print(f"Failed to get group in organization {org_id} with name {group_name}")
+            return ""
         if len(json["results"]) == 0:
             return ""
         if len(json["results"]) > 1:
@@ -582,7 +626,7 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/hosts").json()
 
     def get_automation_config_tester(self, **kwargs) -> AutomationConfigTester:
-        json = self.om_request("get", f"/groups/{self.context.project_id}/automationConfig").json()
+        json = self.api_get_automation_config()
         return AutomationConfigTester(json, **kwargs)
 
     def get_backup_config(self) -> List:
@@ -595,6 +639,13 @@ class OMTester(object):
 
     def api_read_backup_configs(self) -> List:
         return self.om_request("get", f"/groups/{self.context.project_id}/backupConfigs").json()["results"]
+
+    def api_read_clusters(self) -> List:
+        results = self.om_request("get", "/clusters").json()["results"]
+        for result in results:
+            if result["groupId"] == self.context.project_id:
+                return result["clusters"]
+        return []
 
     # Backup states are from here:
     # https://github.com/10gen/mms/blob/bcec76f60fc10fd6b7de40ee0f57951b54a4b4a0/server/src/main/com/xgen/cloud/common/brs/_public/model/BackupConfigState.java#L8
@@ -676,6 +727,34 @@ class OMTester(object):
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/{cluster_id}/snapshots").json()[
             "results"
         ]
+
+    def api_get_restorable_time_ranges(self, cluster_id: str) -> List:
+        return self.om_request(
+            "post",
+            f"/groups/{self.context.project_id}/clusters/{cluster_id}/restoreJobs/restorableTimeRanges",
+        ).json()
+
+    def wait_until_pit_restorable(self, pit_milliseconds: int, timeout: int = 300) -> None:
+        """Wait until the given PIT timestamp falls within a restorable time range.
+
+        Polls the OM restorableTimeRanges API until the backup agent has captured
+        the oplog up to the given point, confirming the PIT is restorable.
+        """
+        from datetime import datetime, timezone
+
+        pit_dt = datetime.fromtimestamp(pit_milliseconds / 1000, tz=timezone.utc)
+        cluster_id = self.get_backup_cluster_id()
+
+        def pit_is_restorable() -> bool:
+            ranges = self.api_get_restorable_time_ranges(cluster_id)
+            for r in ranges:
+                start = datetime.fromisoformat(r["start"]["date"].replace("Z", "+00:00"))
+                end = datetime.fromisoformat(r["end"]["date"].replace("Z", "+00:00"))
+                if start <= pit_dt <= end:
+                    return True
+            return False
+
+        run_periodically(fn=pit_is_restorable, timeout=timeout)
 
     def api_get_clusters(self) -> Dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/clusters/").json()
@@ -792,6 +871,60 @@ class OMTester(object):
 
     def api_get_automation_status(self) -> dict[str, str]:
         return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
+
+    def api_create_agent_api_key(self, description: str = "agent api key created by OMTester") -> str:
+        return self.om_request(
+            "post", f"/groups/{self.context.project_id}/agentapikeys", json_object={"desc": description}
+        ).json()["key"]
+
+    def api_create_group(self):
+        body = {
+            "name": self.context.group_name,
+            "orgId": self.context.org_id,
+        }
+        return self.om_request("post", "/groups", json_object=body).json()
+
+    def api_get_automation_config(self):
+        return self.om_request("get", f"/groups/{self.context.project_id}/automationConfig").json()
+
+    def api_put_automation_config(self, config: dict):
+        self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
+
+    def add_user(
+        self,
+        username: str,
+        database: str,
+        password: str,
+        mechanisms: List[str],
+        roles: List[Dict[str, str]],
+    ) -> None:
+        """Injects a user directly into OM's automation config with the given mechanisms.
+
+        This simulates an OM-originated user (i.e. one that exists in the AC before a
+        MongoDBUser CR is created), which is needed to test mechanism-preservation logic.
+        """
+        config = self.api_get_automation_config()
+
+        user_entry: Dict = {
+            "user": username,
+            "db": database,
+            "mechanisms": mechanisms,
+            "roles": roles,
+        }
+
+        if "SCRAM-SHA-256" in mechanisms:
+            user_entry["scramSha256Creds"] = build_sha256_creds(password)
+        if "MONGODB-CR" in mechanisms or "SCRAM-SHA-1" in mechanisms:
+            user_entry["scramSha1Creds"] = build_sha1_creds(username, password)
+
+        # Replace any existing entry for this user/db pair.
+        config["auth"]["usersWanted"] = [
+            u for u in config["auth"]["usersWanted"] if not (u["user"] == username and u["db"] == database)
+        ]
+        config["auth"]["usersWanted"].append(user_entry)
+
+        self.api_put_automation_config(config)
+        self.wait_agents_ready()
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""

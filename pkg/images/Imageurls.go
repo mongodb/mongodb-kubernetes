@@ -70,6 +70,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		util.NonStaticDatabaseEnterpriseImage: "",
 		util.AgentImageEnv:                    "",
 		util.AgentImageUrlEnv:                 util.AgentImageUrlDefault,
+		util.OperatorImageEnv:                 "", // Used by migration dry-run Jobs (connectivity-validator in same image).
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
 	}

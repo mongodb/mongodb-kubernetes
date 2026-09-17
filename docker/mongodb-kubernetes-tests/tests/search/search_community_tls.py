@@ -10,6 +10,7 @@ from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
+from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
 from tests.conftest import get_default_operator
 
 logger = test_logger.get_test_logger(__name__)
@@ -31,6 +32,8 @@ TLS_SECRET_NAME = "tls-secret"
 
 # MongoDBSearch TLS configuration -- convention: {name}-search-cert
 MDBS_TLS_SECRET_NAME = search_resource_names.mongot_tls_cert_name(MDBS_RESOURCE_NAME)
+GRPC_KEY_PASSWORD = "search-grpc-key-password"
+GRPC_KEY_PASSWORD_SECRET_NAME = f"{MDBS_RESOURCE_NAME}-grpc-key-password"
 
 
 @fixture(scope="function")
@@ -65,7 +68,12 @@ def mdbs(namespace: str) -> MongoDBSearch:
     if "spec" not in resource:
         resource["spec"] = {}
 
-    resource["spec"]["security"] = {"tls": {"certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME}}}
+    resource["spec"]["security"] = {
+        "tls": {
+            "certificateKeySecretRef": {"name": MDBS_TLS_SECRET_NAME},
+            "keyFilePasswordSecretRef": {"name": GRPC_KEY_PASSWORD_SECRET_NAME},
+        }
+    }
 
     try_load(resource)
     return resource
@@ -107,6 +115,8 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdbc: MongoDBCommuni
         ],
         secret_name=MDBS_TLS_SECRET_NAME,
     )
+    encrypt_tls_key_with_password(namespace, MDBS_TLS_SECRET_NAME, GRPC_KEY_PASSWORD)
+    create_keyfile_password_secret(namespace, GRPC_KEY_PASSWORD_SECRET_NAME, GRPC_KEY_PASSWORD)
 
 
 @mark.e2e_search_community_tls

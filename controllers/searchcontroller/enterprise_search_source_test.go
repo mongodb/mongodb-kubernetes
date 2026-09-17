@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,6 +62,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		resourceType        mdbv1.ResourceType
 		authModes           []string
 		internalClusterAuth string
+		externalDomain      *string
 		expectError         bool
 		expectedErrMsg      string
 	}{
@@ -160,6 +162,17 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			resourceType: mdbv1.ReplicaSet,
 			authModes:    []string{},
 			expectError:  false,
+		},
+		// External domain validation tests
+		{
+			name:           "SingleCluster with externalDomain",
+			version:        "8.2.0",
+			topology:       mdbv1.ClusterTopologySingleCluster,
+			resourceType:   mdbv1.ReplicaSet,
+			authModes:      []string{},
+			externalDomain: ptr.To("example.com"),
+			expectError:    true,
+			expectedErrMsg: errExternalDomainNotSupported.Error(),
 		},
 		// Authentication mode tests
 		{
@@ -280,6 +293,9 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := newEnterpriseSearchSource(c.version, c.topology, c.resourceType, c.authModes, c.internalClusterAuth)
+			if c.externalDomain != nil {
+				src.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: c.externalDomain}
+			}
 			err := src.Validate()
 
 			if c.expectError {
@@ -368,6 +384,124 @@ func TestShardedEnterpriseSearchSource_GetShardNames(t *testing.T) {
 
 			shardNames := src.GetShardNames()
 			assert.Equal(t, tc.expectedShards, shardNames)
+		})
+	}
+}
+
+func TestEnterpriseResourceSearchSource_HostSeeds(t *testing.T) {
+	cases := []struct {
+		name            string
+		members         int
+		externalMembers []mdbv1.ExternalMember
+		clusterDomain   string
+		expectedSeeds   []string
+	}{
+		{
+			name:          "internal members only",
+			members:       3,
+			clusterDomain: "",
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"test-mongodb-1.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"test-mongodb-2.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+			},
+		},
+		{
+			name:    "external members only",
+			members: 0,
+			externalMembers: []mdbv1.ExternalMember{
+				{ProcessName: "ext-0", Hostname: "ext-host-0.example.com:27017"},
+				{ProcessName: "ext-1", Hostname: "ext-host-1.example.com:27017"},
+			},
+			expectedSeeds: []string{
+				"ext-host-0.example.com:27017",
+				"ext-host-1.example.com:27017",
+			},
+		},
+		{
+			name:    "mixed internal and external members",
+			members: 2,
+			externalMembers: []mdbv1.ExternalMember{
+				{ProcessName: "ext-0", Hostname: "ext-host-0.example.com:27017"},
+			},
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"test-mongodb-1.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+				"ext-host-0.example.com:27017",
+			},
+		},
+		{
+			name:          "custom cluster domain",
+			members:       1,
+			clusterDomain: "custom.domain",
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.custom.domain:27017",
+			},
+		},
+		{
+			name:    "single member",
+			members: 1,
+			expectedSeeds: []string{
+				"test-mongodb-0.test-mongodb-svc.test-namespace.svc.cluster.local:27017",
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := EnterpriseResourceSearchSource{
+				MongoDB: &mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-mongodb",
+						Namespace: "test-namespace",
+					},
+					Spec: mdbv1.MongoDbSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ClusterDomain: c.clusterDomain,
+						},
+						Members:         c.members,
+						ExternalMembers: c.externalMembers,
+					},
+				},
+			}
+			seeds, err := src.HostSeeds("")
+			require.NoError(t, err)
+			assert.Equal(t, c.expectedSeeds, seeds)
+		})
+	}
+}
+
+func TestShardedInternalSearchSource_Validate(t *testing.T) {
+	cases := []struct {
+		name           string
+		externalDomain *string
+		expectError    bool
+	}{
+		{
+			name:        "SingleCluster without externalDomain",
+			expectError: false,
+		},
+		{
+			name:           "SingleCluster with externalDomain",
+			externalDomain: ptr.To("example.com"),
+			expectError:    true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mdb := newShardedClusterMongoDB("test-sharded", "test-ns", 2, "8.2.0")
+			if c.externalDomain != nil {
+				mdb.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: c.externalDomain}
+			}
+			src := NewShardedInternalSearchSource(mdb, nil)
+
+			err := src.Validate()
+			if c.expectError {
+				assert.ErrorIs(t, err, errExternalDomainNotSupported)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

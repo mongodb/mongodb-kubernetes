@@ -30,6 +30,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -870,6 +871,137 @@ func TestDatabaseInKubernetesExternalServicesSharded(t *testing.T) {
 	require.Errorf(t, err, "expected no shard service")
 }
 
+// TestDatabaseInKubernetesExternalServicesShardedPerTier covers the single-cluster per-tier
+// externalAccess field: config servers and shards only get external services when an external domain
+// is configured, which is the rule the multi-cluster path applies too. Without that rule a
+// domain-less spec.shard.externalAccess would create LoadBalancer services no hostname points at.
+func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+
+	newShardedCluster := func() *mdbv1.MongoDB {
+		return mdbv1.NewDefaultShardedClusterBuilder().
+			SetName("mdb").
+			SetNamespace("my-namespace").
+			SetMongosCountSpec(1).
+			SetShardCountSpec(1).
+			SetConfigServerCountSpec(1).
+			Build()
+	}
+
+	// createShardSts leaves opts.Replicas at zero, which would skip the per-pod loop entirely and make
+	// every assertion below vacuous, so the shard cases build their own options with one replica.
+	createShard0Sts := func(t *testing.T, mdb *mdbv1.MongoDB, kubeClient kubernetesClient.Client) {
+		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
+		withReplicas := func(options *construct.DatabaseStatefulSetOptions) { options.Replicas = 1 }
+		opts := construct.ShardOptions(0, shardSpec, memberCluster.Name, withReplicas)
+		sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(0, shardSpec, memberCluster.Name, withReplicas, construct.GetPodEnvOptions()), log)
+		mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, opts, log)
+		require.NoError(t, err)
+		require.NotNil(t, mutatedSts)
+	}
+
+	t.Run("shard tier without external domain gets no external service", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newShardedCluster()
+		mdb.Spec.ShardSpec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+
+		createShard0Sts(t, mdb, fakeClient)
+
+		_, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-0-0-svc-external", Namespace: "my-namespace"})
+		require.Error(t, err, "expected no shard external service without an external domain")
+	})
+
+	t.Run("shard tier with external domain gets an external service", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newShardedCluster()
+		mdb.Spec.ShardSpec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
+			ExternalDomain: ptr.To("shards.example.com"),
+		}
+
+		createShard0Sts(t, mdb, fakeClient)
+
+		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-0-0-svc-external", Namespace: "my-namespace"})
+		require.NoError(t, err)
+		assert.Equal(t, corev1.ServiceTypeLoadBalancer, svc.Spec.Type)
+	})
+
+	t.Run("mongos tier without external domain still gets an external service", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newShardedCluster()
+		mongosSpec := mdb.Spec.MongosSpec.DeepCopy()
+		mongosSpec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{}
+		mongosSpec.ClusterSpecList = mdbv1.ClusterSpecList{{ClusterName: multicluster.LegacyCentralClusterName, Members: 1}}
+		withReplicas := func(options *construct.DatabaseStatefulSetOptions) { options.Replicas = 1 }
+
+		opts := construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas)
+		sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas, construct.GetPodEnvOptions()), log)
+		_, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, opts, log)
+		require.NoError(t, err)
+
+		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
+		require.NoError(t, err)
+		assert.Equal(t, corev1.ServiceTypeLoadBalancer, svc.Spec.Type)
+	})
+}
+
+// TestDatabaseInKubernetesSkipsServicesForMultiClusterSharded pins down that DatabaseInKubernetes
+// touches no Services at all for a multi-cluster sharded cluster: reconcileServices owns them there.
+// The per-cluster externalAccess carries multi-cluster placeholders ({clusterName}, {clusterIndex})
+// that the single-cluster placeholder replacer cannot resolve, so were the per-pod loop below to run
+// it would both overwrite reconcileServices' objects and hard-fail the reconciliation.
+func TestDatabaseInKubernetesSkipsServicesForMultiClusterSharded(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+
+	mdb := mdbv1.NewDefaultShardedClusterBuilder().
+		SetName("mdb").
+		SetNamespace("my-namespace").
+		Build()
+	mdb.Spec.Topology = mdbv1.ClusterTopologyMultiCluster
+	require.True(t, mdb.Spec.IsMultiCluster())
+
+	configSrvSpec := mdb.Spec.ConfigSrvSpec.DeepCopy()
+	configSrvSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{
+			ClusterName: "cluster-0",
+			Members:     1,
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
+				ExternalDomain: ptr.To("cfg.example.com"),
+				ExternalService: mdbv1.ExternalServiceConfiguration{
+					Annotations: map[string]string{
+						"cluster": "{clusterName}-{clusterIndex}",
+					},
+				},
+			},
+		},
+	}
+
+	// The equivalents of the operator package's Replicas/StatefulSetNameOverride/ServiceName option
+	// helpers, which this package cannot import (the operator package imports create).
+	memberClusterNaming := func(options *construct.DatabaseStatefulSetOptions) {
+		options.Replicas = 1
+		options.StatefulSetNameOverride = "mdb-config-0"
+		options.ServiceName = "mdb-cs-0-svc"
+	}
+
+	opts := construct.ConfigServerOptions(configSrvSpec, "cluster-0", memberClusterNaming)
+	sts := construct.DatabaseStatefulSet(*mdb, construct.ConfigServerOptions(configSrvSpec, "cluster-0", memberClusterNaming, construct.GetPodEnvOptions()), log)
+
+	// The per-tier configuration must have been resolved onto the options - otherwise this test would
+	// pass for the wrong reason.
+	require.NotNil(t, opts(*mdb).ExternalAccessConfiguration)
+
+	mutatedSts, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, opts, log)
+	require.NoError(t, err)
+	require.NotNil(t, mutatedSts)
+
+	serviceList := &corev1.ServiceList{}
+	require.NoError(t, fakeClient.List(ctx, serviceList))
+	assert.Empty(t, serviceList.Items, "DatabaseInKubernetes must not create Services for multi-cluster sharded clusters")
+}
+
 func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.MongoDB) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
 	shardSpec := sc.Spec.ShardSpec.DeepCopy()
 	shardSpec.ClusterSpecList = mdbv1.ClusterSpecList{
@@ -905,8 +1037,11 @@ func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *
 
 func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	mongosSpec := createMongosSpec(mdb)
-	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
-	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName), log)
+	withReplicas := func(options *construct.DatabaseStatefulSetOptions) {
+		options.Replicas = mdb.Spec.MongosCount
+	}
+	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions(), withReplicas), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas), log)
 	assert.NoError(t, err)
 	assert.NotNil(t, mutatedSts)
 }
@@ -1609,4 +1744,90 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 			assert.True(t, result, "StatefulSet should be detected as deleted")
 		})
 	})
+}
+
+func TestPreserveExistingVolumeClaimTemplateMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	newSts := func(claimLabels map[string]string) appsv1.StatefulSet {
+		return appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "om-db", Namespace: mock.TestNamespace},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: ptr.To(int32(1)),
+				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+					{ObjectMeta: metav1.ObjectMeta{Name: "data", Labels: claimLabels}},
+					{ObjectMeta: metav1.ObjectMeta{Name: "logs"}},
+				},
+			},
+		}
+	}
+
+	t.Run("statefulset does not exist yet, desired claims are left untouched", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		desiredSts := newSts(nil)
+
+		require.NoError(t, preserveExistingVolumeClaimTemplateMetadata(ctx, fakeClient, &desiredSts, zap.S()))
+		assert.Nil(t, desiredSts.Spec.VolumeClaimTemplates[0].Labels)
+	})
+
+	t.Run("labels propagated by an older operator version are kept", func(t *testing.T) {
+		existingSts := newSts(map[string]string{"label1": "val1"})
+		fakeClient, _ := mock.NewDefaultFakeClient(&existingSts)
+
+		// The desired statefulset no longer propagates the resource labels onto the claims.
+		desiredSts := newSts(nil)
+
+		require.NoError(t, preserveExistingVolumeClaimTemplateMetadata(ctx, fakeClient, &desiredSts, zap.S()))
+		assert.Equal(t, map[string]string{"label1": "val1"}, desiredSts.Spec.VolumeClaimTemplates[0].Labels)
+		assert.Nil(t, desiredSts.Spec.VolumeClaimTemplates[1].Labels)
+
+		// The statefulset can now be updated, which is exactly what a label change used to break.
+		_, err := enterprisests.CreateOrUpdateStatefulset(ctx, fakeClient, desiredSts.Namespace, zap.S(), &desiredSts)
+		assert.NoError(t, err)
+	})
+
+	t.Run("diverging desired labels are dropped in favour of the existing ones", func(t *testing.T) {
+		existingSts := newSts(map[string]string{"label1": "val1"})
+		fakeClient, _ := mock.NewDefaultFakeClient(&existingSts)
+
+		desiredSts := newSts(map[string]string{"label1": "changed", "label2": "val2"})
+
+		require.NoError(t, preserveExistingVolumeClaimTemplateMetadata(ctx, fakeClient, &desiredSts, zap.S()))
+		assert.Equal(t, map[string]string{"label1": "val1"}, desiredSts.Spec.VolumeClaimTemplates[0].Labels)
+	})
+}
+
+func TestDroppedMetadataEntries(t *testing.T) {
+	tests := map[string]struct {
+		desired  map[string]string
+		existing map[string]string
+		expected map[string]string
+	}{
+		"labels propagated by an older operator version are not reported": {
+			desired:  nil,
+			existing: map[string]string{"label1": "val1"},
+			expected: map[string]string{},
+		},
+		"already applied entries are not reported": {
+			desired:  map[string]string{"label1": "val1"},
+			existing: map[string]string{"label1": "val1"},
+			expected: map[string]string{},
+		},
+		"entries dropped from an override are not reported": {
+			desired:  map[string]string{"label1": "val1"},
+			existing: map[string]string{"label1": "val1", "label2": "val2"},
+			expected: map[string]string{},
+		},
+		"added and changed entries are reported": {
+			desired:  map[string]string{"label1": "changed", "label2": "val2"},
+			existing: map[string]string{"label1": "val1"},
+			expected: map[string]string{"label1": "changed", "label2": "val2"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, droppedMetadataEntries(tc.desired, tc.existing))
+		})
+	}
 }

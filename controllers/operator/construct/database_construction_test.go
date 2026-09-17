@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -27,6 +28,63 @@ func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
 	mock.InitDefaultEnvVariables()
+}
+
+func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
+	t.Run("custom path uses KeyToPath directory mount", func(t *testing.T) {
+		customPath := "/etc/ssl/certs/ca.pem"
+		src := &tlsVolumeSource{
+			security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{
+					Enabled:    true,
+					CA:         "my-ca-configmap",
+					CAFilePath: customPath,
+				},
+			},
+			databaseOpts: DatabaseStatefulSetOptions{Name: "my-rs"},
+			logger:       zap.S(),
+		}
+
+		volumes, mounts := src.getVolumesAndMounts()
+
+		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == path.Dir(customPath) && m.SubPath == "" && m.ReadOnly
+		}), "custom CAFilePath should mount at the parent directory")
+		assert.False(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == util.TLSCaMountPath
+		}), "default TLSCaMountPath should not be present in custom mode")
+		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+			cm := v.ConfigMap
+			return cm != nil &&
+				len(cm.Items) == 1 &&
+				cm.Items[0].Key == tls.CAConfigMapKey &&
+				cm.Items[0].Path == path.Base(customPath)
+		}), "custom CAFilePath volume should map ca-pem key to the custom filename")
+	})
+
+	t.Run("default path mounts whole ConfigMap at TLSCaMountPath", func(t *testing.T) {
+		src := &tlsVolumeSource{
+			security: &mdbv1.Security{
+				TLSConfig: &mdbv1.TLSConfig{
+					Enabled: true,
+					CA:      "my-ca-configmap",
+				},
+			},
+			databaseOpts: DatabaseStatefulSetOptions{Name: "my-rs"},
+			logger:       zap.S(),
+		}
+
+		volumes, mounts := src.getVolumesAndMounts()
+
+		// Default mode: full directory mount at TLSCaMountPath, no KeyToPath items.
+		assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+			return m.MountPath == util.TLSCaMountPath
+		}), "default mode should mount at TLSCaMountPath")
+		assert.True(t, slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+			cm := v.ConfigMap
+			return cm != nil && len(cm.Items) == 0
+		}), "default mode should not restrict ConfigMap keys via Items")
+	})
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
@@ -155,6 +213,23 @@ func TestDatabaseEnvVars(t *testing.T) {
 		Name:  util.EnvVarSSLRequireValidMMSCertificates,
 		Value: "true",
 	})
+
+	envVars = defaultPodVars()
+	opts = DatabaseStatefulSetOptions{
+		PodVars:              envVars,
+		ExternalAgentVersion: "108.0.1.8800-1",
+	}
+	podEnv = databaseEnvVars(opts)
+	var names []string
+	for _, ev := range podEnv {
+		names = append(names, ev.Name)
+	}
+	assert.Contains(t, names, util.EnvVarAgentVersion)
+	for _, ev := range podEnv {
+		if ev.Name == util.EnvVarAgentVersion {
+			assert.Equal(t, "108.0.1.8800-1", ev.Value)
+		}
+	}
 
 	envVars = defaultPodVars()
 	envVars.SSLMMSCAConfigMap = "custom-ca"
@@ -320,6 +395,84 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 	})
 }
 
+func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
+	t.Run("static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		mdb.Spec.DownloadBase = "/custom/download/base"
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.AgentContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
+			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
+	})
+
+	t.Run("non-static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		mdb.Spec.DownloadBase = "/custom/download/base"
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.DatabaseContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		assert.Contains(t, sts.Spec.Template.Spec.Containers[agentIdx].Env,
+			corev1.EnvVar{Name: DownloadBaseEnv, Value: "/custom/download/base"})
+	})
+
+	t.Run("default download base does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
+		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+		// No DownloadBase configured, so GetDownloadBase returns util.DefaultPvcMmsMountPath.
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+
+		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+			return c.Name == util.DatabaseContainerName
+		})
+		require.NotEqual(t, -1, agentIdx)
+		for _, env := range sts.Spec.Template.Spec.Containers[agentIdx].Env {
+			assert.NotEqual(t, DownloadBaseEnv, env.Name)
+		}
+	})
+}
+
+func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
+	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
+
+	sc := mdbv1.NewClusterBuilder().Build()
+	sc.Spec.DownloadBase = "/custom/download/base"
+
+	kubeClient, _ := mock.NewDefaultFakeClient(sc)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)
+	configServerSpec := createConfigSrvSpec(sc)
+	mongosSpec := createMongosSpec(sc)
+
+	withPodVars := func(options *DatabaseStatefulSetOptions) {
+		options.PodVars = defaultPodVars()
+	}
+
+	cases := map[string]func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions{
+		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars),
+		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars),
+		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars),
+	}
+
+	for name, optFunc := range cases {
+		t.Run(name, func(t *testing.T) {
+			set := DatabaseStatefulSet(*sc, optFunc, zap.S())
+			assertAgentDownloadMount(t, set, "/custom/download/base")
+		})
+	}
+}
+
 func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 	tests := []struct {
 		name                 string
@@ -376,4 +529,109 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
+	perTierConfigSrv := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("config.example.com")}
+	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("top.example.com")}
+
+	newShardedCluster := func(mutate func(spec *mdbv1.MongoDbSpec)) mdbv1.MongoDB {
+		sc := mdbv1.NewDefaultShardedClusterBuilder().
+			SetName("slaney").
+			SetNamespace("test-ns").
+			SetShardCountSpec(1).
+			SetMongosCountSpec(2).
+			Build()
+		mutate(&sc.Spec)
+
+		// single-cluster StatefulSet construction looks up the member cluster in each tier's
+		// ClusterSpecList, which the reconciler normally populates during defaulting.
+		for _, componentSpec := range []*mdbv1.ShardedClusterComponentSpec{sc.Spec.ConfigSrvSpec, sc.Spec.MongosSpec, sc.Spec.ShardSpec} {
+			componentSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+				{ClusterName: multicluster.LegacyCentralClusterName, Members: 3},
+			}
+		}
+
+		return *sc
+	}
+
+	t.Run("config servers pick up their per-tier configuration in single-cluster", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {
+			spec.ConfigSrvSpec.ExternalAccessConfiguration = perTierConfigSrv
+		})
+
+		opts := ConfigServerOptions(sc.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		require.NotNil(t, opts.ExternalAccessConfiguration)
+		assert.Equal(t, "config.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+		assert.Equal(t, sc.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName,
+			"a tier with an external domain must mount the hostname-override ConfigMap")
+	})
+
+	t.Run("config servers get nothing from the top-level field in single-cluster", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {
+			spec.ExternalAccessConfiguration = topLevel
+		})
+
+		opts := ConfigServerOptions(sc.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		assert.Nil(t, opts.ExternalAccessConfiguration)
+		assert.Empty(t, opts.HostNameOverrideConfigmapName)
+	})
+
+	t.Run("mongos still honours the top-level field in single-cluster", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {
+			spec.ExternalAccessConfiguration = topLevel
+		})
+
+		opts := MongosOptions(sc.Spec.MongosSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		require.NotNil(t, opts.ExternalAccessConfiguration)
+		assert.Equal(t, "top.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+		assert.Equal(t, sc.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+	})
+
+	t.Run("shards get nothing when nothing is configured", func(t *testing.T) {
+		sc := newShardedCluster(func(spec *mdbv1.MongoDbSpec) {})
+
+		opts := ShardOptions(0, sc.Spec.ShardSpec, multicluster.LegacyCentralClusterName)(sc)
+
+		assert.Nil(t, opts.ExternalAccessConfiguration)
+		assert.Empty(t, opts.HostNameOverrideConfigmapName)
+	})
+}
+
+func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
+	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("rs.example.com")}
+	rs := mdbv1.NewReplicaSetBuilder().SetName("rs").SetNamespace("test-ns").SetMembers(3).Build()
+	rs.Spec.ExternalAccessConfiguration = topLevel
+
+	opts := ReplicaSetOptions()(*rs)
+
+	require.NotNil(t, opts.ExternalAccessConfiguration)
+	assert.Equal(t, "rs.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+	// An external domain means processes advertise their external hostname, which only works with the
+	// hostname override ConfigMap mounted into the pods.
+	assert.Equal(t, rs.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+}
+
+// TestStandaloneOptionsCarryTopLevelExternalAccess guards against the external service of a standalone
+// being deleted on the next reconciliation: create.DatabaseInKubernetes creates or deletes it based on
+// DatabaseStatefulSetOptions.ExternalAccessConfiguration, so StandaloneOptions has to populate it.
+func TestStandaloneOptionsCarryTopLevelExternalAccess(t *testing.T) {
+	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
+	st.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("st.example.com")}
+
+	opts := StandaloneOptions()(*st)
+
+	require.NotNil(t, opts.ExternalAccessConfiguration)
+	assert.Equal(t, "st.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
+}
+
+func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
+	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
+
+	opts := StandaloneOptions()(*st)
+
+	assert.Nil(t, opts.ExternalAccessConfiguration)
 }

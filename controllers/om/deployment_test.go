@@ -28,17 +28,17 @@ func TestMergeStandalone(t *testing.T) {
 	d := NewDeployment()
 	mergeStandalone(d, createStandalone())
 
-	assert.Len(t, d.getProcesses(), 1)
+	assert.Len(t, d.GetProcesses(), 1)
 
 	d["version"] = 5
-	d.getProcesses()[0]["alias"] = "alias"
-	d.getProcesses()[0]["hostname"] = "foo"
-	d.getProcesses()[0]["authSchemaVersion"] = 10
-	d.getProcesses()[0]["featureCompatibilityVersion"] = "bla"
+	d.GetProcesses()[0]["alias"] = "alias"
+	d.GetProcesses()[0]["hostname"] = "foo"
+	d.GetProcesses()[0]["authSchemaVersion"] = 10
+	d.GetProcesses()[0]["featureCompatibilityVersion"] = "bla"
 
 	mergeStandalone(d, createStandalone())
 
-	assert.Len(t, d.getProcesses(), 1)
+	assert.Len(t, d.GetProcesses(), 1)
 
 	expected := createStandalone()
 
@@ -56,7 +56,7 @@ func TestMergeReplicaSet(t *testing.T) {
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
 
-	assert.Len(t, d.getProcesses(), 3)
+	assert.Len(t, d.GetProcesses(), 3)
 	assert.Len(t, d.GetReplicaSets(), 1)
 	assert.Len(t, d.GetReplicaSets()[0].Members(), 3)
 	assert.Equal(t, d.GetReplicaSets()[0], expectedRs.Rs)
@@ -65,16 +65,16 @@ func TestMergeReplicaSet(t *testing.T) {
 	// by merge
 	newProcess := NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, &mdbv1.NewStandaloneBuilder().Build().Spec, "", nil, "", architectures.NonStatic)
 
-	d.getProcesses()[0]["processType"] = ProcessTypeMongos                            // this will be overriden
-	d.getProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20              // this will be left as-is
-	d.GetReplicaSets()[0]["protocolVersion"] = 10                                     // this field will be overriden by Operator
-	d.GetReplicaSets()[0].setMembers(d.GetReplicaSets()[0].Members()[0:2])            // "removing" the last node in replicaset
-	d.GetReplicaSets()[0].addMember(newProcess, "", automationconfig.MemberOptions{}) // "adding" some new node
-	d.GetReplicaSets()[0].Members()[0]["arbiterOnly"] = true                          // changing data for first node
+	d.GetProcesses()[0]["processType"] = ProcessTypeMongos                             // this will be overriden
+	d.GetProcesses()[1].EnsureNetConfig()["MaxIncomingConnections"] = 20               // this will be left as-is
+	d.GetReplicaSets()[0]["protocolVersion"] = 10                                      // this field will be overriden by Operator
+	d.GetReplicaSets()[0].setMembers(d.GetReplicaSets()[0].Members()[0:2])             // "removing" the last node in replicaset
+	d.GetReplicaSets()[0].addMember(newProcess, nil, automationconfig.MemberOptions{}) // "adding" some new node
+	d.GetReplicaSets()[0].Members()[0]["arbiterOnly"] = true                           // changing data for first node
 
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcesses("fooRs"))
 
-	assert.Len(t, d.getProcesses(), 3)
+	assert.Len(t, d.GetProcesses(), 3)
 	assert.Len(t, d.GetReplicaSets(), 1)
 
 	expectedRs = buildRsByProcesses("fooRs", createReplicaSetProcesses("fooRs"))
@@ -89,21 +89,21 @@ func TestMergeReplica_ScaleDown(t *testing.T) {
 	d := NewDeployment()
 
 	mergeReplicaSet(d, "someRs", createReplicaSetProcesses("someRs"))
-	assert.Len(t, d.getProcesses(), 3)
+	assert.Len(t, d.GetProcesses(), 3)
 	assert.Len(t, d.GetReplicaSets()[0].Members(), 3)
 
 	// "scale down"
 	scaledDownRsProcesses := createReplicaSetProcesses("someRs")[0:2]
 	mergeReplicaSet(d, "someRs", scaledDownRsProcesses)
 
-	assert.Len(t, d.getProcesses(), 2)
+	assert.Len(t, d.GetProcesses(), 2)
 	assert.Len(t, d.GetReplicaSets()[0].Members(), 2)
 
 	// checking that the last member was removed
 	rsProcesses := buildRsByProcesses("someRs", createReplicaSetProcesses("someRs")).Processes
-	assert.Contains(t, d.getProcesses(), rsProcesses[0])
-	assert.Contains(t, d.getProcesses(), rsProcesses[1])
-	assert.NotContains(t, d.getProcesses(), rsProcesses[2])
+	assert.Contains(t, d.GetProcesses(), rsProcesses[0])
+	assert.Contains(t, d.GetProcesses(), rsProcesses[1])
+	assert.NotContains(t, d.GetProcesses(), rsProcesses[2])
 }
 
 // TestMergeReplicaSet_MergeFirstProcess checks that if the replica set is scaled up - then all OM changes to existing
@@ -115,15 +115,15 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 	mergeReplicaSet(d, "anotherRs", createReplicaSetProcesses("anotherRs"))
 
 	// Now the first process (and usually all others in practice) are changed by OM
-	d.getProcesses()[0].EnsureNetConfig()["MaxIncomingConnections"] = 20
-	d.getProcesses()[0]["backupRestoreUrl"] = "http://localhost:7890"
-	d.getProcesses()[0]["logRotate"] = map[string]int{"sizeThresholdMB": 3000, "timeThresholdHrs": 12}
-	d.getProcesses()[0]["kerberos"] = map[string]string{"keytab": "123456"}
+	d.GetProcesses()[0].EnsureNetConfig()["MaxIncomingConnections"] = 20
+	d.GetProcesses()[0]["backupRestoreUrl"] = "http://localhost:7890"
+	d.GetProcesses()[0]["logRotate"] = map[string]int{"sizeThresholdMB": 3000, "timeThresholdHrs": 12}
+	d.GetProcesses()[0]["kerberos"] = map[string]string{"keytab": "123456"}
 
 	// Now we merged the scaled up RS
 	mergeReplicaSet(d, "fooRs", createReplicaSetProcessesCount(5, "fooRs"))
 
-	assert.Len(t, d.getProcesses(), 8)
+	assert.Len(t, d.GetProcesses(), 8)
 	assert.Len(t, d.GetReplicaSets(), 2)
 
 	expectedRs := buildRsByProcesses("fooRs", createReplicaSetProcessesCount(5, "fooRs"))
@@ -160,14 +160,14 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(8, "my-rs"))
 	checkNumberOfVotingMembers(t, rs, 8, 8)
 
-	omDeployment.MergeReplicaSet(rs, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 7, 8)
 
 	// Now OM user "has changed" votes for some of the members - this must stay the same after merge
 	omDeployment.GetReplicaSets()[0].Members()[2].setVotes(0).setPriority(0)
 	omDeployment.GetReplicaSets()[0].Members()[4].setVotes(0).setPriority(0)
 
-	omDeployment.MergeReplicaSet(rs, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 5, 8)
 
 	// Now operator scales up by one - the "OM votes" should not suffer, but total number of votes will increase by one
@@ -175,7 +175,7 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[7].setVotes(0).setPriority(0)
-	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 6, 9)
 
 	// Now operator scales up by two - the "OM votes" should not suffer, but total number of votes will increase by one
@@ -184,7 +184,7 @@ func TestMergeDeployment_BigReplicaset(t *testing.T) {
 	rsToMerge.Rs.Members()[2].setVotes(0).setPriority(0)
 	rsToMerge.Rs.Members()[4].setVotes(0).setPriority(0)
 
-	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, zap.S())
+	omDeployment.MergeReplicaSet(rsToMerge, nil, nil, nil, zap.S())
 	checkNumberOfVotingMembers(t, rs, 7, 11)
 	assert.Equal(t, 0, omDeployment.GetReplicaSets()[0].Members()[2].Votes())
 	assert.Equal(t, 0, omDeployment.GetReplicaSets()[0].Members()[4].Votes())
@@ -196,11 +196,11 @@ func TestGetAllProcessNames_MergedReplicaSetsAndShardedClusters(t *testing.T) {
 	d := NewDeployment()
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
 
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	assert.Equal(t, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, d.GetAllProcessNames())
 
 	rs1 := buildRsByProcesses("another-rs", createReplicaSetProcessesCount(5, "another-rs"))
-	d.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
 
 	assert.Equal(
 		t,
@@ -291,15 +291,15 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
-	excessProcesses := d.GetNumberOfExcessProcesses("my-rs")
+	excessProcesses := d.GetNumberOfExcessProcesses("my-rs", nil)
 	// There's only one resource in this deployment
 	assert.Equal(t, 0, excessProcesses)
 
 	rs1 := buildRsByProcesses("my-rs-second", createReplicaSetProcessesCount(3, "my-rs-second"))
-	d.MergeReplicaSet(rs1, nil, nil, zap.S())
-	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
+	d.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", nil)
 
 	// another replica set was added to the deployment. 3 processes do not belong to this one
 	assert.Equal(t, 3, excessProcesses)
@@ -316,18 +316,18 @@ func TestDeploymentCountIsCorrect(t *testing.T) {
 
 	_, err := d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	excessProcesses = d.GetNumberOfExcessProcesses("my-rs")
+	excessProcesses = d.GetNumberOfExcessProcesses("my-rs", nil)
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 18, excessProcesses)
 
 	// This unknown process does not belong in here
-	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name")
+	excessProcesses = d.GetNumberOfExcessProcesses("some-unknown-name", nil)
 
 	// a Sharded Cluster was added, plenty of processes do not belong to "my-rs" anymore
 	assert.Equal(t, 21, excessProcesses)
 
-	excessProcesses = d.GetNumberOfExcessProcesses("sc001")
+	excessProcesses = d.GetNumberOfExcessProcesses("sc001", nil)
 	// There are 6 processes that do not belong to the sc001 sharded cluster
 	assert.Equal(t, 6, excessProcesses)
 }
@@ -346,9 +346,9 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 	_, err := d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 3)
+	assert.Len(t, d.getShardedClusterByName("sc001").Shards(), 3)
 	assert.Len(t, d.GetReplicaSets(), 4)
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
 
 	// Now we are "scaling down" the sharded cluster - so junk replica sets will appear - this is still ok
 	twoShards := createShards("sc001")[0:2]
@@ -363,33 +363,55 @@ func TestGetNumberOfExcessProcesses_ShardedClusterScaleDown(t *testing.T) {
 
 	_, err = d.MergeShardedCluster(mergeOpts)
 	assert.NoError(t, err)
-	assert.Len(t, d.getShardedClusterByName("sc001").shards(), 2)
+	assert.Len(t, d.getShardedClusterByName("sc001").Shards(), 2)
 	assert.Len(t, d.GetReplicaSets(), 4)
 
-	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001"))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc001", nil))
 }
 
-func TestIsShardOf(t *testing.T) {
-	clusterName := "my-shard"
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-0"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-3"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-9"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-10"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-23"))
-	assert.True(t, isShardOfShardedCluster(clusterName, "my-shard-452"))
+// TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName verifies that scale down works the same
+// with shardedClusterNameOverride, where the AC cluster name intentionally differs from the K8s
+// resource name. Junk replica sets are recognised through the draining list, names play no role.
+func TestGetNumberOfExcessProcesses_ACNameDiffersFromK8sName(t *testing.T) {
+	d := NewDeployment()
+	configRs := createConfigSrvRs("ac-config", false)
 
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-my-shard"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-s"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1-0"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "mmy-shard-1"))
-	assert.False(t, isShardOfShardedCluster(clusterName, "my-shard-1s"))
+	// Initial: cluster named "ac-mongos", two shards with K8s prefix "sc-overrides".
+	twoShards := createSpecificNumberOfShards(2, "sc-overrides")
+	_, err := d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "ac-mongos",
+		MongosProcesses: createMongosProcesses(1, "sc-overrides-mongos", "ac-mongos"),
+		ConfigServerRs:  configRs,
+		Shards:          twoShards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", nil))
+
+	// Scale down to 1 shard: "sc-overrides-1" is removed from the sharding section
+	// but its RS lingers in the deployment (phase 1 of scale-down).
+	oneShards := twoShards[0:1]
+	_, err = d.MergeShardedCluster(DeploymentShardedClusterMergeOptions{
+		Name:            "ac-mongos",
+		MongosProcesses: createMongosProcesses(1, "sc-overrides-mongos", "ac-mongos"),
+		ConfigServerRs:  configRs,
+		Shards:          oneShards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	assert.Len(t, d.getShardedClusterByName("ac-mongos").Shards(), 1)
+	// The junk RS is still present in the deployment.
+	assert.Len(t, d.GetReplicaSets(), 3)
+
+	// The junk RS is recognised through the draining list, exactly as without an override.
+	assert.Equal(t, []string{"sc-overrides-1"}, d.getShardedClusterByName("ac-mongos").draining())
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("ac-mongos", nil))
 }
 
 func TestProcessBelongsToReplicaSet(t *testing.T) {
 	d := NewDeployment()
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
 	assert.True(t, d.ProcessBelongsToResource("my-rs-0", "my-rs"))
 	assert.True(t, d.ProcessBelongsToResource("my-rs-1", "my-rs"))
@@ -455,7 +477,7 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	d0 := NewDeployment()
 	rs0Processes := createReplicaSetProcessesCount(3, "my-rs")
 	rs0 := buildRsByProcesses("my-rs", rs0Processes)
-	d0.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d0.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 
 	assert.Equal(t, uint64(3), d0.MinimumMajorVersion())
 
@@ -463,14 +485,14 @@ func TestDeploymentMinimumMajorVersion(t *testing.T) {
 	rs1Processes := createReplicaSetProcessesCount(3, "my-rs")
 	rs1Processes[0]["featureCompatibilityVersion"] = "2.4"
 	rs1 := buildRsByProcesses("my-rs", rs1Processes)
-	d1.MergeReplicaSet(rs1, nil, nil, zap.S())
+	d1.MergeReplicaSet(rs1, nil, nil, nil, zap.S())
 
 	assert.Equal(t, uint64(2), d1.MinimumMajorVersion())
 
 	d2 := NewDeployment()
 	rs2Processes := createReplicaSetProcessesCountEnt(3, "my-rs")
 	rs2 := buildRsByProcesses("my-rs", rs2Processes)
-	d2.MergeReplicaSet(rs2, nil, nil, zap.S())
+	d2.MergeReplicaSet(rs2, nil, nil, nil, zap.S())
 
 	assert.Equal(t, uint64(3), d2.MinimumMajorVersion())
 }
@@ -485,7 +507,7 @@ func TestConfiguringTlsProcessFromOpsManager(t *testing.T) {
 
 	assert.Contains(t, deployment, "tls")
 
-	for _, p := range deployment.getProcesses() {
+	for _, p := range deployment.GetProcesses() {
 		assert.Contains(t, p.EnsureNetConfig(), "tls")
 	}
 }
@@ -494,7 +516,7 @@ func TestConfigureMonitoring(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
 	expectedMonitoringVersions := []interface{}{
@@ -513,7 +535,7 @@ func TestConfigureMonitoringTls(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	expectedAdditionalParams := map[string]string{
@@ -537,7 +559,7 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), true, util.CAFilePathInContainer)
 
 	// verify TLS is present in additionalParams
@@ -566,7 +588,7 @@ func TestConfigureBackup(t *testing.T) {
 	d := NewDeployment()
 
 	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
-	d.MergeReplicaSet(rs0, nil, nil, zap.S())
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureBackup(zap.S())
 
 	expectedBackupVersions := []interface{}{
@@ -631,7 +653,7 @@ func checkReplicaSetCheckExtraProcesses(t *testing.T, d Deployment, expectedRs R
 
 	found := 0
 	totalMongods := 0
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		for i, e := range expectedRs.Processes {
 			if p.ProcessType() == ProcessTypeMongod && p.Name() == e.Name() {
 				assert.Equal(t, e, p, "Process %d (%s) doesn't match! \nExpected: %v, \nReal: %v", i, p.Name(), e.json(), p.json())
@@ -655,7 +677,7 @@ func checkReplicaSet(t *testing.T, d Deployment, expectedRs ReplicaSetWithProces
 func checkProcess(t *testing.T, d Deployment, expectedProcess Process) {
 	assert.NotNil(t, d.getProcessByName(expectedProcess.Name()))
 
-	for _, p := range d.getProcesses() {
+	for _, p := range d.GetProcesses() {
 		if p.Name() == expectedProcess.Name() {
 			assert.Equal(t, expectedProcess, p)
 			break
@@ -742,6 +764,7 @@ func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name 
 			NewReplicaSet(rsName, "3.6.3"),
 			createReplicaSetProcessesCount(countMongods, rsName),
 			options,
+			nil,
 		)
 	}
 	return shards
@@ -753,6 +776,7 @@ func buildRsByProcesses(rsName string, processes []Process) ReplicaSetWithProces
 		NewReplicaSet(rsName, "3.6.3"),
 		processes,
 		options,
+		nil,
 	)
 }
 
@@ -803,6 +827,7 @@ func createConfigSrvRs(name string, check bool) ReplicaSetWithProcesses {
 		NewReplicaSet(name, "3.6.3"),
 		createReplicaSetProcesses(name),
 		options,
+		nil,
 	)
 
 	if check {
@@ -819,6 +844,7 @@ func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithPr
 		NewReplicaSet(name, "3.6.3"),
 		createReplicaSetProcessesCount(count, name),
 		options,
+		nil,
 	)
 
 	if check {
@@ -831,7 +857,7 @@ func createConfigSrvRsCount(count int, name string, check bool) ReplicaSetWithPr
 
 func mergeReplicaSet(d Deployment, rsName string, rsProcesses []Process) ReplicaSetWithProcesses {
 	rs := buildRsByProcesses(rsName, rsProcesses)
-	d.MergeReplicaSet(rs, nil, nil, zap.S())
+	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 	return rs
 }
 
@@ -843,4 +869,167 @@ func mergeStandalone(d Deployment, s Process) Process {
 func defaultMongoDBVersioned(version string) mdbv1.DbSpec {
 	spec := mdbv1.NewReplicaSetBuilder().SetVersion(version).Build().Spec
 	return &spec
+}
+
+func TestGetNumberOfExcessProcesses_ExternalMembersNotCountedAsExcess(t *testing.T) {
+	d := NewDeployment()
+	rs0 := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
+
+	extProcess := NewMongodProcess(
+		"ext-0", "ext-0.external.host",
+		"fake-image", false,
+		&mdbv1.AdditionalMongodConfig{},
+		defaultMongoDBVersioned("6.0.0"),
+		"", nil, "", architectures.NonStatic,
+	)
+	d["processes"] = append(d.GetProcesses(), extProcess)
+
+	// Without declaring ext-0 as external: it is excess
+	assert.Equal(t, 1, d.GetNumberOfExcessProcesses("my-rs", nil))
+
+	// Declaring ext-0 as external by process name: no longer excess
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("my-rs", []string{"ext-0"}))
+}
+
+func TestCheckProcessFields_ProcessNotFound(t *testing.T) {
+	d := NewDeployment()
+	assert.False(t, d.CheckProcessFields("nonexistent", "host:27017", "mongod", "my-rs"))
+}
+
+func TestCheckProcessFields_HostnameMismatch(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.False(t, d.CheckProcessFields("my-rs-0", "wrong-host:27017", "mongod", "my-rs"))
+}
+
+func TestCheckProcessFields_TypeMismatch(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.False(t, d.CheckProcessFields("my-rs-0", "my-rs-0.some.host:27017", "mongos", "my-rs"))
+}
+
+func TestCheckProcessFields_MongodInCorrectRS(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.True(t, d.CheckProcessFields("my-rs-0", "my-rs-0.some.host:27017", "mongod", "my-rs"))
+}
+
+func TestCheckProcessFields_MongodInWrongRS(t *testing.T) {
+	d := NewDeployment()
+	mergeReplicaSet(d, "my-rs", createReplicaSetProcessesCount(1, "my-rs"))
+	assert.False(t, d.CheckProcessFields("my-rs-0", "my-rs-0.some.host:27017", "mongod", "other-rs"))
+}
+
+func TestCheckProcessFields_MongosNoRSCheck(t *testing.T) {
+	d := NewDeployment()
+	mongosProcesses := createMongosProcesses(1, "mongos", "")
+	d["processes"] = append(d.GetProcesses(), mongosProcesses[0])
+
+	p := mongosProcesses[0]
+	expectedHostname := fmt.Sprintf("%s:%s", p.HostName(), p.Port())
+	assert.True(t, d.CheckProcessFields(p.Name(), expectedHostname, "mongos", ""))
+}
+
+func TestMergeReplicaSet_ExternalMembersPreservedInDeployment(t *testing.T) {
+	d := NewDeployment()
+
+	omRs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	d.MergeReplicaSet(omRs, nil, nil, nil, zap.S())
+
+	// Simulate OM having an external member in the RS members list
+	extMember := ReplicaSetMember{}
+	extMember["host"] = "ext-0.external.host:27017"
+	extMember["_id"] = 3
+	extMember["votes"] = 1
+	extMember["priority"] = float32(1)
+	extMember["tags"] = map[string]string{}
+	rs := d.GetReplicaSets()[0]
+	rs.setMembers(append(rs.Members(), extMember))
+
+	// Second merge: operator still only knows 3 members; ext member declared by host
+	operatorRs := buildRsByProcesses("my-rs", createReplicaSetProcessesCount(3, "my-rs"))
+	externalMembers := []string{"ext-0.external.host:27017"}
+	d.MergeReplicaSet(operatorRs, nil, nil, externalMembers, zap.S())
+
+	memberHosts := make([]string, 0)
+	for _, m := range d.GetReplicaSets()[0].Members() {
+		memberHosts = append(memberHosts, m.Name())
+	}
+	assert.Contains(t, memberHosts, "ext-0.external.host:27017")
+	assert.Len(t, d.GetReplicaSets()[0].Members(), 4)
+}
+
+func TestLimitVotingMembers_SkipsWhenExternalMembersPresent(t *testing.T) {
+	d := NewDeployment()
+	rs := ReplicaSet{"_id": "my-rs"}
+	members := []ReplicaSetMember{
+		{"_id": 0, "host": "rs-0", "votes": 1, "priority": float32(1)},
+		{"_id": 1, "host": "rs-1", "votes": 1, "priority": float32(1)},
+		{"_id": 2, "host": "rs-2", "votes": 1, "priority": float32(1)},
+		{"_id": 3, "host": "rs-3", "votes": 1, "priority": float32(1)},
+		{"_id": 4, "host": "rs-4", "votes": 1, "priority": float32(1)},
+		{"_id": 5, "host": "rs-5", "votes": 1, "priority": float32(1)},
+		{"_id": 6, "host": "rs-6", "votes": 1, "priority": float32(1)},
+		// 8th member would normally be zeroed by limitVotingMembers
+		{"_id": 7, "host": "ext-0", "votes": 1, "priority": float32(1)},
+	}
+	rs["members"] = members
+	d["replicaSets"] = []ReplicaSet{rs}
+
+	d.limitVotingMembers("my-rs", []string{"ext-0"})
+
+	got := d.getReplicaSetByName("my-rs").Members()
+	require.Len(t, got, 8)
+	for i, m := range got {
+		assert.Equal(t, 1, m.Votes(), "member %d (%s) votes should be unchanged", i, m.Name())
+		assert.Equal(t, float32(1), m.Priority(), "member %d (%s) priority should be unchanged", i, m.Name())
+	}
+}
+
+func TestLimitVotingMembers_AppliesNormallyWhenNoExternalMembers(t *testing.T) {
+	d := NewDeployment()
+	rs := ReplicaSet{"_id": "my-rs"}
+	members := []ReplicaSetMember{
+		{"_id": 0, "host": "rs-0", "votes": 1, "priority": float32(1)},
+		{"_id": 1, "host": "rs-1", "votes": 1, "priority": float32(1)},
+		{"_id": 2, "host": "rs-2", "votes": 1, "priority": float32(1)},
+		{"_id": 3, "host": "rs-3", "votes": 1, "priority": float32(1)},
+		{"_id": 4, "host": "rs-4", "votes": 1, "priority": float32(1)},
+		{"_id": 5, "host": "rs-5", "votes": 1, "priority": float32(1)},
+		{"_id": 6, "host": "rs-6", "votes": 1, "priority": float32(1)},
+		{"_id": 7, "host": "rs-7", "votes": 1, "priority": float32(1)},
+	}
+	rs["members"] = members
+	d["replicaSets"] = []ReplicaSet{rs}
+
+	d.limitVotingMembers("my-rs", nil)
+
+	got := d.getReplicaSetByName("my-rs").Members()
+	require.Len(t, got, 8)
+	// First 7 still voting, 8th zeroed by the legacy auto-adjust
+	for i := 0; i < 7; i++ {
+		assert.Equal(t, 1, got[i].Votes(), "member %d should still be voting", i)
+	}
+	assert.Equal(t, 0, got[7].Votes(), "8th member should be zeroed")
+	assert.Equal(t, float32(0), got[7].Priority(), "8th member priority should be zeroed")
+}
+
+func TestSetDownloadBase(t *testing.T) {
+	t.Run("custom download base is set", func(t *testing.T) {
+		d := NewDeployment()
+
+		d.SetDownloadBase("/custom/download/base")
+
+		assert.Equal(t, "/custom/download/base", d.DownloadBase())
+	})
+
+	t.Run("default download base is not set", func(t *testing.T) {
+		d := NewDeployment()
+
+		d.SetDownloadBase(util.DefaultPvcMmsMountPath)
+
+		assert.Empty(t, d.DownloadBase())
+		assert.NotContains(t, d, "options")
+	})
 }

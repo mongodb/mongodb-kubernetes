@@ -556,6 +556,15 @@ spec:
               credentials:
                 description: Name of the Secret holding credentials information
                 type: string
+              downloadBase:
+                description: |-
+                  DownloadBase is the directory on the MongoDB host where the automation agent
+                  downloads and extracts MongoDB binaries. It is always used by the operator, and
+                  the keyfile path is derived from it (<downloadBase>/keyfile). If empty, it
+                  defaults to "/var/lib/mongodb-mms-automation".
+                  This field should only be set (and only if needed) when migrating an existing
+                  VM-based deployment to the operator.
+                type: string
               duplicateServiceObjects:
                 description: |-
                   In few service mesh options for ex: Istio, by default we would need to duplicate the
@@ -656,6 +665,16 @@ spec:
                 - passwordSecretRef
                 - username
                 type: object
+              role:
+                description: |-
+                  Role marks this resource as playing a special role for another MongoDB
+                  Kubernetes resource. Currently only AppDB is supported, marking this
+                  resource as the externally-managed Application Database for a
+                  MongoDBOpsManager resource.
+                type: string
+                x-kubernetes-validations:
+                - message: spec.role must be 'AppDB' when set
+                  rule: self == '' || self == 'AppDB'
               security:
                 properties:
                   authentication:
@@ -667,6 +686,17 @@ spec:
                         description: Agents contains authentication configuration
                           properties for the agents
                         properties:
+                          autoPEMKeyFilePath:
+                            description: |-
+                              AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
+                              database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+                              and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
+                              that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
+                              hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
+                              This field is meant to be used only in the context of a migration into MCK where the existing project is already configured with a non-default path for the PEM file.
+                              In all other cases, this field should be left empty and the operator will use the default path.
+                              This field will not be used for MongoDBMultiCluster, AppDB or MongoDB standalone resource.
+                            type: string
                           automationLdapGroupDN:
                             type: string
                           automationPasswordSecretRef:
@@ -942,8 +972,20 @@ spec:
                         type: array
                       ca:
                         description: |-
-                          CA corresponds to a ConfigMap containing an entry for the CA certificate (ca.pem)
-                          used to validate the certificates created already.
+                          CA corresponds to a ConfigMap containing the CA certificate used to validate
+                          the certificates created already. The ConfigMap must contain a key named ca-pem
+                          whose value is the PEM-encoded CA bundle.
+                        type: string
+                      caFilePath:
+                        description: |-
+                          CAFilePath is the absolute path for the CA certificate file. It must have
+                          at least two segments, for example /var/lib/ca/ca-pem. The ConfigMap
+                          referenced by tls.CA must contain a key named ca-pem, which the operator
+                          projects to this path. If the parent directory overlaps a volume mount
+                          declared in your podTemplate, the operator's mount will shadow that mount.
+                          Not supported for the AppDB.
+                          Default: /mongodb-automation/tls/ca/ca-pem
+                        pattern: ^/[a-zA-Z0-9._\-]+(/[a-zA-Z0-9._\-]+)+$
                         type: string
                       enabled:
                         description: |-
@@ -1008,6 +1050,31 @@ spec:
             - version
             type: object
             x-kubernetes-preserve-unknown-fields: true
+            x-kubernetes-validations:
+            - message: spec.role is not supported on MongoDBMultiCluster
+              rule: '!has(self.role) || self.role == ""'
+            - message: spec.security.authentication must be enabled with modes [SCRAM]
+                only when spec.role is AppDB, or omitted entirely
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
+                || !has(self.security.authentication) || (self.security.authentication.enabled
+                == true && has(self.security.authentication.modes) && size(self.security.authentication.modes)
+                == 1 && self.security.authentication.modes[0] == ''SCRAM'')'
+            - message: spec.security.authentication.ignoreUnknownUsers must be true
+                when spec.role is AppDB and authentication is set
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
+                || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers
+                == true'
+            - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
+            - message: spec.topology MultiCluster is not supported when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
+                || self.topology != ''MultiCluster'''
+            - message: 'spec.role is immutable: it cannot be added, removed, or changed
+                after creation; to stop using a resource as AppDB, perform a reverse
+                migration (delete the resource)'
+              rule: has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role
+                == oldSelf.role)
           status:
             properties:
               backup:

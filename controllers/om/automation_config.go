@@ -224,7 +224,7 @@ func (ac *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
 
 // SetOptionsDownloadBase is needed only for the cluster config file when we use a headless agent
 func (ac *AutomationConfig) SetOptionsDownloadBase(downloadBase string) *AutomationConfig {
-	ac.Deployment["options"] = map[string]string{"downloadBase": downloadBase}
+	ac.Deployment["options"] = map[string]interface{}{"downloadBase": downloadBase}
 
 	return ac
 }

@@ -184,6 +184,12 @@ func WithOMDefaultArchitecture(defaultArchitecture architectures.DefaultArchitec
 	}
 }
 
+func WithAppDBTLSCAConfigMapName(name string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBTlsCAConfigMapName = name
+	}
+}
+
 // updateHTTPSCertSecret updates the fields for the OpsManager HTTPS certificate in case the provided secret is of type kubernetes.io/tls.
 func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Context, centralClusterSecretClient secrets.SecretClient, memberCluster multicluster.MemberCluster, ownerReferences []metav1.OwnerReference, log *zap.SugaredLogger) error {
 	// Return immediately if no Certificate is provided

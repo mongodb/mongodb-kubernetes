@@ -22,6 +22,16 @@ func Contains(slice []string, s string) bool {
 	return false
 }
 
+// ToSet returns the set of the distinct strings in `slice`, for membership
+// checks that would otherwise be a linear scan with Contains.
+func ToSet(slice []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(slice))
+	for _, s := range slice {
+		set[s] = struct{}{}
+	}
+	return set
+}
+
 // CheckCertificateAddresses determines if the provided FQDN can match any of the addresses or
 // SubjectAltNames (SAN) in an array of FQDNs/wildcards/shortnames.
 // Both the availableAddressNames and the testAddressName can contain wildcards, e.g. *.cluster-1.example.com

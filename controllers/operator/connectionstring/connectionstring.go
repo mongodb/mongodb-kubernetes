@@ -14,11 +14,12 @@ import (
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password string, scheme Scheme, connectionParams map[string]string) string
+	BuildConnectionString(userName, password, connectionStringDatabase string, scheme Scheme, connectionParams map[string]string) string
 }
 
 // Scheme states the connection string format.
@@ -49,6 +50,8 @@ type builder struct {
 	isTLSEnabled        bool
 
 	hostnames []string
+	// connectionStringDatabase is the database placed in the URI path
+	connectionStringDatabase string
 
 	scheme           Scheme
 	connectionParams map[string]string
@@ -124,6 +127,11 @@ func (b *builder) SetHostnames(hostnames []string) *builder {
 	return b
 }
 
+func (b *builder) SetConnectionStringDatabase(connectionStringDatabase string) *builder {
+	b.connectionStringDatabase = connectionStringDatabase
+	return b
+}
+
 func (b *builder) SetScheme(scheme Scheme) *builder {
 	b.scheme = scheme
 	return b
@@ -148,7 +156,15 @@ func (b *builder) Build() string {
 	var uri string
 	if b.scheme == SchemeMongoDBSRV {
 		uri = fmt.Sprintf("mongodb+srv://%s", userAuth)
-		uri += fmt.Sprintf("%s.%s.svc.%s", b.service, b.namespace, b.clusterDomain)
+		// When an external domain is configured, the internal service FQDN is not reachable from
+		// outside the cluster, so we publish the external domain instead. Provisioning the
+		// _mongodb._tcp SRV records in that zone is the customer's responsibility, just as it is
+		// for the A records that externalAccess already depends on.
+		if b.externalDomain != nil && *b.externalDomain != "" {
+			uri += *b.externalDomain
+		} else {
+			uri += fmt.Sprintf("%s.%s.svc.%s", b.service, b.namespace, b.clusterDomain)
+		}
 	} else {
 		uri = fmt.Sprintf("mongodb://%s", userAuth)
 		var hostnames []string
@@ -169,13 +185,16 @@ func (b *builder) Build() string {
 	}
 	if b.isTLSEnabled {
 		connectionParams["ssl"] = "true"
+	} else {
+		connectionParams["ssl"] = "false"
 	}
 
 	authSource, authMechanism := authSourceAndMechanism(b.authenticationModes, b.version)
 	if authSource != "" {
 		connectionParams["authSource"] = authSource
 	}
-	if authMechanism != "" {
+	// Omit authMechanism for $external users; the client supplies the mechanism at connect time.
+	if authMechanism != "" && b.connectionParams["authSource"] != constants.ExternalDB {
 		connectionParams["authMechanism"] = authMechanism
 	}
 
@@ -189,7 +208,7 @@ func (b *builder) Build() string {
 	for k := range connectionParams {
 		keys = append(keys, k)
 	}
-	uri += "/?"
+	uri += "/" + stringutil.EncodeUserinfoComponent(b.connectionStringDatabase) + "?"
 
 	// sorting parameters to make a url stable
 	sort.Strings(keys)

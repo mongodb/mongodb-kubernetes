@@ -1,0 +1,13 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: uid-vm-app-user-dc-example-dc-org
+  namespace: mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: ldap-cluster
+  roles:
+  - db: myapp
+    name: readWrite
+  username: uid=vm-app-user,dc=example,dc=org

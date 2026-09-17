@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om80"
+source "${script_dir}/variables/mongodb_search_dev"
+
+export KUBE_ENVIRONMENT_NAME=multi
+export CLUSTER_NAME="kind-e2e-cluster-1"
+export MEMBER_CLUSTERS="kind-e2e-cluster-1 kind-e2e-cluster-2 kind-e2e-cluster-3"
+export CENTRAL_CLUSTER=kind-e2e-cluster-1
+export TEST_POD_CLUSTER=kind-e2e-cluster-1
+export test_pod_cluster=kind-e2e-cluster-1
+
+# MCK is capable of deploying a webhook (optional).
+# To do so it needs know which pods to select for routing traffic
+# in the Service and operator name currently serves as a selector.
+# This value must be different for multi cluster setup,
+# but we can unify once we are done with unified operator
+# installation for both multicluster and single cluster setups.
+export OPERATOR_NAME="mongodb-kubernetes-operator-multi-cluster"

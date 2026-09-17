@@ -1,0 +1,17 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: primary-om-db
+spec:
+  members: 3
+  version: "8.0.6-ent"
+  type: ReplicaSet
+  role: AppDB
+  opsManager:
+    configMapRef:
+      name: primary-om-db-config
+  credentials: my-credentials
+  persistent: true
+  backup:
+    mode: enabled

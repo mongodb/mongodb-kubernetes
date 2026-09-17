@@ -25,8 +25,8 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-		assert.Equal(t, 5, process.authSchemaVersion())
-		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, 5, process.AuthSchemaVersion())
+		assert.Equal(t, "", process.ReplicaSetName())
 		assert.Equal(t, nil, process.LogRotateSizeThresholdMB())
 
 		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
@@ -60,8 +60,8 @@ func TestCreateMongodProcessStatic(t *testing.T) {
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-		assert.Equal(t, 5, process.authSchemaVersion())
-		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, 5, process.AuthSchemaVersion())
+		assert.Equal(t, "", process.ReplicaSetName())
 
 		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
 			"mode": "disabled",
@@ -329,4 +329,24 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedArgs, args, "option2 should have been removed as it was not specified")
+}
+
+func TestPort_ReturnsPortWhenSet(t *testing.T) {
+	spec := defaultMongoDBVersioned("7.0.0")
+	p := NewMongodProcess(
+		"rs-0", "rs-0.svc.cluster.local",
+		"mongodb/mongodb-enterprise-server:7.0.0",
+		false, &mdbv1.AdditionalMongodConfig{},
+		spec, "", nil, "7.0", architectures.NonStatic,
+	)
+	assert.Equal(t, "27017", p.Port())
+}
+
+func TestPort_ReturnsEmptyWhenNotSet(t *testing.T) {
+	p := Process{
+		"hostname":    "foo",
+		"processType": ProcessTypeMongod,
+		"args2_6":     map[string]interface{}{"net": map[string]interface{}{}},
+	}
+	assert.Equal(t, "", p.Port())
 }

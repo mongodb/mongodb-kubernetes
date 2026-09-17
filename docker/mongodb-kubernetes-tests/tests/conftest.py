@@ -1352,11 +1352,11 @@ def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[s
 
 
 def run_kube_config_creation_tool(
-    member_clusters: List[str],
+    member_clusters: list[str],
     central_namespace: str,
     member_namespace: str,
-    member_cluster_names: List[str],
-    cluster_scoped: Optional[bool] = False,
+    member_cluster_names: list[str],
+    cluster_scoped: bool = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
 ):
@@ -1364,8 +1364,8 @@ def run_kube_config_creation_tool(
     member_clusters_str = ",".join(member_clusters)
     args: list[str] = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "setup",
@@ -1443,8 +1443,8 @@ def run_multi_cluster_recovery_tool(
     member_clusters_str = ",".join(member_clusters)
     args: list[str] = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "recover",

@@ -29,6 +29,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import wait_for_resource_deleted
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -452,9 +453,23 @@ def test_verify_proxy_service_after_scaledown(namespace: str):
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
-def test_verify_envoy_cleanup(namespace: str):
-    """Envoy Deployment should be cleaned up (garbage collected via owner reference)."""
+def test_verify_envoy_cleanup(namespace: str, mdbs: MongoDBSearch):
+    """Envoy Deployment and ConfigMap are cleaned up, and status.loadBalancer clears."""
     assert_envoy_deployment_gone(namespace)
+
+    envoy_cm_name = search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME)
+    wait_for_resource_deleted(
+        lambda: k8s_client.CoreV1Api().read_namespaced_config_map(envoy_cm_name, namespace),
+        f"Envoy ConfigMap {envoy_cm_name}",
+    )
+
+    def check_lb_status_cleared():
+        mdbs.load()
+        lb = mdbs.get_lb_status()
+        return lb is None, f"status.loadBalancer={lb}"
+
+    run_periodically(check_lb_status_cleared, timeout=300, sleep_time=5, msg="status.loadBalancer clearing")
+    mdbs.assert_lb_status()
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service

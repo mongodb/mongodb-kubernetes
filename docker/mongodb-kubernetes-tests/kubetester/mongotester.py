@@ -4,9 +4,11 @@ import logging
 import os
 import random
 import string
+import subprocess
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pymongo
 from kubetester import kubetester
@@ -25,7 +27,7 @@ TEST_COLLECTION = "test-collection"
 
 
 def with_tls(use_tls: bool = False, ca_path: Optional[str] = None) -> Dict[str, Any]:
-    # SSL is set to true by default if using mongodb+srv, it needs to be explicitely set to false
+    # SSL is set to true by default if using mongodb+srv, it needs to be explicitly set to false
     # https://docs.mongodb.com/manual/reference/program/mongo/index.html#cmdoption-mongo-host
     options: Dict[str, Any] = {"tls": use_tls}
 
@@ -136,6 +138,54 @@ def _wait_for_mongodbuser_reconciliation() -> None:
         logging.warning(f"Error while waiting for MongoDBUser reconciliation: {e} - proceeding with authentication")
 
 
+def connection_string_without_query_param(connection_string: str, param: str) -> str:
+    parts = urlsplit(connection_string)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != param]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def connection_string_with_patched_path(connection_string: str, database: str) -> str:
+    """Return a copy of the connection string with the URI path set to /{database} (or / if empty)."""
+    parts = urlsplit(connection_string)
+    path = f"/{database}" if database else "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
+def _run_mongosh(connection_string: str, eval_script: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["mongosh", connection_string, "--quiet", "--norc", "--eval", eval_script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+
+def assert_connection_string_with_mongosh(
+    connection_string: str,
+    *,
+    expect_success: bool,
+    eval_script: str = "db.myCol.insertOne({})",
+) -> None:
+    """
+    Run mongosh with the connection string as-is and check whether the eval succeeds.
+    """
+    try:
+        result = _run_mongosh(connection_string, eval_script)
+    except subprocess.TimeoutExpired as e:
+        fail(f"Timed out connecting with mongosh using the connection string: {e}")
+
+    if expect_success:
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            fail(f"Expected mongosh to succeed with the connection string, but failed: {detail}")
+        return
+
+    if result.returncode != 0:
+        return
+    fail("Expected mongosh to fail with the connection string")
+
+
 class MongoTester:
     """MongoTester is a general abstraction to work with mongo database. It encapsulates the client created in
     the constructor. All general methods non-specific to types of mongodb topologies should reside here."""
@@ -143,12 +193,15 @@ class MongoTester:
     def __init__(
         self,
         connection_string: str,
-        use_ssl: bool,
+        use_ssl: Optional[bool] = None,
         ca_path: Optional[str] = None,
     ):
-        self.default_opts = with_tls(use_ssl, ca_path)
-        self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
+        self.default_opts = {}
         self.cnx_string = connection_string
+        # Do not duplicate tls setting if connection string already has it
+        if "ssl=" not in connection_string and "tls=" not in connection_string and use_ssl is not None:
+            self.default_opts = with_tls(use_ssl, ca_path)
+        self.default_opts["serverSelectionTimeoutMs"] = "120000"  # 2 minutes
         self.client = None
         logging.info(
             f"Initialized MongoTester with connection string: {connection_string}, TLS: {use_ssl} and CA Path: {ca_path}"

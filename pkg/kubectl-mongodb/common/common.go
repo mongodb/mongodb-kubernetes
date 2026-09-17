@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -29,6 +30,7 @@ type clusterType string
 var (
 	MemberClusters           string
 	MemberClustersApiServers string
+	MemberClusterCAFiles     []string
 )
 
 var (
@@ -58,6 +60,7 @@ type Flags struct {
 	SourceCluster                 string
 	CreateServiceAccountSecrets   bool
 	ImagePullSecrets              string
+	MemberClusterCAs              map[string][]byte
 }
 
 const (
@@ -285,6 +288,13 @@ func ensureAllClusterNamespacesExist(ctx context.Context, clientSets map[string]
 // member clusters, merges them into a KubeConfig file and creates a Secret in the central cluster
 // with the contents.
 func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map[string]KubeClient) error {
+	// read before the Cleanup below, which deletes the KubeConfig secret along with every other
+	// resource this tool labelled. only used to warn, so a failure here must not stop the command
+	existingCAs, err := readExistingKubeConfigCAs(ctx, clientMap[flags.CentralCluster], flags)
+	if err != nil {
+		fmt.Printf("Warning: not checking for a replaced custom CA: %s\n", err)
+	}
+
 	if flags.Cleanup {
 		if err := performCleanup(ctx, clientMap, flags); err != nil {
 			return xerrors.Errorf("failed performing Cleanup of resources: %w", err)
@@ -308,6 +318,10 @@ func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map
 
 	if len(secrets) != len(flags.MemberClusters) {
 		return xerrors.Errorf("required %d serviceaccount tokens but found only %d\n", len(flags.MemberClusters), len(secrets))
+	}
+
+	for _, warning := range replacedCustomCAWarnings(existingCAs, secrets, flags) {
+		fmt.Println(warning)
 	}
 
 	kubeConfig, err := createKubeConfigFromServiceAccountTokens(secrets, flags)
@@ -339,6 +353,49 @@ func EnsureMultiClusterResources(ctx context.Context, flags Flags, clientMap map
 	}
 
 	return nil
+}
+
+// readExistingKubeConfigCAs returns the certificate-authority-data currently in the Operator's
+// KubeConfig secret, by member cluster name, or nothing if that secret does not exist yet.
+func readExistingKubeConfigCAs(ctx context.Context, centralClusterClient kubernetes.Interface, flags Flags) (map[string][]byte, error) {
+	secret, err := centralClusterClient.CoreV1().Secrets(flags.CentralClusterNamespace).Get(ctx, KubeConfigSecretName, metav1.GetOptions{})
+	if errors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, xerrors.Errorf("failed retrieving secret %s: %w", KubeConfigSecretName, err)
+	}
+
+	kubeConfig := KubeConfigFile{}
+	if err := yaml.Unmarshal(secret.Data[KubeConfigSecretKey], &kubeConfig); err != nil {
+		return nil, xerrors.Errorf("failed unmarshalling the KubeConfig in secret %s: %w", KubeConfigSecretName, err)
+	}
+
+	cas := map[string][]byte{}
+	for _, cluster := range kubeConfig.Clusters {
+		cas[cluster.Name] = cluster.Cluster.CertificateAuthorityData
+	}
+	return cas, nil
+}
+
+// replacedCustomCAWarnings returns a warning for every member cluster whose CA in the existing
+// KubeConfig is about to be replaced by the one from its ServiceAccount token secret. A cluster
+// named in --member-cluster-ca is the user's to manage, so it is never warned about.
+func replacedCustomCAWarnings(existingCAs map[string][]byte, serviceAccountTokens map[string]corev1.Secret, flags Flags) []string {
+	var warnings []string
+	for _, clusterName := range flags.MemberClusters {
+		if _, ok := flags.MemberClusterCAs[clusterName]; ok {
+			continue
+		}
+
+		existingCA := existingCAs[clusterName]
+		if len(existingCA) == 0 || bytes.Equal(existingCA, serviceAccountTokens[clusterName].Data["ca.crt"]) {
+			continue
+		}
+
+		warnings = append(warnings, fmt.Sprintf("Warning: replacing the CA for member cluster %s, which does not match its ServiceAccount token secret. Pass --member-cluster-ca %s=<path-to-pem-file> to keep a custom CA.", clusterName, clusterName))
+	}
+	return warnings
 }
 
 // createKubeConfigSecret creates the secret containing the KubeConfig file made from the various
@@ -794,6 +851,11 @@ func createKubeConfigFromServiceAccountTokens(serviceAccountTokens map[string]co
 		token, ok := tokenSecret.Data["token"]
 		if !ok {
 			return KubeConfigFile{}, xerrors.Errorf("key 'token' missing from token secret %s", tokenSecret.Name)
+		}
+
+		// a custom CA, when given, replaces the one from the ServiceAccount token secret
+		if customCA, ok := flags.MemberClusterCAs[clusterName]; ok {
+			ca = customCA
 		}
 
 		config.Clusters = append(config.Clusters, KubeConfigClusterItem{

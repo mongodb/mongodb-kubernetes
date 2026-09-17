@@ -330,6 +330,14 @@ patch_aliases:
     description: "Run race detector variants"
     variant_tags: [ "race" ]
     task: ".*"
+  - alias: "deprecated-release"
+    description: "Legacy release process (rebuilds and retests before publishing)"
+    variant_tags: [ "deprecated-release" ]
+    task: ".*"
+  - alias: "release-publish"
+    description: "New release process (publishes already-promoted images without rebuilding)"
+    variant_tags: [ "release-publish" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
@@ -344,21 +352,12 @@ github_checks_aliases:
   - variant: ".*"
     task: ".*"
 
-# Triggered on git tag. The plain "X.Y.Z" shape is intentionally NOT a trigger:
-# it's applied by the release pipelines themselves as the final, human-facing
-# tag once their trigger tag's pipeline succeeds, and must not re-trigger anything.
+# Triggered on git tag. A decider task inspects the tag annotation:
+# "[new]" → release-publish pipeline, otherwise → deprecated-release.
+# The decider creates an Evergreen patch via the matching alias.
 git_tag_aliases:
-  # Legacy process (deprecated, still supported): rebuilds and retests images
-  # before publishing. See .evergreen-release.yml.
-  - git_tag: "^old-(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "deprecated-release" ]
-    task: ".*"
-  # New process: publishes the already-promoted images for the given commit
-  # without rebuilding or retesting. See .evergreen-release-publish.yml.
-  # The optional "test-" infix marks a dry run: targets an override registry
-  # instead of the real production one, still gated on the same tasks.
-  - git_tag: "^new-(test-)?(\\d+\\.)?(\\d+\\.)?(\\d+)$"
-    variant_tags: [ "release-publish" ]
+  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+    variant_tags: [ "release-decider" ]
     task: ".*"
 
 tasks:
@@ -403,7 +402,7 @@ tasks:
 
   # Runs on every merge - detects release.json changes and releases appropriate images
   - name: release_om_and_agents
-    allowed_requesters: [ "patch" , "commit"]
+    allowed_requesters: [ "commit" ]
     commands:
       - func: clone
       - func: python_venv
@@ -492,15 +491,13 @@ tasks:
   - name: rebuild_specific_agent
     # this enables us to run this manually (patch) and rebuild specific agent versions to verify
     # Dockerfile, script changes etc.
+    # You need to specify agent_version and agent_tools_version for this task via --param flag!
     allowed_requesters: [ "patch" ]
     commands:
       - func: clone
       - func: setup_building_host
       - func: quay_login
       - func: pipeline
-        include_expansions_in_env:
-          - agent_version # You need to specify agent version for this task via --param flag!
-          - agent_tools_version # You need to specify tool version for this task --param flag!
         vars:
           image_name: agent
           flags: "--skip-if-exists=false"
@@ -509,13 +506,13 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: build_multi_cluster_binary
+      - func: build_kubectl_plugin
 
   - name: build_test_image
     commands:
       - func: clone
       - func: setup_building_host
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/amd64
       - func: quay_staging_login
@@ -527,7 +524,7 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: download_multi_cluster_binary
+      - func: download_kubectl_plugin
         vars:
           platform: linux/arm64
       - func: quay_staging_login
@@ -827,6 +824,9 @@ task_groups:
       - e2e_standalone_agent_flags
       - e2e_replica_set_process_hostnames
       - e2e_replica_set_member_options
+      # e2e_replication_state_awareness: skipped on static containers (@skip_if_static_containers) since
+      # it fails on e2e_static_mdb_kind_ubi_cloudqa; needs investigation.
+      - e2e_replication_state_awareness
       # e2e_tls_task_group
       - e2e_replica_set_tls_allow
       - e2e_replica_set_tls_prefer
@@ -844,13 +844,16 @@ task_groups:
       - e2e_replica_set_readiness_probe
       - e2e_replica_set_update_delete_parallel
       - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_scale_shards_name_overrides
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_mongod_options_and_log_rotation
       - e2e_tls_rs_external_access
       - e2e_replica_set_tls_require
+      - e2e_replica_set_tls_require_custom_ca_path
       - e2e_replica_set_tls_certs_secret_prefix
       - e2e_disable_tls_and_scale
       - e2e_replica_set_tls_require_and_disable
+      - e2e_replica_set_tls_require_to_allow
       # e2e_x509_task_group
       - e2e_configure_tls_and_x509_simultaneously_rs
       - e2e_configure_tls_and_x509_simultaneously_sc
@@ -866,7 +869,7 @@ task_groups:
       - e2e_sharded_cluster_ldap
       - e2e_replica_set_ldap_tls
       - e2e_replica_set_ldap_user_to_dn_mapping
-      # e2e_replica_set_ldap_agent_auth
+      - e2e_replica_set_ldap_agent_auth
       - e2e_replica_set_ldap_agent_client_certs
       - e2e_replica_set_ldap_custom_roles
       - e2e_replica_set_update_roles_no_privileges
@@ -878,10 +881,12 @@ task_groups:
       - e2e_replica_set_scram_sha_1_user_connectivity
       - e2e_replica_set_scram_sha_1_upgrade
       - e2e_replica_set_scram_x509_ic_manual_certs
+      - e2e_replica_set_scram_x509_internal_cluster
       - e2e_sharded_cluster_scram_sha_1_upgrade
       - e2e_sharded_cluster_scram_sha_256_user_connectivity
       - e2e_sharded_cluster_scram_sha_1_user_connectivity
       - e2e_sharded_cluster_scram_x509_ic_manual_certs
+      - e2e_sharded_cluster_scram_x509_internal_cluster
       - e2e_sharded_cluster_external_access
       - e2e_replica_set_scram_sha_256_switch_project
       - e2e_sharded_cluster_scram_sha_256_switch_project
@@ -940,6 +945,40 @@ task_groups:
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_mongot_replicaset_x509_auth
+
+  # VM migration tests (migrating an existing VM-hosted deployment into Kubernetes).
+  # Kept separate from the search task groups since they share no setup with MongoDBSearch.
+  # Added to cloudqa-large variants.
+  - name: e2e_vm_migration_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks:
+      - e2e_vm_migration_replicaset_x509
+      - e2e_vm_migration_replicaset_ldap
+      - e2e_vm_migration_replicaset_prometheus
+      - e2e_vm_migration_replicaset_oidc
+      - e2e_vm_migration_replicaset_oidc_group
+      - e2e_vm_migration_replicaset_oidc_workforce
+      - e2e_vm_migration_replicaset_scram_sha256
+      - e2e_vm_migration_replicaset_scram_sha1
+      - e2e_vm_migration_replicaset_scram_sha256_tls
+      - e2e_vm_migration_replicaset_no_auth
+      - e2e_vm_migration_replicaset_manual_rollback
+      - e2e_vm_migration_replicaset_mck_to_mck
+      - e2e_vm_migration_replicaset_external_access
+      - e2e_vm_migration_replicaset_search
+      - e2e_vm_migration_shardedcluster_no_auth
+      - e2e_vm_migration_shardedcluster_x509
+      - e2e_vm_migration_shardedcluster_scram_sha256
+      - e2e_vm_migration_shardedcluster_scram_sha1
+      - e2e_vm_migration_shardedcluster_scram_sha256_tls
+      - e2e_vm_migration_shardedcluster_ldap
+      - e2e_vm_migration_shardedcluster_oidc
+      - e2e_vm_migration_shardedcluster_oidc_group
+      - e2e_vm_migration_shardedcluster_oidc_workforce
+      - e2e_vm_migration_shardedcluster_prometheus
+      - e2e_vm_migration_shardedcluster_external_access
+      - e2e_vm_migration_shardedcluster_search
 
   # MongoDBSearch tests that require a large instance (multiple mongots per shard:
   # 2 shards x 2 mongots x 2 CPU = 8 CPU). Added to cloudqa-large variants.
@@ -1056,10 +1095,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_operator_upgrade_replica_set
-      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
-      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
-      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
-      # - e2e_operator_upgrade_search
+      - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -1083,10 +1119,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
     tasks:
       - e2e_operator_upgrade_replica_set
-      # TODO(KUBE-102): re-enable post-GA. Disabled because the MongoDBSearch CRD is
-      # intentionally broken on upgrade by the GA API refactor (sizing moved into clusters[]),
-      # so the upgrade test's pre-upgrade old-format search CR no longer applies.
-      # - e2e_operator_upgrade_search
+      - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
       - e2e_operator_partial_crd
@@ -1109,8 +1142,7 @@ task_groups:
       - e2e_multi_cluster_tls_with_x509
       - e2e_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
-      # e2e_multi_cluster_with_ldap
-      # e2e_multi_cluster_with_ldap_custom_roles
+      - e2e_multi_cluster_clusterwide
       - e2e_multi_cluster_mtls_test
       - e2e_multi_cluster_replica_set_deletion
       - e2e_multi_cluster_replica_set_scale_up
@@ -1149,6 +1181,7 @@ task_groups:
       - e2e_sharded_cluster_pv_resize
       - e2e_sharded_cluster_recovery
       - e2e_sharded_cluster_scale_shards
+      - e2e_sharded_cluster_scale_shards_name_overrides
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_secret
       - e2e_sharded_cluster_statefulset_status
@@ -1165,6 +1198,9 @@ task_groups:
       - e2e_sharded_cluster_oidc_m2m_user
       - e2e_multi_cluster_oidc_m2m_group
       - e2e_multi_cluster_oidc_m2m_user
+      # KUBE-448 - disabled: multicluster LDAP-over-TLS fails in the Istio mesh (member mongod never starts)
+      # e2e_multi_cluster_with_ldap
+      # e2e_multi_cluster_with_ldap_custom_roles
       - e2e_search_simulated_mc_rs
       - e2e_search_simulated_mc_sharded
 
@@ -1293,6 +1329,15 @@ task_groups:
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
 
+  # Multi-cluster MongoDBSearch tests that need a self-hosted Ops Manager:
+  # the metrics forwarder requires OM >= 8.0.25, so these cannot run on the
+  # cloud-qa multi-cluster variants.
+  - name: e2e_multi_cluster_om80_search_task_group
+    max_hosts: -1
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_search_mc_sharded_om_lifecycle
+
   # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
   # that is not in the mesh
   - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
@@ -1316,6 +1361,8 @@ task_groups:
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_validation
       - e2e_om_appdb_scram
+      - e2e_om_external_appdb_forward
+      - e2e_om_external_appdb_fresh
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_migration
@@ -1358,6 +1405,8 @@ task_groups:
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_validation
       - e2e_om_appdb_scram
+      - e2e_om_external_appdb_forward
+      - e2e_om_external_appdb_fresh
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_weak_password
@@ -1436,6 +1485,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
     tasks:
       - e2e_om_ops_manager_backup_object_lock
+      - e2e_om_external_appdb_backup_and_restore
 
   # Ops Manager upgrade test (e2e_om_ops_manager_upgrade). Upgrades both Ops Manager and its
   # Application Database in one step, then verifies each independently. Runs on OM7/OM8 (6->7,
@@ -1577,6 +1627,7 @@ buildvariants:
     tasks:
       - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
+      - name: e2e_vm_migration_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
@@ -1587,6 +1638,7 @@ buildvariants:
     tasks:
       - name: e2e_mdb_kind_search_task_group
       - name: e2e_mdb_kind_search_large_task_group
+      - name: e2e_vm_migration_task_group
 
   # We do not want to run openshift variants on every PR.
   - name: e2e_mdb_openshift_ubi_cloudqa
@@ -1967,6 +2019,15 @@ buildvariants:
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
 
+  - name: e2e_multi_cluster_om80_search
+    display_name: e2e_multi_cluster_om80_search
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om8_dependency]
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: e2e_multi_cluster_om80_search_task_group
+
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
     tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "om9" ]
@@ -2090,7 +2151,6 @@ buildvariants:
 
   - name: init_test_run
     display_name: init_test_run
-    max_hosts: -1
     tags: [ "pr_patch_static", "staging" ]
     run_on:
       - ubuntu2404-small
@@ -2113,7 +2173,6 @@ buildvariants:
 
   - name: init_test_run_ibm_power
     display_name: init_test_run_ibm_power
-    max_hosts: -1
     tags: [ "staging" ]
     run_on:
       - rhel9-power-small
@@ -2126,7 +2185,6 @@ buildvariants:
 
   - name: init_test_run_ibm_z
     display_name: init_test_run_ibm_z
-    max_hosts: -1
     tags: [ "staging" ]
     run_on:
       - rhel9-zseries-small
@@ -2139,7 +2197,6 @@ buildvariants:
 
   - name: init_test_run_arm
     display_name: init_test_run_arm
-    max_hosts: -1
     tags: [ "staging" ]
     run_on:
       - ubuntu2204-arm64-small
@@ -2150,7 +2207,6 @@ buildvariants:
       - name: build_test_image_arm
 
   - name: run_pre_commit
-    priority: 70
     display_name: run_pre_commit
     allowed_requesters: [ "patch", "github_pr" ]
     tags: [ "pr_patch_static", "auto_bump" ]
@@ -2200,7 +2256,6 @@ buildvariants:
     run_on:
       - rhel90-large
     allowed_requesters: [ "commit" ]
-    patchable: false
     depends_on:
       - name: release_om_and_agents
         variant: release_om_and_agents
@@ -2288,10 +2343,10 @@ buildvariants:
   # Runs on every merge to master and releases images auxiliary to the operator release like OM and the Agent
   - name: release_om_and_agents
     display_name: release_om_and_agents
-    allowed_requesters: [ "patch" , "commit"]
+    tags: [ "staging" ]
+    allowed_requesters: [ "commit" ]  # Only run on commit builds
     run_on:
       - release-ubuntu2404-small
-    patchable: false  # Only run on commit builds
     tasks:
       - name: release_om_and_agents
 

@@ -89,6 +89,11 @@ func (b *MongoDBBuilder) SetName(name string) *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) SetReplicaSetNameOverride(name string) *MongoDBBuilder {
+	b.mdb.Spec.ReplicaSetNameOverride = name
+	return b
+}
+
 func (b *MongoDBBuilder) SetNamespace(namespace string) *MongoDBBuilder {
 	b.mdb.Namespace = namespace
 	return b

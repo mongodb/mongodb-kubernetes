@@ -63,9 +63,11 @@ func PredicatesForOpsManager() predicate.Funcs {
 					}
 				}
 
-				for _, e := range oldResource.Spec.AppDB.GetSecretsMountedIntoPod() {
-					if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
-						return true
+				if oldResource.IsInternalAppDB() {
+					for _, e := range oldResource.Spec.AppDB.GetSecretsMountedIntoPod() {
+						if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
+							return true
+						}
 					}
 				}
 				return false
@@ -131,6 +133,12 @@ func PredicatesForStatefulSet() predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldSts := e.ObjectOld.(*appsv1.StatefulSet)
 			newSts := e.ObjectNew.(*appsv1.StatefulSet)
+
+			// the reverse-migration release request is an annotation-only update; without letting
+			// it through, the AppDB-role MongoDB CR never learns it must release its StatefulSet
+			if oldSts.Annotations[util.AppDBReverseMigrationReadyAnnotation] != newSts.Annotations[util.AppDBReverseMigrationReadyAnnotation] {
+				return true
+			}
 
 			val, ok := newSts.Annotations["type"]
 
