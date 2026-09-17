@@ -22,6 +22,24 @@ delete_resources_safely() {
     done
 }
 
+delete_clusterwide_resource() {
+    resource_type="${1}"
+    resource_name="${2}"
+
+    echo "Attempting normal deletion of ${resource_type}/${resource_name}..."
+    kubectl delete "${resource_type}" "${resource_name}" --wait=true --timeout=10s 2>error.log || true
+
+    # Check if resource still exists
+    resource=$(kubectl get "${resource_type}" "${resource_name}" --no-headers -o custom-columns=":metadata.name" 2>error.log || true)
+
+    if [ -n "${resource}" ]; then
+        echo "${resource_type}/${resource_name} is still present, force deleting..."
+
+        kubectl patch "${resource_type}" "${resource_name}" -p '{"metadata":{"finalizers":null}}' --type=merge 2>error.log || true
+        kubectl delete "${resource_type}" "${resource_name}" --force --grace-period=0 2>error.log || true
+    fi
+}
+
 if [ -z ${DELETE_OLDER_THAN_AMOUNT+x} ] || [ -z ${DELETE_OLDER_THAN_UNIT+x} ]; then
     echo "Need to set both 'DELETE_OLDER_THAN_AMOUNT' and 'DELETE_OLDER_THAN_UNIT' environment variables."
     exit 1
@@ -64,6 +82,7 @@ for namespace in $(kubectl get namespace -l "${LABELS}" -o name 2>error.log); do
     delete_resources_safely "mdbmc" "${namespace_name}"
     delete_resources_safely "om" "${namespace_name}"
     delete_resources_safely "clustermongodbroles" "${namespace_name}"
+    delete_clusterwide_resource "validatingwebhookconfiguration" "mdbpolicy.${namespace_name}.mongodb.com"
 
     echo "Attempting to delete namespace: ${namespace_name}"
 
