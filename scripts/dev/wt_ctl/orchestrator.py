@@ -677,9 +677,8 @@ class CreateOrchestrator:
                     ". /mck-tooling/scripts/dev/devenv; "
                     "/mck-tooling/scripts/dev/op_run.sh --detach || "
                     "echo '[op_run] start failed (continuing; run op_run.sh manually)'; "
-                    "tmux kill-session -t mck 2>/dev/null && "
-                    "echo '[op_run] killed stale mck tmux session; next wt-ctl attach will re-load tmuxp' || "
-                    "echo '[op_run] no mck tmux session to refresh'",
+                    "if tmux kill-session -t mck 2>/dev/null; then "
+                    "echo '[op_run] cleared a stale mck tmux session (wt-ctl attach re-loads tmuxp)'; fi",
                 ),
                 prefix="[op_run] ",
                 log_path=log_dir / "op_run.log",

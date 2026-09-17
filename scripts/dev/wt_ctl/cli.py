@@ -139,8 +139,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "fork the create into the background and return immediately. "
-            "Log: <worktree>/logs/setup_worktree/create.log; exit code is "
-            "written to <worktree>/.generated/wt-ctl/create.exit. Wait with "
+            "Log: ~/.cache/mck-devc/create-logs/<branch_dir>.log; exit code "
+            "lands next to it as <branch_dir>.exit. Wait with "
             "`wt-ctl wait` (or `wt-ctl wait <branch>` from outside the worktree)."
         ),
     )
@@ -1162,6 +1162,10 @@ def cmd_wait(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Namesp
         exit_path = create_artifacts_dir() / f"{branch_dir}.exit"
         log_path = create_artifacts_dir() / f"{branch_dir}.log"
         what = "create"
+
+    # The banner above describes the cwd worktree; `wait <branch>` may target
+    # a sibling. State the target explicitly so the two can't be confused.
+    sys.stderr.write(f"[wt-ctl] wait: target branch_dir={branch_dir} worktree={worktree_path} ({what})\n")
 
     deadline = time.monotonic() + args.timeout
     while not exit_path.is_file():
