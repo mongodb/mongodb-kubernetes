@@ -50,8 +50,8 @@ if [[ ${detach} -eq 1 && ${foreground} -eq 0 ]]; then
   nohup "$0" --foreground "${target}" >/dev/null 2>&1 &
   echo "$!" > logs/test.pid
   echo "Detached: pid $(cat logs/test.pid)"
-  echo "Log:  ${root}/logs/test.log"
-  echo "Exit: ${root}/logs/test.exit (written when pytest finishes)"
+  echo "Log:  logs/test.log   (host: <worktree>/logs/test.log)"
+  echo "Exit: logs/test.exit (pytest's exit code, written on completion)"
   echo "Wait: wt-ctl wait --test   (from the host, in the worktree)"
   exit 0
 fi
