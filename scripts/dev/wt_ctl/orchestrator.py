@@ -27,12 +27,65 @@ from .domains.compose import compose_base_dir, project_name_for
 from .domains.devcontainer import compose_env
 from .domains.network import DERIVED_ENV_KEYS, NetworkDomain, env_lines_for, stack_params
 from .errors import ExternalCommandFailed, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
-from .paths import devc_dir, devc_env_dir, logs_dir, tooling_root
+from .paths import devc_dir, devc_env_dir, logs_dir, tooling_root, topology_marker
 from .runner import Runner
 
 # ---------------------------------------------------------------------------
 # shared helpers
 # ---------------------------------------------------------------------------
+
+# Contexts wt-ctl switches to when the requested topology disagrees with the
+# checked-out context: `root-context` is the logical single-cluster base, and
+# `e2e_multi_cluster_kind` is the local multi-cluster default (members 1..3 +
+# central operator cluster) already used as the local-kind fallback.
+_DEFAULT_MULTI_CONTEXT = "e2e_multi_cluster_kind"
+_DEFAULT_SINGLE_CONTEXT = "root-context"
+
+
+def resolve_topology(
+    *,
+    explicit: Optional[bool],
+    context_explicit: Optional[str],
+    context_is_multi: bool,
+    marker_multi: Optional[bool],
+) -> tuple[bool, Optional[str]]:
+    """Decide the effective topology and whether a context switch is needed.
+
+    wt-ctl owns this decision — it is the single control point for the
+    worktree, so it also triggers the single/multi switch instead of being
+    confused by a mismatched context. Precedence:
+
+      1. explicit ``--single-cluster`` / ``--multi-cluster``
+      2. explicit ``--context`` (its ``MEMBER_CLUSTERS`` decide)
+      3. the ``.generated/.current_topology`` marker from a prior run
+      4. default: multi-cluster (the documented default)
+
+    Returns ``(resolved_multi, context_to_switch_to_or_None)``. When the
+    resolved topology disagrees with the current context, the caller re-runs
+    ``switch_context.sh`` against the topology's default context and rebuilds
+    the generated files. Two *explicit* contradictory inputs raise
+    ``ValueError``.
+    """
+    if explicit is not None:
+        if context_explicit is not None and context_is_multi != explicit:
+            kind = "multi" if context_is_multi else "single"
+            flag = "--multi-cluster" if explicit else "--single-cluster"
+            raise ValueError(
+                f"contradictory topology requests: --context {context_explicit} is "
+                f"{kind}-cluster but {flag} was passed; drop one or use a matching context"
+            )
+        if context_is_multi == explicit:
+            return explicit, None
+        return explicit, (_DEFAULT_MULTI_CONTEXT if explicit else _DEFAULT_SINGLE_CONTEXT)
+    if context_explicit is not None:
+        return context_is_multi, None
+    if marker_multi is not None:
+        if marker_multi == context_is_multi:
+            return marker_multi, None
+        return marker_multi, (_DEFAULT_MULTI_CONTEXT if marker_multi else _DEFAULT_SINGLE_CONTEXT)
+    if context_is_multi:
+        return True, None
+    return True, _DEFAULT_MULTI_CONTEXT
 
 
 def _load_context_env(wt: Path) -> dict[str, str]:
@@ -91,9 +144,11 @@ class CreateInputs:
     # the new worktree is its sibling. Falls back to main_repo_root outside any worktree.
     host_worktree_root: Path
     context: Optional[str] = None
-    # CLI default is multi-cluster (--single-cluster opts out); False here is
-    # only the unset baseline for programmatic/test construction.
-    multi_cluster: bool = False
+    # Tri-state: True/False when the caller passed --multi-cluster /
+    # --single-cluster, None when unset. Resolution (see resolve_topology)
+    # then follows the explicit context, the .current_topology marker, or
+    # the default (multi-cluster) and may switch contexts to match.
+    multi_cluster: Optional[bool] = None
     skip_recreate: bool = False
     skip_evg: bool = False
     skip_devcontainer: bool = False
@@ -150,8 +205,8 @@ class CreateInputs:
         phase branches / invalidating hashes."""
         return replace(
             self,
-            context=saved.get("context"),
-            multi_cluster=saved.get("multi_cluster", self.multi_cluster),
+            context=self.context if self.context is not None else saved.get("context"),
+            multi_cluster=self.multi_cluster if self.multi_cluster is not None else saved.get("multi_cluster"),
             skip_recreate=saved.get("skip_recreate", self.skip_recreate),
             skip_evg=saved.get("skip_evg", self.skip_evg),
             skip_devcontainer=saved.get("skip_devcontainer", self.skip_devcontainer),
@@ -215,6 +270,14 @@ class CreateOrchestrator:
         restart_from: Optional[str] = None,
         emit: Callable[[str], None] = lambda _msg: None,
     ) -> None:
+        # Resume / re-run on an existing worktree: resolve the topology before
+        # planning so phase branches and hashes use the resolved value (and a
+        # mismatch against the context rebuilds the generated files via
+        # switch_context.sh). A fresh create has no .generated yet —
+        # worktree_init resolves it there.
+        wt = self.inputs.worktree_path_or_main()
+        if (wt / ".generated" / "context.env").is_file():
+            self._resolve_topology(wt, logs_dir(wt))
         state = self._load_or_init_state(resume=resume, restart_from=restart_from)
         # An in_progress phase without --resume/--restart-from means a prior run
         # was killed uncleanly; picking up requires explicit acknowledgement.
@@ -322,6 +385,10 @@ class CreateOrchestrator:
                     cwd=wt,
                     env={"PROJECT_DIR": str(wt)},
                 )
+            # wt-ctl owns the single-vs-multi decision: resolve it (and switch
+            # contexts if the checked-out one disagrees) before any phase that
+            # depends on it (evg_prepare --multi, prepare_e2e, op_run).
+            self._resolve_topology(wt, log_dir)
 
         # ---- initialize_hook ---------------------------------------------
         def _do_initialize_hook() -> None:
@@ -805,6 +872,74 @@ class CreateOrchestrator:
                 log_relpath="logs/setup_worktree/op_run.log",
             ),
         ]
+
+    # ------------------------------------------------------------------
+    # topology
+    # ------------------------------------------------------------------
+    def _resolve_topology(self, wt: Path, log_dir: Path) -> None:
+        """Own the single/multi decision for this worktree.
+
+        wt-ctl is the control point: the requested topology (explicit flag >
+        explicit context > persisted marker > default multi) wins, and when
+        the checked-out context disagrees we re-run ``switch_context.sh`` so
+        the generated files are rebuilt to match before later phases consume
+        them. The result is persisted in ``.generated/.current_topology``
+        (mirrors ``.current_context``) so resumes agree without re-deriving.
+        """
+        env = _load_context_env(wt)
+        if not (wt / ".generated" / "context.env").is_file():
+            # No generated context to compare against yet (fixtures, or a run
+            # where worktree_init did not emit one): keep an explicit choice,
+            # otherwise leave resolution to a later invocation.
+            if self.inputs.multi_cluster is not None:
+                sys.stderr.write(
+                    f"[topology] {'multi' if self.inputs.multi_cluster else 'single'}-cluster "
+                    "(explicit; no generated context to verify yet)\n"
+                )
+            return
+        ctx_multi = bool(env.get("MEMBER_CLUSTERS", "").strip())
+        marker = topology_marker(wt)
+        marker_multi: Optional[bool] = None
+        if marker.is_file():
+            raw = marker.read_text().strip().lower()
+            if raw in ("single", "multi"):
+                marker_multi = raw == "multi"
+
+        try:
+            resolved, target_ctx = resolve_topology(
+                explicit=self.inputs.multi_cluster,
+                context_explicit=self.inputs.context,
+                context_is_multi=ctx_multi,
+                marker_multi=marker_multi,
+            )
+        except ValueError as exc:
+            raise WtCtlError(str(exc)) from exc
+
+        if target_ctx is not None:
+            self.runner.run_streaming(
+                [str(tooling_root() / "scripts" / "dev" / "switch_context.sh"), target_ctx],
+                prefix="[ctx] ",
+                log_path=log_dir / "context_switch.log",
+                cwd=wt,
+                env={"PROJECT_DIR": str(wt)},
+            )
+            ctx_multi = bool(_load_context_env(wt).get("MEMBER_CLUSTERS", "").strip())
+            if ctx_multi != resolved:
+                layout = "multi-cluster" if resolved else "single-cluster"
+                seen = "set" if ctx_multi else "unset"
+                raise WtCtlError(
+                    f"topology resolution failed: switch_context.sh {target_ctx} did not "
+                    f"produce the expected {layout} layout (MEMBER_CLUSTERS {seen})"
+                )
+
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(("multi" if resolved else "single") + "\n")
+        self.inputs.multi_cluster = resolved
+        how = f"switched to {target_ctx}" if target_ctx else "context already matches"
+        sys.stderr.write(
+            f"[topology] {'multi' if resolved else 'single'}-cluster "
+            f"({how}) — marker {marker}\n"
+        )
 
     # ------------------------------------------------------------------
     # plan

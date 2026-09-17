@@ -120,6 +120,19 @@ def create_artifacts_dir() -> Path:
     return Path.home() / ".cache" / "mck-devc" / "create-logs"
 
 
+def topology_marker(worktree_root: Path) -> Path:
+    """Resolved single/multi topology for this worktree (``single``/``multi``).
+
+    Mirrors ``.generated/.current_context``: sits under ``.generated/`` (so
+    it survives ``--resume`` and is gitignored with the rest) and is owned by
+    ``wt-ctl``. The requested topology wins (explicit flag > explicit context
+    > marker > default multi), and when the checked-out context disagrees
+    the orchestrator re-runs ``switch_context.sh`` so the generated files
+    match before any later phase consumes them.
+    """
+    return worktree_root / ".generated" / ".current_topology"
+
+
 def package_root() -> Path:
     """Absolute path of the wt_ctl package directory (used by the bash shim
     to set PYTHONPATH).

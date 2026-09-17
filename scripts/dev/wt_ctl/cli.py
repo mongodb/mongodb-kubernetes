@@ -23,7 +23,7 @@ from .domains.worktree import WorktreeDomain
 from .errors import ExternalCommandFailed, NotInWorktree, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .header import emit_banner
 from .orchestrator import CreateInputs, CreateOrchestrator, DeleteInputs, DeleteOrchestrator
-from .paths import WorktreeRefs, create_artifacts_dir, devc_env_dir, logs_dir, resolve_worktree
+from .paths import WorktreeRefs, create_artifacts_dir, devc_env_dir, logs_dir, resolve_worktree, topology_marker
 from .runner import Runner
 from .state import GlobalStatus, KfpHostState, NetState, OrphanRegistration, WorktreeRow, WorktreeStatus
 
@@ -57,15 +57,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sc.add_argument("branch")
     sc.add_argument("--context", help="run `make switch context=CTX` after worktree_init.")
-    # Multi-cluster is the default topology; --single-cluster opts out.
-    # --multi-cluster is accepted as a no-op affirmation.
-    sc.add_argument(
+    # Topology is wt-ctl's decision (tri-state: explicit flag > explicit
+    # context > persisted marker > default multi). If the resolved topology
+    # disagrees with the checked-out context, create switches contexts via
+    # switch_context.sh and rebuilds the generated files.
+    topo = sc.add_mutually_exclusive_group()
+    topo.add_argument(
         "--single-cluster",
         dest="single_cluster",
         action="store_true",
-        help="single kind cluster instead of the default four-cluster (multi) setup.",
+        help="single kind cluster instead of the multi-cluster default.",
     )
-    sc.add_argument("--multi-cluster", dest="multi_cluster", action="store_true", help=argparse.SUPPRESS)
+    topo.add_argument(
+        "--multi-cluster",
+        dest="multi_cluster",
+        action="store_true",
+        help=(
+            "force multi-cluster topology (the default). If the checked-out "
+            "context is single-cluster, create switches to the default "
+            "multi-cluster context and rebuilds the generated files."
+        ),
+    )
     sc.add_argument("--skip-recreate", dest="skip_recreate", action="store_true")
     sc.add_argument("--skip-evg", dest="skip_evg", action="store_true")
     sc.add_argument("--skip-devcontainer", dest="skip_devcontainer", action="store_true")
@@ -1036,6 +1048,14 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         if orchestrator_state.load(worktree_path) is None and orchestrator_state.load(host_worktree) is not None:
             worktree_path = host_worktree
             in_place = True
+    # Tri-state topology: explicit flags are authoritative; None lets the
+    # orchestrator resolve (context -> marker -> default multi).
+    if args.single_cluster:
+        topology: Optional[bool] = False
+    elif getattr(args, "multi_cluster", False):
+        topology = True
+    else:
+        topology = None
     inputs = CreateInputs(
         branch=branch,
         branch_dir=branch_dir,
@@ -1043,7 +1063,7 @@ def cmd_create(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
         main_repo_root=main_repo,
         host_worktree_root=host_worktree,
         context=args.context,
-        multi_cluster=not args.single_cluster,
+        multi_cluster=topology,
         skip_recreate=args.skip_recreate,
         skip_evg=args.skip_evg,
         skip_devcontainer=args.skip_devcontainer,
@@ -1244,9 +1264,15 @@ def cmd_delete(runner: Runner, refs: Optional[WorktreeRefs], args: argparse.Name
     main_repo, worktree_path, _host = _resolve_create_paths(runner, refs, branch_dir)
 
     # Recover the create's topology so local-kind teardown deletes every owned
-    # cluster (MC create owns five), not just the current-context one.
-    prior = orchestrator_state.load(worktree_path)
-    multi_cluster = bool(prior.inputs.get("multi_cluster")) if prior is not None and prior.inputs else False
+    # cluster (MC create owns five), not just the current-context one. Prefer
+    # the worktree's .current_topology marker (written by create); fall back
+    # to the create's persisted inputs for pre-marker worktrees.
+    marker = topology_marker(worktree_path)
+    if marker.is_file():
+        multi_cluster = marker.read_text().strip().lower() == "multi"
+    else:
+        prior = orchestrator_state.load(worktree_path)
+        multi_cluster = bool(prior.inputs.get("multi_cluster")) if prior is not None and prior.inputs else False
 
     inputs = DeleteInputs(
         branch=branch,

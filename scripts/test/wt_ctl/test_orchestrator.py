@@ -512,12 +512,22 @@ class WithPersistedFlagsTests(unittest.TestCase):
             # Paths stay freshly resolved (not clobbered by persisted strings).
             self.assertEqual(merged.worktree_path, resumed.worktree_path)
 
-    def test_single_cluster_run_not_flipped_to_multi_on_resume(self) -> None:
+    def test_unset_topology_reloads_from_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
             saved = _make_inputs(repo, target, branch, branch_dir, multi_cluster=False).to_dict()
-            # Bare resume: CLI default is multi_cluster=True.
-            resumed = _make_inputs(repo, target, branch, branch_dir, multi_cluster=True)
+            # Bare resume: topology flag unset -> persisted value wins.
+            resumed = _make_inputs(repo, target, branch, branch_dir, multi_cluster=None)
+            self.assertFalse(resumed.with_persisted_flags(saved).multi_cluster)
+            saved_multi = _make_inputs(repo, target, branch, branch_dir, multi_cluster=True).to_dict()
+            self.assertTrue(resumed.with_persisted_flags(saved_multi).multi_cluster)
+
+    def test_explicit_topology_flag_flips_saved_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, branch, branch_dir = _make_repo_fixture(Path(tmp))
+            saved = _make_inputs(repo, target, branch, branch_dir, multi_cluster=True).to_dict()
+            # `--single-cluster` on resume means it: explicit wins over state.
+            resumed = _make_inputs(repo, target, branch, branch_dir, multi_cluster=False)
             self.assertFalse(resumed.with_persisted_flags(saved).multi_cluster)
 
 
