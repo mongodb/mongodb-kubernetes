@@ -1915,7 +1915,7 @@ buildvariants:
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
     tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
-    <<: [*production_code_paths, *base_om9_dependency]
+    <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2404-large
     tasks:
@@ -1926,7 +1926,7 @@ buildvariants:
     tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om9_dependency
+    <<: *base_om8_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
 
