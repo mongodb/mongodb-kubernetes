@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 import time
@@ -10,6 +11,7 @@ import kubernetes.client
 
 if TYPE_CHECKING:
     from kubetester.mongodb import MongoDB
+
 import requests
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
@@ -1059,6 +1061,75 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         tester = self.get_om_tester()
         tester.api_update_version_manifest(major_version=major_version)
+
+    def push_version_manifest(self):
+        """Pushes the version manifest bundled in the OM image onto the running Ops Manager.
+
+        Unlike update_version_manifest, this does not skip for OM7+ and does not pull the public
+        manifest (which lacks RC versions such as 9.0.0-rc0). After an OM upgrade, Ops Manager only
+        refreshes its loaded manifest on a cron, so a MongoDB version bump that immediately follows
+        can race with "version X is not available". Pushing the image's own manifest makes the
+        upgrade deterministic.
+
+        This is a temporary workaround: CLOUDP-444668 tracks teaching Ops Manager to read its own
+        bundled manifest on update, after which OM will load the new versions by itself and this
+        push (and test_update_version_manifest) can be removed.
+
+        The manifest is read directly from a running OM pod (``$MMS_HOME/conf/mongodb_version_manifest.json``,
+        the classpath resource that ``automation.versions.autoRefreshUri`` points at for RC builds),
+        so it always matches the OM image under test and carries the RC versions and correct build
+        download URLs - with no fixture file to ship.
+        """
+        manifest = self._read_bundled_version_manifest_from_pod()
+        logger.info(
+            f"Pushing bundled version manifest onto OM {self.get_version()} "
+            f"({len(manifest.get('versions', []))} versions)"
+        )
+        tester = self.get_om_tester()
+        tester.api_put_version_manifest(manifest)
+
+    def _read_bundled_version_manifest_from_pod(self) -> Dict:
+        """Reads the pristine bundled mongodb_version_manifest.json from a running OM pod.
+
+        OM ships the manifest under $MMS_HOME/conf, and the Dockerfile snapshots that into
+        $MMS_HOME/conf-template at image build time. At runtime docker-entry-point.sh only ever
+        copies conf-template -> conf; nothing writes back to conf-template. The conf/ copy can be
+        clobbered at runtime (OM's cron may re-download the public, 9.x-less manifest, and some
+        tests overwrite it - sometimes as a Python dict literal rather than JSON), so we read the
+        pristine conf-template copy first and fall back to conf/ then a find under MMS_HOME.
+
+        The file is JSON, but we also accept a Python dict literal (ast.literal_eval) as a fallback
+        for the clobbered-by-repr case.
+        """
+        mms_home = "/mongodb-ops-manager"
+        script = (
+            "set -e;"
+            f"MMS={mms_home};"
+            'f="$MMS/conf-template/mongodb_version_manifest.json";'
+            '[ -f "$f" ] || f="$MMS/conf/mongodb_version_manifest.json";'
+            'if [ ! -f "$f" ]; then f=$(find "$MMS" -name mongodb_version_manifest.json -type f 2>/dev/null | head -1); fi;'
+            'if [ -n "$f" ] && [ -f "$f" ]; then cat "$f"; else echo "mongodb_version_manifest.json not found in OM image" >&2; exit 1; fi'
+        )
+
+        for api_client, pod in self.read_om_pods():
+            output = KubernetesTester.run_command_in_pod_container(
+                pod.metadata.name,
+                self.namespace,
+                ["sh", "-c", script],
+                container="mongodb-ops-manager",
+                api_client=api_client,
+            )
+            if output and output.strip().startswith("{"):
+                try:
+                    return json.loads(output)
+                except json.JSONDecodeError:
+                    # conf/ can be clobbered with a Python dict literal (single quotes); the
+                    # pristine conf-template copy is JSON, but fall back to literal_eval just in case.
+                    return ast.literal_eval(output)
+
+        raise RuntimeError(
+            "Could not read mongodb_version_manifest.json from any OM pod. " "Command output was not valid JSON."
+        )
 
     def is_appdb_multi_cluster(self):
         return self["spec"].get("applicationDatabase", {}).get("topology", "") == "MultiCluster"
