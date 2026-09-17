@@ -685,7 +685,13 @@ func EnsureCAConfigMapFromIssuedSecret(
 // resolveCategoryCA returns the primary CA cert for a category's trust bundle: the
 // category's operator self-signed CA cert when it is self-signed, else the user issuer's
 // CA (from the issued leaf secret's ca.crt, falling back to the category's `ca` input).
-func resolveCategoryCA(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory, issuedSecretName string) (string, workflow.Status) {
+func resolveCategoryCA(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	res CertificateOwner,
+	cat certCategory,
+	issuedSecretName string,
+) (string, workflow.Status) {
 	if !hasUserIssuer(res, cat) {
 		return readSelfSignedCACert(ctx, c, res, cat)
 	}
