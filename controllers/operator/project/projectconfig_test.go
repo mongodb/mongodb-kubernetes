@@ -125,6 +125,7 @@ func TestReadProjectConfig_ValidatesBaseURL(t *testing.T) {
 		{baseURL: "ftp://mycompany.example.com", wantErr: true},
 		{baseURL: "file:///etc/passwd", wantErr: true},
 		{baseURL: "http://", wantErr: true},
+		{baseURL: "http://:8080", wantErr: true},
 		{baseURL: "http:///path-only", wantErr: true},
 		{baseURL: "http://mycompany.example.com:8080?x=1", wantErr: true},
 		{baseURL: "http://mycompany.example.com:8080?", wantErr: true},

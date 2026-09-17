@@ -252,6 +252,12 @@ func ParseURL(str string) (*url.URL, error) {
 		return nil, fmt.Errorf("missing URL host: %s", str)
 	}
 
+	// u.Host can be non-empty with an empty hostname (e.g. "http://:8080"), which would
+	// pass an addressless URL to the HTTP client.
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("missing URL hostname: %s", str)
+	}
+
 	return u, nil
 }
 
