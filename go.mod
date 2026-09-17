@@ -37,7 +37,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
+	golang.org/x/exp v0.0.0-20241217172543-b2144cdd0a67
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	k8s.io/api v0.34.11
