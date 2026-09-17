@@ -161,6 +161,24 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_external_appdb_fresh_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_forward_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_reverse_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
   - name: test_kind_search_external_sharded_managed_lb_snippets.sh
     tags: [ "code_snippets", "patch-run" ]
     commands:
@@ -212,6 +230,9 @@ task_groups:
       - test_kind_search_community_snippets.sh
       - test_kind_search_enterprise_snippets.sh
       - test_kind_search_external_mongod_snippets.sh
+      - test_kind_external_appdb_fresh_snippets.sh
+      - test_kind_external_appdb_forward_snippets.sh
+      - test_kind_external_appdb_reverse_snippets.sh
       - test_kind_search_external_sharded_managed_lb_snippets.sh
       - test_kind_search_sharded_managed_lb_snippets.sh
       - test_kind_search_external_rs_managed_lb_snippets.sh
