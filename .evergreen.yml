@@ -1338,6 +1338,15 @@ task_groups:
     tasks:
       - e2e_search_mc_sharded_om_lifecycle
 
+  # Operator upgrade/downgrade test that must run against OM 8.0: it starts from
+  # the released v1.27 operator, whose baked om_version_mapping.json has no 9.x
+  # entry, so against the OM 9.0 RC the AppDB agent image resolves to an empty tag.
+  - name: e2e_multi_cluster_om80_appdb_upgrade_task_group
+    max_hosts: -1
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
+
   # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
   # that is not in the mesh
   - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
@@ -2018,6 +2027,27 @@ buildvariants:
     <<: *base_om9_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
+
+  # The multi-cluster AppDB operator upgrade/downgrade test cannot run against the
+  # OM 9.0 RC (it starts from the released v1.27 operator whose baked
+  # om_version_mapping.json has no 9.x entry), so it runs on these OM 8.0 variants.
+  - name: e2e_multi_cluster_om80_appdb_upgrade
+    display_name: e2e_multi_cluster_om80_appdb_upgrade
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om8_dependency]
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: e2e_multi_cluster_om80_appdb_upgrade_task_group
+
+  - name: e2e_static_multi_cluster_om80_appdb_upgrade
+    display_name: e2e_static_multi_cluster_om80_appdb_upgrade
+    tags: [ "staging", "e2e_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_multi_cluster_om80_appdb_upgrade_task_group
 
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
