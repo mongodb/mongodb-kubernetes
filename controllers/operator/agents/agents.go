@@ -344,7 +344,7 @@ func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *z
 	}
 
 	ok, msg := util.DoAndRetry(ctx, agentsCheckFunc, log, retrials, waitSeconds)
-	// the parent may carry the shared registration budget; any other expired parent deadline is not our timeout
+	// the parent may carry the shared registration budget. Any other expired parent deadline is not our timeout.
 	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) &&
 		(parentCtx.Err() == nil || parentCtx.Value(registrationDeadlineKey{}) != nil) {
 		msg = fmt.Sprintf("%s (timed out after %s waiting for agents to register)", msg, agentRegistrationTimeout)
