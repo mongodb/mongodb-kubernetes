@@ -22,6 +22,12 @@ from scripts.release.kubectl_mongodb.utils import (
 )
 
 
+# IS_DRYRUN doesn't propagate through Evergreen depends_on wildcards,
+# so dry-run is detected from the patch param tag_description_override instead.
+def _is_dryrun() -> bool:
+    return "[dry-run]" in os.environ.get("tag_description_override", "")
+
+
 def main():
     release_version = os.environ.get("OPERATOR_VERSION")
 
@@ -31,9 +37,13 @@ def main():
 
     kubectl_plugin_staging_info = load_build_info(BuildScenario.STAGING).binaries[KUBECTL_PLUGIN_BINARY]
     staging_scenario_bucket_name = kubectl_plugin_staging_info.s3_store
-    staging_version_override = os.environ.get("STAGING_VERSION_OVERRIDE")
-    if staging_version_override:
-        staging_version = staging_version_override
+    # On patches the tag doesn't exist in git, so we use the short commit SHA
+    # from the patch param to construct the S3 staging path.
+    if _is_dryrun():
+        target_commit = os.environ["target_commit"]
+        staging_version = target_commit[:8]
+    elif os.environ.get("STAGING_VERSION_OVERRIDE"):
+        staging_version = os.environ["STAGING_VERSION_OVERRIDE"]
     else:
         staging_version = get_commit_from_tag(release_version)
 
@@ -60,9 +70,13 @@ def main():
         # Dry runs draft the GitHub release under a "test-{version}" tag rather
         # than the real "{version}" one (see .github/workflows/release.yml), so
         # assets must be attached there instead.
-        is_dryrun = os.environ.get("IS_DRYRUN", "false").lower() == "true"
+        is_dryrun = _is_dryrun()
         github_release_tag = f"test-{release_version}" if is_dryrun else release_version
-        upload_assets_to_github_release(github_artifacts, github_release_tag)
+
+        # Dry runs auto-create the draft release inside upload_assets_to_github_release.
+        upload_assets_to_github_release(
+            github_artifacts, github_release_tag, is_dryrun=is_dryrun, target_commitish=os.environ.get("target_commit")
+        )
 
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that
