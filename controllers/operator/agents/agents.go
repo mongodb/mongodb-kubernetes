@@ -130,21 +130,6 @@ const StaleProcessDuration = time.Minute * 2
 // agentRegistrationTimeout bounds one wait for agents to register, including all retries. Overridden in tests.
 var agentRegistrationTimeout = 3 * time.Minute
 
-// registrationDeadlineKey marks a context as bounded by the shared registration budget, not a caller's deadline.
-type registrationDeadlineKey struct{}
-
-// WithRegistrationDeadline derives a context that bounds every registration wait made under it by a single
-// agentRegistrationTimeout, instead of one per wait.
-func WithRegistrationDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
-	parentDeadline, parentHasDeadline := ctx.Deadline()
-	ctx, cancel := context.WithTimeout(ctx, agentRegistrationTimeout)
-	// an ancestor deadline closer than the budget bounds the wait instead, so don't claim the budget
-	if !parentHasDeadline || time.Until(parentDeadline) >= agentRegistrationTimeout {
-		ctx = context.WithValue(ctx, registrationDeadlineKey{}, true)
-	}
-	return ctx, cancel
-}
-
 // ProcessState represents the state of the mongodb process.
 // Most importantly it contains the information whether the node is down (precisely whether the agent running next to mongod is actively reporting pings to OM),
 // what is the last version of the automation config achieved and the step on which the agent is currently executing the plan.
@@ -344,9 +329,8 @@ func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *z
 	}
 
 	ok, msg := util.DoAndRetry(ctx, agentsCheckFunc, log, retrials, waitSeconds)
-	// the parent may carry the shared registration budget. Any other expired parent deadline is not our timeout.
-	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) &&
-		(parentCtx.Err() == nil || parentCtx.Value(registrationDeadlineKey{}) != nil) {
+	// a caller's own expired deadline is not the registration timeout
+	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) && parentCtx.Err() == nil {
 		msg = fmt.Sprintf("%s (timed out after %s waiting for agents to register)", msg, agentRegistrationTimeout)
 	}
 	return ok, msg
