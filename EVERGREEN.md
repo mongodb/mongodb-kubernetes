@@ -169,8 +169,11 @@ scanned). To force a scan on a regular PR patch (e.g. to test a trivy/pipeline c
 evergreen patch -p mongodb-kubernetes -a pr_patch -d "test trivy scan" -u -y --param TRIVY_SCAN_FORCE=true
 ```
 
-Raw trivy JSON reports are written to `trivy-reports/` in the task working directory. To run a
-scan locally:
+Raw trivy JSON reports are written to `trivy-reports/` in the task working directory and
+uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as `upload_e2e_logs`) at
+`trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even for tasks that
+didn't trigger a Slack notification. The upload link is available on the task page in the
+Evergreen UI (Files tab). To run a scan locally:
 
 ```bash
 scripts/evergreen/setup_trivy.sh
