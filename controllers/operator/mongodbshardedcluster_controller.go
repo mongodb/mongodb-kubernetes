@@ -2289,10 +2289,6 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 }
 
 func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(ctx context.Context, sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) error {
-	// one deadline for mongos, config server and every shard, so the total wait does not grow with the shard count
-	ctx, cancel := agents.WithRegistrationDeadline(ctx)
-	defer cancel()
-
 	var mongosHostnames []string
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		hostnames, _ := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
