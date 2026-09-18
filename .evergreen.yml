@@ -1314,6 +1314,14 @@ task_groups:
     tasks:
       - e2e_search_mc_sharded_om_lifecycle
 
+  - name: e2e_multi_cluster_om80_external_appdb_task_group
+    max_hosts: -1
+    <<: [*setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_om_external_appdb_fresh_mc
+      - e2e_om_external_appdb_forward_mc
+      - e2e_om_external_appdb_backup_and_restore_mc
+
   # Dedicated task group for deploying OM Multi-Cluster when the operator is in the central cluster
   # that is not in the mesh
   - name: e2e_multi_cluster_om_operator_not_in_mesh_task_group
@@ -1927,6 +1935,15 @@ buildvariants:
     <<: *base_om7_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
+
+  - name: e2e_multi_cluster_om80_kind_ubi
+    display_name: e2e_multi_cluster_om80_kind_ubi
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite" ]
+    <<: [*production_code_paths, *base_om8_dependency]
+    run_on:
+      - ubuntu2204-medium-high-memory
+    tasks:
+      - name: e2e_multi_cluster_om80_external_appdb_task_group
 
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
