@@ -78,21 +78,7 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
-    statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
-
-    assert len(statefulsets) == 3
-
-    cluster_one_client = member_cluster_clients[0]
-    cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
-    assert cluster_one_sts.status.ready_replicas == 2
-
-    cluster_two_client = member_cluster_clients[1]
-    cluster_two_sts = statefulsets[cluster_two_client.cluster_name]
-    assert cluster_two_sts.status.ready_replicas == 1
-
-    cluster_three_client = member_cluster_clients[2]
-    cluster_three_sts = statefulsets[cluster_three_client.cluster_name]
-    assert cluster_three_sts.status.ready_replicas == 2
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
 
 
 @pytest.mark.e2e_multi_cluster_scale_down_cluster
