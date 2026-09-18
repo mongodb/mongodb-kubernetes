@@ -35,7 +35,7 @@ const (
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
-	LabelResourceOwner = "mongodbmulticluster"
+	LabelResourceOwner = util.MongoDBMultiClusterResourceOwnerLabel
 )
 
 // The MongoDBMultiCluster resource allows users to create MongoDB deployment spread over
@@ -73,6 +73,10 @@ func (m *MongoDBMultiCluster) GetProjectConfigMapName() string {
 
 func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
+}
+
+func (m *MongoDBMultiCluster) IsRoleAppDB() bool {
+	return m.Spec.Role == mdbv1.RoleAppDB
 }
 
 func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {

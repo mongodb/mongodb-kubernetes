@@ -270,6 +270,25 @@ func TestStatefulSetNameForCluster(t *testing.T) {
 	}
 }
 
+func TestMongoDBMultiCluster_IsRoleAppDB(t *testing.T) {
+	tests := []struct {
+		name string
+		role string
+		want bool
+	}{
+		{name: "appdb role", role: mdb.RoleAppDB, want: true},
+		{name: "no role", role: "", want: false},
+		{name: "other role", role: "SomeOtherRole", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs := DefaultMultiReplicaSetBuilder().SetRole(tt.role).Build()
+			assert.Equal(t, tt.want, mrs.IsRoleAppDB())
+		})
+	}
+}
+
 func TestBuildConnectionString_AppDBShape(t *testing.T) {
 	mrs := DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{

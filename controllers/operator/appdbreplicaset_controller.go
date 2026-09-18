@@ -622,48 +622,86 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, ops
 	return true, nil
 }
 
+// ensureAppDBStatefulSetOwnership arbitrates ownership of every member-cluster AppDB StatefulSet at the start of reconcile.
 func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) workflow.Status {
-	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name())
-	sts := appsv1.StatefulSet{}
-	if err := r.client.Get(ctx, stsKey, &sts); err != nil {
-		// If appDB statefulset does not exist proceed with reconciliation
-		if apiErrors.IsNotFound(err) {
-			return workflow.OK()
+	ownValue := opsManager.GetOwnerLabels()[util.MongoDBOpsManagerResourceOwnerLabel]
+	var (
+		hasExistingStatefulSet bool
+		reclaimedStatefulSet   bool
+		pendingMessage         string
+		blocked                bool
+		errList                error
+	)
+
+	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+		if memberCluster.Client == nil {
+			continue
 		}
 
-		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
+		stsName := opsManager.Spec.AppDB.NameForCluster(memberCluster.Index)
+		sts := appsv1.StatefulSet{}
+		if err := memberCluster.Client.Get(ctx, kube.ObjectKey(opsManager.Namespace, stsName), &sts); err != nil {
+			if apiErrors.IsNotFound(err) {
+				continue
+			}
+
+			errList = multierror.Append(errList, xerrors.Errorf("failed to fetch StatefulSet %s in member cluster %s during ownership check: %w", stsName, memberCluster.Name, err))
+			continue
+		}
+
+		hasExistingStatefulSet = true
+
+		if value, ok := sts.Labels[util.MongoDBOpsManagerResourceOwnerLabel]; ok {
+			if value == ownValue {
+				continue
+			}
+
+			blocked = true
+			pendingMessage = "Cannot take ownership of the AppDB Statefulset: it has other owner"
+			continue
+		}
+
+		if util.HasForeignAppDBOwnerLabel(sts.Labels, util.MongoDBOpsManagerResourceOwnerLabel) {
+			if err := r.requestAppDBReverseMigration(ctx, memberCluster.Client, sts); err != nil {
+				errList = multierror.Append(errList, err)
+			}
+
+			blocked = true
+			if pendingMessage == "" {
+				pendingMessage = fmt.Sprintf("waiting for MongoDB controller to release AppDB StatefulSet %s", sts.GetName())
+			}
+			continue
+		}
+
+		if err := r.reclaimAppDBStatefulset(ctx, memberCluster.Client, opsManager, sts); err != nil {
+			errList = multierror.Append(errList, err)
+		} else {
+			reclaimedStatefulSet = true
+		}
 	}
 
-	ownKey := util.MongoDBOpsManagerResourceOwnerLabel
-	ownValue := opsManager.GetOwnerLabels()[ownKey]
-	ownership := util.ClassifyAppDBStatefulSetOwnership(sts.Labels, ownKey, ownValue)
-	switch ownership {
-	case util.AppDBStatefulSetOwnershipOwned:
+	if errList != nil {
+		return workflow.Failed(errList)
+	}
+
+	if blocked {
+		return workflow.Pending("%s", pendingMessage)
+	}
+
+	if !hasExistingStatefulSet {
 		return workflow.OK()
-	case util.AppDBStatefulSetOwnershipConflict:
-		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner")
 	}
 
-	if util.HasForeignAppDBOwnerLabel(sts.Labels, ownKey) {
-		if err := r.requestAppDBReverseMigration(ctx, sts); err != nil {
+	if reclaimedStatefulSet {
+		if err := r.reclaimAppDBSecrets(ctx, opsManager); err != nil {
 			return workflow.Failed(err)
 		}
-
-		return workflow.Pending("waiting for MongoDB controller to release AppDB StatefulSet %s", sts.GetName())
-	}
-
-	if err := r.reclaimAppDBStatefulset(ctx, opsManager, sts); err != nil {
-		return workflow.Failed(err)
-	}
-
-	if err := r.reclaimAppDBSecrets(ctx, opsManager); err != nil {
-		return workflow.Failed(err)
 	}
 
 	return workflow.OK()
 }
 
-func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Context, sts appsv1.StatefulSet) error {
+func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Context, memberClient kubernetesClient.Client, sts appsv1.StatefulSet) error {
 	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString && sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
 		return nil
 	}
@@ -673,19 +711,24 @@ func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Cont
 	}
 	sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] = trueString
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
-	if err := r.client.Update(ctx, &sts); err != nil {
+	if err := memberClient.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to request StatefulSet release: %w", err)
 	}
 
 	return nil
 }
 
-// reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears migration annotations
-func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
-	sts.Labels = merge.StringToStringMap(util.StripAppDBParticipantLabels(sts.Labels), opsManager.GetOwnerLabels())
+// reclaimAppDBStatefulset transfers ownership of the AppDB StatefulSet to this OM and clears migration annotations.
+func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, memberClient kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
+	if sts.Labels == nil {
+		sts.Labels = map[string]string{}
+	}
+	for k, v := range opsManager.GetOwnerLabels() {
+		sts.Labels[k] = v
+	}
 	sts.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
-	if err := r.client.Update(ctx, &sts); err != nil {
+	if err := memberClient.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
 	}
 
