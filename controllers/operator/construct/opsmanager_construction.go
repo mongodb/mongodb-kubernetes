@@ -291,15 +291,14 @@ func getSharedOpsManagerOptions(opsManager *omv1.MongoDBOpsManager) OpsManagerSt
 	scheme, _ := opsManager.GetSchemePort()
 
 	return OpsManagerStatefulSetOptions{
-		OwnerReference:          opsManager.OwnerReferenceForMemberCluster(),
-		OwnerName:               opsManager.Name,
-		HTTPSCertSecretName:     opsManager.TLSCertificateSecretName(),
-		AppDBTlsCAConfigMapName: opsManager.Spec.AppDB.GetCAConfigMapName(),
-		EnvVars:                 opsManagerConfigurationToEnvVars(opsManager),
-		Namespace:               opsManager.Namespace,
-		Labels:                  opsManager.Labels,
-		StsLabels:               opsManager.GetOwnerLabels(),
-		Scheme:                  scheme,
+		OwnerReference:      opsManager.OwnerReferenceForMemberCluster(),
+		OwnerName:           opsManager.Name,
+		HTTPSCertSecretName: opsManager.TLSCertificateSecretName(),
+		EnvVars:             opsManagerConfigurationToEnvVars(opsManager),
+		Namespace:           opsManager.Namespace,
+		Labels:              opsManager.Labels,
+		StsLabels:           opsManager.GetOwnerLabels(),
+		Scheme:              scheme,
 	}
 }
 
