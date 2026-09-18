@@ -21,6 +21,9 @@ type Status interface {
 	// IsOK returns true if there was no signal to interrupt reconciliation process
 	IsOK() bool
 
+	// Message returns the human-readable status message (empty for statuses without one)
+	Message() string
+
 	// OnErrorPrepend prepends the msg in the case of an error reconcileStatus
 	OnErrorPrepend(msg string) Status
 
@@ -46,6 +49,11 @@ type commonStatus struct {
 
 func newCommonStatus(msg string, params ...interface{}) commonStatus {
 	return commonStatus{msg: fmt.Sprintf(msg, params...)}
+}
+
+// Message returns the status message set when the status was created.
+func (c commonStatus) Message() string {
+	return c.msg
 }
 
 func (c *commonStatus) prependMsg(msg string) {
