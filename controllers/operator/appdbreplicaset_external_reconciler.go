@@ -167,7 +167,7 @@ type ExternalAppDB interface {
 
 func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (ExternalAppDB, error) {
 	switch ref.Kind {
-	case "MongoDB":
+	case omv1.ExternalAppDBRefKindMongoDB:
 		mongodb := &mdbv1.MongoDB{}
 		objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
 		if err := e.client.Get(ctx, objectKey, mongodb); err != nil {

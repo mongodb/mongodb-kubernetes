@@ -185,13 +185,18 @@ type ExternalAppDBRef struct {
 	Name string `json:"name"`
 
 	// Kind of the referenced resource.
-	// +kubebuilder:validation:Enum=MongoDB
+	// +kubebuilder:validation:Enum=MongoDB;MongoDBMultiCluster
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
 
 	// Transient fields
 	Namespace string `json:"-"`
 }
+
+const (
+	ExternalAppDBRefKindMongoDB             = "MongoDB"
+	ExternalAppDBRefKindMongoDBMultiCluster = "MongoDBMultiCluster"
+)
 
 type Logging struct {
 	// LogBackAccessRef points at a ConfigMap/key with the logback access configuration file to mount on the Pod
