@@ -162,7 +162,7 @@ initOpsManager:
 
 agent:
   name: mongodb-agent
-  version: 108.0.26.9062-1
+  version: 109.0.0.9279-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
@@ -213,7 +213,7 @@ community:
     imageType: ubi8
   agent:
     name: mongodb-agent
-    version: 108.0.26.9062-1
+    version: 109.0.0.9279-1
   registry:
     agent: quay.io/mongodb
   resource:

@@ -54,6 +54,10 @@ var jsonContents = `
           "8.0.0-rc1": {
             "agent_version": "108.0.0.8676-1",
             "tools_version": "100.10.0"
+          },
+          "9.0.0-rc0": {
+            "agent_version": "108.0.23.8997-1",
+            "tools_version": "100.15.0"
           }
         }
       },
@@ -150,6 +154,22 @@ func TestGetAgentVersionManager(t *testing.T) {
 				omVersion:       "8.0.0-rc1",
 			},
 			want: "108.0.0.8676-1",
+		},
+		{
+			name: "OM 9 RC resolves from mapping",
+			args: args{
+				readFromMapping: true,
+				omVersion:       "9.0.0-rc0",
+			},
+			want: "108.0.23.8997-1",
+		},
+		{
+			name: "For om, return direct match if supported for static for version 9",
+			args: args{
+				omConnection: om.NewEmptyMockedOmConnectionWithAgentVersion("11.0.5.6963-1", "11.0.0.11-1"),
+				omVersion:    "9.0.0-rc0",
+			},
+			want: "11.0.5.6963-1",
 		},
 		{
 			name: "Version not in mapping, does not matter since using connection",

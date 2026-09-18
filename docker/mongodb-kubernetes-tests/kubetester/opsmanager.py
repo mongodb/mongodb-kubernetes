@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 import time
@@ -10,6 +11,7 @@ import kubernetes.client
 
 if TYPE_CHECKING:
     from kubetester.mongodb import MongoDB
+
 import requests
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
@@ -37,6 +39,11 @@ from tests.constants import LEGACY_CENTRAL_CLUSTER_NAME
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
 
+# User that the operator creates on the Ops Manager Application Database. It carries
+# readWriteAnyDatabase/dbAdminAnyDatabase (see EXPECTED_OM_USER_ROLES), so an authenticated AppDB
+# tester can both write and run commands such as buildInfo.
+APPDB_OM_USER_NAME = "mongodb-ops-manager"
+
 
 class MongoDBOpsManager(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
@@ -48,6 +55,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         }
         with_defaults.update(kwargs)
         super(MongoDBOpsManager, self).__init__(*args, **with_defaults)
+
+    @classmethod
+    def from_yaml(cls, yaml_file, name=None, namespace=None, cluster_scoped=False) -> "MongoDBOpsManager":
+        om = super().from_yaml(yaml_file, name=name, namespace=namespace, cluster_scoped=cluster_scoped)
+        # RC/development MongoDB builds are filtered out of the versions OM offers unless these are
+        # enabled, so every OM resource gets them. They are a no-op for GA versions.
+        om.allow_mdb_rc_versions()
+        return om
 
     def trigger_architecture_migration(self):
         self.load()
@@ -754,9 +769,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             for cluster_index, cluster_spec_item in self.get_appdb_indexed_cluster_spec_items()
         ]
 
-    def get_appdb_tester(self, **kwargs) -> MongoTester:
+    def get_appdb_tester(self, authenticate: bool = False, **kwargs) -> MongoTester:
         if self.is_appdb_multi_cluster():
-            return MultiReplicaSetTester(
+            tester = MultiReplicaSetTester(
                 service_names=self.get_appdb_service_names_in_multi_cluster(),
                 port="27017",
                 namespace=self.namespace,
@@ -765,11 +780,19 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         else:
             members = self.appdb_status().get_members()
             assert members is not None, "appdb members count must not be None"
-            return ReplicaSetTester(
+            tester = ReplicaSetTester(
                 self.app_db_name(),
                 replicas_count=members,
                 **kwargs,
             )
+
+        # The AppDB has SCRAM auth enabled, so commands like buildInfo require authentication on
+        # MongoDB 9.0. Opt in with authenticate=True for tests that run such commands on the
+        # default client (e.g. assert_version). Other callers keep the unauthenticated client.
+        if authenticate:
+            tester.set_credentials(APPDB_OM_USER_NAME, self.read_appdb_generated_password())
+
+        return tester
 
     def pod_urls(self):
         """Returns http urls to each pod in the Ops Manager"""
@@ -784,6 +807,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         """Sets a specific `version` if set. If `version` is None, then skip."""
         if version is not None:
             self["spec"]["version"] = version
+            # Re-apply as some of the settings depend on the OM version.
+            self.allow_mdb_rc_versions()
         return self
 
     def update_key_to_programmatic(self):
@@ -839,6 +864,16 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         self["spec"]["configuration"]["mms.featureFlag.automation.mongoDevelopmentVersions"] = "enabled"
         self["spec"]["configuration"]["mongodb.release.autoDownload.rc"] = "true"
         self["spec"]["configuration"]["mongodb.release.autoDownload.development"] = "true"
+
+        # RC builds of OM read the version manifest bundled with their image instead of refreshing it
+        # from the public URL, which does not list RC versions of MongoDB such as 9.0.0-rc0. Released
+        # OM versions keep the default URL. Note that from_yaml calls this while spec.version is
+        # still the fixture's placeholder, which is why set_version calls it again once the real
+        # version is known.
+        if "-rc" in self["spec"].get("version", ""):
+            self["spec"]["configuration"][
+                "automation.versions.autoRefreshUri"
+            ] = "classpath://mongodb_version_manifest.json"
 
     def set_appdb_version(self, version: str):
         self["spec"]["applicationDatabase"]["version"] = version
@@ -1016,8 +1051,85 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def update_version_manifest(self):
         major_version = self.get_version()[:3]
+        # This only exists to spare OM6 (EOL) from waiting on its cron to pick up recent MongoDB
+        # versions. From OM7 on, the manifest shipped with the OM image is at least as new as the
+        # public one, so pushing the public manifest can only remove versions from OM - notably
+        # 9.0.0-rc0, which the public manifest does not carry yet.
+        if int(major_version.split(".")[0]) > 6:
+            print(f"Skipping version manifest update: OM {major_version} ships a newer manifest")
+            return
+
         tester = self.get_om_tester()
         tester.api_update_version_manifest(major_version=major_version)
+
+    def push_version_manifest(self):
+        """Pushes the version manifest bundled in the OM image onto the running Ops Manager.
+
+        Unlike update_version_manifest, this does not skip for OM7+ and does not pull the public
+        manifest (which lacks RC versions such as 9.0.0-rc0). After an OM upgrade, Ops Manager only
+        refreshes its loaded manifest on a cron, so a MongoDB version bump that immediately follows
+        can race with "version X is not available". Pushing the image's own manifest makes the
+        upgrade deterministic.
+
+        This is a temporary workaround: CLOUDP-444668 tracks teaching Ops Manager to read its own
+        bundled manifest on update, after which OM will load the new versions by itself and this
+        push (and test_update_version_manifest) can be removed.
+
+        The manifest is read directly from a running OM pod (``$MMS_HOME/conf/mongodb_version_manifest.json``,
+        the classpath resource that ``automation.versions.autoRefreshUri`` points at for RC builds),
+        so it always matches the OM image under test and carries the RC versions and correct build
+        download URLs - with no fixture file to ship.
+        """
+        manifest = self._read_bundled_version_manifest_from_pod()
+        logger.info(
+            f"Pushing bundled version manifest onto OM {self.get_version()} "
+            f"({len(manifest.get('versions', []))} versions)"
+        )
+        tester = self.get_om_tester()
+        tester.api_put_version_manifest(manifest)
+
+    def _read_bundled_version_manifest_from_pod(self) -> Dict:
+        """Reads the pristine bundled mongodb_version_manifest.json from a running OM pod.
+
+        OM ships the manifest under $MMS_HOME/conf, and the Dockerfile snapshots that into
+        $MMS_HOME/conf-template at image build time. At runtime docker-entry-point.sh only ever
+        copies conf-template -> conf; nothing writes back to conf-template. The conf/ copy can be
+        clobbered at runtime (OM's cron may re-download the public, 9.x-less manifest, and some
+        tests overwrite it - sometimes as a Python dict literal rather than JSON), so we read the
+        pristine conf-template copy first and fall back to conf/ then a find under MMS_HOME.
+
+        The file is JSON, but we also accept a Python dict literal (ast.literal_eval) as a fallback
+        for the clobbered-by-repr case.
+        """
+        mms_home = "/mongodb-ops-manager"
+        script = (
+            "set -e;"
+            f"MMS={mms_home};"
+            'f="$MMS/conf-template/mongodb_version_manifest.json";'
+            '[ -f "$f" ] || f="$MMS/conf/mongodb_version_manifest.json";'
+            'if [ ! -f "$f" ]; then f=$(find "$MMS" -name mongodb_version_manifest.json -type f 2>/dev/null | head -1); fi;'
+            'if [ -n "$f" ] && [ -f "$f" ]; then cat "$f"; else echo "mongodb_version_manifest.json not found in OM image" >&2; exit 1; fi'
+        )
+
+        for api_client, pod in self.read_om_pods():
+            output = KubernetesTester.run_command_in_pod_container(
+                pod.metadata.name,
+                self.namespace,
+                ["sh", "-c", script],
+                container="mongodb-ops-manager",
+                api_client=api_client,
+            )
+            if output and output.strip().startswith("{"):
+                try:
+                    return json.loads(output)
+                except json.JSONDecodeError:
+                    # conf/ can be clobbered with a Python dict literal (single quotes); the
+                    # pristine conf-template copy is JSON, but fall back to literal_eval just in case.
+                    return ast.literal_eval(output)
+
+        raise RuntimeError(
+            "Could not read mongodb_version_manifest.json from any OM pod. " "Command output was not valid JSON."
+        )
 
     def is_appdb_multi_cluster(self):
         return self["spec"].get("applicationDatabase", {}).get("topology", "") == "MultiCluster"

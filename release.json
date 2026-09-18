@@ -6,7 +6,7 @@
   "initDatabaseVersion": "1.12.1",
   "initOpsManagerVersion": "1.12.1",
   "databaseImageVersion": "1.12.1",
-  "agentVersion": "108.0.26.9062-1",
+  "agentVersion": "109.0.0.9279-1",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
@@ -32,6 +32,12 @@
       "8": {
         "opsManagerVersion": "8.0.26",
         "agentVersion": "108.0.26.9062-1"
+      }
+    },
+    {
+      "9": {
+        "opsManagerVersion": "9.0.0-rc4",
+        "agentVersion": "109.0.0.9279-1"
       }
     }
   ],
@@ -76,7 +82,8 @@
         "8.0.23",
         "8.0.24",
         "8.0.25",
-        "8.0.26"
+        "8.0.26",
+        "9.0.0-rc4"
       ],
       "variants": [
         "ubi"
@@ -284,6 +291,10 @@
           },
           "8.0.26": {
             "agent_version": "108.0.26.9062-1",
+            "tools_version": "100.17.0"
+          },
+          "9.0.0-rc4": {
+            "agent_version": "109.0.0.9279-1",
             "tools_version": "100.17.0"
           }
         }

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om90"
+source "${script_dir}/variables/mongodb_search_dev"
+
+export KUBE_ENVIRONMENT_NAME=kind

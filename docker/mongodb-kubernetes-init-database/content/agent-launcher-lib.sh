@@ -95,18 +95,23 @@ download_agent() {
     local detected_arch
     detected_arch=$(uname -m)
 
+    # Candidate package suffixes for this architecture, most preferred first.
+    # Newer Agents publish a single "linux_<arch>" package per architecture; the
+    # distro-specific suffixes are kept as fallbacks so that we can still pull
+    # older Agent versions from older Ops Manager releases.
+    local -a agent_suffixes
     case "${detected_arch}" in
         x86_64)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.linux_x86_64.tar.gz"
+            agent_suffixes=("linux_x86_64")
             ;;
         aarch64|arm64)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.amzn2_aarch64.tar.gz"
+            agent_suffixes=("linux_aarch64" "amzn2_aarch64")
             ;;
         ppc64le)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel8_ppc64le.tar.gz"
+            agent_suffixes=("linux_ppc64le" "rhel8_ppc64le")
             ;;
         s390x)
-            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.rhel7_s390x.tar.gz"
+            agent_suffixes=("linux_s390x" "rhel8_s390x" "rhel7_s390x")
             ;;
         *)
             script_log "Error: Unsupported architecture for MongoDB agent: ${detected_arch}"
@@ -114,18 +119,7 @@ download_agent() {
             ;;
     esac
 
-    if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
-        script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
-        download_url="${MDB_CUSTOM_AGENT_URL}"
-    else
-        script_log "Downloading Agent version: ${AGENT_VERSION}"
-        script_log "Downloading a Mongodb Agent from ${base_url:?}"
-        download_url="${base_url}/download/agent/automation/${AGENT_FILE}"
-    fi
-
     curl_opts=(
-        "${download_url}"
-
         "--location" "--silent" "--retry" "3" "--fail" "-v"
         "--output" "automation-agent.tar.gz"
     );
@@ -140,12 +134,36 @@ download_agent() {
         curl_opts+=("--cacert" "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
     fi
 
-    if ! curl "${curl_opts[@]}" &>"${MMS_LOG_DIR}/curl.log"; then
-        script_log "Error while downloading the Mongodb agent"
-        exit 1
+    local agent_suffix downloaded="false" attempted
+    : >"${MMS_LOG_DIR}/curl.log"
+    if [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
+        # A custom URL points at one specific package, so there is nothing to probe.
+        script_log "Using custom agent URL: ${MDB_CUSTOM_AGENT_URL}"
+        attempted="${MDB_CUSTOM_AGENT_URL}"
+        if curl "${curl_opts[@]}" "${MDB_CUSTOM_AGENT_URL}" &>>"${MMS_LOG_DIR}/curl.log"; then
+            downloaded="true"
+        fi
+    else
+        script_log "Downloading Agent version: ${AGENT_VERSION} from ${base_url:?}"
+        attempted="packages for ${detected_arch} (${agent_suffixes[*]})"
+        for agent_suffix in "${agent_suffixes[@]}"; do
+            AGENT_FILE="mongodb-mms-automation-agent-${AGENT_VERSION}.${agent_suffix}.tar.gz"
+            script_log "Trying to download the Mongodb Agent package ${AGENT_FILE}"
+            if curl "${curl_opts[@]}" "${base_url}/download/agent/automation/${AGENT_FILE}" &>>"${MMS_LOG_DIR}/curl.log"; then
+                downloaded="true"
+                break
+            fi
+            script_log "The Mongodb Agent package ${AGENT_FILE} is not available"
+        done
     fi
+
     json_log 'agent-launcher-script' <"${MMS_LOG_DIR}/curl.log" >>"${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}"
     rm "${MMS_LOG_DIR}/curl.log" 2>/dev/null || true
+
+    if [ "${downloaded}" != "true" ]; then
+        script_log "Error while downloading the Mongodb agent: could not download ${attempted}"
+        exit 1
+    fi
 
     script_log "The Mongodb Agent binary downloaded, unpacking"
 
