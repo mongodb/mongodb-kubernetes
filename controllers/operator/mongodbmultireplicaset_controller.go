@@ -162,7 +162,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
-		agents.UpgradeIfNeededMC(&mrs, conn)
+		agents.UpgradeIfNeededMC(ctx, &mrs, conn)
 	}
 
 	log = log.With("MemberCluster Namespace", mrs.Namespace)
@@ -237,7 +237,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, status, log)
 	}
 
-	finalMemberIds, err := om.GetReplicaSetMemberIds(conn)
+	finalMemberIds, err := om.GetReplicaSetMemberIds(ctx, conn)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 	}
@@ -417,7 +417,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	automationConfig, err := conn.ReadAutomationConfig()
+	automationConfig, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("Failed to retrieve current automation config: %w", err))
 	}
@@ -513,7 +513,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		var automationAgentVersion string
 		if architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 			if !mrs.Spec.IsAgentImageOverridden() {
-				automationAgentVersion, err = r.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+				automationAgentVersion, err = r.getAgentVersion(ctx, conn, conn.OpsManagerVersion().VersionString, false, log)
 				if err != nil {
 					log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 					return workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err))
@@ -738,7 +738,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 
-	existingDeployment, err := conn.ReadDeployment()
+	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return err
 	}
@@ -774,17 +774,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	lastMongodbConfig := mrs.GetLastAdditionalMongodConfig()
 
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, internalClusterCertPath, nil, log)
 		},
-		log,
-	)
+		log)
+
 	if err != nil && !isRecovering {
 		return err
 	}
 
-	reconcileResult, err := ReconcileLogRotateSetting(conn, mrs.Spec.Agent, log)
+	reconcileResult, err := ReconcileLogRotateSetting(ctx, conn, mrs.Spec.Agent, log)
 	if !reconcileResult.IsOK() {
 		return xerrors.Errorf("failed to configure logrotation for MongoDBMultiCluster RS, err: %w", err)
 	}
@@ -804,7 +804,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 			reachableProcessNames = append(reachableProcessNames, proc.Name())
 		}
 	}
-	if err := om.WaitForReadyState(conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
+	if err := om.WaitForReadyState(ctx, conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
 		return err
 	}
 	return nil
@@ -1224,19 +1224,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	}
 
 	processNames := make([]string, 0)
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.ReplicaSet{}, mrs.Name)
-			// error means that replica set is not in the deployment - it's ok, and we can proceed (could happen if
-			// deletion cleanup happened twice and the first one cleaned OM state already)
+
 			if e := d.RemoveReplicaSetByName(mrs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
 			}
 
 			return nil
 		},
-		log,
-	)
+		log)
 	if err != nil {
 		return err
 	}
@@ -1252,7 +1250,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 
 	if len(hostsToRemove) > 0 {
 		log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
-		if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+		if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 		}

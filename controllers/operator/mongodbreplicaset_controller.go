@@ -223,7 +223,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
-		agents.UpgradeIfNeeded(rs, conn)
+		agents.UpgradeIfNeeded(ctx, rs, conn)
 	}
 
 	if rs.IsRoleAppDB() {
@@ -239,30 +239,30 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcesses(ctx, conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, reconcileResult)
 	}
 
-	if status := validateMongoDBResource(rs, conn); !status.IsOK() {
+	if status := validateMongoDBResource(ctx, rs, conn); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
 	// Checking for drift in external members
-	if status := checkExternalMembersDrift(conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
+	if status := checkExternalMembersDrift(ctx, conn, rs.Spec.GetExternalMembers()); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
 	// Validations for the pre-existing AC in case of migration (TLS mode, voting-members limit).
-	if status := validateACForMigration(conn, rs); !status.IsOK() {
+	if status := validateACForMigration(ctx, conn, rs); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
-	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
+	if status := controlledfeature.EnsureFeatureControls(ctx, *rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
-	if err := connection.EnsureTargetAutomationConfigSeeded(conn, rs.Status.ProjectId, projectConfig, credsConfig, reconciler.omConnectionFactory, log); err != nil {
+	if err := connection.EnsureTargetAutomationConfigSeeded(ctx, conn, rs.Status.ProjectId, projectConfig, credsConfig, reconciler.omConnectionFactory, log); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
@@ -271,7 +271,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !rs.IsAgentImageOverridden() {
-			automationAgentVersion, err = r.reconciler.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			automationAgentVersion, err = r.reconciler.getAgentVersion(ctx, conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err)))
@@ -307,7 +307,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not generate certificates for Prometheus: %w", err)))
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
 	}
@@ -351,7 +351,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if isDryRun {
 		// let's not block OM UI in case the customer needs to fix something to get their
 		// dry-run to pass.
-		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+		if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 		}
@@ -362,7 +362,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
 	}
 
-	if status := controlledfeature.EnsureFeatureControls(*rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
+	if status := controlledfeature.EnsureFeatureControls(ctx, *rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
 
@@ -762,7 +762,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 
 	caFilePath := rs.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 
-	existingDeployment, err := conn.ReadDeployment()
+	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -790,10 +790,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			if len(rs.Spec.GetExternalMembers()) > 0 {
-				deploymentOptions.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(conn)
+				deploymentOptions.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(ctx, conn)
 				if err != nil {
 					return err
 				}
@@ -805,8 +805,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 			}
 			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
-		log,
-	)
+		log)
 
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
@@ -821,11 +820,11 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		}
 	}
 
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, processNames, isRecovering, log); err != nil {
 		return workflow.Failed(err)
 	}
 
-	reconcileResult, _ := ReconcileLogRotateSetting(conn, rs.Spec.Agent, log)
+	reconcileResult, _ := ReconcileLogRotateSetting(ctx, conn, rs.Spec.Agent, log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -837,7 +836,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	hostsBefore := getAllHostsForReplicas(rs, membersNumberBefore)
 	hostsAfter := getAllHostsForReplicas(rs, scale.ReplicasThisReconciliation(rs))
 
-	if err := host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
+	if err := host.CalculateDiffAndStopMonitoring(ctx, conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
 
@@ -1047,7 +1046,7 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleUser(ctx context.Context, md
 	}
 
 	// Inject the mongodb-ops-manager user into OM's automation config via read-modify-write.
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		omUser := om.MongoDBUser{
 			Username:                   util.OpsManagerMongoDBUserName,
 			Database:                   util.DefaultUserDatabase,
@@ -1080,7 +1079,7 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBRoleKeyfile(ctx context.Context,
 	}
 
 	var projectKey string
-	if err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	if err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if sharedKey != "" {
 			ac.Auth.Key = sharedKey
 			return nil
@@ -1180,7 +1179,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		log.Infow("Resource has external members, skipping Ops Manager cleanup on deletion",
 			"externalMembers", len(rs.Spec.GetExternalMembers()))
 		log.Infow("Clear feature control for group", "groupID", conn.GroupID())
-		if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+		if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 			result.Log(log)
 			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 		}
@@ -1188,19 +1187,17 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	}
 
 	processNames := make([]string, 0)
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			processNames = d.GetProcessNames(om.ReplicaSet{}, rs.Name)
-			// error means that replica set is not in the deployment - it's ok, and we can proceed (could happen if
-			// deletion cleanup happened twice and the first one cleaned OM state already)
+
 			if e := d.RemoveReplicaSetByName(rs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
 			}
 
 			return nil
 		},
-		log,
-	)
+		log)
 	if err != nil {
 		return err
 	}
@@ -1209,12 +1206,12 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	// This ensures we attempt all cleanup operations even if some fail.
 	var errs error
 
-	if err := om.WaitForReadyState(conn, processNames, false, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, processNames, false, log); err != nil {
 		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
-		if err := backup.StopBackupIfEnabled(conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
+		if err := backup.StopBackupIfEnabled(ctx, conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
@@ -1224,7 +1221,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members), rs.Spec.GetExternalDomain())
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 
-	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -1234,7 +1231,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
-	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+	if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 		result.Log(log)
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}

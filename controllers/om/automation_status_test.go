@@ -1,9 +1,12 @@
 package om
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -247,4 +250,46 @@ func TestIsAuthenticationTransitionMove(t *testing.T) {
 				"Move %s should not be recognized as authentication transition", move)
 		})
 	}
+}
+
+func TestWaitForReadyState_GivesUpWhenContextIsDone(t *testing.T) {
+	conn := NewMockedOmConnection(NewDeployment())
+	calls := 0
+	conn.ReadAutomationStatusFunc = func() (*AutomationStatus, error) {
+		calls++
+		return &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{{Name: "rs-0", LastGoalVersionAchieved: 0}}}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := WaitForReadyState(ctx, conn, []string{"rs-0"}, false, zap.S())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "haven't reached READY state")
+	assert.Contains(t, err.Error(), "context canceled")
+	assert.Equal(t, 0, calls, "f must not be invoked when the context is already done")
+}
+
+func TestWaitForReadyState_StopsRetryingWhenContextIsCancelled(t *testing.T) {
+	conn := NewMockedOmConnection(NewDeployment())
+	calls := 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	conn.ReadAutomationStatusFunc = func() (*AutomationStatus, error) {
+		calls++
+		// the reconcile is cancelled while the wait is in progress, after the first status check
+		cancel()
+		return &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{{Name: "rs-0", LastGoalVersionAchieved: 0}}}, nil
+	}
+
+	start := time.Now()
+	err := WaitForReadyState(ctx, conn, []string{"rs-0"}, false, zap.S())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "haven't reached READY state")
+	assert.Equal(t, 1, calls, "the wait must stop at the first check instead of completing all 30 retries")
+	assert.Less(t, time.Since(start), 3*time.Second, "must not wait out the retry interval once the context is cancelled")
 }

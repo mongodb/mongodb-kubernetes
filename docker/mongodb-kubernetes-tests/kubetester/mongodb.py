@@ -91,6 +91,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             "but may still be processing the request",
             "Client.Timeout exceeded while awaiting headers",
             "context deadline exceeded",
+            # The Operator aborts in-flight Ops Manager requests when the reconcile context
+            # is cancelled (e.g. during an operator restart), so this may appear transiently.
+            "context canceled",
         )
 
         start_time = time.time()

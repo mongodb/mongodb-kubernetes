@@ -16,6 +16,7 @@ func init() {
 }
 
 func TestFetchAndValidate_ValidDeployment(t *testing.T) {
+	ctx := t.Context()
 	d := om.Deployment(map[string]any{
 		"processes": []any{
 			map[string]any{
@@ -44,7 +45,7 @@ func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 		"sharding": []any{},
 	})
 	conn := om.NewMockedOmConnection(d)
-	ac, projectConfigs, sourceProcess, err := fetchAndValidate(conn)
+	ac, projectConfigs, sourceProcess, err := fetchAndValidate(ctx, conn)
 	require.NoError(t, err)
 	require.NotNil(t, ac)
 	require.NotNil(t, projectConfigs)
@@ -53,13 +54,14 @@ func TestFetchAndValidate_ValidDeployment(t *testing.T) {
 }
 
 func TestFetchAndValidate_ValidationError(t *testing.T) {
+	ctx := t.Context()
 	d := om.Deployment(map[string]any{
 		"processes":   []any{},
 		"replicaSets": []any{},
 		"sharding":    []any{},
 	})
 	conn := om.NewMockedOmConnection(d)
-	_, _, _, err := fetchAndValidate(conn)
+	_, _, _, err := fetchAndValidate(ctx, conn)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "validation failed")
 }

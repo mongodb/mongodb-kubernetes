@@ -39,7 +39,7 @@ func TestConfigureScramSha256(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestConfigureX509(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestConfigureScramSha1(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 
 	assertAuthenticationEnabled(t, ac.Auth)
@@ -131,7 +131,7 @@ func TestConfigureMultipleAuthenticationMechanisms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestDisableAuthentication(t *testing.T) {
 	conn := om.NewMockedOmConnection(dep)
 
 	// enable authentication
-	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	_ = conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.Enable()
 		return nil
 	}, zap.S())
@@ -164,7 +164,7 @@ func TestDisableAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestDisableAuthenticationWithDeleteUsers(t *testing.T) {
 	conn := om.NewMockedOmConnection(dep)
 
 	// enable authentication
-	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	_ = conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.Enable()
 		ac.Auth.AutoUser = "mms-automation-agent"
 		ac.Auth.AutoPwd = "some-password"
@@ -195,7 +195,7 @@ func TestDisableAuthenticationWithDeleteUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestDisableAuthenticationWithoutDeleteUsers(t *testing.T) {
 	conn := om.NewMockedOmConnection(dep)
 
 	// enable authentication
-	_ = conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	_ = conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.Enable()
 		ac.Auth.AutoUser = "mms-automation-agent"
 		ac.Auth.AutoPwd = "some-password"
@@ -228,7 +228,7 @@ func TestDisableAuthenticationWithoutDeleteUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,8 +240,9 @@ func TestDisableAuthenticationWithoutDeleteUsers(t *testing.T) {
 }
 
 func TestGetCorrectAuthMechanismFromVersion(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 
 	mechanismList := convertToMechanismList([]string{"X509"}, ac)
@@ -299,10 +300,11 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 }
 
 func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
-	err := authMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	ctx := t.Context()
+	err := authMechanism.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
 	require.NoError(t, err)
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured(ac, opts))
 }
@@ -316,14 +318,14 @@ func assertAgentAuthenticationDisabled(t *testing.T, authMechanism Mechanism, co
 	err := authMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.NoError(t, err)
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.True(t, authMechanism.IsAgentAuthenticationConfigured(ac, opts))
 
-	err = authMechanism.DisableAgentAuthentication(conn, zap.S())
+	err = authMechanism.DisableAgentAuthentication(ctx, conn, zap.S())
 	require.NoError(t, err)
 
-	ac, err = conn.ReadAutomationConfig()
+	ac, err = conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.False(t, authMechanism.IsAgentAuthenticationConfigured(ac, opts))
 }

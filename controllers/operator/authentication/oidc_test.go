@@ -18,8 +18,9 @@ import (
 var mongoDBOIDCMechanism = getMechanismByName(MongoDBOIDC)
 
 func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, ac.OIDCProviderConfigs)
 	assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
@@ -55,10 +56,10 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	configured := mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = mongoDBOIDCMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	err = mongoDBOIDCMechanism.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
 	require.NoError(t, err)
 
-	ac, err = conn.ReadAutomationConfig()
+	ac, err = conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 	assert.Equal(t, providerConfigs, ac.OIDCProviderConfigs)
@@ -66,10 +67,10 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	configured = mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.True(t, configured)
 
-	err = mongoDBOIDCMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	err = mongoDBOIDCMechanism.DisableDeploymentAuthentication(ctx, conn, zap.S())
 	require.NoError(t, err)
 
-	ac, err = conn.ReadAutomationConfig()
+	ac, err = conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 
 	configured = mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
@@ -90,7 +91,7 @@ func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 		MongoDBResource: mongoDBResource,
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 
 	configured := mongoDBOIDCMechanism.IsAgentAuthenticationConfigured(ac, opts)
@@ -99,6 +100,6 @@ func TestOIDC_EnableAgentAuthentication(t *testing.T) {
 	err = mongoDBOIDCMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.Error(t, err)
 
-	err = mongoDBOIDCMechanism.DisableAgentAuthentication(conn, zap.S())
+	err = mongoDBOIDCMechanism.DisableAgentAuthentication(ctx, conn, zap.S())
 	require.Error(t, err)
 }
