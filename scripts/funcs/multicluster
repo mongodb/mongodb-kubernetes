@@ -294,5 +294,20 @@ run_multi_cluster_kube_config_creator() {
   echo "${KUBECTL_MONGODB_PATH} multicluster setup ${params[*]}"
   ${KUBECTL_MONGODB_PATH} multicluster setup "${params[@]}"
 
-  kubectl get secret --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" mongodb-enterprise-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${KUBE_CONFIG_PATH}"
+  # Write the bare base. Non-devc callers (tunnel users, the EVG host during
+  # remote-prepare) consume this bare 127.0.0.1 file directly via SSH
+  # port-forwards and must NOT get a proxy-url. Only inside the devcontainer
+  # do we derive the two flavors (host + devc proxy) via wt-ctl.
+  multicluster_base="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+  kubectl get secret --context "${CENTRAL_CLUSTER}" -n "${NAMESPACE}" mongodb-enterprise-operator-multi-cluster-kubeconfig -o json | jq -rc '.data.kubeconfig' | base64 -d >"${multicluster_base}"
+  if [[ -f /.dockerenv ]]; then
+    # Prefer the tooling mount: on a tooling-free worktree (e.g. plain master)
+    # ${PROJECT_DIR}/scripts/dev/wt-ctl does not exist, while /mck-tooling is
+    # bind-mounted read-only by the portable devcontainer.
+    if [[ -x /mck-tooling/scripts/dev/wt-ctl ]]; then
+      /mck-tooling/scripts/dev/wt-ctl --quiet kubeconfig refresh
+    else
+      "${PROJECT_DIR}/scripts/dev/wt-ctl" --quiet kubeconfig refresh
+    fi
+  fi
 }

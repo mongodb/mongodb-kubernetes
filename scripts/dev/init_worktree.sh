@@ -28,7 +28,16 @@ maybe_copy() {
     local dest="${worktree_root}/${rel_path}"
 
     if [[ -e "${dest}" && ${force} == 0 ]]; then
-        echo "init_worktree: '${rel_path}' already exists, skipping."
+        # Merge missing entries instead of skipping wholesale: a pre-created
+        # empty .generated/ (or a partially-populated one) must not leave the
+        # worktree without context.export.env / .current_context, which later
+        # phases (make switch, recreate_python_venv) hard-depend on.
+        if [[ -d "${dest}" && -d "${source}" ]]; then
+            (cd "${source}" && cp -R -n . "${dest}/") 2>/dev/null || true
+            echo "init_worktree: merged missing entries into existing '${rel_path}'."
+        else
+            echo "init_worktree: '${rel_path}' already exists, skipping."
+        fi
         return
     fi
 
@@ -56,8 +65,8 @@ else
 fi
 
 # Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
-venv_path="${PROJECT_VENV_PATH:-${worktree_root}/venv}"
 # Recreate on empty/broken venv (no activate script) too; the script is idempotent.
+venv_path="${PROJECT_VENV_PATH:-${worktree_root}/venv}"
 if [[ ! -f "${venv_path}/bin/activate" || ${force} == 1 ]]; then
     echo "init_worktree: recreating python venv"
     (cd "${worktree_root}" && scripts/dev/recreate_python_venv.sh)

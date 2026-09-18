@@ -1,0 +1,41 @@
+# Tooling-owned scripts that are overlaid onto the target checkout so the
+# local-dev flows behave identically on any branch (including plain master).
+#
+# Consumers:
+#   - scripts/dev/evg_host.sh sync_tooling_overlay  → rsync over the remote
+#     EVG-host project copy (all entries; complete chain).
+#   - .devcontainer/scripts/initialize.py           → read-only bind mounts
+#     into the devcontainer at /workspace/<path>. Mounts only entries that
+#     exist in the worktree; the bootstrap chain (devenv / wt-ctl /
+#     switch_context / contexts) is skipped there because it must be
+#     mounted as a complete set — see initialize.py.
+#
+# One repo-relative path per line (files or directories). Blank lines and
+# '#' comments are ignored. Caveat: the tooling's copy wins — if a feature
+# branch modifies one of these files, run without the overlay (or edit the
+# tooling branch) to test that change.
+scripts/dev/devenv
+scripts/dev/wt-ctl
+scripts/dev/wt_ctl
+scripts/dev/switch_context.sh
+scripts/dev/set_env_context.sh
+scripts/dev/print_operator_env.sh
+scripts/dev/contexts/site-context
+scripts/dev/contexts/root-context
+scripts/dev/contexts/root-devc-context
+scripts/dev/recreate_kind_cluster.sh
+scripts/dev/recreate_kind_clusters.sh
+scripts/dev/setup_kind_cluster.sh
+scripts/dev/interconnect_kind_clusters.sh
+scripts/dev/kind_clusters_check_interconnect.sh
+scripts/dev/prepare_local_e2e_run.sh
+scripts/dev/prepare-multi-cluster
+scripts/dev/delete_om_projects.sh
+scripts/dev/configure_container_auth.sh
+scripts/dev/e2e_run.sh
+scripts/dev/op_run.sh
+scripts/funcs/kind_network
+scripts/funcs/errors
+scripts/funcs/kubernetes
+scripts/funcs/multicluster
+scripts/funcs/printing
