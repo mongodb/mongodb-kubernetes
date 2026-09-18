@@ -360,7 +360,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 }
 
 func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, conn om.Connection, s *mdbv1.MongoDB, set appsv1.StatefulSet, isRecovering bool, agentCertPath string, log *zap.SugaredLogger) workflow.Status {
-	if err := agents.WaitForRsAgentsToRegister(set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
+	if err := agents.WaitForRsAgentsToRegister(ctx, set, 0, s.Spec.GetClusterDomain(), conn, log, s); err != nil {
 		return workflow.Failed(err)
 	}
 

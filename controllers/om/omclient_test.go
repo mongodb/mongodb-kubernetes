@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -356,7 +357,7 @@ func TestReadProjectsInOrganization_OrgIDIsPathEscaped(t *testing.T) {
 
 		conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL}, OptionRetryConfig(0, 0, 1))
 
-		_, err := conn.ReadProjectsInOrganization(orgID, 0)
+		_, err := conn.ReadProjectsInOrganization(context.Background(), orgID, 0)
 		require.NoError(t, err)
 
 		got := rec.get()

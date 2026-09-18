@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -51,6 +52,9 @@ const (
 	defaultRetryWaitMin = 1 * time.Second
 	defaultRetryWaitMax = 10 * time.Second
 	defaultRetryMax     = 3
+
+	// defaultRequestTimeout bounds a single HTTP attempt (connection, response headers and body) against Ops Manager.
+	defaultRequestTimeout = 2 * time.Minute
 )
 
 type Client struct {
@@ -66,9 +70,9 @@ type Client struct {
 
 // NewHTTPClient is a functional options constructor, based on this blog post:
 // https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis
-// The default clients specifies some important timeouts (some of them are synced with AA one):
-// 10 seconds for connection (TLS/non TLS)
-// 10 minutes for requests (time to get the first response headers)
+// The default client uses http.DefaultTransport and bounds every attempt with defaultRequestTimeout. Failed
+// requests are retried up to defaultRetryMax times, so an overall deadline can only be enforced by the context
+// passed to RequestWithContext.
 func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 	client := &Client{
 		Client: newDefaultHTTPClient(),
@@ -79,7 +83,7 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 
 func newDefaultHTTPClient() *retryablehttp.Client {
 	return &retryablehttp.Client{
-		HTTPClient:   &http.Client{Transport: http.DefaultTransport},
+		HTTPClient:   &http.Client{Transport: http.DefaultTransport, Timeout: defaultRequestTimeout},
 		RetryWaitMin: defaultRetryWaitMin,
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryMax:     defaultRetryMax,
@@ -160,17 +164,23 @@ func OptionCAValidate(ca string) func(client *Client) error {
 
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
+// Use RequestWithContext to enforce an overall deadline.
 func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
+	return client.RequestWithContext(context.Background(), method, hostname, path, v)
+}
+
+// RequestWithContext is like Request, but aborts the whole exchange (including retries and backoff waits) as soon as ctx is done.
+func (client *Client) RequestWithContext(ctx context.Context, method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
-	req, err := createHTTPRequest(method, url, v)
+	req, err := createHTTPRequest(ctx, method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
 
 	if client.username != "" && client.password != "" {
 		// Only add Digest auth when needed.
-		err = client.authorizeRequest(method, hostname, path, req)
+		err = client.authorizeRequest(ctx, method, hostname, path, req)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -187,7 +197,7 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentAuth string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
-	req, err := createHTTPRequest(method, url, v)
+	req, err := createHTTPRequest(context.Background(), method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
@@ -200,10 +210,10 @@ func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentA
 // authorizeRequest executes one request that's meant to be challenged by the
 // server in order to build the next one. The `request` parameter is aggregated
 // with the required `Authorization` header.
-func (client *Client) authorizeRequest(method, hostname, path string, request *retryablehttp.Request) error {
+func (client *Client) authorizeRequest(ctx context.Context, method, hostname, path string, request *retryablehttp.Request) error {
 	url := hostname + path
 
-	digestRequest, err := retryablehttp.NewRequest(method, url, nil)
+	digestRequest, err := retryablehttp.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return err
 	}
@@ -239,14 +249,14 @@ func (client *Client) authorizeRequest(method, hostname, path string, request *r
 	return nil
 }
 
-// createHTTPRequest
-func createHTTPRequest(method string, url string, v interface{}) (*retryablehttp.Request, error) {
+// createHTTPRequest builds a retryable request bound to ctx, with 'v' serialized to JSON as the body.
+func createHTTPRequest(ctx context.Context, method string, url string, v interface{}) (*retryablehttp.Request, error) {
 	buffer, err := serializeToBuffer(v)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := retryablehttp.NewRequest(method, url, buffer)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, url, buffer)
 	if err != nil {
 		return nil, err
 	}
