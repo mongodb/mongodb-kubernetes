@@ -41,7 +41,7 @@ const (
 	debuggingPortConfigPath    string = "mms.k8s.debuggingPort"
 	queryableBackupDefaultPort int32  = 25999
 
-	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+	LabelResourceOwner = util.MongoDBOpsManagerResourceOwnerLabel
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -98,6 +98,7 @@ type MongoDBOpsManagerList struct {
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase) || (self.externalApplicationDatabaseRef.kind == 'MongoDBMultiCluster' ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster') : !(has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster'))",message="topology does not match between the current AppDB and the external AppDB"
 // +kubebuilder:validation:XValidation:rule="has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)",message="at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set"
 type MongoDBOpsManagerSpec struct {
 	// The configuration properties passed to Ops Manager/Backup Daemon

@@ -1838,6 +1838,13 @@ spec:
             - version
             type: object
             x-kubernetes-validations:
+            - message: topology does not match between the current AppDB and the external
+                AppDB
+              rule: '!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase)
+                || (self.externalApplicationDatabaseRef.kind == ''MongoDBMultiCluster''
+                ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology
+                == ''MultiCluster'') : !(has(oldSelf.applicationDatabase.topology)
+                && oldSelf.applicationDatabase.topology == ''MultiCluster''))'
             - message: at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef
                 must be set
               rule: has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)

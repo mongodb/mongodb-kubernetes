@@ -1952,6 +1952,30 @@ func TestEnsureAppDBRoleUser_ReusesExistingPassword(t *testing.T) {
 	assertAppDBRoleUserRolesAndCreds(t, createdUser)
 }
 
+func assertAppDBRoleUserRolesAndCreds(t *testing.T, createdUser *om.MongoDBUser) {
+	assert.ElementsMatch(t, expectedAppDBRoleUserRoles, createdUser.Roles)
+	require.NotNil(t, createdUser.ScramSha256Creds)
+	require.NotNil(t, createdUser.ScramSha1Creds)
+}
+
+func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
+		EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+
+	// deletion of an AppDB-role CR is a handover to internal AppDB management, not a deprovision:
+	// removing the replica set from the project would make the agents shut down every mongod at
+	// once, taking the AppDB (and the Ops Manager depending on it) down mid-migration
+	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
+}
+
 // expectedAppDBRoleUserRoles mirrors the roles granted to the AppDB Ops Manager user in
 // AppDBSpec.GetAuthUsers (api/mongodb/v1/om/appdb_types.go).
 var expectedAppDBRoleUserRoles = []*om.Role{
@@ -2002,6 +2026,11 @@ func (b *StatefulSetBuilder) SetOwnerReferences(refs []metav1.OwnerReference) *S
 	return b
 }
 
+func (b *StatefulSetBuilder) SetLabels(labels map[string]string) *StatefulSetBuilder {
+	b.sts.Labels = labels
+	return b
+}
+
 func (b *StatefulSetBuilder) SetAnnotations(annotations map[string]string) *StatefulSetBuilder {
 	b.sts.Annotations = annotations
 	return b
@@ -2028,240 +2057,113 @@ func statusMessage(s workflow.Status) string {
 	return ""
 }
 
-func TestAdoptionGate_BlocksWithoutAnnotation(t *testing.T) {
+func TestEnsureMongoDBStatefulSetOwnershipGate(t *testing.T) {
 	ctx := context.Background()
-	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
-		SetOwnerReferences(someOtherOwnerReference()).Build() // foreign STS, no annotation
 	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	require.NoError(t, kubeClient.Create(ctx, &sts))
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	mdb.UID = types.UID("my-mdb-uid")
+	ownerLabels := mdb.GetOwnerLabels()
+	expectedOwnRef := kube.BaseOwnerReference(mdb)
+	foreignOwnerRef := someOtherOwnerReference()[0]
 
-	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-	assert.False(t, ownershipStatus.IsOK(), "foreign STS without migration annotation must block adoption")
-	assert.Contains(t, statusMessage(ownershipStatus), "Cannot take ownership of the AppDB Statefulset")
-}
-
-func TestAdoptionGate_BlocksWithAnnotationButOwnerRefStillPresent(t *testing.T) {
-	ctx := context.Background()
-	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
-		SetOwnerReferences(someOtherOwnerReference()).
-		SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).Build()
-	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	require.NoError(t, kubeClient.Create(ctx, &sts))
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-	assert.False(t, ownershipStatus.IsOK(), "must stay blocked while the foreign OwnerReference is still present, even with the annotation")
-	assert.Equal(t, status.PhaseFailed, ownershipStatus.Phase())
-	assert.Contains(t, statusMessage(ownershipStatus), "it has other owner")
-}
-
-func TestAdoptionGate_ProceedsWhenBothSignalsSatisfied(t *testing.T) {
-	ctx := context.Background()
-	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
-		SetOwnerReferences(nil).
-		SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).Build()
-	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	require.NoError(t, kubeClient.Create(ctx, &sts))
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-	assert.True(t, ownershipStatus.IsOK(), "adoption should proceed when migration-ready annotation is present and no foreign owners")
-}
-
-func TestAdoptionGate_BlocksWithForeignOwners(t *testing.T) {
 	tests := []struct {
-		name      string
-		ownerRefs []metav1.OwnerReference
+		name                string
+		labels              map[string]string
+		annotations         map[string]string
+		ownerReferences     []metav1.OwnerReference
+		expectedOK          bool
+		expectedError       string
+		expectedLabels      map[string]string
+		expectedOwnerRefs   []metav1.OwnerReference
+		expectedAnnotations map[string]string
 	}{
 		{
-			name: "OM-owned StatefulSet blocks adoption",
-			ownerRefs: []metav1.OwnerReference{{
-				APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: "om-uid-1111",
-			}},
+			name:           "owned label stays unchanged",
+			labels:         map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel]},
+			expectedOK:     true,
+			expectedLabels: map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel]},
 		},
 		{
-			name: "non-OM foreign owner blocks adoption",
-			ownerRefs: []metav1.OwnerReference{{
-				APIVersion: "v1", Kind: "ConfigMap", Name: "some-unrelated-owner", UID: "cm-uid-3333",
-			}},
+			name:           "own key with a different value blocks ownership",
+			labels:         map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: "wrong"},
+			expectedOK:     false,
+			expectedError:  "Cannot take ownership of the AppDB Statefulset: it has other owner",
+			expectedLabels: map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: "wrong"},
+		},
+		{
+			name:                "forward annotation adopts and strips participant labels",
+			labels:              map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+			annotations:         map[string]string{util.AppDBMigrationReadyAnnotation: "true", util.AppDBReverseMigrationReadyAnnotation: "true"},
+			expectedOK:          true,
+			expectedLabels:      map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel], "controller": ownerLabels["controller"]},
+			expectedOwnerRefs:   expectedOwnRef,
+			expectedAnnotations: map[string]string{util.AppDBMigrationReadyAnnotation: "true"},
+		},
+		{
+			name:                "reverse annotation releases owned StatefulSet",
+			labels:              map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel]},
+			annotations:         map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+			ownerReferences:     []metav1.OwnerReference{foreignOwnerRef, expectedOwnRef[0]},
+			expectedOK:          false,
+			expectedError:       "This AppDB resource is under Reverse Migration to Ops Manager CR",
+			expectedLabels:      map[string]string{"app": "demo"},
+			expectedOwnerRefs:   []metav1.OwnerReference{foreignOwnerRef},
+			expectedAnnotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+		},
+		{
+			name:           "foreign participant label without annotations blocks external-ref reconciliation",
+			labels:         map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+			expectedOK:     false,
+			expectedError:  "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource",
+			expectedLabels: map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+		},
+		{
+			name:              "bootstrap backfills the label from same-cluster ownerReference",
+			labels:            map[string]string{"app": "demo"},
+			ownerReferences:   expectedOwnRef,
+			expectedOK:        true,
+			expectedLabels:    map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel], "controller": ownerLabels["controller"]},
+			expectedOwnerRefs: expectedOwnRef,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			sts := DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(tt.ownerRefs).Build()
-			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
 			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			sts := DefaultStatefulSetBuilder().SetName(mdb.Name).SetLabels(tt.labels).SetAnnotations(tt.annotations).SetOwnerReferences(tt.ownerReferences).Build()
 			require.NoError(t, kubeClient.Create(ctx, &sts))
 			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
 
 			ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-			assert.False(t, ownershipStatus.IsOK())
-			assert.Contains(t, statusMessage(ownershipStatus), "Cannot take ownership of the AppDB Statefulset")
-		})
-	}
-}
-
-func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
-	ctx := context.Background()
-	mdb := DefaultReplicaSetBuilder().SetName("fresh-start-db").SetRole(mdbv1.RoleAppDB).Build()
-	reconciler, _, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-	assert.True(t, ownershipStatus.IsOK(), "Fresh Start: no StatefulSet exists yet, adoption succeeds")
-}
-
-func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
-	ctx := context.Background()
-	rs := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
-		EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
-	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
-	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	mockedOmConn.CleanHistory()
-
-	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
-
-	// deletion of an AppDB-role CR is a handover to internal AppDB management, not a deprovision:
-	// removing the replica set from the project would make the agents shut down every mongod at
-	// once, taking the AppDB (and the Ops Manager depending on it) down mid-migration
-	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
-}
-
-func TestConsumeAdoptionSignal(t *testing.T) {
-	tests := []struct {
-		name string
-		// sts builds the pre-existing StatefulSet; nil means it doesn't exist (Fresh Start)
-		sts *appsv1.StatefulSet
-	}{
-		{
-			name: "keeps migration-ready annotation during adoption for reshape",
-			sts: ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").
-				SetOwnerReferences(nil).
-				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true", "other": "kept"}).Build()),
-		},
-		{
-			name: "no-op when annotation absent",
-			sts:  ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(nil).Build()),
-		},
-		{
-			name: "no-op when StatefulSet does not exist",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-			if tt.sts != nil {
-				require.NoError(t, kubeClient.Create(ctx, tt.sts))
-			}
-			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-			ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-
-			if tt.name == "keeps migration-ready annotation during adoption for reshape" {
-				result := appsv1.StatefulSet{}
-				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
-				assert.Contains(t, result.Annotations, util.AppDBMigrationReadyAnnotation,
-					"the migration-ready annotation must persist after adoption for STS reshape detection")
-				assert.Contains(t, result.Annotations, "other", "unrelated annotations must be preserved")
-				assert.True(t, ownershipStatus.IsOK(), "should own the STS after adoption")
-			} else if tt.name == "no-op when annotation absent" {
-				result := appsv1.StatefulSet{}
-				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
-				assert.False(t, ownershipStatus.IsOK(), "STS with no ownerRefs and no migration signals cannot be adopted")
-				assert.Contains(t, statusMessage(ownershipStatus), "Cannot take ownership of the AppDB Statefulset")
-			} else if tt.name == "no-op when StatefulSet does not exist" {
-				assert.True(t, ownershipStatus.IsOK(), "Fresh Start case: ownership succeeds without STS")
-			}
-		})
-	}
-}
-
-func assertAppDBRoleUserRolesAndCreds(t *testing.T, createdUser *om.MongoDBUser) {
-	assert.ElementsMatch(t, expectedAppDBRoleUserRoles, createdUser.Roles)
-	require.NotNil(t, createdUser.ScramSha256Creds)
-	require.NotNil(t, createdUser.ScramSha1Creds)
-}
-
-func TestReleaseStatefulSetIfRequested(t *testing.T) {
-	tests := []struct {
-		name              string
-		annotations       map[string]string
-		crOwned           bool
-		expectedOwned     bool
-		expectedOwnerRefs int
-	}{
-		{
-			name:              "release requested on owned StatefulSet: strips ownerRef",
-			annotations:       map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
-			crOwned:           true,
-			expectedOwned:     false,
-			expectedOwnerRefs: 0,
-		},
-		{
-			name:              "release requested on already-released StatefulSet: stays released",
-			annotations:       map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
-			expectedOwned:     false,
-			expectedOwnerRefs: 0,
-		},
-		{
-			name:              "no release request: untouched",
-			crOwned:           true,
-			expectedOwned:     true,
-			expectedOwnerRefs: 1,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-			mdb.UID = types.UID("cr-uid-2222")
-			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-			var refs []metav1.OwnerReference
-			if tt.crOwned {
-				refs = kube.BaseOwnerReference(mdb)
-			}
-			sts := DefaultStatefulSetBuilder().SetName(mdb.Name).SetOwnerReferences(refs).SetAnnotations(tt.annotations).Build()
-			require.NoError(t, kubeClient.Create(ctx, &sts))
-
-			ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-			assert.Equal(t, tt.expectedOwned, ownershipStatus.IsOK())
-			if !tt.expectedOwned {
-				assert.Contains(t, statusMessage(ownershipStatus), "under Reverse Migration")
+			assert.Equal(t, tt.expectedOK, ownershipStatus.IsOK())
+			if tt.expectedError != "" {
+				assert.Equal(t, tt.expectedError, statusMessage(ownershipStatus))
 			}
 
 			result := appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
-			assert.Len(t, result.OwnerReferences, tt.expectedOwnerRefs)
+
+			if tt.expectedLabels != nil {
+				assert.Equal(t, tt.expectedLabels, result.Labels)
+			}
+			if tt.expectedOwnerRefs != nil {
+				assert.Equal(t, tt.expectedOwnerRefs, result.OwnerReferences)
+			}
+			if tt.expectedAnnotations != nil {
+				assert.Equal(t, tt.expectedAnnotations, result.Annotations)
+			}
+
+			if tt.name == "forward annotation adopts and strips participant labels" {
+				assert.Equal(t, expectedOwnRef, result.OwnerReferences)
+				assert.NotContains(t, result.Labels, util.MongoDBOpsManagerResourceOwnerLabel)
+				assert.NotContains(t, result.Labels, util.MongoDBMultiClusterResourceOwnerLabel)
+				assert.Equal(t, "demo", result.Labels["app"])
+			}
+			if tt.name == "bootstrap backfills the label from same-cluster ownerReference" {
+				assert.Equal(t, expectedOwnRef, result.OwnerReferences)
+				assert.Equal(t, ownerLabels[util.MongoDBResourceOwnerLabel], result.Labels[util.MongoDBResourceOwnerLabel])
+			}
 		})
 	}
-}
-
-func TestAdoptionGate_ForwardMigrationTakesPrecedence(t *testing.T) {
-	ctx := context.Background()
-	sts := DefaultStatefulSetBuilder().SetName("my-om-db").
-		SetOwnerReferences(nil).
-		SetAnnotations(map[string]string{
-			util.AppDBMigrationReadyAnnotation:        "true",
-			util.AppDBReverseMigrationReadyAnnotation: "true",
-		}).Build()
-	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
-	require.NoError(t, kubeClient.Create(ctx, &sts))
-	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-
-	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
-	assert.True(t, ownershipStatus.IsOK(), "forward migration takes precedence: reclaim ownership even if reverse is also requested")
 }
 
 func TestValidateAppDBForwardMigration(t *testing.T) {

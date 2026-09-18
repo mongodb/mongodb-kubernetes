@@ -74,6 +74,93 @@ func BooleanRef(b bool) *bool {
 	return &b
 }
 
+// ClassifyAppDBStatefulSetOwnership decides which controller holds a shared AppDB StatefulSet using
+// its resource-owner label. Ownership cannot be decided by ownerReferences: a StatefulSet deployed
+// to a member cluster must never carry a cross-cluster ownerReference, so the label is the only
+// identity valid in every cluster.
+//
+// Owned: this CR's key carries its own value. A stray participant label from an earlier holder is
+// tolerated, because the wholesale StatefulSet apply removes it.
+// Conflict: this CR's key carries a different value, or two or more participant keys are present
+// without this CR's key. Either way the holder is ambiguous and the caller must not adopt.
+// Unowned: no participant key, or exactly one belonging to another participant (for example an
+// Ops Manager StatefulSet detached before labels were stripped).
+//
+// Only the resource-owner keys participate; the shared controller label is ignored so a missing or
+// renamed operator label cannot make an owned StatefulSet look ownerless.
+func ClassifyAppDBStatefulSetOwnership(labels map[string]string, ownKey, ownValue string) AppDBStatefulSetOwnership {
+	if labels == nil {
+		return AppDBStatefulSetOwnershipUnowned
+	}
+
+	if value, ok := labels[ownKey]; ok {
+		if value != ownValue {
+			return AppDBStatefulSetOwnershipConflict
+		}
+		return AppDBStatefulSetOwnershipOwned
+	}
+
+	participantKeys := []string{
+		MongoDBResourceOwnerLabel,
+		MongoDBOpsManagerResourceOwnerLabel,
+		MongoDBMultiClusterResourceOwnerLabel,
+	}
+	participantCount := 0
+	for _, key := range participantKeys {
+		if key == ownKey {
+			continue
+		}
+		if _, ok := labels[key]; ok {
+			participantCount++
+		}
+	}
+
+	if participantCount >= 2 {
+		return AppDBStatefulSetOwnershipConflict
+	}
+
+	return AppDBStatefulSetOwnershipUnowned
+}
+
+// StripAppDBParticipantLabels removes every AppDB resource-owner label. User-supplied labels are
+// sanitized with it before the owner labels are merged in, so a user cannot claim ownership on
+// behalf of another participant.
+func StripAppDBParticipantLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	stripped := make(map[string]string, len(labels))
+	for key, value := range labels {
+		switch key {
+		case MongoDBResourceOwnerLabel, MongoDBOpsManagerResourceOwnerLabel, MongoDBMultiClusterResourceOwnerLabel:
+			continue
+		default:
+			stripped[key] = value
+		}
+	}
+
+	return stripped
+}
+
+// HasForeignAppDBOwnerLabel reports whether any other AppDB participant label is present.
+func HasForeignAppDBOwnerLabel(labels map[string]string, ownKey string) bool {
+	if labels == nil {
+		return false
+	}
+
+	for _, key := range []string{MongoDBResourceOwnerLabel, MongoDBOpsManagerResourceOwnerLabel, MongoDBMultiClusterResourceOwnerLabel} {
+		if key == ownKey {
+			continue
+		}
+		if _, ok := labels[key]; ok {
+			return true
+		}
+	}
+
+	return false
+}
+
 func StripEnt(version string) string {
 	return strings.Trim(version, "-ent")
 }
