@@ -66,7 +66,7 @@ func TraversePages(ctx context.Context, reader PageReader, predicate PageItemPre
 	if err != nil {
 		return false, err
 	}
-	if applyPredicate(paginated, predicate) {
+	if anyItemMatches(paginated, predicate) {
 		return true, nil
 	}
 
@@ -86,7 +86,7 @@ func TraversePages(ctx context.Context, reader PageReader, predicate PageItemPre
 		if err != nil {
 			return false, err
 		}
-		if applyPredicate(paginated, predicate) {
+		if anyItemMatches(paginated, predicate) {
 			return true, nil
 		}
 	}
@@ -110,7 +110,9 @@ func readPage(ctx context.Context, reader PageReader, pageNum int) (Paginated, e
 	return paginated, nil
 }
 
-func applyPredicate(paginated Paginated, predicate PageItemPredicate) bool {
+// anyItemMatches reports whether the predicate returns true for any item on the page,
+// stopping at the first item it does (the predicate signals the search is over).
+func anyItemMatches(paginated Paginated, predicate PageItemPredicate) bool {
 	for _, entity := range paginated.Results() {
 		if predicate(entity) {
 			return true
