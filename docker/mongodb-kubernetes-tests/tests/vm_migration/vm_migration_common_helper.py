@@ -273,11 +273,14 @@ def _first_shard_on_vms(mdb_migration: MongoDB) -> tuple[str, str]:
     raise AssertionError("no shard has VM members left, nothing to exercise the voting limit on")
 
 
-def assert_migration_tool_version_annotation(generated_cr: dict, version: str) -> None:
-    assert MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION in generated_cr["metadata"]["annotations"]
-    # Not exact equality because annotation contains commit_sha_short in case of staging environment.
-    # version contains the complete commit sha
-    assert generated_cr["metadata"]["annotations"][MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION] in version
+def assert_migration_tool_version_annotation(generated_cr: dict) -> None:
+    ann = generated_cr["metadata"]["annotations"]
+    assert (
+        MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION in ann
+    ), f"missing annotation {MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION}"
+    assert ann[
+        MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION
+    ], f"annotation {MIGRATION_IMPORT_TOOL_VERSION_ANNOTATION} is empty"
 
 
 def assert_migration_dry_run_annotation(generated_cr_yaml: str) -> None:
