@@ -46,6 +46,149 @@ func TestMajorMinorVersion(t *testing.T) {
 	assert.Equal(t, "4.2", s)
 }
 
+func TestClassifyAppDBStatefulSetOwnership(t *testing.T) {
+	tests := []struct {
+		name      string
+		labels    map[string]string
+		ownKey    string
+		ownValue  string
+		expectedX AppDBStatefulSetOwnership
+	}{
+		{
+			name:      "unowned when no participant labels exist",
+			labels:    map[string]string{"app": "demo"},
+			ownKey:    MongoDBMultiClusterResourceOwnerLabel,
+			ownValue:  "ns-temple",
+			expectedX: AppDBStatefulSetOwnershipUnowned,
+		},
+		{
+			name:      "owned when own key matches even with controller label missing",
+			labels:    map[string]string{MongoDBMultiClusterResourceOwnerLabel: "ns-temple"},
+			ownKey:    MongoDBMultiClusterResourceOwnerLabel,
+			ownValue:  "ns-temple",
+			expectedX: AppDBStatefulSetOwnershipOwned,
+		},
+		{
+			name:      "foreign owner label is ignored when own label matches",
+			labels:    map[string]string{MongoDBMultiClusterResourceOwnerLabel: "ns-temple", MongoDBResourceOwnerLabel: "someone-else"},
+			ownKey:    MongoDBMultiClusterResourceOwnerLabel,
+			ownValue:  "ns-temple",
+			expectedX: AppDBStatefulSetOwnershipOwned,
+		},
+		{
+			name:      "own key wrong value is conflict",
+			labels:    map[string]string{MongoDBMultiClusterResourceOwnerLabel: "wrong"},
+			ownKey:    MongoDBMultiClusterResourceOwnerLabel,
+			ownValue:  "ns-temple",
+			expectedX: AppDBStatefulSetOwnershipConflict,
+		},
+		{
+			name:      "two participant labels are conflict",
+			labels:    map[string]string{MongoDBResourceOwnerLabel: "my-mdb", MongoDBOpsManagerResourceOwnerLabel: "my-om"},
+			ownKey:    MongoDBMultiClusterResourceOwnerLabel,
+			ownValue:  "ns-temple",
+			expectedX: AppDBStatefulSetOwnershipConflict,
+		},
+		{
+			name:      "controller label is ignored",
+			labels:    map[string]string{"controller": "mongodb-enterprise-operator", MongoDBMultiClusterResourceOwnerLabel: "ns-temple"},
+			ownKey:    MongoDBMultiClusterResourceOwnerLabel,
+			ownValue:  "ns-temple",
+			expectedX: AppDBStatefulSetOwnershipOwned,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedX, ClassifyAppDBStatefulSetOwnership(tt.labels, tt.ownKey, tt.ownValue))
+		})
+	}
+}
+
+func TestHasForeignAppDBOwnerLabel(t *testing.T) {
+	tests := []struct {
+		name      string
+		labels    map[string]string
+		ownKey    string
+		expectedX bool
+	}{
+		{
+			name:      "nil labels do not report a foreign owner",
+			ownKey:    MongoDBOpsManagerResourceOwnerLabel,
+			expectedX: false,
+		},
+		{
+			name:      "own label alone does not report a foreign owner",
+			labels:    map[string]string{MongoDBOpsManagerResourceOwnerLabel: "ns-temple"},
+			ownKey:    MongoDBOpsManagerResourceOwnerLabel,
+			expectedX: false,
+		},
+		{
+			name:      "foreign label is reported",
+			labels:    map[string]string{MongoDBResourceOwnerLabel: "my-mdb"},
+			ownKey:    MongoDBOpsManagerResourceOwnerLabel,
+			expectedX: true,
+		},
+		{
+			name:      "multiple foreign labels are reported",
+			labels:    map[string]string{MongoDBResourceOwnerLabel: "my-mdb", MongoDBMultiClusterResourceOwnerLabel: "my-mdbm"},
+			ownKey:    MongoDBOpsManagerResourceOwnerLabel,
+			expectedX: true,
+		},
+		{
+			name:      "foreign own key is ignored when checking other participants",
+			labels:    map[string]string{MongoDBOpsManagerResourceOwnerLabel: "ns-temple", MongoDBResourceOwnerLabel: "my-mdb"},
+			ownKey:    MongoDBOpsManagerResourceOwnerLabel,
+			expectedX: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedX, HasForeignAppDBOwnerLabel(tt.labels, tt.ownKey))
+		})
+	}
+}
+
+func TestStripAppDBParticipantLabels(t *testing.T) {
+	tests := []struct {
+		name      string
+		labels    map[string]string
+		expectedX map[string]string
+	}{
+		{
+			name:      "nil labels stay nil",
+			expectedX: nil,
+		},
+		{
+			name:      "unrelated labels survive",
+			labels:    map[string]string{"app": "demo"},
+			expectedX: map[string]string{"app": "demo"},
+		},
+		{
+			name: "every participant key is removed",
+			labels: map[string]string{
+				"app":                                 "demo",
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+			expectedX: map[string]string{"app": "demo"},
+		},
+		{
+			name:      "a map of only participant keys becomes empty",
+			labels:    map[string]string{MongoDBResourceOwnerLabel: "my-mdb"},
+			expectedX: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedX, StripAppDBParticipantLabels(tt.labels))
+		})
+	}
+}
+
 func TestRedactURI(t *testing.T) {
 	uri := "mongo.mongoUri=mongodb://mongodb-ops-manager:my-scram-password@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
 	expected := "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
