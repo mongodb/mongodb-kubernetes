@@ -141,3 +141,42 @@ ticket.
 Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
 check whether the upstream issue is fixed is to look at the task's result on master, or
 temporarily flip `patchable: true` in a throwaway branch.
+
+## CVE Image Scanning (trivy)
+
+Every build-and-publish task runs a `trivy_scan` step (function in `.evergreen-functions.yml`)
+right after the image is pushed. The step invokes `scripts/release/trivy_scan.sh`, which
+resolves the image repository/tag the same way the build pipeline does (from `build_info.json`
+and the version env vars) and scans it with
+[trivy](https://github.com/aquasecurity/trivy) (pinned in `scripts/evergreen/setup_trivy.sh`).
+
+Where scans run:
+
+- **Staging builds** (`init_test_run` build tasks, `build_om*_images`, `release_om_and_agents`)
+  after each image is pushed by the `pipeline` function on master merges.
+- **New release process** (`release_publish` variant): after `mckci_release_publish_images`
+  publishes the promoted image set to production, each published image is scanned at its
+  production ref with a fresh vulnerability DB. Skipped when `IS_DRYRUN=true`, since dry runs
+  publish to an override registry.
+- **Legacy release process** (`release_images` variant, deprecated): after each `release_*`
+  rebuild task.
+
+PR/patch builds skip the scan by default (only `staging`/`release` build scenarios are
+scanned). To force a scan on a regular PR patch (e.g. to test a trivy/pipeline change), add
+`--param TRIVY_SCAN_FORCE=true`:
+
+```shell
+evergreen patch -p mongodb-kubernetes -a pr_patch -d "test trivy scan" -u -y --param TRIVY_SCAN_FORCE=true
+```
+
+Raw trivy JSON reports are written to `trivy-reports/` in the task working directory and
+uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as `upload_e2e_logs`) at
+`trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even for tasks that
+didn't trigger a Slack notification. The upload link is available on the task page in the
+Evergreen UI (Files tab). To run a scan locally:
+
+```bash
+scripts/evergreen/setup_trivy.sh
+scripts/dev/run_python.sh scripts/release/trivy_scan.py operator --build-scenario release \
+  --version 1.5.0 --platform linux/amd64 --dry-run
+```
