@@ -13,7 +13,7 @@ import (
 )
 
 // hangingAutomationConfig registers the automation config endpoint of group "1" and never answers, counting every
-// request it receives. Returning on r.Context().Done() lets srv.Close() finish; the server only notices the client
+// request it receives. Returning on r.Context().Done() lets srv.Close() finish. The server only notices the client
 // going away once the request body has been consumed.
 func hangingAutomationConfig(requests *atomic.Int32) handleFunc {
 	return func(mux *http.ServeMux) {
