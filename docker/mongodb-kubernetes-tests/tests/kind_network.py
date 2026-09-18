@@ -5,11 +5,15 @@ Mirrors `scripts/funcs/kind_network` (bash). Tests that hardcoded
 configurable end-to-end via ``KIND_NETWORK_SUBNET`` (default
 ``172.18.0.0/16``).
 
-Convention (10-IP-wide slots within ``${PREFIX}.255.0/24``):
+Convention (disjoint 10-IP-wide slots within ``${PREFIX}.255.0/24``):
     .200-.209  kind-e2e-operator (and the single 'kind' cluster)
     .210-.219  kind-e2e-cluster-1
     .220-.229  kind-e2e-cluster-2
     .230-.239  kind-e2e-cluster-3
+    .240-.249  the extra 'kind' cluster created alongside the multi-cluster set
+
+Single-cluster mode creates only one cluster, so its pool may span the whole
+operator row (``.200-.250``): it never coexists with the multi-cluster pools.
 """
 
 from __future__ import annotations
@@ -49,3 +53,4 @@ KIND_LB_SLOT_OPERATOR = 200  # kind-e2e-operator (and single 'kind')
 KIND_LB_SLOT_CLUSTER_1 = 210
 KIND_LB_SLOT_CLUSTER_2 = 220
 KIND_LB_SLOT_CLUSTER_3 = 230
+KIND_LB_SLOT_KIND = 240  # extra 'kind' cluster in the multi-cluster set

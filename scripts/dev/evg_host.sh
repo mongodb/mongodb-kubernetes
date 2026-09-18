@@ -23,7 +23,7 @@ source scripts/funcs/printing
 
 # Every command in this script talks to a remote EVG host. Non-EVG modes
 # (local-kind, BYOC) don't go through here at all — they touch the kubeconfig
-# via refresh_kubeconfig.sh directly. EVG_HOST_NAME's strict check is
+# via `wt-ctl kubeconfig refresh` directly. EVG_HOST_NAME's strict check is
 # deferred to get_host_url() so `help` / no-arg invocation doesn't fail.
 
 get_host_url() {
@@ -147,8 +147,8 @@ remote-prepare-local-e2e-run() {
 get-kubeconfig() {
   # EVG-host kubeconfig flow: scp the host's current.kubeconfig down to
   # this worktree, then delegate proxy-url patching + kfp registration to
-  # the host-agnostic refresh_kubeconfig.sh. Local-kind / BYOC modes don't
-  # go through this verb — they invoke refresh_kubeconfig.sh directly.
+  # `wt-ctl kubeconfig refresh`. Local-kind / BYOC modes don't go through
+  # this verb — they invoke `wt-ctl kubeconfig refresh` directly.
   #
   # Usage: get-kubeconfig [--no-fetch]
   #   --no-fetch  Skip the scp step. Use when the kubeconfig already lives

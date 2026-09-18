@@ -31,7 +31,7 @@ class DevcState:
 
 @dataclass
 class NetEntry:
-    """One row from dc_select_network.sh --list / registry."""
+    """One row from the network registry (``wt-ctl network --list``)."""
 
     branch_dir: str
     prefix: int

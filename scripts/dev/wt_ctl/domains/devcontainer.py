@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from ..envfile import read_env_file
 from ..errors import ToolMissing
 from ..paths import devc_dir, logs_dir, tooling_root
 from ..runner import Runner
@@ -28,12 +29,9 @@ def compose_env(worktree_root: Path) -> dict:
       subnet ("Pool overlaps with other one on this address space").
     """
     env = {"COMPOSE_PROJECT_NAME": project_name_for(worktree_root)}
-    env_file = devc_dir(worktree_root) / ".env"
-    if env_file.is_file():
-        for line in env_file.read_text().splitlines():
-            key, _, value = line.partition("=")
-            if key.startswith("MCK_DEVC_"):
-                env[key] = value.strip().strip('"')
+    for key, value in read_env_file(devc_dir(worktree_root) / ".env").items():
+        if key.startswith("MCK_DEVC_"):
+            env[key] = value
     return env
 
 

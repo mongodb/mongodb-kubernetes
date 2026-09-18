@@ -14,7 +14,7 @@
 #      project env.
 #   2. For interactive shells with no $TMUX (i.e. the user just attached
 #      to the devcontainer), exec the 'mck' tmuxp session. Set
-#      MCK_NO_TMUX=1 to opt out (dc_attach.sh does this when given args).
+#      MCK_NO_TMUX=1 to opt out (wt-ctl attach does this when given args).
 
 # The tooling checkout mount: carries scripts/dev/devenv, wt_ctl and the
 # tmuxp layout. /workspace may be a worktree WITHOUT the tooling (portable

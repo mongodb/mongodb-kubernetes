@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# Devcontainer / EVG-host worktree overrides. Sourced from root-context after
-# private-context, so PROJECT_DIR / NAMESPACE / CLUSTER_NAME are already set.
-# Every block is a no-op outside a wt-ctl worktree (no .devcontainer/.env,
-# no .generated EVG-host sentinels), so non-devc flows source it harmlessly.
+# Devcontainer / EVG-host worktree overrides. Chained by switch_context.sh
+# after the variant context file (which sources root-context -> private-context),
+# so PROJECT_DIR / NAMESPACE / CLUSTER_NAME are already set. Every block is a
+# no-op outside a wt-ctl worktree (no .devcontainer/.env, no .generated
+# EVG-host sentinels), so non-devc flows source it harmlessly.
 
 # Devcontainer worktrees: pull MCK_DEVC_* (network prefix + derived octets and
 # proxy port) from the per-worktree devcontainer env file when not already in

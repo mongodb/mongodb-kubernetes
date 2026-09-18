@@ -9,12 +9,9 @@
 from __future__ import annotations
 
 import io
-import os
-import tempfile
 import unittest
 import urllib.error
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Callable, Optional
 
 from _common import fake_which  # noqa: E402
@@ -86,12 +83,8 @@ class _DetachedRecorder:
 
 
 class IsListeningTests(unittest.TestCase):
-    def _domain(self, *, connect_ok: bool, tmp: str, exc: Optional[Exception] = None) -> KfpDomain:
-        d = KfpDomain(
-            runner=None,  # not used by is_listening
-            binary=Path("/nonexistent/proxy"),
-            state_dir=Path(tmp) / "kfp",
-        )
+    def _domain(self, *, connect_ok: bool, exc: Optional[Exception] = None) -> KfpDomain:
+        d = KfpDomain(runner=None)  # runner not used by is_listening
 
         def _factory(_family, _type):
             return _FakeSocket(connect_ok=connect_ok, exc=exc)
@@ -106,25 +99,18 @@ class IsListeningTests(unittest.TestCase):
             kfp_mod.socket.socket = self._patched_socket
 
     def test_listening_when_connect_succeeds(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            d = self._domain(connect_ok=True, tmp=tmp)
-            self.assertTrue(d.is_listening())
+        d = self._domain(connect_ok=True)
+        self.assertTrue(d.is_listening())
 
     def test_not_listening_on_connection_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            d = self._domain(
-                connect_ok=False,
-                tmp=tmp,
-                exc=ConnectionRefusedError("refused"),
-            )
-            self.assertFalse(d.is_listening())
+        d = self._domain(connect_ok=False, exc=ConnectionRefusedError("refused"))
+        self.assertFalse(d.is_listening())
 
     def test_not_listening_on_timeout(self) -> None:
         import socket as _socket
 
-        with tempfile.TemporaryDirectory() as tmp:
-            d = self._domain(connect_ok=False, tmp=tmp, exc=_socket.timeout())
-            self.assertFalse(d.is_listening())
+        d = self._domain(connect_ok=False, exc=_socket.timeout())
+        self.assertFalse(d.is_listening())
 
 
 # ---------------------------------------------------------------------------
@@ -142,38 +128,30 @@ class HealthTests(unittest.TestCase):
     def _patch(self, fn: Callable) -> None:
         kfp_mod.urllib.request.urlopen = fn  # type: ignore[assignment]
 
-    def _domain(self, tmp: str) -> KfpDomain:
-        return KfpDomain(
-            runner=None,
-            binary=Path("/nonexistent/proxy"),
-            state_dir=Path(tmp) / "kfp",
-        )
+    def _domain(self) -> KfpDomain:
+        return KfpDomain(runner=None)
 
     def test_200_ok_returns_ok(self) -> None:
         self._patch(lambda _u, timeout=None: _FakeHTTPResponse(200, b"ok"))
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(self._domain(tmp).health(), "ok")
+        self.assertEqual(self._domain().health(), "ok")
 
     def test_503_returns_none(self) -> None:
         self._patch(lambda _u, timeout=None: _FakeHTTPResponse(503, b"down"))
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(self._domain(tmp).health())
+        self.assertIsNone(self._domain().health())
 
     def test_connection_refused_returns_none(self) -> None:
         def _boom(_u, timeout=None):
             raise urllib.error.URLError("Connection refused")
 
         self._patch(_boom)
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(self._domain(tmp).health())
+        self.assertIsNone(self._domain().health())
 
     def test_oserror_returns_none(self) -> None:
         def _boom(_u, timeout=None):
             raise OSError("boom")
 
         self._patch(_boom)
-        with tempfile.TemporaryDirectory() as tmp:
-            self.assertIsNone(self._domain(tmp).health())
+        self.assertIsNone(self._domain().health())
 
 
 # ---------------------------------------------------------------------------

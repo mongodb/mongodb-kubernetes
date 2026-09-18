@@ -56,13 +56,6 @@ if [[ ${detach} -eq 1 && ${foreground} -eq 0 ]]; then
   exit 0
 fi
 
-# The Python k8s client ignores kubeconfig proxy-url; sitecustomize.py in the
-# tooling's pysite dir injects it. No-op without an EVG-host proxy chain.
-tooling="${MCK_TOOLING:-/mck-tooling}"
-if [[ -n "${EVG_HOST_PROXY:-}" && -d "${tooling}/scripts/dev/pysite" ]]; then
-  export MCK_K8S_PY_PROXY="${EVG_HOST_PROXY}"
-  export PYTHONPATH="${tooling}/scripts/dev/pysite${PYTHONPATH:+:${PYTHONPATH}}"
-fi
 sanitized="${target//[^A-Za-z0-9._-]/_}"
 log_path="logs/test-${sanitized}-$(date +%Y%m%d-%H%M%S).log"
 # Stable symlink to the latest test log — the devcontainer tmuxp pane

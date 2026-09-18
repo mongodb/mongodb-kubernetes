@@ -73,7 +73,11 @@ if [[ "${KUBE_ENVIRONMENT_NAME:-}" == "multi" ]]; then
   # 127.0.0.1/localhost bypass that overrides NO_PROXY — and the member kind
   # API servers ARE on 127.0.0.1:<port> on the EVG host's loopback, reachable
   # from the devcontainer only via gost-proxy → SSH tunnel).
-  if [[ -n "${EVG_HOST_PROXY:-}" ]]; then
+  #
+  # Gate on the EVG-host pin, not on EVG_HOST_PROXY alone: compose sets that
+  # var in every devc stack, while local-kind members are reachable directly
+  # and must not be routed through the (idle) proxy chain.
+  if [[ -n "${EVG_HOST_PROXY:-}" && -f .generated/.current-evg-host ]]; then
     proxy_env="MULTI_CLUSTER_HEALTHCHECK_PROXY=${EVG_HOST_PROXY}"
   fi
 fi

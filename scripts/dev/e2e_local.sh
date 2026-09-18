@@ -40,7 +40,7 @@ teardown=0
 create_timeout=3600
 test_timeout=7200
 
-usage() { sed -n '3,27p' "$0"; }
+usage() { sed -n '3,24p' "$0"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

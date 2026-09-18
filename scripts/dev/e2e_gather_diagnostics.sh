@@ -12,7 +12,7 @@
 root="$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 cd "${root}" || exit 1
 
-test_rc="${1:-0}"
+test_rc="${1:?usage: e2e_gather_diagnostics.sh <test_rc> [test_name] [variant]}"
 test_name="${2:-${TASK_NAME:-unknown}}"
 variant="${3:-unknown}"
 

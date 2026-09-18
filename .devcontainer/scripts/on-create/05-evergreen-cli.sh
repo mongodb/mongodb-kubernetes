@@ -3,8 +3,8 @@
 # in the Dockerfile) so the image stays stable across evergreen version bumps
 # and can be pre-built once and reused across worktrees.
 #
-# EVERGREEN_CLI_URL is resolved on the host by initialize/evergreen-cli.sh and
-# injected as an environment variable on the devcontainer service.
+# EVERGREEN_CLI_URL is resolved on the host by .devcontainer/scripts/initialize.py
+# and injected as an environment variable on the devcontainer service.
 
 set -euo pipefail
 

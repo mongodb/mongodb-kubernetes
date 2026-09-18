@@ -13,7 +13,7 @@ source scripts/funcs/kubernetes
 if [[ "$(uname)" == "Linux" && -d /opt/golang/go1.25 ]]; then
   # Evergreen build hosts ship Go under /opt/golang/. Prepend it so this script
   # uses that toolchain there. In other environments (devcontainer, local) the
-  # GOROOT exported by root-context (derived from `go env GOROOT`) wins.
+  # GOROOT exported by site-context (derived from `go env GOROOT`) wins.
   export PATH=/opt/golang/go1.25/bin:${PATH}
   export GOROOT=/opt/golang/go1.25
 fi

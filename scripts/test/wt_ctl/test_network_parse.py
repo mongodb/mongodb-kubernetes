@@ -1,4 +1,4 @@
-"""Parser test for ``dc_select_network.sh --list`` output."""
+"""Parser test for ``wt-ctl network --list`` output."""
 
 from __future__ import annotations
 

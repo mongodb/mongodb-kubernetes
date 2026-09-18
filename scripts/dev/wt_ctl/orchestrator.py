@@ -25,7 +25,9 @@ from typing import Callable, Iterable, Optional
 from . import orchestrator_state as ostate
 from .domains.compose import compose_base_dir, project_name_for
 from .domains.devcontainer import compose_env
+from .domains.evg import DEAD_STATUSES, EvgDomain
 from .domains.network import DERIVED_ENV_KEYS, NetworkDomain, env_lines_for, stack_params
+from .envfile import read_env_file
 from .errors import ExternalCommandFailed, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .paths import devc_dir, devc_env_dir, logs_dir, tooling_root, topology_marker
 from .runner import Runner
@@ -89,23 +91,12 @@ def resolve_topology(
 
 
 def _load_context_env(wt: Path) -> dict[str, str]:
-    """Parse .generated/context*.env (plain, possibly-quoted KEY=value) into a
-    dict so it can be passed to in-process KubeconfigDomain.refresh without
-    pre-loading the orchestrator's shell env."""
+    """Read .generated/context*.env into a dict so it can be passed to
+    in-process KubeconfigDomain.refresh without pre-loading the
+    orchestrator's shell env."""
     out: dict[str, str] = {}
     for name in ("context.env", "context.host.env"):
-        path = wt / ".generated" / name
-        if not path.is_file():
-            continue
-        for raw in path.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            v = v.strip()
-            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-                v = v[1:-1]
-            out[k.strip()] = v
+        out.update(read_env_file(wt / ".generated" / name))
     return out
 
 
@@ -252,12 +243,9 @@ class CreateOrchestrator:
     def __init__(self, runner: Runner, inputs: CreateInputs) -> None:
         self.runner = runner
         self.inputs = inputs
-        # Workhorse scripts live in main_repo_root (where the tool is invoked
-        # from when the worktree doesn't exist yet) until the worktree is
-        # created — at which point each phase runs scripts inside the new
-        # worktree (cwd-anchored) so it has its own checked-out scripts.
-        self.scripts = inputs.main_repo_root / "scripts" / "dev"
-        # Same in-worktree scripts, used after worktree_init.
+        # In-worktree scripts, used after worktree_init; before that, phases
+        # run scripts inside main_repo_root (where the tool is invoked from
+        # when the worktree doesn't exist yet).
         self._wt_scripts = inputs.worktree_path / "scripts" / "dev"
 
     # ------------------------------------------------------------------
@@ -1333,7 +1321,6 @@ class DeleteOrchestrator:
     def __init__(self, runner: Runner, inputs: DeleteInputs) -> None:
         self.runner = runner
         self.inputs = inputs
-        self.scripts = inputs.main_repo_root / "scripts" / "dev"
 
     def run(self, *, emit: Callable[[str], None] = lambda _msg: None) -> None:
         i = self.inputs
@@ -1483,26 +1470,30 @@ class DeleteOrchestrator:
             return
         # The pin records the actual displayName the host was created with; prefer
         # it so a host made with --evg-host-name isn't missed (and leaked) when the
-        # delete invocation omits that flag.
+        # delete invocation omits that flag. EvgDomain's lookup adds retry and
+        # banner-strip hardening on top of `evergreen host list`.
         pinned = evg_pin.read_text().strip()
         host_name = pinned or self.inputs.resolved_evg_host_name()
-        res = self.runner.run(
-            ["evergreen", "host", "list", "--mine", "--json"],
-            check=False,
-        )
-        if res.rc != 0:
-            emit(f"[wt-ctl] evg: host list failed rc={res.rc} — skipping termination")
+        evg = EvgDomain(self.runner, self.inputs.main_repo_root)
+        try:
+            host = evg.find_by_name(host_name, mine_only=True)
+        except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
+            emit(f"[wt-ctl] evg: host lookup failed (continuing): {exc.render()}")
             return
-        host_id = _find_host_id_by_name(res.stdout or "[]", host_name)
-        if host_id is None:
+        if host is None:
             emit(f"[wt-ctl] evg: no running host with displayName '{host_name}'")
+            return
+        status = (host.get("status") or "").lower()
+        if status in DEAD_STATUSES:
+            emit(f"[wt-ctl] evg: host '{host_name}' is already {status}; nothing to terminate")
+            return
+        host_id = host.get("id")
+        if not host_id:
+            emit(f"[wt-ctl] evg: host '{host_name}' has no id; skipping termination")
             return
         emit(f"[wt-ctl] evg: terminating '{host_name}' (host_id={host_id})")
         try:
-            self.runner.run_streaming(
-                ["evergreen", "host", "terminate", "--host", host_id],
-                prefix="[evg-term] ",
-            )
+            evg.terminate(host_id)
         except (ExternalCommandFailed, ToolMissing, WtCtlError) as exc:
             emit(f"[wt-ctl] evg: terminate failed (continuing): {exc.render()}")
 
@@ -1597,18 +1588,11 @@ def _apply_net_env_to_process(params) -> None:
 
 
 def _read_existing_prefix(env_file: Path) -> Optional[int]:
-    if not env_file.is_file():
-        return None
     try:
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("MCK_DEVC_NET_PREFIX="):
-                value = line.split("=", 1)[1]
-                if value.isdigit():
-                    return int(value)
+        value = read_env_file(env_file).get("MCK_DEVC_NET_PREFIX", "")
     except OSError:
         return None
-    return None
+    return int(value) if value.isdigit() else None
 
 
 def _upsert_net_env_block(env_file: Path, block: str) -> None:
@@ -1684,30 +1668,3 @@ def _services_in(compose_yml: Path) -> list[str]:
             if indent == 2 and stripped.endswith(":"):
                 services.append(stripped[:-1])
     return services
-
-
-def _find_host_id_by_name(json_text: str, name: str) -> Optional[str]:
-    """Parse `evergreen host list --json` and return the id of the running
-    host whose name matches. Skips terminated/decommissioned hosts.
-    """
-    import json
-
-    try:
-        data = json.loads(json_text or "[]")
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, list):
-        return None
-    dead = {"terminated", "decommissioned"}
-    for h in data:
-        if not isinstance(h, dict):
-            continue
-        if h.get("name") != name:
-            continue
-        status = (h.get("status") or "").lower()
-        if status in dead:
-            continue
-        host_id = h.get("id")
-        if host_id:
-            return host_id
-    return None

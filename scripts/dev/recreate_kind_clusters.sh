@@ -39,7 +39,7 @@ cluster_pids+=($!)
 cluster_pids+=($!)
 (scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_3}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "kind" -l "${KIND_METALLB_RANGE_SINGLE}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
+(scripts/dev/setup_kind_cluster.sh -n "kind" -l "${KIND_METALLB_RANGE_KIND}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
 cluster_pids+=($!)
 
 echo "Waiting for all kind clusters to be created"

@@ -2,7 +2,7 @@ x-k8s-proxy-config:
   # proxy_address = 172.X.Y_BASE.10. Defaults map to stack index 0
   # (X=16, Y_BASE=0) for ad-hoc invocations without the wt-ctl registry;
   # in normal use, wt-ctl writes the four MCK_DEVC_NET_* vars into
-  # .devcontainer/.env so these defaults are never read.
+  # .generated/devcontainer/.env so these defaults are never read.
   proxy_address: &proxy_address 172.${MCK_DEVC_NET_X:-16}.${MCK_DEVC_NET_Y_BASE:-0}.10
 
 services:
@@ -21,9 +21,9 @@ services:
       GOTOOLCHAIN: local
       # Forward the per-worktree network prefix so root-context (sourced inside
       # the container during `make switch`) can derive a per-worktree NAMESPACE
-      # (ls-${MCK_DEVC_NET_PREFIX}). That makes cloud-qa OM project names
-      # (which everything downstream composes from ${NAMESPACE}) unique per
-      # worktree, so parallel worktrees don't delete each other's OM projects.
+      # (${NAMESPACE}-${MCK_DEVC_NET_PREFIX}). That makes cloud-qa OM project
+      # names (which everything downstream composes from ${NAMESPACE}) unique
+      # per worktree, so parallel worktrees don't delete each other's projects.
       MCK_DEVC_NET_PREFIX: ${MCK_DEVC_NET_PREFIX:-0}
 
       # The Python `evg` CLI (mck-dev plugin) reads oauth.token_file_path from
@@ -92,7 +92,7 @@ services:
       - NET_ADMIN
     environment:
       # Bind DNS to the container's assigned IP on devcontainer.
-      # VIPs (172.X.1.x where X = MCK_DEVC_NET_PREFIX) are also added to that interface.
+      # VIPs (172.X.Y.x where X = MCK_DEVC_NET_X, Y = MCK_DEVC_NET_Y_VIP) are also added to that interface.
       INTERFACE: *proxy_address
       VIP_CIDR: 172.${MCK_DEVC_NET_X:-16}.${MCK_DEVC_NET_Y_VIP:-1}.0/24
       DNS_LISTEN: :53

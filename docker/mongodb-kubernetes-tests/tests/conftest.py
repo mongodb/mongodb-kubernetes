@@ -27,8 +27,9 @@ def _load_env_from_local_file_for_development():
     is not already set (i.e. not running in CI/Evergreen).
 
     Side detection follows the same /.dockerenv rule used by
-    scripts/dev/devenv and main.go's env loader. Files are loaded with
-    override=True so site bytes layer over logical bytes correctly.
+    scripts/dev/devenv and main.go's env loader. Precedence mirrors main.go:
+    the side file wins over the shared base, and real environment variables
+    win over both (load_dotenv(override=False) keeps the first value seen).
     """
     if os.environ.get("NAMESPACE"):
         print("NAMESPACE already set, skipping loading environment variables from .generated/")
@@ -39,8 +40,8 @@ def _load_env_from_local_file_for_development():
     side = "devc" if Path("/.dockerenv").exists() else "host"
 
     env_files = [
-        repo_root / ".generated" / "context.env",
         repo_root / ".generated" / f"context.{side}.env",
+        repo_root / ".generated" / "context.env",
     ]
     for env_file in env_files:
         if not env_file.exists():
@@ -48,7 +49,7 @@ def _load_env_from_local_file_for_development():
                 f"WARN: env file {env_file} not found (run 'make switch' on the {side} side); skipping.",
             )
             continue
-        load_dotenv(env_file, override=True)
+        load_dotenv(env_file, override=False)
         print(f"Loaded environment variables from file {env_file}")
 
 
@@ -98,17 +99,10 @@ from tests.constants import (
 )
 from tests.multicluster import prepare_multi_cluster_namespaces
 
-try:
-    # Merge kubeconfig and honor per-cluster proxy-url (e.g. gost-proxy in devcontainer).
-    # The plain load_kube_config() ignores proxy-url, which breaks API access from inside
-    # the devcontainer where the host-mapped 127.0.0.1:<port> is unreachable directly.
-    _merger = kubernetes.config.kube_config.KubeConfigMerger(kubernetes.config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION)
-    _configuration = kubernetes.client.Configuration()
-    kubernetes.config.load_kube_config_from_dict(_merger.config, client_configuration=_configuration)
-    load_proxy_config(_merger.config, _configuration)
-    kubernetes.client.Configuration.set_default(_configuration)
-except Exception:
-    kubernetes.config.load_incluster_config()
+# Merge kubeconfig and honor per-cluster proxy-url (e.g. gost-proxy in the devcontainer).
+# KubernetesTester also falls back to incluster config. Delegated so the merge/proxy
+# semantics have a single implementation.
+KubernetesTester.load_configuration()
 
 from urllib3.util.retry import Retry
 

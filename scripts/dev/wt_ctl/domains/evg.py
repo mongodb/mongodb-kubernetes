@@ -32,7 +32,7 @@ _EVG_CONFIG_PATH = Path.home() / ".evergreen.yml"
 
 
 # Statuses we treat as "dead" for resume detection.
-_DEAD_STATUSES = frozenset(
+DEAD_STATUSES = frozenset(
     {
         "terminated",
         "decommissioned",
@@ -428,7 +428,7 @@ class EvgDomain:
             if display != name:
                 continue
             status = (h.get("status") or "").lower()
-            if status in _DEAD_STATUSES:
+            if status in DEAD_STATUSES:
                 continue
             return h
         return None
@@ -501,7 +501,7 @@ class EvgDomain:
                     host = new_real_nameless[0]
             if host is not None:
                 status = (host.get("status") or "").lower()
-                if status in _DEAD_STATUSES:
+                if status in DEAD_STATUSES:
                     raise WtCtlError(
                         f"evg spawn: host {host.get('id')} entered terminal status={status!r} during id resolution"
                     )
@@ -546,7 +546,7 @@ class EvgDomain:
                 for h in hosts
                 if h.get("id")
                 and h.get("id") not in pre_known_ids
-                and (h.get("status") or "").lower() not in _DEAD_STATUSES
+                and (h.get("status") or "").lower() not in DEAD_STATUSES
             ]
             if new:
                 new.sort(
@@ -702,7 +702,7 @@ class EvgDomain:
             if status != last_status:
                 emit(f"[wt-ctl evg spawn] host {current_id} status={status!r}")
                 last_status = status
-            if status in _DEAD_STATUSES:
+            if status in DEAD_STATUSES:
                 raise WtCtlError(
                     f"evg spawn: host {current_id} entered terminal " f"status={status!r} before reaching 'running'"
                 )

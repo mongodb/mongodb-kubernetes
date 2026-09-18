@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
+from ..envfile import read_env_file
 from ..errors import ExternalCommandFailed, ToolMissing, WtCtlError
 from ..paths import tooling_root
 from ..runner import Runner
@@ -21,25 +22,8 @@ from ..state import OmState
 
 
 def _read_context_env(worktree_root: Path) -> dict[str, str]:
-    """Read the rendered ``.generated/context.env`` (a `.env`-style file).
-    Returns an empty dict when the file is absent.
-    """
-    out: dict[str, str] = {}
-    f = worktree_root / ".generated" / "context.env"
-    if not f.is_file():
-        return out
-    for raw in f.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        v = v.strip()
-        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-            v = v[1:-1]
-        out[k.strip()] = v
-    return out
+    """Read the rendered ``.generated/context.env`` (a `.env`-style file)."""
+    return read_env_file(worktree_root / ".generated" / "context.env")
 
 
 class OmDomain:

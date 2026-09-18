@@ -1,8 +1,7 @@
-"""Run the no-subprocess-in-domains lint as a unit test."""
+"""Run the no-subprocess-outside-runner lint as a unit test."""
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import unittest
@@ -13,7 +12,7 @@ LINT = REPO / "scripts" / "test" / "wt_ctl_lint.py"
 
 
 class LintTests(unittest.TestCase):
-    def test_no_subprocess_in_domains(self) -> None:
+    def test_no_subprocess_outside_runner(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(LINT)],
             capture_output=True,

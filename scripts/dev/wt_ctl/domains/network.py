@@ -55,6 +55,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Iterator, Optional
 
+from ..envfile import read_env_file
 from ..errors import ExternalCommandFailed, LockTimeout, RegistryError, ToolMissing
 from ..runner import Runner
 from ..state import NetEntry
@@ -975,28 +976,10 @@ def gost_proxy_for(prefix: int) -> str:
     return f"<out-of-range {prefix}>"
 
 
-def namespace_for_prefix(prefix: int, base: str = "mck-devc") -> str:
-    """NAMESPACE construction uses the stack index verbatim as a unique
-    per-stack suffix.
-    """
-    return f"{base}-{prefix}-mongodb-test"
-
-
 def parse_devc_env(devcontainer_dir: Path) -> dict[str, str]:
-    """Tiny KEY=VALUE parser for ``.devcontainer/.env``."""
-    out: dict[str, str] = {}
+    """Read the rendered devcontainer ``.env`` (KEY=value lines)."""
     env_file = devcontainer_dir / ".env"
-    if not env_file.is_file():
-        return out
     try:
-        for raw in env_file.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            out[k.strip()] = v.strip()
+        return read_env_file(env_file)
     except OSError as exc:
         raise RegistryError(f"failed to read {env_file}: {exc}") from exc
-    return out

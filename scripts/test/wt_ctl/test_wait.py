@@ -93,25 +93,25 @@ class SpawnDetachedTests(unittest.TestCase):
             artifacts = parent / "artifacts"
             artifacts.mkdir()
             args = types.SimpleNamespace(branch="lsierant/detach-me")
-            fake = mock.Mock()
-            fake.pid = 4321
+            runner = mock.Mock()
+            runner.run_detached.return_value = 4321
             stderr = io.StringIO()
             with (
                 mock.patch("wt_ctl.cli.create_artifacts_dir", return_value=artifacts),
-                mock.patch("wt_ctl.cli.subprocess.Popen", return_value=fake) as pop,
-                mock.patch("wt_ctl.cli.os.getcwd", return_value=td),
                 mock.patch("sys.stderr", stderr),
             ):
                 rc = cli._spawn_detached_create(
-                    mock.Mock(), _refs(parent / "anchor"), args, ["create", "lsierant/detach-me"]
+                    runner, _refs(parent / "anchor"), args, ["create", "lsierant/detach-me"]
                 )
             self.assertEqual(rc, 0)
-            self.assertTrue(pop.call_args.kwargs["start_new_session"])
-            self.assertEqual(pop.call_args.kwargs["stdin"], cli.subprocess.DEVNULL)
+            call = runner.run_detached.call_args
+            self.assertEqual(call.args[0][0], cli.sys.executable)
+            log_path = artifacts / "lsierant_detach-me.log"
+            self.assertEqual(call.kwargs["stdout_path"], log_path)
+            self.assertEqual(call.kwargs["stderr_path"], log_path)
             # The target worktree must stay untouched: git worktree add
             # refuses a non-empty target.
             self.assertFalse((parent / "lsierant_detach-me").exists())
-            self.assertTrue((artifacts / "lsierant_detach-me.log").is_file())
             out = stderr.getvalue()
             self.assertIn("create detached: pid 4321", out)
             self.assertIn("lsierant_detach-me", out)

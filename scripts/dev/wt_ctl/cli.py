@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from . import display, orchestrator_state
 from .domains.compose import ComposeDomain, project_name_for
@@ -20,6 +19,7 @@ from .domains.kubeconfig import KubeconfigDomain
 from .domains.network import NetworkDomain, gost_proxy_for, parse_devc_env, subnet_for
 from .domains.omprojects import OmDomain
 from .domains.worktree import WorktreeDomain
+from .envfile import read_env_file
 from .errors import ExternalCommandFailed, NotInWorktree, ParallelPhaseFailures, StateConflict, ToolMissing, WtCtlError
 from .header import emit_banner
 from .orchestrator import CreateInputs, CreateOrchestrator, DeleteInputs, DeleteOrchestrator
@@ -917,18 +917,7 @@ def cmd_kubeconfig(runner: Runner, refs: WorktreeRefs, args: argparse.Namespace)
         env = dict(os.environ)
         side = "devc" if Path("/.dockerenv").exists() else "host"
         for name in ("context.env", f"context.{side}.env"):
-            p = refs.worktree_root / ".generated" / name
-            if not p.is_file():
-                continue
-            for raw in p.read_text().splitlines():
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                v = v.strip()
-                if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-                    v = v[1:-1]
-                env[k.strip()] = v
+            env.update(read_env_file(refs.worktree_root / ".generated" / name))
         KubeconfigDomain(runner).refresh(refs.worktree_root, env=env)
         return 0
     sys.stderr.write(f"[wt-ctl] error: unknown kubeconfig subcommand: {sub}\n")
@@ -1139,17 +1128,9 @@ def _spawn_detached_create(
     exit_path.unlink(missing_ok=True)
 
     cmd = [sys.executable, "-m", "wt_ctl", *child_argv]
-    with open(log_path, "ab") as logf:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=logf,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-            cwd=os.getcwd(),
-        )
+    pid = runner.run_detached(cmd, stdout_path=log_path, stderr_path=log_path, cwd=Path.cwd())
     sys.stderr.write(
-        f"[wt-ctl] create detached: pid {proc.pid}\n"
+        f"[wt-ctl] create detached: pid {pid}\n"
         f"[wt-ctl]   log:  {log_path}\n"
         f"[wt-ctl]   exit: {exit_path}\n"
         f"[wt-ctl]   wait: wt-ctl wait {branch}\n"
@@ -1317,9 +1298,9 @@ def _resolve_create_paths(
 ) -> tuple[Path, Path, Path]:
     """Compute (main_repo_root, target_worktree_path, host_worktree_root).
 
-    The convention (see ``wt_setup.sh``): the new worktree is a sibling of
-    the calling worktree. When the user invokes wt-ctl from outside any
-    worktree, we fall back to the main repo's parent for the sibling slot.
+    The convention: the new worktree is a sibling of the calling worktree.
+    When the user invokes wt-ctl from outside any worktree, we fall back to
+    the main repo's parent for the sibling slot.
     """
     if refs is not None:
         anchor = refs.worktree_root
@@ -1373,17 +1354,4 @@ def _orchestrator_status_line(worktree_root: Path, branch: str) -> Optional[str]
 def _read_context_env(worktree_root: Path) -> dict[str, str]:
     """Read context.env into a dict so ``status`` can read NAMESPACE without
     instantiating OmDomain."""
-    out: dict[str, str] = {}
-    f = worktree_root / ".generated" / "context.env"
-    if not f.is_file():
-        return out
-    for raw in f.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        v = v.strip()
-        if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-            v = v[1:-1]
-        out[k.strip()] = v
-    return out
+    return read_env_file(worktree_root / ".generated" / "context.env")

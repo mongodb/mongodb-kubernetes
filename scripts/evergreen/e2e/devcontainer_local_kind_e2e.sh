@@ -29,8 +29,10 @@ dump_logs_on_error() {
 trap dump_logs_on_error EXIT
 
 # Marker to run: task-level e2e_marker expansion, else the task name (the
-# native e2e.sh convention where TASK_NAME == pytest marker).
-MARKER="${e2e_marker:-${TASK_NAME:?e2e_marker or TASK_NAME required}}"
+# native e2e.sh convention where the task name is the pytest marker). The
+# lowercase task_name expansion is what this script's environment carries;
+# TASK_NAME is only exported later, by make switch.
+MARKER="${e2e_marker:-${task_name:?e2e_marker or task_name required}}"
 CONTEXT="${e2e_context:-e2e_multi_cluster_kind}"
 # Worktree/branch name doubles as the single-cluster kind cluster name, which
 # must match ^[a-z0-9.-]+$ — markers carry underscores, so map them to dashes.

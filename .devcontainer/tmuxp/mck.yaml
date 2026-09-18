@@ -1,7 +1,7 @@
 # tmuxp session for the MCK devcontainer.
 #
 # Loaded automatically when the user attaches to the devcontainer (see
-# .devcontainer/shell-init.sh) or via `scripts/dev/dc_attach.sh`. If a
+# .devcontainer/shell-init.sh) or via `scripts/dev/wt-ctl attach`. If a
 # session named 'mck' already exists, tmuxp attaches to it instead of
 # rebuilding it (because the shell-init invocation passes -y).
 #

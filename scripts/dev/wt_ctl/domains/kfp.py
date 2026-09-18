@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..envfile import read_env_file
 from ..errors import WtCtlError
 from ..paths import devc_env_dir
 from ..runner import Runner
@@ -72,14 +73,8 @@ def _resolve_suffix_port(kubeconfig_path: Path) -> Optional[str]:
     """
     env_port = os.environ.get("MCK_DEVC_PROXY_PORT")
     worktree = kubeconfig_path.resolve().parent.parent
-    env_file = devc_env_dir(worktree) / ".env"
-    if env_file.is_file():
-        for line in env_file.read_text().splitlines():
-            if line.startswith("MCK_DEVC_PROXY_PORT="):
-                value = line.split("=", 1)[1].strip()
-                if value:
-                    return value
-    return env_port or None
+    value = read_env_file(devc_env_dir(worktree) / ".env").get("MCK_DEVC_PROXY_PORT", "")
+    return value or env_port or None
 
 
 class KfpUnavailable(WtCtlError):
@@ -105,18 +100,8 @@ class KfpDomain:
     subprocesses).
     """
 
-    def __init__(
-        self,
-        runner: Runner,
-        *,
-        binary: Optional[Path] = None,  # kept for test-seam compat; unused
-        state_dir: Optional[Path] = None,  # kept for test-seam compat; unused
-    ) -> None:
+    def __init__(self, runner: Runner) -> None:
         self.runner = runner
-        # `binary` / `state_dir` retained as kwargs for test-fixture compat; no
-        # runtime effect (lifecycle is launchd's job).
-        self.binary = binary
-        self.state_dir = state_dir
 
     # ------------------------------------------------------------------
     # liveness probes

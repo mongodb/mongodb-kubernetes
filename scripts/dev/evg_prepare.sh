@@ -34,7 +34,7 @@ set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 
 usage() {
-  sed -n '3,29p' "$0"
+  sed -n '3,31p' "$0"
 }
 
 multi_cluster=0

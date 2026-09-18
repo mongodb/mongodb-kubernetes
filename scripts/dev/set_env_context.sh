@@ -11,9 +11,8 @@
 #     are missing, picks the right side via /.dockerenv, sources
 #     logical .generated/context.env + site .generated/context.<side>.env
 #     with `set -a`, and activates venv if present).
-#   - Does NOT prepend ${PROJECT_DIR}/bin to PATH — that's handled
-#     in the container by /etc/profile.d/mck-bin.sh, and on the host
-#     by the dev's own ~/.zshrc / ~/.bashrc.
+#   - Prepends ${PROJECT_DIR}/bin to PATH (idempotently) for the
+#     non-interactive consumers that don't get it from the shell rc.
 
 set -Eeou pipefail
 test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x

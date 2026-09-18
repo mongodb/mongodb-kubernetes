@@ -26,8 +26,8 @@ class WorktreeRefs:
 
     @property
     def branch_dir(self) -> str:
-        """Directory basename — what dc_select_network.sh stores in the
-        registry, what compose normalizes to lowercase as project name.
+        """Directory basename — what the network registry stores, and what
+        compose normalizes to lowercase as project name.
         """
         return self.worktree_root.name
 

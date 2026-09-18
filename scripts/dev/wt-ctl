@@ -6,7 +6,7 @@
 # prepends bin/ to PATH), put the wt_ctl package on PYTHONPATH so ``import
 # wt_ctl`` resolves regardless of cwd, then exec ``python3 -m wt_ctl``. wt-ctl
 # always runs from a worktree that worktree_init has already prepared, so the
-# env files and venv are present. See ``docs/dev/wt-ctl-plan.md``.
+# env files and venv are present. See ``scripts/dev/wt-ctl --help``.
 #
 set -Eeuo pipefail
 
