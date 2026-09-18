@@ -287,8 +287,10 @@ func TestLabelsAndAnotations(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(annotations).SetLabels(labels).Build()
 	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
-	// add the default label to the map
 	labels["app"] = "test-mdb-svc"
+	for k, v := range mdb.GetOwnerLabels() {
+		labels[k] = v
+	}
 	assert.Equal(t, labels, sts.Labels)
 }
 
@@ -613,6 +615,46 @@ func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
 	// An external domain means processes advertise their external hostname, which only works with the
 	// hostname override ConfigMap mounted into the pods.
 	assert.Equal(t, rs.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+}
+
+func TestReplicaSetOptionsCarryOwnerLabels(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels map[string]string
+	}{
+		{
+			name:   "owner labels are stamped onto StatefulSet metadata",
+			labels: map[string]string{"app": "demo"},
+		},
+		{
+			name:   "reserved participant keys are stripped before merge",
+			labels: map[string]string{"app": "demo", util.MongoDBMultiClusterResourceOwnerLabel: "spoofed-mdbm"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := mdbv1.NewReplicaSetBuilder().SetName("rs").SetNamespace("test-ns").SetMembers(3).Build()
+			rs.Labels = tt.labels
+
+			sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+			ownerLabels := rs.GetOwnerLabels()
+
+			expectedLabels := map[string]string{"app": "demo"}
+			for key, value := range ownerLabels {
+				expectedLabels[key] = value
+			}
+
+			assert.Equal(t, expectedLabels, sts.Labels)
+			for _, key := range []string{util.MongoDBResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBMultiClusterResourceOwnerLabel} {
+				assert.NotContains(t, sts.Spec.Selector.MatchLabels, key)
+				assert.NotContains(t, sts.Spec.Template.Labels, key)
+			}
+			assert.Equal(t, ownerLabels[util.MongoDBResourceOwnerLabel], sts.Labels[util.MongoDBResourceOwnerLabel])
+			assert.Equal(t, ownerLabels["controller"], sts.Labels["controller"])
+			assert.NotContains(t, sts.Labels, util.MongoDBMultiClusterResourceOwnerLabel)
+		})
+	}
 }
 
 // TestStandaloneOptionsCarryTopLevelExternalAccess guards against the external service of a standalone
