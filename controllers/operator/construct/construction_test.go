@@ -340,22 +340,18 @@ func assertAgentDownloadMount(t *testing.T, set appsv1.StatefulSet, expectedPath
 }
 
 func TestBuildStatefulSet_CustomDownloadBase(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 	rs.Spec.DownloadBase = "/custom/download/base"
 
-	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
 	assertAgentDownloadMount(t, set, "/custom/download/base")
 }
 
 func TestBuildStatefulSet_DefaultDownloadBase(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 	rs := mdbv1.NewReplicaSetBuilder().Build()
 
-	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
 	assertAgentDownloadMount(t, set, util.DefaultPvcMmsMountPath)
 }

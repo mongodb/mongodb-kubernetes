@@ -87,16 +87,19 @@ CRITICAL_SECRETS = [
 
 
 @fixture(scope="module")
-def default_operator(namespace: str, operator_installation_config: dict) -> Operator:
-    """Override conftest's default_operator with a cluster-scoped one (WATCH_NAMESPACE=*).
+def operator_config_extra_spec() -> dict:
+    """Shortens the automatic recovery back-off so that in case TLS secrets are not recoverable,
+    MCK pushes the Automation Config with new certificates within the test window.
+    The back-off lives in the OperatorConfig CR (.spec.automaticRecovery.delay)."""
+    return {"automaticRecovery": {"delay": 120}}
 
-    We also need to reduce MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S so that in case
-    TLS secrets are not recoverable, MCK needs to push the Automation Config with new certificates first.
-    """
-    operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + r"\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=120"
+
+@fixture(scope="module")
+def default_operator(namespace: str, operator_installation_config: dict, operator_config_extra_spec: dict) -> Operator:
+    """Override conftest's default_operator with a cluster-scoped one (WATCH_NAMESPACE=*)."""
+    return get_operator_clusterwide(
+        namespace, operator_installation_config, operator_config_extra_spec=operator_config_extra_spec
     )
-    return get_operator_clusterwide(namespace, operator_installation_config)
 
 
 @fixture(scope="function")

@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -411,12 +412,10 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 	})
 
 	t.Run("non-static architecture sets MMS_DOWNLOAD_BASE to the configured value", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
 		mdb.Spec.DownloadBase = "/custom/download/base"
 
-		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
 		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
 			return c.Name == util.DatabaseContainerName
@@ -427,12 +426,10 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 	})
 
 	t.Run("default download base does not set MMS_DOWNLOAD_BASE", func(t *testing.T) {
-		t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 		// No DownloadBase configured, so GetDownloadBase returns util.DefaultPvcMmsMountPath.
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
 
-		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
 		agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
 			return c.Name == util.DatabaseContainerName
@@ -445,8 +442,6 @@ func TestDatabaseStatefulSet_DownloadBaseEnvVar(t *testing.T) {
 }
 
 func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
-	t.Setenv(architectures.DefaultEnvArchitecture, string(architectures.NonStatic))
-
 	sc := mdbv1.NewClusterBuilder().Build()
 	sc.Spec.DownloadBase = "/custom/download/base"
 
@@ -460,9 +455,9 @@ func TestBuildStatefulSet_ShardedCustomDownloadBase(t *testing.T) {
 	}
 
 	cases := map[string]func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions{
-		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars),
-		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars),
-		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars),
+		"shard":        ShardOptions(0, shardSpec, memberCluster.Name, withPodVars, WithDefaultArchitecture(architectures.NonStatic)),
+		"configserver": ConfigServerOptions(configServerSpec, memberCluster.Name, withPodVars, WithDefaultArchitecture(architectures.NonStatic)),
+		"mongos":       MongosOptions(mongosSpec, memberCluster.Name, withPodVars, WithDefaultArchitecture(architectures.NonStatic)),
 	}
 
 	for name, optFunc := range cases {
@@ -634,4 +629,48 @@ func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
 	opts := StandaloneOptions()(*st)
 
 	assert.Nil(t, opts.ExternalAccessConfiguration)
+}
+
+func TestGetServiceAccountName(t *testing.T) {
+	podSpecWithSA := NewDefaultPodSpecWrapper(mdbv1.MongoDbPodSpec{
+		PodTemplateWrapper: v1.PodTemplateSpecWrapper{
+			PodTemplate: &corev1.PodTemplateSpec{Spec: corev1.PodSpec{ServiceAccountName: "user-sa"}},
+		},
+	})
+
+	tests := []struct {
+		name     string
+		opts     DatabaseStatefulSetOptions
+		expected string
+	}{
+		{
+			name:     "option used when pod template has no serviceAccountName",
+			opts:     DatabaseStatefulSetOptions{ServiceAccountName: "mck-member-database-pods"},
+			expected: "mck-member-database-pods",
+		},
+		{
+			name:     "pod template wins over the option default",
+			opts:     DatabaseStatefulSetOptions{PodSpec: podSpecWithSA, ServiceAccountName: util.MongoDBServiceAccount},
+			expected: "user-sa",
+		},
+		{
+			name:     "pod template wins over the option",
+			opts:     DatabaseStatefulSetOptions{PodSpec: podSpecWithSA, ServiceAccountName: "mck-member-database-pods"},
+			expected: "user-sa",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getServiceAccountName(tt.opts))
+		})
+	}
+}
+
+func TestOptionsBuildersDefaultServiceAccount(t *testing.T) {
+	rsOpts := ReplicaSetOptions()(*mdbv1.NewReplicaSetBuilder().Build())
+	assert.Equal(t, util.MongoDBServiceAccount, rsOpts.ServiceAccountName)
+
+	standaloneOpts := StandaloneOptions()(*mdbv1.NewStandaloneBuilder().Build())
+	assert.Equal(t, util.MongoDBServiceAccount, standaloneOpts.ServiceAccountName)
 }

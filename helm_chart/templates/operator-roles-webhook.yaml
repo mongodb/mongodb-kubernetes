@@ -1,6 +1,6 @@
 
 {{/* This cluster role and binding is necessary to allow the operator to automatically register ValidatingWebhookConfiguration. */}}
-{{- if and .Values.operator.webhook.registerConfiguration .Values.operator.webhook.installClusterRole }}
+{{- if .Values.operator.webhook.registerConfiguration }}
 {{- $webhookClusterRoleName := printf "%s-%s-webhook-cr" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
 {{- $webhookClusterRoleBindingName := printf "%s-%s-webhook-crb" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
 ---

@@ -2,96 +2,17 @@ package multicluster
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/ghodss/yaml"
-	"golang.org/x/xerrors"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
-
-	restclient "k8s.io/client-go/rest"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	intp "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
 )
-
-const (
-	// kubeconfig path holding the credentials for different member clusters
-	DefaultKubeConfigPath   = "/etc/config/kubeconfig/kubeconfig"
-	KubeConfigPathEnv       = "KUBE_CONFIG_PATH"
-	ClusterClientTimeoutEnv = "CLUSTER_CLIENT_TIMEOUT"
-)
-
-type KubeConfig struct {
-	Reader io.Reader
-}
-
-func NewKubeConfigFile(kubeConfigPath string) (KubeConfig, error) {
-	file, err := os.Open(kubeConfigPath)
-	if err != nil {
-		return KubeConfig{}, err
-	}
-	return KubeConfig{Reader: file}, nil
-}
-
-func GetKubeConfigPath() string {
-	return env.ReadOrDefault(KubeConfigPathEnv, DefaultKubeConfigPath) // nolint:forbidigo
-}
-
-// LoadKubeConfigFile returns the KubeConfig file containing the multi cluster context.
-func (k KubeConfig) LoadKubeConfigFile() (KubeConfigFile, error) {
-	kubeConfigBytes, err := io.ReadAll(k.Reader)
-	if err != nil {
-		return KubeConfigFile{}, err
-	}
-
-	kubeConfig := KubeConfigFile{}
-	if err := yaml.Unmarshal(kubeConfigBytes, &kubeConfig); err != nil {
-		return KubeConfigFile{}, err
-	}
-	return kubeConfig, nil
-}
-
-// CreateMemberClusterClients creates a client(map of cluster-name to client) to talk to the API-Server corresponding to each member clusters.
-func CreateMemberClusterClients(clusterNames []string, kubeConfigPath string) (map[string]*restclient.Config, error) {
-	clusterClientsMap := map[string]*restclient.Config{}
-
-	for _, c := range clusterNames {
-		clientset, err := getClient(c, kubeConfigPath)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to create clientset map: %w", err)
-		}
-		if clientset == nil {
-			return nil, xerrors.Errorf("failed to get clientset for cluster: %s", c)
-		}
-		clientset.Timeout = time.Duration(env.ReadIntOrDefault(ClusterClientTimeoutEnv, 10)) * time.Second // nolint:forbidigo
-		clusterClientsMap[c] = clientset
-	}
-	return clusterClientsMap, nil
-}
-
-// getClient returns a kubernetes.Clientset using the given context from the
-// specified KubeConfig filepath.
-func getClient(context, kubeConfigPath string) (*restclient.Config, error) {
-	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
-		&clientcmd.ConfigOverrides{
-			CurrentContext: context,
-		}).ClientConfig()
-	if err != nil {
-		return nil, xerrors.Errorf("failed to create client config: %w", err)
-	}
-
-	return config, nil
-}
 
 // shouldPerformFailover checks if the operator is configured to perform automatic failover
 // of the MongoDB Replicaset members spread over multiple Kubernetes clusters.
@@ -102,56 +23,6 @@ func ShouldPerformFailover() bool {
 		return false
 	}
 	return val
-}
-
-// KubeConfigFile represents the contents of a KubeConfig file.
-type KubeConfigFile struct {
-	Contexts []KubeConfigContextItem `json:"contexts"`
-	Clusters []KubeConfigClusterItem `json:"clusters"`
-	Users    []KubeConfigUserItem    `json:"users"`
-}
-
-type KubeConfigClusterItem struct {
-	Name    string            `json:"name"`
-	Cluster KubeConfigCluster `json:"cluster"`
-}
-
-type KubeConfigCluster struct {
-	CertificateAuthority string `json:"certificate-authority-data"`
-	Server               string `json:"server"`
-}
-
-type KubeConfigUserItem struct {
-	User KubeConfigUser `json:"user"`
-	Name string         `json:"name"`
-}
-
-type KubeConfigUser struct {
-	Token string `json:"token"`
-}
-type KubeConfigContextItem struct {
-	Name    string            `json:"name"`
-	Context KubeConfigContext `json:"context"`
-}
-
-type KubeConfigContext struct {
-	Cluster   string `json:"cluster"`
-	Namespace string `json:"namespace"`
-	User      string `json:"user"`
-}
-
-// GetMemberClusterNamespace returns the namespace that will be used for all member clusters.
-func (k KubeConfigFile) GetMemberClusterNamespace() string {
-	return k.Contexts[0].Context.Namespace
-}
-
-func (k KubeConfigFile) GetMemberClusterNames() []string {
-	clusterNames := make([]string, len(k.Contexts))
-
-	for n, e := range k.Contexts {
-		clusterNames[n] = e.Context.Cluster
-	}
-	return clusterNames
 }
 
 // MustGetClusterNumFromMultiStsName parses the statefulset object name and returns the cluster number where it is created
@@ -174,14 +45,6 @@ func GetRsNamefromMultiStsName(name string) string {
 	return strings.Join(ss[:len(ss)-1], "-")
 }
 
-func ClustersMapToClientMap(clusterMap map[string]cluster.Cluster) map[string]client.Client {
-	clientMap := map[string]client.Client{}
-	for memberClusterName, memberCluster := range clusterMap {
-		clientMap[memberClusterName] = memberCluster.GetClient()
-	}
-	return clientMap
-}
-
 // MemberCluster is a wrapper type containing basic information about member cluster in one place.
 // It is used to simplify reconciliation process and to ensure deterministic iteration over member clusters.
 type MemberCluster struct {
@@ -190,6 +53,9 @@ type MemberCluster struct {
 	Replicas     int
 	Client       kubernetesClient.Client
 	SecretClient secrets.SecretClient
+	// ResourceName is the MemberCluster CR's metadata.name, used to derive member-scoped
+	// resource names. Empty for the legacy central cluster (single-cluster mode).
+	ResourceName string
 	// Active marks a cluster as a member holding database nodes. The flag is useful for only relying on active clusters when reading
 	// information about the topology of the multi-cluster MongoDB or AppDB resource. This could mean automation config or cluster specific configuration.
 	Active bool
@@ -251,7 +117,7 @@ var memberClusterMapMutex sync.Mutex
 // IsMemberClusterMapInitializedForMultiCluster checks if global member cluster map
 // is properly initialized for multi-cluster workloads. The assumption is that if the map
 // contains only __default cluster, that means it's not configured for multi-cluster.
-func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]client.Client) bool {
+func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]Entry) bool {
 	memberClusterMapMutex.Lock()
 	defer memberClusterMapMutex.Unlock()
 
@@ -266,15 +132,15 @@ func IsMemberClusterMapInitializedForMultiCluster(memberClusterMap map[string]cl
 	return true
 }
 
-func InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap map[string]client.Client, defaultKubeClient client.Client) map[string]client.Client {
+func InitializeGlobalMemberClusterMapForSingleCluster(globalMemberClustersMap map[string]Entry, defaultKubeClient client.Client) map[string]Entry {
 	memberClusterMapMutex.Lock()
 	defer memberClusterMapMutex.Unlock()
 
 	if _, ok := globalMemberClustersMap[LegacyCentralClusterName]; !ok {
 		if globalMemberClustersMap == nil {
-			globalMemberClustersMap = map[string]client.Client{}
+			globalMemberClustersMap = map[string]Entry{}
 		}
-		globalMemberClustersMap[LegacyCentralClusterName] = defaultKubeClient
+		globalMemberClustersMap[LegacyCentralClusterName] = Entry{Client: defaultKubeClient}
 	}
 
 	return globalMemberClustersMap

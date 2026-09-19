@@ -110,7 +110,7 @@ func TestAnnotationIsAdded(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		// Let the watcher run its health-check iteration to completion and block on the
 		// next 10s tick, so the annotation write from this iteration has already happened.
@@ -146,7 +146,7 @@ func TestAnnotationIsRemovedWhenClusterRecovers(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		select {
 		case evt := <-watchChannel:
@@ -181,7 +181,7 @@ func TestNoEventBeforeStreakThreshold(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		// Let the watcher run its health-check iteration to completion and block on the
 		// next 10s tick, so this iteration's streak update has already happened.
@@ -211,7 +211,7 @@ func TestNoEventWhenStreakAtCapWithoutAnnotation(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		// Let the watcher run its health-check iteration to completion and block on the
 		// next 10s tick, so this iteration's streak update has already happened.
@@ -245,7 +245,7 @@ func TestStreakResetsOnUnhealthyWhenAlmostRecovered(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		// Let the watcher run its health-check iteration to completion and block on the
 		// next 10s tick. At that durable blocking point both the streak reset and the
@@ -282,7 +282,7 @@ func TestNoEventWhenClusterNotInAnnotationAtThreshold(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		// Let the watcher run its health-check iteration to completion and block on the
 		// next 10s tick, so this iteration's streak update has already happened.
@@ -325,7 +325,7 @@ func TestMultipleClustersIndependentStreaks(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		select {
 		case evt := <-watchChannel:
@@ -369,7 +369,7 @@ func TestAllMDBMultiResourcesCleared(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		var evtNames []string
 		for i := 0; i < 2; i++ {
@@ -413,7 +413,7 @@ func TestFailedClusterAnnotationStaysWhenPerformFailoverTrue(t *testing.T) {
 			RequiredHealthyStreak: testRequiredHealthyStreak,
 		}
 
-		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
+		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central)
 
 		// Let the watcher run its health-check iteration to completion and block on the
 		// next 10s tick, so this iteration's (lack of) streak update has already happened.

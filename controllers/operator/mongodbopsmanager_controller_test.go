@@ -281,7 +281,7 @@ func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
 			})
 			kubeClient := kubernetesClient.NewClient(fakeClientBuilder.Build())
 
-			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+			reconciler := NewOpsManagerReconciler(ctx, kubeClient, multiClusterProviderFromClientMap(memberClustersMap), images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 			})
 
@@ -474,9 +474,10 @@ func TestEnsureAppDbPassword_ErrorWhenPasswordSecretKeyRefNotFound(t *testing.T)
 
 func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 	ctx := context.Background()
+	log := zap.S()
 	testOm := DefaultOpsManagerBuilder().SetAppDBPassword("my-secret", "password").Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-	_, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 
 	s := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.PasswordSecretKeyRef.Name, Namespace: testOm.Namespace},
@@ -491,7 +492,7 @@ func TestOpsManagerUsersPassword_SpecifiedInSpec(t *testing.T) {
 
 	require.NoError(t, err)
 
-	appDBReconciler, err := newAppDbReconciler(ctx, client, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	appDBReconciler, err := reconciler.createNewAppDBReconciler(ctx, testOm, reconciler.memberClustersProvider.Entries(), log)
 	require.NoError(t, err)
 	password, err := appDBReconciler.ensureAppDbPassword(ctx, testOm, zap.S())
 
@@ -1029,7 +1030,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, multiClusterProviderFromClientMap(nil), nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1288,7 +1289,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, multiClusterProviderFromClientMap(globalMemberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

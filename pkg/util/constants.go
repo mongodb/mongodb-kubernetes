@@ -139,6 +139,7 @@ const (
 	// Service accounts
 	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
 	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
+	AppDBServiceAccount      = "mongodb-kubernetes-appdb"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"
@@ -161,6 +162,10 @@ const (
 	LDAP                              = "LDAP"
 	OIDC                              = "OIDC"
 	MinimumScramSha256MdbVersion      = "4.0.0"
+
+	// OperatorConfig variables
+	OperatorConfigNameEnv     = "MDB_OPERATOR_CONFIG_NAME"
+	DefaultOperatorConfigName = "operator-config"
 
 	// pprof variables
 	OperatorPprofEnabledEnv  = "MDB_OPERATOR_PPROF_ENABLED"
@@ -196,7 +201,6 @@ const (
 	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
-	MemberListConfigMapName          = OperatorName + "-member-list"
 	OperatorClusterNameEnv           = "OPERATOR_CLUSTER_NAME"
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
@@ -219,13 +223,6 @@ const (
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
-
-	MaxConcurrentReconcilesEnv = "MDB_MAX_CONCURRENT_RECONCILES"
-
-	// This default for the healthy streak is also configured in the values.yaml file.
-	// It should always be consistent with the default in the helm chart. Always change both.
-	DefaultRequiredHealthyStreak = 5
-	RequiredHealthyStreakEnv     = "MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK"
 
 	// Search environment variables
 	SearchRepoURLEnv         = "MDB_SEARCH_REPO_URL"
@@ -343,6 +340,11 @@ const (
 	// completion), symmetric with the forward direction's consumeAdoptionSignal: from adoption
 	// onward the OwnerReference is the authoritative state.
 	AppDBReverseMigrationReadyAnnotation = "mongodb.com/appdb-reverse-migration-ready"
+
+	// MemberClusterCredentialSecretKubeconfigKey is the Secret key holding the
+	// single-context member-cluster kubeconfig: the contract between the
+	// `generate-member-registration` plugin command (writer) and the operator (reader).
+	MemberClusterCredentialSecretKubeconfigKey = "kubeconfig"
 
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
