@@ -82,7 +82,7 @@ func appDbLabels(opsManager *om.MongoDBOpsManager, memberClusterNum int) statefu
 		PodAntiAffinityLabelKey: opsManager.Spec.AppDB.NameForCluster(memberClusterNum),
 	}
 
-	stsLabels := opsManager.Labels
+	stsLabels := util.StripOwnerLabels(opsManager.Labels)
 	stsLabels = merge.StringToStringMap(stsLabels, opsManager.GetOwnerLabels())
 
 	return statefulset.Apply(
