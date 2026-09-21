@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,9 +84,16 @@ var clientAuthCertUsages = []certmanagerv1.KeyUsage{
 // certToEnsure describes one cert-manager Certificate the operator must ensure
 // for a resource.
 type certToEnsure struct {
-	certName string
-	spec     certmanagerv1.CertificateSpec
+	certName    string
+	spec        certmanagerv1.CertificateSpec
+	annotations map[string]string
 }
+
+// coveredMembersAnnotation stored how many members' SANs are currently baked
+// into the operator-managed member/server certificate. It lets a later reconcile hold the
+// SAN list steady while the scale fo deployment is in progress so the shared cert is not
+// reissued at every one-at-a-time step.
+const coveredMembersAnnotation = "mongodb.com/covered-members"
 
 func selfSignedIssuerName(res CertificateOwner, cat certCategory) string {
 	return fmt.Sprintf("%s-%s-selfsigned", res.GetName(), cat)
@@ -168,7 +176,7 @@ func EnsureCertificatesAndCA(
 	// figure out all the certificates that are required for the reconciling deployment
 	var required []certToEnsure
 	for _, opts := range allOpts {
-		required = append(required, componentCertificates(res, opts)...)
+		required = append(required, componentCertificates(ctx, c, res, opts)...)
 	}
 	// agent cert is per deployment not per component (options)
 	if agentCert, ok := agentCertificate(res); ok {
@@ -290,9 +298,23 @@ func inspectCertificate(ctx context.Context, c kubernetesClient.Client, namespac
 // componentCertificates returns the per-component Certificates the operator must issue
 // for one component's Options (an RS/standalone has a single component; a sharded cluster
 // has one per mongos/config/shard)
-func componentCertificates(res CertificateOwner, opts Options) []certToEnsure {
+func componentCertificates(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, opts Options) []certToEnsure {
 	sec := res.GetSecurity()
-	dnsNames := buildDNSNames(opts)
+
+	// SAN count for the shared member (server) cert, max(current, desired), but never below what
+	// the cert already covers (the annotation value in certificate resource). Holding the count
+	// steady across a scale avoids reissuing the cert at every one-at-a-time step, which would
+	// churn its hash-named file and can leave agents loading a file that's already been deleted.
+	// Names are rebuilt from current config each reconcile; only the count is held.
+	covered := readCoveredMembersCount(ctx, c, res, opts.CertSecretName)
+	toCover := resolveMembersToCover(opts, covered)
+	// we create memberDNSOpts and set Replicas to toCover so that the buildDNSNames generates
+	// the DNS names for the resolved member count rather than opts.Replicas.
+	memberDNSOpts := opts
+	memberDNSOpts.Replicas = toCover
+	dnsNames := buildDNSNames(memberDNSOpts)
+
+	memberCertAnnotations := map[string]string{coveredMembersAnnotation: strconv.Itoa(toCover)}
 	internalX509 := sec.GetInternalClusterAuthenticationMode() == util.X509
 
 	var memberSub *certmanagerv1.X509Subject
@@ -309,17 +331,28 @@ func componentCertificates(res CertificateOwner, opts Options) []certToEnsure {
 	required := []certToEnsure{
 		// member/server cert (serverAuth EKU), signed by the server-category issuer.
 		{
-			certName: opts.CertSecretName,
-			spec:     certSpec(res, categoryServer, opts.CertSecretName, dnsNames, memberCN, memberSub, memberServerCertUsages),
+			certName:    opts.CertSecretName,
+			spec:        certSpec(res, categoryServer, opts.CertSecretName, dnsNames, memberCN, memberSub, memberServerCertUsages),
+			annotations: memberCertAnnotations,
 		},
 	}
 
 	// internal-cluster clusterFile (clientAuth), signed by the client-category issuer.
+	// No dnsNames here, this is a client cert that mongod matches by subject (O/OU/DC),
+	// not by SAN. Adding per-member SANs would make it change on every scale and force a
+	// needless reissue (the agent cert, also clientAuth, is issued with no SANs for the
+	// same reason).
 	if internalX509 && opts.InternalClusterSecretName != "" {
 		sub, cn := membershipSubject(res)
+		// cert-manager rejects a Certificate that has no name at all, and the membership
+		// subject sets only O/OU (no common name). Since we also set no SANs, give the
+		// clusterFile a stable common name so cert-manager accepts it.
+		if cn == "" {
+			cn = res.GetName() + "-clusterfile"
+		}
 		required = append(required, certToEnsure{
 			certName: opts.InternalClusterSecretName,
-			spec:     certSpec(res, categoryClient, opts.InternalClusterSecretName, dnsNames, cn, sub, clientAuthCertUsages),
+			spec:     certSpec(res, categoryClient, opts.InternalClusterSecretName, nil, cn, sub, clientAuthCertUsages),
 		})
 	}
 
@@ -462,6 +495,12 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 	case err == nil:
 		existing.Spec = cert.spec
 		existing.OwnerReferences = kube.BaseOwnerReference(res)
+		for k, v := range cert.annotations {
+			if existing.Annotations == nil {
+				existing.Annotations = map[string]string{}
+			}
+			existing.Annotations[k] = v
+		}
 		if updateErr := c.Update(ctx, existing); updateErr != nil {
 			return workflow.Failed(updateErr)
 		}
@@ -474,6 +513,7 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 				Name:            cert.certName,
 				Namespace:       res.GetNamespace(),
 				OwnerReferences: kube.BaseOwnerReference(res),
+				Annotations:     cert.annotations,
 			},
 			Spec: cert.spec,
 		}
@@ -484,6 +524,36 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 		return workflow.Failed(err)
 	}
 	return workflow.OK()
+}
+
+// resolveMembersToCover returns how many members the member cert's SANs must cover, what the
+// resource wants in this reconcile (MembersToCover), but never below what the cert already covers
+// (never-shrink).
+func resolveMembersToCover(opts Options, coveredInCert int) int {
+	n := opts.Replicas
+	if opts.MembersToCover > 0 {
+		n = opts.MembersToCover
+	}
+	if coveredInCert > n {
+		n = coveredInCert
+	}
+	return n
+}
+
+// readCoveredMembersCount returns how many members' SANs the current member (server) certificate
+// is created with, read from an annotation the operator adds on it. Returns 0 when the certificate
+// or the annotation does not exist yet (e.g. the first reconcile).
+func readCoveredMembersCount(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, memberCertName string) int {
+	existing := &certmanagerv1.Certificate{}
+	if err := c.Get(ctx, types.NamespacedName{Name: memberCertName, Namespace: res.GetNamespace()}, existing); err != nil {
+		return 0
+	}
+	if v, ok := existing.Annotations[coveredMembersAnnotation]; ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 // ensureSelfSignedCA idempotently creates the per-category self-signed CA chain used to
