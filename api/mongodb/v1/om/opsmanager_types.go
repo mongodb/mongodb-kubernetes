@@ -41,7 +41,7 @@ const (
 	debuggingPortConfigPath    string = "mms.k8s.debuggingPort"
 	queryableBackupDefaultPort int32  = 25999
 
-	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+	LabelResourceOwner = util.MongoDBOpsManagerResourceOwnerLabel
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster

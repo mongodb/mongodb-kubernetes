@@ -35,7 +35,7 @@ const (
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
-	LabelResourceOwner = "mongodbmulticluster"
+	LabelResourceOwner = util.MongoDBMultiClusterResourceOwnerLabel
 )
 
 // The MongoDBMultiCluster resource allows users to create MongoDB deployment spread over
