@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -192,6 +193,11 @@ func TestVerifyAgentSubjectDistinct(t *testing.T) {
 }
 
 func TestComponentCertificates(t *testing.T) {
+	ctx := context.Background()
+	// No member Certificate is seeded, so readCoveredMembersCount returns 0; the SAN
+	// count comes straight from MembersToCover/Replicas. The never-shrink hold behaviour is
+	// covered by TestResolveMembersToCover.
+	fakeClient, _ := mock.NewDefaultFakeClient()
 	baseOpts := Options{
 		ResourceName:   resName,
 		CertSecretName: fmt.Sprintf("%s-cert", resName),
@@ -205,7 +211,7 @@ func TestComponentCertificates(t *testing.T) {
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
 			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
 		})
-		got := componentCertificates(owner, baseOpts)
+		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
 		require.Len(t, got, 1)
 		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
 		assert.Equal(t, memberServerCertUsages, got[0].spec.Usages)
@@ -219,7 +225,7 @@ func TestComponentCertificates(t *testing.T) {
 			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
 			m.Spec.Security.Authentication = &mdbv1.Authentication{InternalCluster: util.X509}
 		})
-		got := componentCertificates(owner, opts)
+		got := componentCertificates(ctx, fakeClient, owner, opts)
 		require.Len(t, got, 2)
 
 		// member cert: serverAuth, membership subject
@@ -232,7 +238,77 @@ func TestComponentCertificates(t *testing.T) {
 		assert.Equal(t, opts.InternalClusterSecretName, got[1].certName)
 		assert.Equal(t, clientAuthCertUsages, got[1].spec.Usages)
 		assert.Equal(t, got[0].spec.Subject, got[1].spec.Subject, "member and clusterfile must share the membership subject")
+
+		// The clusterfile carries no SANs (mongod matches it by subject, not SAN), so it must
+		// carry a common name instead - cert-manager rejects a Certificate with neither.
+		assert.Empty(t, got[1].spec.DNSNames, "clusterfile cert must not have per-member SANs")
+		assert.NotEmpty(t, got[1].spec.CommonName, "clusterfile cert needs a common name when it has no SANs")
 	})
+
+	t.Run("member cert SANs cover MembersToCover and the count is recorded in the annotation", func(t *testing.T) {
+		opts := baseOpts
+		opts.Replicas = 3
+		opts.MembersToCover = 5
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, opts)
+		require.Len(t, got, 1)
+		sans := strings.Join(got[0].spec.DNSNames, " ")
+		for i := range 5 {
+			assert.Contains(t, sans, fmt.Sprintf("%s-%d.", resName, i), "member %d SAN must be present", i)
+		}
+		// The count is remembered in the annotation so a later reconcile can hold the SANs steady.
+		assert.Equal(t, "5", got[0].annotations[coveredMembersAnnotation])
+	})
+}
+
+func TestResolveMembersToCover(t *testing.T) {
+	tests := []struct {
+		name           string
+		opts           Options
+		coveredMembers int
+		expected       int
+	}{
+		{
+			name:     "steady state uses MembersToCover",
+			opts:     Options{Replicas: 3, MembersToCover: 3},
+			expected: 3,
+		},
+		{
+			name:     "scale-up jumps to the target immediately",
+			opts:     Options{Replicas: 4, MembersToCover: 5},
+			expected: 5,
+		},
+		{
+			name:           "scale-down holds the covered count, it does not shrink",
+			opts:           Options{Replicas: 4, MembersToCover: 4},
+			coveredMembers: 5,
+			expected:       5,
+		},
+		{
+			name:           "settled below a past peak still holds it (never shrink)",
+			opts:           Options{Replicas: 3, MembersToCover: 3},
+			coveredMembers: 5,
+			expected:       5,
+		},
+		{
+			name:           "scale-up beyond the covered count grows to the target",
+			opts:           Options{Replicas: 6, MembersToCover: 6},
+			coveredMembers: 5,
+			expected:       6,
+		},
+		{
+			name:     "no MembersToCover falls back to Replicas",
+			opts:     Options{Replicas: 3},
+			expected: 3,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, resolveMembersToCover(tc.opts, tc.coveredMembers))
+		})
+	}
 }
 
 // TestAgentCertificate covers that the agent cert is issued only under x509 agent auth, with
