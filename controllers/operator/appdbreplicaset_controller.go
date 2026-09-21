@@ -623,10 +623,10 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, ops
 }
 
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
-//   - absent: nothing to own - the reconcile continues and creates AppDB Statefulset from scratch
-//   - owned by this OM: proceed
-//   - foreign-owned (a MongoDB CR): request reverse migration via util.AppDBReverseMigrationReadyAnnotation and wait
-//   - ownerless: reclaim - set this OM's OwnerReference, clear both migration annotations and reclaim AppDB secrets
+//   - absent: nothing to own
+//   - this OM's owner label: proceed
+//   - a foreign participant label: request reverse migration via util.AppDBReverseMigrationReadyAnnotation and wait
+//   - ownerless: reclaim - merge this OM's owner labels, write its ownerReference, reclaim the AppDB secrets
 func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) workflow.Status {
 	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name())
 	sts := appsv1.StatefulSet{}
@@ -639,16 +639,24 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.C
 		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
 	}
 
-	// If appDB statefulset is owned by this OM proceed with reconciliation
-	for _, ref := range sts.OwnerReferences {
-		if ref.UID == opsManager.UID {
-			return workflow.OK()
-		}
+	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
+	// backfills label for legacy StatefulSets that used the OwnerReference for handover
+	if slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == opsManager.UID
+	}) && len(ownershipLabels) == 0 {
+		ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] = opsManager.GetName()
 	}
 
-	// If appDB statefulset is owned by another resource (external MongoDB CR),
-	// request reverse migration and block until the other controller releases it.
-	if len(sts.OwnerReferences) > 0 {
+	opsManagerOwner := ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel]
+	if opsManagerOwner == opsManager.GetName() {
+		return workflow.OK()
+	} else if opsManagerOwner != "" {
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner %s", opsManagerOwner)
+	}
+
+	mongoDBOwner := ownershipLabels[util.MongoDBResourceOwnerLabel]
+	mongoDBMultiClusterOwner := ownershipLabels[util.MongoDBMultiClusterResourceOwnerLabel]
+	if mongoDBOwner != "" || mongoDBMultiClusterOwner != "" {
 		if err := r.requestAppDBReverseMigration(ctx, sts); err != nil {
 			return workflow.Failed(err)
 		}
@@ -685,8 +693,8 @@ func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Cont
 
 // reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears migration annotations
 func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
-	sts.OwnerReferences = kube.BaseOwnerReference(opsManager)
-	// stale forward migration annotation cleanup
+	sts.Labels = merge.StringToStringMap(sts.Labels, opsManager.GetOwnerLabels())
+	sts.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
 	if err := r.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
