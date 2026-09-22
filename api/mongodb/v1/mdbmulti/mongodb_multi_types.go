@@ -75,6 +75,10 @@ func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
 }
 
+func (m *MongoDBMultiCluster) IsRoleAppDB() bool {
+	return m.Spec.Role == mdbv1.RoleAppDB
+}
+
 func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	hostnames := make([]string, 0)
 
