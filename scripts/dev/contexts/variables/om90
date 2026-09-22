@@ -7,13 +7,18 @@ export CUSTOM_OM_PREV_VERSION
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_90_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-export CUSTOM_MDB_VERSION=9.0.0-rc0
+export CUSTOM_MDB_VERSION=9.0.2
 export CUSTOM_MDB_PREV_VERSION=8.0.6
 
-export AGENT_VERSION=109.0.0.9244-1
+# Pull mongodb-enterprise-server (mdb + appdb) images from a custom ECR mirror
+# instead of quay.io/mongodb. The mirror must carry all tags the om9 suite pulls:
+# 9.0.2-ubi8/ubi9 (current), 8.0.6-ubi8/ubi9 (prev), 6.0.4-ubi8/ubi9 (localmode).
+export MONGODB_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com/lucian.tosa"
+
+export AGENT_VERSION=109.0.0.9285-1
 export AGENT_IMAGE="${MDB_AGENT_IMAGE_REPOSITORY}:${AGENT_VERSION}"
 
-export CUSTOM_APPDB_VERSION=9.0.0-rc0-ent
+export CUSTOM_APPDB_VERSION=9.0.2-ent
 export TEST_MODE=opsmanager
 
 export ops_manager_version="${CUSTOM_OM_VERSION}"

@@ -38,7 +38,7 @@ variables:
 
   - &ops_manager_80_latest 8.0.26 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_90_latest 9.0.0-rc4 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_90_latest 9.0.0 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -1501,7 +1501,7 @@ task_groups:
 
   # Ops Manager upgrade test (e2e_om_ops_manager_upgrade). Upgrades both Ops Manager and its
   # Application Database in one step, then verifies each independently. Runs on OM7/OM8 (6->7,
-  # 7->8) and on OM9 (8->9, with the appdb upgraded 8.0.6-ent -> 9.0.0-rc4-ent via the om90
+  # 7->8) and on OM9 (8->9, with the appdb upgraded 8.0.6-ent -> 9.0.0-ent via the om90
   # context). The managed MongoDB workload is upgraded separately in TestMongoDbsVersionUpgrade.
   - name: e2e_ops_manager_upgrade_only_task_group
     max_hosts: -1
