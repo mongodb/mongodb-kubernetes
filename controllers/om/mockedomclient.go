@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -488,7 +489,7 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
 
-func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
+func (oc *MockedOmConnection) ReadAutomationAgents(_ context.Context, pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
 	if oc.ReadAutomationAgentsFunc != nil {
 		return oc.ReadAutomationAgentsFunc(pageNum)
@@ -537,7 +538,7 @@ func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organizat
 	return allOrgs, nil
 }
 
-func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
+func (oc *MockedOmConnection) ReadOrganizations(_ context.Context, page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizations))
 	// We don't set Next field - so there should be no pagination
 	allOrgs := make([]*Organization, 0)
@@ -568,7 +569,7 @@ func (oc *MockedOmConnection) ReadProjectsInOrganizationByName(orgID string, nam
 	return projects, nil
 }
 
-func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
+func (oc *MockedOmConnection) ReadProjectsInOrganization(_ context.Context, orgID string, page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadProjectsInOrganization))
 	org, err := oc.findOrganization(orgID)
 	if err != nil {

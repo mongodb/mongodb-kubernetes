@@ -230,6 +230,11 @@ func TestIsURL(t *testing.T) {
 			expectedErrorString: "missing URL host: http://",
 		},
 		{
+			name:                "port without hostname",
+			input:               "http://:8080",
+			expectedErrorString: "missing URL hostname: http://:8080",
+		},
+		{
 			name:                "empty string",
 			input:               "",
 			expectedErrorString: "empty URL",

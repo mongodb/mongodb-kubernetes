@@ -26,7 +26,24 @@ func validateProjectConfig(ctx context.Context, cmGetter configmap.Getter, proje
 			return nil, xerrors.Errorf(`property "%s" is not specified in ConfigMap %s`, requiredField, projectConfigMap)
 		}
 	}
+
+	if err := validateBaseURL(data[util.OmBaseUrl]); err != nil {
+		return nil, xerrors.Errorf(`property "%s" in ConfigMap %s is not a valid Ops Manager base URL: %w`, util.OmBaseUrl, projectConfigMap, err)
+	}
 	return data, nil
+}
+
+// validateBaseURL makes sure the Ops Manager base URL is a plain http(s) URL with a host, rejecting query
+// strings and fragments.
+func validateBaseURL(baseURL string) error {
+	u, err := util.ParseURL(baseURL)
+	if err != nil {
+		return err
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return xerrors.Errorf("query string or fragment is not allowed: %s", baseURL)
+	}
+	return nil
 }
 
 // ReadProjectConfig returns a "Project" config build from a ConfigMap with a series of attributes
