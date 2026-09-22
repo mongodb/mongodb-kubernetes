@@ -1080,6 +1080,17 @@ task_groups:
     tasks:
       - e2e_replica_set
 
+  # e2e_managed_certs_task_group holds all operator-managed-certificate (cert-manager) e2e
+  # tests. Runs against CloudQA (no OM install); the `issuer` fixture installs cert-manager.
+  - name: e2e_managed_certs_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa]
+    tasks:
+      - e2e_replica_set_tls_managedcert_client
+      - e2e_replica_set_tls_managedcert
+      - e2e_replica_set_tls_managedcert_server
+      - e2e_replica_set_tls_managedcert_both_configured
+
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
   # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
   - name: e2e_operator_task_group
@@ -1563,6 +1574,15 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: e2e_custom_domain_task_group
+
+  - name: e2e_managed_certs_mdb_kind_ubi_cloudqa
+    display_name: e2e_managed_certs_mdb_kind_ubi_cloudqa
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_managed_certs_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
