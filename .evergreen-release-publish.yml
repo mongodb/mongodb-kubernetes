@@ -24,11 +24,8 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           include_expansions_in_env:
             - triggered_by_git_tag
+            - tag_description_override  # synthetic annotation for patches; bypasses real git tag lookup
           binary: scripts/dev/run_python.sh scripts/evergreen/decide_release_process.py
-      - command: expansions.update
-        params:
-          file: src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml
-          optional: true
       - command: generate.tasks
         params:
           files:
@@ -39,22 +36,17 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - command: shell.exec
+      - func: quay_staging_login  # authenticate to quay.io (configure_container_auth only handles ECR)
+      # subprocess.exec + add_expansions_to_env instead of shell.exec: YAML expansion parser
+      # mangles ${...} inside inline heredocs, so script is extracted to a standalone file.
+      - command: subprocess.exec
         type: test
         params:
-          shell: bash
           working_dir: src/github.com/mongodb/mongodb-kubernetes
-          script: |
-            source .generated/context.export.env
-            registry_override=""
-            if [[ "${IS_DRYRUN}" == "true" ]]; then
-              if [[ -z "${dryrun_registry_override:-}" ]]; then
-                echo "ERROR: IS_DRYRUN=true but dryrun_registry_override is unset" >&2
-                exit 1
-              fi
-              registry_override="${dryrun_registry_override}"
-            fi
-            scripts/mckci release publish images --commit "${revision}" --latest-marker latest --registry-override "${registry_override}"
+          add_expansions_to_env: true
+          binary: bash
+          args:
+            - scripts/evergreen/publish_images.sh
       # CVE scan of the just-published production images (skipped automatically
       # when IS_DRYRUN=true, since dry runs publish to an override registry).
       # Covers the release image set promoted by mckci (images carrying a
@@ -85,8 +77,10 @@ tasks:
           build_scenario: release
 
 buildvariants:
-  - name: release_decider
-    display_name: release_decider
+  # Named *_patch so Evergreen patch filtering targets this variant without colliding
+  # with the real-tag "release_decider" variant.
+  - name: release_decider_patch
+    display_name: release_decider_patch
     tags: [ "release-decider" ]
     allowed_requesters: [ "patch", "github_tag" ]
     run_on:
@@ -138,44 +132,74 @@ buildvariants:
     tasks:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
 
-  # Opens the draft PR against the Red Hat forks with the bundle prepared
-  # above. Human-reviewed, so github_tag only (not run on patches).
+  # Opens a PR against the Red Hat forks with the bundle prepared above. The
+  # code only pushes branches to forks; the PR to Red Hat is manually created by the release operator.
   - name: prepare_openshift_bundles_to_rh
     display_name: prepare_openshift_bundles_to_rh
     tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small
-    allowed_requesters: [ "github_tag" ]
+    # Allowed on patches: only pushes to mongodb-forks; the Red Hat PR is manual.
+    allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: run_conditionally_prepare_and_upload_openshift_bundles
         variant: prepare_openshift_bundles_publish
     tasks:
       - name: publish_openshift_bundles_to_rh
 
-  # Doc code-snippet generation against the images just published — this is
-  # generation, not testing: it deploys the operator using already-published
-  # images and captures snippet output for docs.
-  - name: prerelease_kind_code_snippets_publish
-    display_name: prerelease_kind_code_snippets_publish
-    tags: [ "release-publish", "prerelease_code_snippets" ]
+  # Public docs snippet generation against the already-published images.
+  # Uses the same task groups as the manual public snippet variants
+  # (.evergreen-snippets.yml) but wired into the release pipeline so that
+  # the public docs are updated automatically once images are live.
+  - name: release_kind_code_snippets
+    display_name: release_kind_code_snippets
+    tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
         variant: release_publish
+      # Wait for the rest of the publishing pipeline to complete
+      # before starting snippet generation (snippets are post-release).
+      - name: "*"
+        variant: release_chart_to_oci_registry_publish
+      - name: "*"
+        variant: release_kubectl_mongodb_plugin_publish
+      - name: "*"
+        variant: add_releaseinfo_to_github_assets_publish
+      - name: "*"
+        variant: preflight_released_images
+      - name: "*"
+        variant: prepare_openshift_bundles_to_rh
+      - name: "*"
+        variant: create_chart_release_pr_publish
     tasks:
       - name: kind_code_snippets_task_group
 
-  - name: prerelease_gke_code_snippets_publish
-    display_name: prerelease_gke_code_snippets_publish
-    tags: [ "release-publish", "prerelease_code_snippets" ]
+  - name: release_gke_code_snippets
+    display_name: release_gke_code_snippets
+    tags: [ "release-publish" ]
     run_on:
       - ubuntu2404-small
     allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
         variant: release_publish
+      # Wait for the rest of the publishing pipeline to complete
+      # before starting snippet generation (snippets are post-release).
+      - name: "*"
+        variant: release_chart_to_oci_registry_publish
+      - name: "*"
+        variant: release_kubectl_mongodb_plugin_publish
+      - name: "*"
+        variant: add_releaseinfo_to_github_assets_publish
+      - name: "*"
+        variant: preflight_released_images
+      - name: "*"
+        variant: prepare_openshift_bundles_to_rh
+      - name: "*"
+        variant: create_chart_release_pr_publish
     tasks:
       - name: gke_code_snippets_task_group
 
@@ -211,6 +235,10 @@ buildvariants:
     run_on:
       - release-ubuntu2404-small # This is required for CISA attestation https://jira.mongodb.org/browse/DEVPROD-17780
     allowed_requesters: [ "patch", "github_tag" ]
+    # Must wait for images to be published before promoting kubectl plugin binaries.
+    depends_on:
+      - name: "*"
+        variant: release_publish
     tasks:
       - name: release_kubectl_mongodb_plugin
 
@@ -221,34 +249,9 @@ buildvariants:
     run_on:
       - ubuntu2404-small
     allowed_requesters: [ "patch", "github_tag" ]
+    # Must wait for images to be published before recording release info.
+    depends_on:
+      - name: "*"
+        variant: release_publish
     tasks:
       - name: add_releaseinfo_to_github_assets
-
-  # Public docs snippet generation against the already-published images.
-  # Uses the same task groups as the manual public snippet variants
-  # (.evergreen-snippets.yml) but wired into the release pipeline so that
-  # the public docs are updated automatically once images are live.
-  - name: release_gke_snippets_publish
-    display_name: release_gke_snippets_publish
-    tags: [ "release-publish" ]
-    run_on:
-      - ubuntu2404-small
-    allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - name: "*"
-        variant: release_publish
-    tasks:
-      - name: gke_code_snippets_task_group
-
-  - name: release_kind_snippets_publish
-    display_name: release_kind_snippets_publish
-    tags: [ "release-publish" ]
-    run_on:
-      - ubuntu2404-large
-    allowed_requesters: [ "patch", "github_tag" ]
-    depends_on:
-      - name: "*"
-        variant: release_publish
-    tasks:
-      - name: kind_code_snippets_task_group
-
