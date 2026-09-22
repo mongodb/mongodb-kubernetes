@@ -2,9 +2,10 @@ import base64
 import time
 
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.x509.oid import NameOID
 from kubernetes import client
 
@@ -53,6 +54,45 @@ def get_pem_certificate(name: str) -> bytes | None:
     if body.status.certificate is None:
         return None
     return base64.b64decode(body.status.certificate)
+
+
+def _ca_signed_leaf(ca: x509.Certificate, leaf: x509.Certificate) -> bool:
+    # Return True if `ca` actually signed `leaf` (cryptographic check, not just a name match).
+    public_key = ca.public_key()
+    try:
+        if isinstance(public_key, rsa.RSAPublicKey):
+            public_key.verify(
+                leaf.signature,
+                leaf.tbs_certificate_bytes,
+                padding.PKCS1v15(),
+                leaf.signature_hash_algorithm,
+            )
+        elif isinstance(public_key, ec.EllipticCurvePublicKey):
+            public_key.verify(
+                leaf.signature,
+                leaf.tbs_certificate_bytes,
+                ec.ECDSA(leaf.signature_hash_algorithm),
+            )
+        else:  # ed25519 / ed448 take just (signature, data)
+            public_key.verify(leaf.signature, leaf.tbs_certificate_bytes)
+        return True
+    except InvalidSignature:
+        return False
+
+
+def cert_signed_by_bundle(leaf_pem: str, ca_bundle_pem: str) -> bool:
+    # True if any CA in the PEM bundle signed the leaf certificate. The leaf's tls.crt may
+    # hold a chain; cert-manager puts the signed leaf first, so we load that one. A bundle may
+    # hold several CAs, so the leaf is valid if ANY of them signed it.
+    leaf = x509.load_pem_x509_certificate(leaf_pem.encode(), default_backend())
+    for block in ca_bundle_pem.split("-----END CERTIFICATE-----"):
+        block = block.strip()
+        if not block:
+            continue
+        ca = x509.load_pem_x509_certificate((block + "\n-----END CERTIFICATE-----\n").encode(), default_backend())
+        if _ca_signed_leaf(ca, leaf):
+            return True
+    return False
 
 
 def wait_for_certs_to_be_issued(certificates: list[str]) -> None:
