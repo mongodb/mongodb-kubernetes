@@ -1132,6 +1132,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainNone,
 					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
 					"databaseClusters":         float64(3),
 				},
 				{
@@ -1178,6 +1179,7 @@ func TestCollectDeploymentsSnapshot(t *testing.T) {
 					"IsRunningEnterpriseImage": false,
 					"externalDomains":          ExternalDomainMixed,
 					"customRoles":              CustomRoleNone,
+					"authenticationModeSCRAM":  true,
 					"databaseClusters":         float64(2),
 				},
 				{
