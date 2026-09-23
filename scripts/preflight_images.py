@@ -26,9 +26,12 @@ def image_config(
     name_prefix: str = "mongodb-kubernetes-",
     name_suffix: str = "",
 ) -> Tuple[str, Dict[str, str]]:
+    # Redirect registry lookups to staging org during dry-run (dryrun_registry_override=quay.io/mongodb/staging).
+    base_registry = os.environ.get("dryrun_registry_override", "quay.io/mongodb")
+    api_path = base_registry.replace("quay.io/", "")
     args = {
-        "registry": f"quay.io/mongodb/{name_prefix}{image}{name_suffix}",
-        "image": f"mongodb/{name_prefix}{image}{name_suffix}",
+        "registry": f"{base_registry}/{name_prefix}{image}{name_suffix}",
+        "image": f"{api_path}/{name_prefix}{image}{name_suffix}",
         "rh_cert_project_id": rh_cert_project_id,
     }
     return image, args
@@ -38,9 +41,12 @@ def official_server_image(
     image: str,
     rh_cert_project_id: str,
 ) -> Tuple[str, Dict[str, str]]:
+    # Redirect registry lookups to staging org during dry-run.
+    base_registry = os.environ.get("dryrun_registry_override", "quay.io/mongodb")
+    api_path = base_registry.replace("quay.io/", "")
     args = {
-        "registry": f"quay.io/mongodb/mongodb-enterprise-server",
-        "image": f"mongodb/mongodb-enterprise-server",
+        "registry": f"{base_registry}/mongodb-enterprise-server",
+        "image": f"{api_path}/mongodb-enterprise-server",
         "rh_cert_project_id": rh_cert_project_id,
     }
     return image, args
@@ -214,6 +220,9 @@ def main() -> int:
     parser.add_argument("--version", help="specific version to check", type=str, default=None)
     args = parser.parse_args()
     submit = args.submit.lower() == "true"
+    # Never submit to Red Hat certification project during dry-run patches.
+    if "[dry-run]" in os.environ.get("tag_description_override", ""):
+        submit = False
     image_version = os.environ.get("image_version", args.version)
     image_args = args_for_image(args.image)
 
