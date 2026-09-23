@@ -290,6 +290,10 @@ patch_aliases:
     description: "New release process (publishes already-promoted images without rebuilding)"
     variant_tags: [ "release-publish" ]
     task: ".*"
+  - alias: "public_docs_snippets"
+    description: "Run public docs snippets refresh (generation + PR creation)"
+    variant_tags: [ "public_docs_snippets" ]
+    task: ".*"
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
