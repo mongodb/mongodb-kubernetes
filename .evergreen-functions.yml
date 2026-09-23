@@ -1071,7 +1071,6 @@ functions:
           - workdir
           - triggered_by_git_tag
           - OPERATOR_VERSION
-          - STAGING_VERSION_OVERRIDE
           - SKIP_GITHUB_RELEASE_UPLOAD
           - tag_description_override  # dry-run detection (IS_DRYRUN doesn't propagate across task wildcards)
           - target_commit  # resolves S3 staging path when tag doesn't exist in git (dry-run patches)
