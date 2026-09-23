@@ -195,6 +195,45 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
+		"Invalid S3 Store config - object lock retention fields for version older than 8.0.27": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.26").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: ptr.To(30)}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.27 (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 Store config - objectRetentionDays without objectLockEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: ptr.To(30)}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 Store config - objectRetentionMode without objectLockEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionMode: ptr.To("COMPLIANCE")}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 Store config - object lock retention fields with objectLockEnabled": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true), ObjectRetentionDays: ptr.To(30), ObjectRetentionMode: ptr.To("GOVERNANCE")}).
+				Build(),
+			expectedPart: status.None,
+		},
+		"Invalid S3 OpLog Store config - object lock retention fields": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: ptr.To(30)}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
 		"Valid S3 OpLog Store config - no s3SecretRef if irsaEnabled": {
 			testedOm: NewOpsManagerBuilderDefault().
 				AddS3OplogStoreConfig(S3Config{Name: "test", IRSAEnabled: true}).

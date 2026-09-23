@@ -1,3 +1,4 @@
+from typing import Dict, Optional
 from time import sleep
 
 import boto3
@@ -101,10 +102,14 @@ class AwsS3Client:
     def get_versioning(self, name: str):
         return self.s3_client.get_bucket_versioning(Bucket=name)
 
-    def put_object_lock(self, name: str):
-        self.s3_client.put_object_lock_configuration(
-            Bucket=name, ObjectLockConfiguration={"ObjectLockEnabled": "Enabled"}
-        )
+    def put_object_lock(self, name: str, retention_days: Optional[int] = None, retention_mode: str = "GOVERNANCE"):
+        config: Dict = {"ObjectLockEnabled": "Enabled"}
+        if retention_days is not None:
+            config["Rule"] = {"DefaultRetention": {"Mode": retention_mode, "Days": retention_days}}
+        self.s3_client.put_object_lock_configuration(Bucket=name, ObjectLockConfiguration=config)
+
+    def get_object_lock(self, name: str):
+        return self.s3_client.get_object_lock_configuration(Bucket=name)
 
 
 def s3_endpoint(aws_region: str) -> str:

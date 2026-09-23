@@ -887,6 +887,35 @@ func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
 	assert.Nil(t, s3Configs[0].ObjectLockEnabled)
 }
 
+func TestOpsManagerBackupObjectLockRetentionFields(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.27").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: util.BooleanRef(true), ObjectRetentionDays: ptr.To(30), ObjectRetentionMode: ptr.To("COMPLIANCE")}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
+	// when
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
+	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	// then
+	require.Len(t, s3Configs, 1)
+	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
+	assert.Equal(t, 30, *s3Configs[0].ObjectRetentionDays)
+	assert.Equal(t, "COMPLIANCE", *s3Configs[0].ObjectRetentionMode)
+}
+
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
