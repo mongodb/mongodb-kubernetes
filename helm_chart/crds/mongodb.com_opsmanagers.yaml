@@ -1317,6 +1317,20 @@ spec:
                             ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
                             This should be enabled to leverage Immutable Backups.
                           type: boolean
+                        objectRetentionDays:
+                          description: |-
+                            ObjectRetentionDays is the number of days backup objects must be retained in S3
+                            before deletion is allowed. Requires ObjectLockEnabled.
+                          minimum: 1
+                          type: integer
+                        objectRetentionMode:
+                          description: |-
+                            ObjectRetentionMode is the S3 Object Lock retention mode applied to backup objects.
+                            Requires ObjectLockEnabled.
+                          enum:
+                          - GOVERNANCE
+                          - COMPLIANCE
+                          type: string
                         pathStyleAccessEnabled:
                           type: boolean
                         s3BucketEndpoint:
@@ -1414,6 +1428,20 @@ spec:
                             ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
                             This should be enabled to leverage Immutable Backups.
                           type: boolean
+                        objectRetentionDays:
+                          description: |-
+                            ObjectRetentionDays is the number of days backup objects must be retained in S3
+                            before deletion is allowed. Requires ObjectLockEnabled.
+                          minimum: 1
+                          type: integer
+                        objectRetentionMode:
+                          description: |-
+                            ObjectRetentionMode is the S3 Object Lock retention mode applied to backup objects.
+                            Requires ObjectLockEnabled.
+                          enum:
+                          - GOVERNANCE
+                          - COMPLIANCE
+                          type: string
                         pathStyleAccessEnabled:
                           type: boolean
                         s3BucketEndpoint:

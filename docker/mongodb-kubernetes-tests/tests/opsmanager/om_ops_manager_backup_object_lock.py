@@ -1,5 +1,6 @@
 from typing import Dict, Iterator, Optional
 
+import semver
 from kubetester import run_periodically, try_load
 from kubetester.awss3client import AwsS3Client, s3_endpoint
 from kubetester.kubetester import KubernetesTester
@@ -20,6 +21,15 @@ S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
 DEFAULT_APPDB_USER_NAME = "mongodb-ops-manager"
+OBJECT_RETENTION_DAYS = 7
+OBJECT_RETENTION_MODE = "GOVERNANCE"
+# OM versions older than 8.0.27 reject the retention attributes (INVALID_ATTRIBUTE),
+# so they must only be set on the CR when the OM version supports them.
+OBJECT_RETENTION_MIN_OM_VERSION = "8.0.27"
+
+
+def om_supports_object_retention(custom_version: Optional[str]) -> bool:
+    return semver.VersionInfo.parse(custom_version) >= semver.VersionInfo.parse(OBJECT_RETENTION_MIN_OM_VERSION)
 
 """
 Current test focuses on backup capabilities. It creates an explicit MDBs for S3 snapshot metadata, Blockstore and Oplog
@@ -89,6 +99,9 @@ def ops_manager(
 
     resource["spec"]["backup"]["s3Stores"][0]["s3BucketName"] = s3_bucket
     resource["spec"]["backup"]["s3Stores"][0]["objectLockEnabled"] = True
+    if om_supports_object_retention(custom_version):
+        resource["spec"]["backup"]["s3Stores"][0]["objectRetentionDays"] = OBJECT_RETENTION_DAYS
+        resource["spec"]["backup"]["s3Stores"][0]["objectRetentionMode"] = OBJECT_RETENTION_MODE
 
     resource["spec"]["configuration"]["brs.immutableBackupEnabled"] = "true"
 
@@ -143,8 +156,26 @@ class TestOpsManagerCreation:
         # We need to ensure that versioning is set before enabling object lock
         run_periodically(versioning_is_enabled, timeout=300)
 
-    def test_enable_object_lock(self, s3_bucket: str, aws_s3_client: AwsS3Client):
-        aws_s3_client.put_object_lock(s3_bucket)
+    def test_enable_object_lock(self, s3_bucket: str, aws_s3_client: AwsS3Client, custom_version: Optional[str]):
+        # The bucket and the OM store must agree on retention: OM's store validation
+        # rejects a retention-configured bucket paired with a store without retention
+        # settings (and vice versa). On versions without the retention API, enable the
+        # object lock without a default retention rule.
+        retention_supported = om_supports_object_retention(custom_version)
+        if retention_supported:
+            aws_s3_client.put_object_lock(
+                s3_bucket, retention_days=OBJECT_RETENTION_DAYS, retention_mode=OBJECT_RETENTION_MODE
+            )
+        else:
+            aws_s3_client.put_object_lock(s3_bucket)
+
+        lock_config = aws_s3_client.get_object_lock(s3_bucket)["ObjectLockConfiguration"]
+        assert lock_config["ObjectLockEnabled"] == "Enabled"
+        if retention_supported:
+            assert lock_config["Rule"]["DefaultRetention"] == {
+                "Mode": OBJECT_RETENTION_MODE,
+                "Days": OBJECT_RETENTION_DAYS,
+            }
 
     def test_om_passes_validations(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(
@@ -158,15 +189,21 @@ class TestOpsManagerCreation:
         appdb_password = KubernetesTester.read_secret(ops_manager.namespace, ops_manager.app_db_password_secret_name())[
             "password"
         ]
-        om_tester.assert_s3_stores(
-            [
-                new_om_s3_store(
-                    appdb_replica_set,
-                    "s3Store1",
-                    s3_bucket,
-                    user_name=DEFAULT_APPDB_USER_NAME,
-                    password=appdb_password,
-                    object_lock_enabled=True,
-                )
-            ]
+        expected_store = new_om_s3_store(
+            appdb_replica_set,
+            "s3Store1",
+            s3_bucket,
+            user_name=DEFAULT_APPDB_USER_NAME,
+            password=appdb_password,
+            object_lock_enabled=True,
         )
+
+        # OM returns the retention fields only on versions exposing the S3 object-lock
+        # retention API (8.0.27+). The CR above only sets them on such versions, but keep
+        # the assertion feature-detected so the store comparison works on any variant.
+        actual_store = om_tester.get_s3_stores()["results"][0]
+        if "objectRetentionMode" in actual_store:
+            expected_store["objectRetentionDays"] = OBJECT_RETENTION_DAYS
+            expected_store["objectRetentionMode"] = OBJECT_RETENTION_MODE
+
+        om_tester.assert_s3_stores([expected_store])
