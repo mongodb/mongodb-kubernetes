@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+# this context file is for code snippets running on multi-cluster kind clusters
+set -Eeou pipefail
+
+# overrides of public env_variables.sh
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+# makes setup_kubernetes_environment create the interconnected multi-cluster
+# kind environment (recreate_kind_clusters.sh: istio + metallb + interconnect)
+export KUBE_ENVIRONMENT_NAME=multi
+
+export CODE_SNIPPETS_FLAVOR=e2e_public
+export ops_manager_version="cloud_qa"
