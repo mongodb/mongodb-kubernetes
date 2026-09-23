@@ -275,6 +275,12 @@ const (
 	// This variable is used for validating the OM version when an s3 store with object lock is configured
 	MinimumVersionImmutableBackup = "8.0.19"
 
+	// S3 object lock retention settings (objectRetentionDays/objectRetentionMode) were
+	// introduced in 8.0.27; older versions reject them with INVALID_ATTRIBUTE.
+	// This variable is used both for validating the OM version when retention is configured
+	// and for omitting the fields from the OM API payload on older versions.
+	MinimumVersionS3ObjectLockRetention = "8.0.27"
+
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"
 	OpsManagerPvcNameConf       = "conf"
