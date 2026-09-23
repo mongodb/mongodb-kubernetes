@@ -1120,6 +1120,21 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_external_multi_cluster_appdb_fresh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_forward
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_backup_and_restore
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_appdb_cleanup
     tags: [ "patch-run" ]
     commands:
