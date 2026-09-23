@@ -132,11 +132,16 @@ def build_operator_image(build_configuration: ImageBuildConfiguration, with_race
     # repository with a given suffix.
     test_suffix = os.getenv("test_suffix", "")
     log_automation_config_diff = os.getenv("LOG_AUTOMATION_CONFIG_DIFF", "false")
+    ldflag_version = os.getenv("RELEASE_VERSION", build_configuration.version)
+    logger.info(
+        f"DEBUG ldflag_version from env: RELEASE_VERSION={os.getenv('RELEASE_VERSION')}, build_config.version={build_configuration.version}, resolved ldflag_version={ldflag_version}"
+    )
 
     build_configuration.version = f"{build_configuration.version}{'-race' if with_race_detection else ''}"
 
     args = {
         "version": build_configuration.version,
+        "ldflag_version": ldflag_version,
         "log_automation_config_diff": log_automation_config_diff,
         "test_suffix": test_suffix,
         "use_race": "true" if with_race_detection else "false",

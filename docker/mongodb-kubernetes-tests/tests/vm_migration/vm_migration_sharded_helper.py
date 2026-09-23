@@ -503,7 +503,6 @@ def assert_common_generated_sharded_cr_shape(
     expected_config_count: int,
     expected_shard_count: int,
     expected_mongos_count: int,
-    version_id: str,
 ) -> None:
     """Assert the generated sharded CR has the expected externalMembers and dry-run annotation."""
     assert generated_cr.get("kind") == "MongoDB", f"Expected kind=MongoDB, got: {generated_cr.get('kind')}"
@@ -525,7 +524,7 @@ def assert_common_generated_sharded_cr_shape(
 
     annotations = generated_cr.get("metadata", {}).get("annotations", {})
     assert MIGRATION_DRY_RUN_ANNOTATION in annotations, "dry-run annotation missing from generated CR"
-    assert_migration_tool_version_annotation(generated_cr, version_id)
+    assert_migration_tool_version_annotation(generated_cr)
 
 
 def assert_k8s_sharded_process_names(om_tester: OMTester, mdb_migration: MongoDB) -> None:
