@@ -1,9 +1,9 @@
 # Namespace in which Ops Manager and AppDB will be deployed
-export OM_NAMESPACE="mongodb-om"
+export OM_NAMESPACE="mongodb-om${K8S_CLUSTER_SUFFIX:-}"
 # Namespace in which the operator will be installed
 export OPERATOR_NAMESPACE="mongodb-operator"
 # Namespace in which MongoDB resources will be deployed
-export MDB_NAMESPACE="mongodb"
+export MDB_NAMESPACE="mongodb${K8S_CLUSTER_SUFFIX:-}"
 
 # comma-separated key=value pairs for additional parameters passed to the helm-chart installing the operator
 export OPERATOR_ADDITIONAL_HELM_VALUES="${OPERATOR_ADDITIONAL_HELM_VALUES:-""}"
