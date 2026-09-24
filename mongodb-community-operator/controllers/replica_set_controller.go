@@ -235,6 +235,12 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 			withPendingPhase(10))
 	}
 
+	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
+		return status.Update(ctx, r.client.Status(), &mdb, statusOptions().
+			withMessage(Error, fmt.Sprintf("Error updating connection string secrets: %s", err)).
+			withFailedPhase())
+	}
+
 	res, err := status.Update(ctx, r.client.Status(), &mdb, statusOptions().
 		withMongoURI(mdb.MongoURI()). // nolint:forbidigo
 		withMongoDBMembers(mdb.AutomationConfigMembersThisReconciliation()).
@@ -249,14 +255,10 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, err
 	}
 
-	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
-		r.log.Errorf("Could not update connection string secrets: %s", err)
-	}
-
 	if lastAppliedSpec != nil {
 		r.cleanupScramSecrets(ctx, mdb.Spec, *lastAppliedSpec, mdb.Namespace)
 		r.cleanupPemSecret(ctx, mdb.Spec, *lastAppliedSpec, mdb.Namespace)
-		r.cleanupConnectionStringSecrets(ctx, mdb.Spec, *lastAppliedSpec, mdb.Namespace, mdb.Name)
+		r.cleanupConnectionStringSecrets(ctx, mdb, *lastAppliedSpec)
 	}
 
 	if err := r.updateLastSuccessfulConfiguration(ctx, mdb); err != nil {

@@ -6,6 +6,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -48,15 +49,29 @@ func (r *ReplicaSetReconciler) cleanupScramSecrets(ctx context.Context, currentM
 	}
 }
 
-// cleanupConnectionStringSecrets cleans up old scram secrets based on the last successful applied mongodb spec.
-func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(ctx context.Context, currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, namespace string, resourceName string) {
-	secretsToDelete := getConnectionStringSecretsToDelete(currentMDBSpec, lastAppliedMDBSpec, resourceName)
+// cleanupConnectionStringSecrets cleans up old connection string secrets based on the last successful applied mongodb spec.
+// Only secrets controlled by this MongoDBCommunity are deleted, so a spec that once named a foreign secret cannot remove it.
+func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(ctx context.Context, mdb mdbv1.MongoDBCommunity, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec) {
+	secretsToDelete := getConnectionStringSecretsToDelete(mdb.Spec, lastAppliedMDBSpec, mdb.Name)
 
 	for _, s := range secretsToDelete {
-		if err := r.client.DeleteSecret(ctx, types.NamespacedName{
-			Name:      s,
-			Namespace: namespace,
-		}); err != nil {
+		secretName := types.NamespacedName{Name: s, Namespace: mdb.Namespace}
+
+		existing, err := r.client.GetSecret(ctx, secretName)
+		if err != nil {
+			if apiErrors.IsNotFound(err) {
+				r.log.Debugf("Secret %s was already deleted", s)
+			} else {
+				r.log.Warnf("Could not read secret %s before cleanup: %s", s, err)
+			}
+			continue
+		}
+		if owner := metav1.GetControllerOf(&existing); owner == nil || owner.UID != mdb.UID {
+			r.log.Warnf("Skipping cleanup of secret %s: it is not managed by MongoDBCommunity %s", s, mdb.Name)
+			continue
+		}
+
+		if err := r.client.DeleteSecret(ctx, secretName); err != nil {
 			r.log.Warnf("Could not cleanup old secret %s: %s", s, err)
 		} else {
 			r.log.Debugf("Sucessfully cleaned up secret: %s", s)
