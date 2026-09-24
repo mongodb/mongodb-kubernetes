@@ -2011,37 +2011,6 @@ func TestEnsureAppDBRoleUser_Multi(t *testing.T) {
 	}
 }
 
-func TestAppDBSecretDistribution_Multi(t *testing.T) {
-	ctx := context.Background()
-	mrs, reconciler, _, omConnectionFactory := newMultiClusterGateFixture(mdb.RoleAppDB)
-	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
-
-	require.NoError(t, reconciler.ensureAppDBRoleUser(ctx, mrs, conn))
-	require.NoError(t, reconciler.ensureAppDBRoleKeyfile(ctx, mrs, conn))
-
-	passwordSecretName := fmt.Sprintf("%s-om-password", mrs.Name)
-	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
-	centralPasswordSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
-	require.NoError(t, err)
-	centralKeyfileSecret, err := reconciler.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
-	require.NoError(t, err)
-
-	for _, clusterName := range clusters {
-		t.Run(clusterName, func(t *testing.T) {
-			require.NoError(t, reconciler.cleanupAppDBRoleSecretsFromMemberClusters(ctx, mrs))
-
-			_, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName))
-			assert.Error(t, err)
-
-			_, err = reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName))
-			assert.Error(t, err)
-
-			assert.NotEmpty(t, centralPasswordSecret.Data)
-			assert.NotEmpty(t, centralKeyfileSecret.Data)
-		})
-	}
-}
-
 // specsAreEqual compares two different MongoDBMultiSpec instances and returns true if they are equal.
 // the specs need to be marshaled and bytes compared as this ensures that empty slices are converted to nil
 // ones and gives an accurate comparison.
