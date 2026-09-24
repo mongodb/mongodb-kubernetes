@@ -667,21 +667,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) claimAppDBRoleSecrets(ctx context.Cont
 	return nil
 }
 
-func (r *ReconcileMongoDbMultiReplicaSet) cleanupAppDBRoleSecretsFromMemberClusters(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster) error {
-	passwordSecretName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
-	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
-
-	for _, memberSecretClient := range r.memberClusterSecretClientsMap {
-		for _, name := range []string{passwordSecretName, keyfileSecretName} {
-			if err := memberSecretClient.DeleteSecret(ctx, kube.ObjectKey(mrs.Namespace, name)); err != nil && !secret.SecretNotExist(err) {
-				return xerrors.Errorf("failed to delete secret %s from member cluster: %w", name, err)
-			}
-		}
-	}
-
-	return nil
-}
-
 func (r *ReconcileMongoDbMultiReplicaSet) claimSecretForCR(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, name string) error {
 	s, err := r.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, name))
 	if err != nil {
