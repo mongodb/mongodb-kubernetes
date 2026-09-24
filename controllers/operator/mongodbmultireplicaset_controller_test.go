@@ -1584,7 +1584,7 @@ func TestMDBMultiAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
 
 func TestMDBMultiReconcile_ReleasedAppDBRoleDoesNotReclaimSecrets(t *testing.T) {
 	ctx := context.Background()
-	mrs, reconciler, clusterMap, omConnectionFactory := newMultiClusterGateFixture(mdb.RoleAppDB)
+	mrs, reconciler, clusterMap, _ := newMultiClusterGateFixture(mdb.RoleAppDB)
 
 	omOwnerRef := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: types.UID("om-uid-1111")}}
 	passwordName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
@@ -1600,14 +1600,10 @@ func TestMDBMultiReconcile_ReleasedAppDBRoleDoesNotReclaimSecrets(t *testing.T) 
 	cluster1.Labels = mrs.GetOwnerLabels()
 	require.NoError(t, clusterMap[clusters[1]].Create(ctx, &cluster1))
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, mrs, zap.S())
-	require.NoError(t, err)
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mrs.Namespace, true, zap.S())
-	require.NoError(t, err)
-
-	gateStatus := reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "")
+	gateStatus := reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
 	assert.Equal(t, status.PhasePending, gateStatus.Phase())
-	assert.Equal(t, "This AppDB resource is under Reverse Migration to Ops Manager CR", statusMessage(gateStatus))
+	reversePending := workflow.Pending("This AppDB resource is under Reverse Migration to Ops Manager CR")
+	assert.Equal(t, statusMessage(reversePending.Merge(reversePending)), statusMessage(gateStatus))
 	result, err := gateStatus.ReconcileResult()
 	require.NoError(t, err)
 	assert.Equal(t, 10*time.Second, result.RequeueAfter)
@@ -1702,7 +1698,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			},
 		},
 		{
-			name: "own ref plus no label is owned via backfill",
+			name: "own ownerReference without label is not adopted",
 			role: mdb.RoleAppDB,
 			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
 				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), kube.BaseOwnerReference(mrs), nil, 3)
@@ -1711,10 +1707,7 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
 				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
 				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
-				assert.True(t, gateStatus.IsOK())
-				result, err := gateStatus.ReconcileResult()
-				require.NoError(t, err)
-				assert.Equal(t, 24*time.Hour, result.RequeueAfter)
+				assertPending(t, gateStatus, "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource")
 			},
 		},
 		{
@@ -1790,12 +1783,15 @@ func TestMDBMultiAppDBAdoptionGate_WiredIntoReconcileStatefulSets(t *testing.T) 
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mrs.Namespace, true, zap.S())
 	require.NoError(t, err)
 
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
+	require.True(t, ownershipStatus.IsOK())
+
 	_ = reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "")
 
 	result := appsv1.StatefulSet{}
 	require.NoError(t, clusterMap[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.StatefulSetNameForCluster(clusterName)), &result))
 	assert.Equal(t, mrs.GetOwnerLabels(), result.Labels)
-	assert.Equal(t, kube.BaseOwnerReference(mrs), result.OwnerReferences)
+	assert.Empty(t, result.OwnerReferences)
 }
 
 func TestMDBMultiAppDBSharedSecrets_WiredIntoReconcileStatefulSets(t *testing.T) {
@@ -1843,10 +1839,20 @@ func TestMDBMultiAppDBSharedSecrets_WiredIntoReconcileStatefulSets(t *testing.T)
 			conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mrs.Namespace, true, zap.S())
 			require.NoError(t, err)
 
-			_ = reconciler.reconcileStatefulSets(ctx, mrs, zap.S(), conn, projectConfig, "", "")
+			var ownershipStatus workflow.Status = workflow.OK()
 			if tt.role == mdb.RoleAppDB {
-				ac, err := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName}).ReadAutomationConfig()
-				require.NoError(t, err)
+				ownershipStatus = reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
+				if ownershipStatus.IsOK() {
+					require.NoError(t, reconciler.ensureAppDBRoleUser(ctx, mrs, conn))
+					require.NoError(t, reconciler.ensureAppDBRoleKeyfile(ctx, mrs, conn))
+					require.NoError(t, reconciler.claimAppDBRoleSecrets(ctx, mrs))
+				}
+			}
+
+			ac, err := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName}).ReadAutomationConfig()
+			require.NoError(t, err)
+
+			if tt.role == mdb.RoleAppDB && ownershipStatus.IsOK() {
 				_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
 				require.NotNil(t, createdUser)
 				assertAppDBRoleUserRolesAndCreds(t, createdUser)
@@ -1859,24 +1865,17 @@ func TestMDBMultiAppDBSharedSecrets_WiredIntoReconcileStatefulSets(t *testing.T)
 				assert.NotEmpty(t, keyfileSecret.Data[constants.AgentKeyfileKey])
 				assert.Equal(t, kube.BaseOwnerReference(mrs), passwordSecret.OwnerReferences)
 				assert.Equal(t, kube.BaseOwnerReference(mrs), keyfileSecret.OwnerReferences)
-
-				for _, clusterName := range clusters {
-					memberSecretClient := reconciler.memberClusterSecretClientsMap[clusterName]
-					_, err := memberSecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
-					assert.Error(t, err)
-					_, err = memberSecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
-					assert.Error(t, err)
-				}
 			} else {
-				ac, err := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName}).ReadAutomationConfig()
-				require.NoError(t, err)
-				assert.Len(t, ac.Auth.Users, 0)
-				for _, clusterName := range clusters {
-					_, err := reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
-					assert.Error(t, err)
-					_, err = reconciler.memberClusterSecretClientsMap[clusterName].GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
-					assert.Error(t, err)
-				}
+				_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+				assert.Nil(t, createdUser)
+			}
+
+			for _, clusterName := range clusters {
+				memberSecretClient := reconciler.memberClusterSecretClientsMap[clusterName]
+				_, err := memberSecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, passwordSecretName(mrs)))
+				assert.Error(t, err)
+				_, err = memberSecretClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, keyfileSecretName(mrs)))
+				assert.Error(t, err)
 			}
 		})
 	}
