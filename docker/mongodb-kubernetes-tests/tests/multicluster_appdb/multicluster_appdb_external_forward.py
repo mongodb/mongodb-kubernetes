@@ -1,6 +1,7 @@
 from typing import ClassVar, Optional
 
 import kubernetes.client
+from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
