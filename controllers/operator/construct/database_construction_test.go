@@ -13,7 +13,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -22,6 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func init() {
@@ -634,4 +637,94 @@ func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
 	opts := StandaloneOptions()(*st)
 
 	assert.Nil(t, opts.ExternalAccessConfiguration)
+}
+
+// securityWithAgentCertRef builds a Security with an agent client certificate secret ref.
+// The MongoDB builder has no helper for this field, so set Spec.Security literally.
+func securityWithAgentCertRef(enabled bool, name string) *mdbv1.Security {
+	return &mdbv1.Security{
+		Authentication: &mdbv1.Authentication{
+			Enabled: enabled,
+			Agents: mdbv1.AgentAuthentication{
+				ClientCertificateSecretRefWrap: v1.ClientCertificateSecretRefWrapper{
+					ClientCertificateSecretRef: corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: name},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestBuildVaultDatabaseSecretsToInjectSkipsAgentCertsWhenAuthDisabled(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().SetName("my-rs").Build()
+	mdb.Spec.Security = securityWithAgentCertRef(false, "my-agent-certs")
+
+	inject := buildVaultDatabaseSecretsToInject(mdb, DatabaseStatefulSetOptions{PodVars: defaultPodVars()})
+
+	assert.Empty(t, inject.AgentCerts, "AgentCerts must not be injected when authentication is disabled and x509 validation is skipped")
+	assert.Empty(t, inject.AgentCertsHash)
+}
+
+func TestBuildVaultDatabaseSecretsToInjectInjectsAgentCertsWhenAuthEnabled(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().SetName("my-rs").Build()
+	mdb.Spec.Security = securityWithAgentCertRef(true, "my-agent-certs")
+
+	inject := buildVaultDatabaseSecretsToInject(mdb, DatabaseStatefulSetOptions{PodVars: defaultPodVars()})
+
+	assert.Equal(t, "my-agent-certs"+certs.OperatorGeneratedCertSuffix, inject.AgentCerts)
+}
+
+// TestGetVolumesAndVolumeMounts_AgentCertVolumeGate mirrors the KUBE-311 gate aligned in
+// buildVaultDatabaseSecretsToInject: the agent client-cert k8s-secret volume must only be added
+// when the underlying secret is actually created. That happens only on a non-vault backend when
+// x509 authentication is used or, for client-certs-only setups, when authentication is enabled
+// (ensureX509SecretAndCheckTLSType skips secret creation when authentication is disabled).
+func TestGetVolumesAndVolumeMounts_AgentCertVolumeGate(t *testing.T) {
+	tests := []struct {
+		name          string
+		authEnabled   bool
+		secretBackend string
+		wantCertVol   bool
+	}{
+		{
+			name:          "client cert ref with authentication disabled never mounts the agent cert k8s secret",
+			authEnabled:   false,
+			secretBackend: vault.K8sSecretBackend,
+			wantCertVol:   false,
+		},
+		{
+			name:          "client cert ref with authentication enabled mounts the agent cert k8s secret",
+			authEnabled:   true,
+			secretBackend: vault.K8sSecretBackend,
+			wantCertVol:   true,
+		},
+		{
+			name:          "client cert ref on the vault backend never mounts a k8s secret volume",
+			authEnabled:   true,
+			secretBackend: vault.VaultBackend,
+			wantCertVol:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SECRET_BACKEND", tt.secretBackend)
+
+			mdb := mdbv1.NewReplicaSetBuilder().SetName("my-rs").Build()
+			mdb.Spec.Security = securityWithAgentCertRef(tt.authEnabled, "my-agent-certs")
+
+			volumes, _ := getVolumesAndVolumeMounts(mdb, DatabaseStatefulSetOptions{
+				Name:                 "my-rs",
+				CurrentAgentAuthMode: "",
+				AgentCertHash:        "cert-hash",
+				PodVars:              defaultPodVars(),
+			}, "my-agent-certs"+certs.OperatorGeneratedCertSuffix, "my-rs-clusterfile")
+
+			hasAgentCertVolume := slices.ContainsFunc(volumes, func(v corev1.Volume) bool {
+				return v.Secret != nil && v.Secret.SecretName == "my-agent-certs"+certs.OperatorGeneratedCertSuffix
+			})
+			assert.Equal(t, tt.wantCertVol, hasAgentCertVolume, "agent cert secret volume presence should match the gate")
+		})
+	}
 }
