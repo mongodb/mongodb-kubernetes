@@ -666,3 +666,32 @@ func TestMergeHostAliases(t *testing.T) {
 	assert.Equal(t, "1.2.3.5", merged[1].IP)
 	assert.Equal(t, []string{"abc"}, merged[1].Hostnames)
 }
+
+func TestMergePodTemplateSpecsHostUsers(t *testing.T) {
+	falseVal := false
+	trueVal := true
+
+	t.Run("override sets hostUsers to false", func(t *testing.T) {
+		merged := PodTemplateSpecs(corev1.PodTemplateSpec{}, corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{HostUsers: &falseVal},
+		})
+		assert.NotNil(t, merged.Spec.HostUsers)
+		assert.False(t, *merged.Spec.HostUsers)
+	})
+
+	t.Run("override takes precedence over original", func(t *testing.T) {
+		merged := PodTemplateSpecs(
+			corev1.PodTemplateSpec{Spec: corev1.PodSpec{HostUsers: &trueVal}},
+			corev1.PodTemplateSpec{Spec: corev1.PodSpec{HostUsers: &falseVal}},
+		)
+		assert.False(t, *merged.Spec.HostUsers)
+	})
+
+	t.Run("unset override keeps original", func(t *testing.T) {
+		merged := PodTemplateSpecs(
+			corev1.PodTemplateSpec{Spec: corev1.PodSpec{HostUsers: &falseVal}},
+			corev1.PodTemplateSpec{},
+		)
+		assert.False(t, *merged.Spec.HostUsers)
+	})
+}
