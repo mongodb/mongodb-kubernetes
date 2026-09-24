@@ -1742,6 +1742,20 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			},
 		},
 		{
+			name: "foreign key holding our owner value is conflict",
+			role: mdb.RoleAppDB,
+			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), nil, nil, 3)
+				sts.Labels = map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: mrs.GetOwnerLabels()[util.MongoDBMultiClusterResourceOwnerLabel]}
+				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
+			},
+			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
+				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
+				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
+				assertPending(t, gateStatus, "Cannot take ownership of the AppDB Statefulset: it has other owner")
+			},
+		},
+		{
 			name: "missing controller label is still owned",
 			role: mdb.RoleAppDB,
 			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
