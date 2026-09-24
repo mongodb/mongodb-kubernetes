@@ -1218,6 +1218,9 @@ task_groups:
       - e2e_multi_cluster_appdb_validation
       - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
+      - e2e_om_external_multi_cluster_appdb_fresh
+      - e2e_om_external_multi_cluster_appdb_forward
+      - e2e_om_external_multi_cluster_appdb_backup_and_restore
       - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
