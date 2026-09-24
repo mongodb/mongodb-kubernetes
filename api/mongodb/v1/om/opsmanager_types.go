@@ -42,6 +42,10 @@ const (
 	queryableBackupDefaultPort int32  = 25999
 
 	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+
+	// OpsManagerNamespaceLabel is set on the admin API key Secret to record
+	// the namespace of the MongoDBOpsManager CR that owns the key.
+	OpsManagerNamespaceLabel = "mongodb.com/v1.opsManagerNamespace"
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -928,6 +932,11 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
 func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
+	// Deprecated fallback: the legacy name-only secret is read here and, if it
+	// still exists, returned so that readers racing with the migration keep
+	// working. The Operator's Ops Manager reconciler migrates the legacy
+	// secret to the namespace-qualified name (see migrateLegacyAdminKeySecret)
+	// and deletes the legacy secret, after which this branch stops matching.
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
