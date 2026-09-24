@@ -2388,6 +2388,38 @@ func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testin
 	}
 }
 
+func TestEnsureAppDBStatefulSetOwnership_ReclaimsSharedSecretsWhenStatefulSetIsAlreadyOwned(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetName("test-om").Build()
+	testOm.UID = types.UID("om-uid-1111")
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+	reconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+
+	sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
+		SetLabels(map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: testOm.GetName()}).
+		Build()
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+
+	crOwnerRef := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: "cr-uid-2222"}}
+	secretNames := []string{omv1.OpsManagerUserPasswordSecretName("test-om-db"), testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name}
+	for _, name := range secretNames {
+		s := secret.Builder().SetName(name).SetNamespace(testOm.Namespace).SetField("k", "v").SetOwnerReferences(crOwnerRef).Build()
+		require.NoError(t, kubeClient.CreateSecret(ctx, s))
+	}
+
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+	require.True(t, ownershipStatus.IsOK())
+
+	for _, name := range secretNames {
+		s := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, name), &s))
+		require.Len(t, s.OwnerReferences, 1, name)
+		assert.Equal(t, testOm.UID, s.OwnerReferences[0].UID, "secret %s must be reclaimed even when the StatefulSet is already owned", name)
+	}
+}
+
 func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().
