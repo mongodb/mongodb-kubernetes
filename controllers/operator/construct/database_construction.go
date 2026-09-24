@@ -438,7 +438,7 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts DatabaseStatefulSetOptions) vault.DatabaseSecretsToInject {
 	secretsToInject := vault.DatabaseSecretsToInject{Config: opts.VaultConfig}
 
-	if mdb.GetSecurity().ShouldUseX509(opts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+	if mdb.GetSecurity().AgentClientCertsRequired(opts.CurrentAgentAuthMode) {
 		secretName := mdb.GetSecurity().AgentClientCertificateSecretName(mdb.GetName())
 		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.AgentCerts = secretName
@@ -720,7 +720,9 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumesToAdd = append(volumesToAdd, prometheusVolumes...)
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
-	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
+	// Mount the agent client-cert k8s secret (skipped on the Vault backend, where
+	// the cert arrives via vault-agent injection instead).
+	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().AgentClientCertsRequired(databaseOpts.CurrentAgentAuthMode) {
 		defaultAgentCertPath := filepath.Join(util.AgentCertMountPath, databaseOpts.AgentCertHash)
 		if databaseOpts.AgentCertPath != "" && databaseOpts.AgentCertPath != defaultAgentCertPath {
 			// Custom PEM path (e.g. spec.agents.autoPEMKeyFilePath): items mount (key=AgentCertHash, path=basename).

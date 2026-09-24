@@ -9,12 +9,14 @@ import (
 
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -1094,10 +1096,31 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 	return secretName
 }
 
+// ValidateAgentClientCertificateSecretName returns an error if the resolved agent
+// client certificate secret name is not a valid RFC-1123 subdomain. The name is
+// spliced into vault-agent consul-template annotations, so names containing '"',
+// '{' or '}' would inject arbitrary template directives (KUBE-311).
+func (s Security) ValidateAgentClientCertificateSecretName(resourceName string) error {
+	name := s.AgentClientCertificateSecretName(resourceName)
+	if errs := k8svalidation.IsDNS1123Subdomain(name); len(errs) > 0 {
+		return xerrors.Errorf("security.authentication.agents.clientCertificateSecretRef.name %q is not a valid secret name: %s", name, strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 // The customer has set ClientCertificateSecretRef. This signals that client certs are required,
 // even when no x509 agent-auth has been enabled.
 func (s Security) ShouldUseClientCertificates() bool {
 	return s.Authentication != nil && s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name != ""
+}
+
+// AgentClientCertsRequired reports whether the agent client-cert secret must be made
+// available to the database pods (vault-agent injection or k8s secret volume).
+// KUBE-311: the client-certificates branch requires authentication to be enabled,
+// matching the validation gate; the x509 branch preserves existing behavior.
+func (s *Security) AgentClientCertsRequired(currentAgentAuthMode string) bool {
+	return s.ShouldUseX509(currentAgentAuthMode) ||
+		(s.Authentication != nil && s.Authentication.Enabled && s.ShouldUseClientCertificates())
 }
 
 // GetAgentAutoPEMKeyFilePath returns security.authentication.agents.autoPEMKeyFilePath when set (trimmed).

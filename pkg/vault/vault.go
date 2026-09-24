@@ -14,6 +14,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -55,6 +56,14 @@ const (
 {{- end }}
 {{- end }}`
 )
+
+// IsValidInjectionSecretName reports whether name is a valid RFC-1123 subdomain and
+// therefore safe to splice into a vault-agent consul-template annotation. Names that
+// fail validation must never reach a template body: they can break out of the
+// {{- with secret "..." -}} directive and inject arbitrary consul-template (KUBE-311).
+func IsValidInjectionSecretName(name string) bool {
+	return len(k8svalidation.IsDNS1123Subdomain(name)) == 0
+}
 
 type DatabaseSecretsToInject struct {
 	AgentCerts            string
@@ -381,7 +390,7 @@ func (s OpsManagerSecretsToInject) OpsManagerAnnotations(namespace string) map[s
 
 	annotations = merge.StringToStringMap(annotations, s.Config.TLSAnnotations())
 
-	if s.TLSSecretName != "" {
+	if s.TLSSecretName != "" && IsValidInjectionSecretName(s.TLSSecretName) {
 		omTLSPath := fmt.Sprintf("%s/%s/%s", opsManagerSecretPath, namespace, s.TLSSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-om-tls-cert-pem"] = omTLSPath
 		annotations["vault.hashicorp.com/agent-inject-file-om-tls-cert-pem"] = s.TLSHash
@@ -445,7 +454,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 
 	annotations = merge.StringToStringMap(annotations, s.Config.TLSAnnotations())
 
-	if s.AgentCerts != "" {
+	if s.AgentCerts != "" && IsValidInjectionSecretName(s.AgentCerts) {
 		agentCertsPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.AgentCerts)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-mms-automation-agent-pem"] = agentCertsPath
@@ -462,7 +471,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 		annotations["vault.hashicorp.com/agent-inject-command-previous-mms-automation-agent-pem"] = fmt.Sprintf(
 			PREVIOUS_HASH_INJECT_COMMAND, util.AgentCertMountPath, util.PreviousHashSecretKey)
 	}
-	if s.InternalClusterAuth != "" {
+	if s.InternalClusterAuth != "" && IsValidInjectionSecretName(s.InternalClusterAuth) {
 		internalClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.InternalClusterAuth)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-internal-cluster"] = internalClusterPath
@@ -479,7 +488,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 		annotations["vault.hashicorp.com/agent-inject-command-previous-internal-cluster"] = fmt.Sprintf(
 			PREVIOUS_HASH_INJECT_COMMAND, util.InternalClusterAuthMountPath, util.PreviousHashSecretKey)
 	}
-	if s.MemberClusterAuth != "" {
+	if s.MemberClusterAuth != "" && IsValidInjectionSecretName(s.MemberClusterAuth) {
 		memberClusterPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.MemberClusterAuth)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
@@ -497,7 +506,7 @@ func (s DatabaseSecretsToInject) DatabaseAnnotations(namespace string) map[strin
 			PREVIOUS_HASH_INJECT_COMMAND, util.TLSCertMountPath, util.PreviousHashSecretKey)
 	}
 
-	if s.Prometheus != "" {
+	if s.Prometheus != "" && IsValidInjectionSecretName(s.Prometheus) {
 		promPath := fmt.Sprintf("%s/%s/%s", databaseSecretPath, namespace, s.Prometheus)
 
 		annotations["vault.hashicorp.com/agent-inject-secret-prom-https-cert"] = promPath
@@ -546,7 +555,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 	} else {
 		appdbSecretPath = fmt.Sprintf("/secret/data/%s", APPDB_SECRET_BASE_PATH)
 	}
-	if a.AgentApiKey != "" {
+	if a.AgentApiKey != "" && IsValidInjectionSecretName(a.AgentApiKey) {
 
 		apiKeySecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AgentApiKey)
 		agentAPIKeyTemplate := fmt.Sprintf(DEFAULT_AGENT_INJECT_TEMPLATE, apiKeySecretPath, util.OmAgentApiKey)
@@ -556,7 +565,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 		annotations["vault.hashicorp.com/agent-inject-template-agentApiKey"] = agentAPIKeyTemplate
 	}
 
-	if a.TLSSecretName != "" {
+	if a.TLSSecretName != "" && IsValidInjectionSecretName(a.TLSSecretName) {
 		memberClusterPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.TLSSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-tls-certificate"] = memberClusterPath
 		annotations["vault.hashicorp.com/agent-inject-file-tls-certificate"] = a.TLSClusterHash
@@ -574,7 +583,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
 
 	}
 
-	if a.AutomationConfigSecretName != "" {
+	if a.AutomationConfigSecretName != "" && IsValidInjectionSecretName(a.AutomationConfigSecretName) {
 		acSecretPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.AutomationConfigSecretName)
 		annotations["vault.hashicorp.com/agent-inject-secret-"+a.AgentType] = acSecretPath
 		annotations["vault.hashicorp.com/agent-inject-file-"+a.AgentType] = a.AutomationConfigPath
@@ -586,7 +595,7 @@ func (a AppDBSecretsToInject) AppDBAnnotations(namespace string) map[string]stri
           {{- end }}`, acSecretPath)
 	}
 
-	if a.PrometheusTLSCertHash != "" && a.PrometheusTLSPath != "" {
+	if a.PrometheusTLSCertHash != "" && a.PrometheusTLSPath != "" && IsValidInjectionSecretName(a.PrometheusTLSPath) {
 		promPath := fmt.Sprintf("%s/%s/%s", appdbSecretPath, namespace, a.PrometheusTLSPath)
 		annotations["vault.hashicorp.com/agent-inject-secret-prom-https-cert"] = promPath
 		annotations["vault.hashicorp.com/agent-inject-file-prom-https-cert"] = a.PrometheusTLSCertHash

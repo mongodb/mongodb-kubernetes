@@ -373,6 +373,17 @@ func importToolVersionMatchesOperator(m *MongoDB) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// agentCertSecretRefNameMustBeValid rejects clientCertificateSecretRef names that are not
+// valid RFC-1123 subdomains. The name is spliced into vault-agent consul-template
+// annotations, so names containing '"', '{' or '}' would inject arbitrary template
+// directives (KUBE-311). Runs at admission (webhook) and on every reconcile.
+func agentCertSecretRefNameMustBeValid(m *MongoDB) v1.ValidationResult {
+	if err := m.Spec.GetSecurity().ValidateAgentClientCertificateSecretName(m.Name); err != nil {
+		return v1.ValidationError("%s", err.Error())
+	}
+	return v1.ValidationSuccess()
+}
+
 func agentModeIsSetIfMoreThanADeploymentAuthModeIsSet(d DbCommonSpec) v1.ValidationResult {
 	if d.Security == nil || d.Security.Authentication == nil {
 		return v1.ValidationSuccess()
@@ -808,6 +819,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	// Topology field
 	metaValidators := []func(m *MongoDB) v1.ValidationResult{
 		importToolVersionMatchesOperator,
+		agentCertSecretRefNameMustBeValid,
 	}
 
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
