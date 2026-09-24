@@ -501,6 +501,14 @@ func (m *MongoDBMultiCluster) InitDefaults() {
 	}
 
 	m.Spec.Security = mdbv1.EnsureSecurity(m.Spec.Security)
+
+	if m.IsRoleAppDB() {
+		m.Spec.Security.Authentication = &mdbv1.Authentication{
+			Enabled:            true,
+			Modes:              []mdbv1.AuthMode{util.SCRAM},
+			IgnoreUnknownUsers: true,
+		}
+	}
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters

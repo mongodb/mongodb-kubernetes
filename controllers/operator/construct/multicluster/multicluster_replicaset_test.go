@@ -96,7 +96,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 
 		expectedMatchLabels := singleClusterOverride.SpecWrapper.Spec.Selector.MatchLabels
 		expectedMatchLabels["app"] = ""
-		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name
+		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name + "-0"
 		expectedMatchLabels[util.OperatorLabelName] = util.OperatorLabelValue
 
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)

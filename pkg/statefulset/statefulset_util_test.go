@@ -86,7 +86,8 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired), "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			actual, _ := isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired)
+			assert.Equalf(t, tt.want, actual, "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
 		})
 	}
 }
@@ -244,7 +245,8 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired), "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			actual, _ := isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired)
+			assert.Equalf(t, tt.want, actual, "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
 		})
 	}
 }

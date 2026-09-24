@@ -472,10 +472,12 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
+	stsName := opts.GetStatefulSetName()
+
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
 		util.OperatorLabelName:  util.OperatorLabelValue,
-		PodAntiAffinityLabelKey: opts.Name,
+		PodAntiAffinityLabelKey: stsName,
 	}
 
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
@@ -536,13 +538,6 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
 	}
 
-	stsName := opts.GetStatefulSetName()
-	podAffinity := mdb.GetName()
-	if opts.StatefulSetNameOverride != "" {
-		stsName = opts.StatefulSetNameOverride
-		podAffinity = opts.StatefulSetNameOverride
-	}
-
 	shareProcessNs := statefulset.NOOP()
 
 	var databaseImage string
@@ -587,7 +582,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	podTemplateModifications := []podtemplatespec.Modification{
 		podTemplateAnnotationFunc,
-		podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
+		podtemplatespec.WithAffinity(stsName, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		podtemplatespec.WithPodLabels(podLabels),
 		podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
@@ -930,11 +925,11 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 	}
 
 	return podtemplatespec.Apply(
-		podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
+		podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.GetStatefulSetName())),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		pullSecretsConfigurationFunc,
 		configurePodSpecSecurityContext,
-		podtemplatespec.WithAffinity(opts.Name, PodAntiAffinityLabelKey, 100),
+		podtemplatespec.WithAffinity(opts.GetStatefulSetName(), PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
 	)
 }
