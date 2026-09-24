@@ -1,6 +1,7 @@
 package util
 
 import (
+	"os"
 	"strings"
 	"time"
 )
@@ -400,6 +401,34 @@ var OperatorVersion string
 var LogAutomationConfigDiff string
 
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
+
+// AdditionalOfficialMongodbRepoUrlsEnv is a comma-separated list of extra registries that
+// serve the official MongoDB images unchanged, typically a private mirror or pull-through
+// cache. Registries listed here are treated exactly like the entries in
+// OfficialMongodbRepoUrls, so the image type suffix is appended to the tag for them too.
+//
+// It is empty by default: a repository URL that is neither official nor listed here keeps
+// the historical behaviour of taking the version as the whole tag.
+const AdditionalOfficialMongodbRepoUrlsEnv = "MDB_ADDITIONAL_OFFICIAL_MONGODB_REPO_URLS"
+
+// IsOfficialMongodbRepoUrl reports whether repoUrl serves the official MongoDB images,
+// either because it is one of the official registries or because the operator was told
+// it mirrors them via AdditionalOfficialMongodbRepoUrlsEnv.
+func IsOfficialMongodbRepoUrl(repoUrl string) bool {
+	repoUrl = strings.TrimRight(repoUrl, "/")
+	for _, officialUrl := range OfficialMongodbRepoUrls {
+		if repoUrl == officialUrl {
+			return true
+		}
+	}
+	for _, additionalUrl := range strings.Split(os.Getenv(AdditionalOfficialMongodbRepoUrlsEnv), ",") {
+		additionalUrl = strings.TrimRight(strings.TrimSpace(additionalUrl), "/")
+		if additionalUrl != "" && repoUrl == additionalUrl {
+			return true
+		}
+	}
+	return false
+}
 
 func ShouldLogAutomationConfigDiff() bool {
 	return strings.EqualFold(LogAutomationConfigDiff, "true")

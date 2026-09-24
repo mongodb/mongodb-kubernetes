@@ -841,10 +841,8 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range util.OfficialMongodbRepoUrls {
-		if repoUrl == officialUrl {
-			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
-		}
+	if util.IsOfficialMongodbRepoUrl(repoUrl) {
+		return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 	}
 
 	// This is the old images backwards compatibility code path.
