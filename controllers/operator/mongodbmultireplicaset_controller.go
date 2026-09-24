@@ -491,6 +491,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnershipAll(ctx
 			log.Warnf(fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s missing from client map", item.ClusterName))
 			continue
 		}
+		if memberClient == nil {
+			return workflow.Failed(xerrors.Errorf("member cluster %s client is not available", item.ClusterName))
+		}
 
 		aggregated = aggregated.Merge(r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, r.memberClusterSecretClientsMap[item.ClusterName], log))
 	}
@@ -499,6 +502,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnershipAll(ctx
 }
 
 func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, memberClient client.Client, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if memberClient == nil {
+		return workflow.Failed(xerrors.Errorf("member cluster %s client is not available", item.ClusterName))
+	}
+
 	clusterNum := mrs.ClusterNum(item.ClusterName)
 	sts := appsv1.StatefulSet{}
 	if err := memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(clusterNum)), &sts); err != nil {
