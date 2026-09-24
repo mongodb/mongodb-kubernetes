@@ -4,9 +4,3 @@ set -Eeou pipefail
 
 OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_90_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export OM_VERSION
-
-# This URL override needs to be removed once OM 9.0.0 GA appears in the public release
-# archive. find_om_url in scripts/release/atomic_pipeline.py looks versions up in the
-# public release archive; until it lists 9.0.0 we pin the exact tarball here.
-om_download_url="https://s3.amazonaws.com/mongodb-mms-build-onprem/259ee32167d5b24e6b7f27db0f339126c89f1393/mongodb-mms-9.0.0.500.20260921T1537Z.tar.gz"
-export om_download_url
