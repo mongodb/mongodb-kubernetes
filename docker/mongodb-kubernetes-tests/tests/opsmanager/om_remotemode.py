@@ -25,10 +25,11 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
     Adds a new initContainer to `deployment` to download a particular MongoDB version.
 
     Please note that the initContainers will never fail, so it is fine to add version that don't
-    exist for older distributions (like mdb5.0 in ubuntu1604).
+    exist for older distributions (like mdb5.0 in ubuntu1604, or any rhel9 build below 6.0.4).
     """
     mount_path = "/mongodb-ops-manager/mongodb-releases/linux"
-    distros = ("rhel8", "rhel80", "ubuntu1604", "ubuntu1804")
+    distros = ("rhel8", "rhel80", "rhel90",
+               "rhel93", "ubuntu1604", "ubuntu1804")
 
     base_url_community = "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64"
     base_url_enterprise = "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise"
@@ -62,14 +63,16 @@ def add_mdb_version_to_deployment(deployment: Dict[str, Any], version: str):
                 }
             ],
         }
-        deployment["spec"]["template"]["spec"]["initContainers"].append(container)
+        deployment["spec"]["template"]["spec"]["initContainers"].append(
+            container)
 
 
 @fixture(scope="module")
 def nginx(namespace: str, custom_mdb_version: str, custom_appdb_version: str):
     with open(yaml_fixture("remote_fixtures/nginx-config.yaml"), "r") as f:
         config_body = yaml.safe_load(f.read())
-    KubernetesTester.clients("corev1").create_namespaced_config_map(namespace, config_body)
+    KubernetesTester.clients("corev1").create_namespaced_config_map(
+        namespace, config_body)
 
     with open(yaml_fixture("remote_fixtures/nginx.yaml"), "r") as f:
         nginx_body = yaml.safe_load(f.read())
