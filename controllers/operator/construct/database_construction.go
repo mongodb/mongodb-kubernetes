@@ -124,11 +124,21 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebug          bool
 	AgentDebugImage     string
 	DefaultArchitecture architectures.DefaultArchitecture
+
+	// HeadlessAutomationConfigSecretName, when non-empty, mounts the automation config Secret
+	// into the agent container and runs the agent in headless mode (no Ops Manager).
+	HeadlessAutomationConfigSecretName string
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
 	return func(options *DatabaseStatefulSetOptions) {
 		options.DefaultArchitecture = defaultArchitecture
+	}
+}
+
+func WithHeadlessAutomationConfig(secretName string) func(options *DatabaseStatefulSetOptions) {
+	return func(options *DatabaseStatefulSetOptions) {
+		options.HeadlessAutomationConfigSecretName = secretName
 	}
 }
 
@@ -708,6 +718,36 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	return podtemplatespec.Apply(sharedModifications, modifications)
 }
 
+const (
+	headlessAutomationConfigVolumeName = "automation-config"
+	// headlessClusterConfigDir is the directory the agent launcher reads the automation config from
+	// in headless mode (see cluster_config_file in agent-launcher.sh).
+	headlessClusterConfigDir = "/var/lib/mongodb-automation"
+)
+
+func headlessAutomationConfigVolume(secretName string) corev1.Volume {
+	return statefulset.CreateVolumeFromSecret(headlessAutomationConfigVolumeName, secretName)
+}
+
+func headlessAutomationConfigVolumeMount() corev1.VolumeMount {
+	return statefulset.CreateVolumeMount(headlessAutomationConfigVolumeName, headlessClusterConfigDir, statefulset.WithReadOnly(true))
+}
+
+// headlessAgentEnvVars returns the environment variables the agent container needs to run in
+// headless mode and for the readiness probe to verify the applied automation config version.
+func headlessAgentEnvVars(secretName string) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{Name: headlessAgentEnv, Value: "true"},
+		{
+			Name: podNamespaceEnv,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+			},
+		},
+		{Name: automationConfigMapEnv, Value: secretName},
+	}
+}
+
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	// scripts volume is needed for agent-launcher-shim.sh to copy scripts
@@ -716,6 +756,11 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 
 	volumes := []corev1.Volume{scriptsVolume}
 	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+
+	if opts.HeadlessAutomationConfigSecretName != "" {
+		volumes = append(volumes, headlessAutomationConfigVolume(opts.HeadlessAutomationConfigSecretName))
+		volumeMounts = append(volumeMounts, headlessAutomationConfigVolumeMount())
+	}
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -734,6 +779,15 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithVolumeMounts(volumeMounts),
 		configureContainerSecurityContext,
 	)}
+
+	if opts.HeadlessAutomationConfigSecretName != "" {
+		// The readiness probe compares the automation config version in the Secret with the
+		// version the agent reached and patches it onto the pod for the operator to consume.
+		agentContainerModifications = append(agentContainerModifications,
+			container.WithEnvs(headlessAgentEnvVars(opts.HeadlessAutomationConfigSecretName)...),
+			container.WithReadinessProbe(DatabaseReadinessProbe()),
+		)
+	}
 
 	mongodContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.DatabaseContainerName),

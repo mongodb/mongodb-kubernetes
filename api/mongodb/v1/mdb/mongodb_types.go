@@ -153,6 +153,12 @@ func (m *MongoDB) GetConnectionSpec() *ConnectionSpec {
 	return &m.Spec.ConnectionSpec
 }
 
+// IsHeadless returns true when neither spec.opsManager nor spec.cloudManager is configured.
+// In that case the operator manages the automation config locally and the agents run headless.
+func (m *MongoDB) IsHeadless() bool {
+	return m.Spec.IsHeadless()
+}
+
 func (m *MongoDB) GetPrometheus() *v1.Prometheus {
 	return m.Spec.Prometheus
 }
@@ -764,9 +770,10 @@ type PrivateCloudConfig struct {
 // which is not good
 type ConnectionSpec struct {
 	SharedConnectionSpec `json:",inline"`
-	// Name of the Secret holding credentials information
-	// +kubebuilder:validation:Required
-	Credentials string `json:"credentials"`
+	// Name of the Secret holding credentials information.
+	// Required unless the resource is not managed by Ops Manager or Cloud Manager (headless mode).
+	// +optional
+	Credentials string `json:"credentials,omitempty"`
 }
 
 type SharedConnectionSpec struct {
@@ -1404,6 +1411,20 @@ func (c *ConnectionSpec) GetProject() string {
 		return c.CloudManagerConfig.ConfigMapRef.Name
 	}
 	return ""
+}
+
+// IsHeadless reports whether neither Cloud Manager nor Ops Manager is configured for this resource.
+func (c *ConnectionSpec) IsHeadless() bool {
+	if c == nil {
+		return true
+	}
+	if c.OpsManagerConfig != nil && c.OpsManagerConfig.ConfigMapRef.Name != "" {
+		return false
+	}
+	if c.CloudManagerConfig != nil && c.CloudManagerConfig.ConfigMapRef.Name != "" {
+		return false
+	}
+	return true
 }
 
 // InitDefaults makes sure the MongoDB resource has correct state after initialization:

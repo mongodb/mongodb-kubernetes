@@ -176,6 +176,10 @@ type OMContext struct {
 	// CACertificate is the actual certificate as a string, as every "Project" could have
 	// its own certificate.
 	CACertificate string
+
+	// Headless, when set, selects HeadlessConnection: the automation config is stored in a
+	// Kubernetes Secret and the agents run in headless mode without contacting Ops Manager.
+	Headless *HeadlessContext
 }
 
 type HTTPOmConnection struct {

@@ -221,8 +221,26 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 }
 
 func TestMongoDB_ProcessValidations(t *testing.T) {
-	rs := NewReplicaSetBuilder().Build()
-	assert.Error(t, rs.ProcessValidationsOnReconcile(nil), nil)
+	t.Run("resource without opsManager and cloudManager is valid (headless mode)", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().Build()
+		assert.NoError(t, rs.ProcessValidationsOnReconcile(nil))
+	})
+
+	t.Run("both opsManager and cloudManager is rejected", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		rs.Spec.CloudManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "cloud-manager"}}
+		err := rs.ProcessValidationsOnReconcile(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "only one of spec.cloudManager or spec.opsManager can be set")
+	})
+
+	t.Run("backup is rejected in headless mode", func(t *testing.T) {
+		rs := NewReplicaSetBuilder().Build()
+		rs.Spec.Backup = &Backup{}
+		err := rs.ProcessValidationsOnReconcile(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "spec.backup is not supported")
+	})
 }
 
 func TestMongoDB_ValidateAdditionalMongodConfig(t *testing.T) {

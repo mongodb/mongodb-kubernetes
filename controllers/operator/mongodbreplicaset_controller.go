@@ -194,7 +194,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	reconciler := r.reconciler
 
 	// === 1. Initial Checks and setup
-	if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+	if !rs.IsHeadless() && !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
 		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: reconciler.client, SecretClient: reconciler.SecretClient}, reconciler.omConnectionFactory, GetWatchedNamespace(), false)
 	}
 
@@ -206,12 +206,30 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, rs, log)
-	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(err))
+	var automationAgentVersion string
+	if rs.IsHeadless() && !rs.IsAgentImageOverridden() {
+		automationAgentVersion = agentVersionFromImageUrls(reconciler.imageUrls)
+		if automationAgentVersion == "" {
+			log.Warnf("Could not determine the automation agent version from %s or %s; set an explicit agent image if image resolution fails", util.AgentImageEnv, util.AgentImageUrlEnv)
+		}
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
+	var projectConfig mdbv1.ProjectConfig
+	var credsConfig mdbv1.Credentials
+	var conn om.Connection
+	var err error
+	if rs.IsHeadless() {
+		if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+			return r.updateStatus(ctx, workflow.Unsupported("MongoDB resources without spec.opsManager or spec.cloudManager require the static architecture"))
+		}
+		conn, _, err = connection.PrepareHeadlessConnection(ctx, reconciler.client, reconciler.SecretClient, reconciler.omConnectionFactory, rs, automationAgentVersion, log)
+	} else {
+		projectConfig, credsConfig, err = project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, rs, log)
+		if err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
+		conn, _, err = connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
+	}
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
@@ -250,11 +268,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
-	var automationAgentVersion string
 	if architectures.IsRunningStaticArchitecture(rs.Annotations, r.reconciler.defaultArchitecture) {
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
-		if !rs.IsAgentImageOverridden() {
+		if !rs.IsHeadless() && !rs.IsAgentImageOverridden() {
 			automationAgentVersion, err = r.reconciler.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
@@ -372,7 +389,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	statusOptions := []mdbstatus.Option{mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus()}
+	if !rs.IsHeadless() {
+		statusOptions = append(statusOptions, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())))
+	}
+	return r.updateStatus(ctx, workflow.OK(), statusOptions...)
 }
 
 func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
@@ -573,7 +594,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
 
-	rsConfig := construct.ReplicaSetOptions(
+	rsOptions := []func(*construct.DatabaseStatefulSetOptions){
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
 		CertificateHash(tlsCertHash),
@@ -591,16 +612,20 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithDefaultArchitecture(reconciler.defaultArchitecture),
-	)
+	}
 
-	return rsConfig
+	if rs.IsHeadless() {
+		rsOptions = append(rsOptions, WithHeadlessAutomationConfig(rs.Name+om.HeadlessAutomationConfigSecretSuffix))
+	}
+
+	return construct.ReplicaSetOptions(rsOptions...)
 }
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture) error {
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewConnection)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -734,7 +759,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.Name, replicaSet, caFilePath, internalClusterCertPath, &prometheusConfiguration, rs.IsHeadless(), log)
 		},
 		log,
 	)
@@ -772,8 +797,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log, 0); !status.IsOK() && !isRecovering {
-		return status
+	if !rs.IsHeadless() {
+		if status := reconciler.ensureBackupConfigurationAndUpdateStatus(ctx, conn, rs, reconciler.SecretClient, log, 0); !status.IsOK() && !isRecovering {
+			return status
+		}
 	}
 
 	log.Info("Updated Ops Manager for replica set")

@@ -410,8 +410,9 @@ func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.Validat
 	return v1.ValidationSuccess()
 }
 
-// specWithExactlyOneSchema checks that exactly one among "Project/OpsManagerConfig/CloudManagerConfig"
-// is configured, doing the "oneOf" validation in the webhook.
+// specWithExactlyOneSchema checks that at most one among "OpsManagerConfig/CloudManagerConfig"
+// is configured, doing the "oneOf" validation in the webhook. When neither is configured the
+// resource runs in headless mode with the operator managing the automation config locally.
 func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 	count := 0
 	if *d.OpsManagerConfig != (PrivateCloudConfig{}) {
@@ -421,10 +422,19 @@ func specWithExactlyOneSchema(d DbCommonSpec) v1.ValidationResult {
 		count += 1
 	}
 
-	if count != 1 {
-		return v1.ValidationError("either spec.cloudManager or spec.opsManager can be set")
+	if count > 1 {
+		return v1.ValidationError("only one of spec.cloudManager or spec.opsManager can be set")
 	}
 	return v1.ValidationSuccess()
+}
+
+// headlessModeDoesNotSupportBackup rejects backup configuration for resources that are not
+// managed by Ops Manager, since backup is only available through Ops Manager.
+func headlessModeDoesNotSupportBackup(d DbCommonSpec) v1.ValidationResult {
+	if !d.IsHeadless() || d.Backup == nil {
+		return v1.ValidationSuccess()
+	}
+	return v1.ValidationError("spec.backup is not supported for MongoDB resources without spec.opsManager or spec.cloudManager")
 }
 
 func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResult {
@@ -439,6 +449,7 @@ func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResul
 		agentModeIsSetIfMoreThanADeploymentAuthModeIsSet,
 		ldapGroupDnIsSetIfLdapAuthzIsEnabledAndAgentsAreExternal,
 		specWithExactlyOneSchema,
+		headlessModeDoesNotSupportBackup,
 		featureCompatibilityVersionValidation,
 	}
 

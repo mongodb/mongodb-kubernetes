@@ -8,6 +8,10 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubernetesClient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
@@ -17,6 +21,39 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
+
+// PrepareHeadlessConnection prepares a connection for a MongoDB resource that is not managed by
+// an Ops Manager instance. The automation config is stored in a Secret and the agents run in
+// headless mode; no project or credentials need to be configured on the resource.
+func PrepareHeadlessConnection(ctx context.Context, kubeClient kubernetesClient.Client, secretClient secrets.SecretClient, connectionFunc om.ConnectionFactory, mdb *mdbv1.MongoDB, agentVersion string, log *zap.SugaredLogger) (om.Connection, string, error) {
+	secretName := mdb.Name + om.HeadlessAutomationConfigSecretSuffix
+
+	conn := connectionFunc(&om.OMContext{
+		GroupID:   mdb.Name,
+		GroupName: mdb.Name,
+		OrgID:     mdb.Namespace,
+		Headless: &om.HeadlessContext{
+			Client:          kubeClient,
+			Namespace:       mdb.Namespace,
+			Name:            mdb.Name,
+			SecretName:      secretName,
+			AgentVersion:    agentVersion,
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(mdb, v1.SchemeGroupVersion.WithKind("MongoDB"))},
+		},
+	})
+
+	var databaseSecretPath string
+	if secretClient.VaultClient != nil {
+		databaseSecretPath = secretClient.VaultClient.DatabaseSecretPath()
+	}
+
+	if agentAPIKey, err := agents.EnsureAgentKeySecretExists(ctx, secretClient, conn, mdb.Namespace, "", conn.GroupID(), databaseSecretPath, log); err != nil {
+		return nil, "", err
+	} else {
+		log.Infof("Prepared headless connection for %s/%s (automation config secret %s)", mdb.Namespace, mdb.Name, secretName)
+		return conn, agentAPIKey, nil
+	}
+}
 
 // PrepareOpsManagerConnection sets up a connection to Ops Manager for the given project and credentials.
 // tagNamespace controls whether the calling controller's namespace is added as a tag on the OM project.

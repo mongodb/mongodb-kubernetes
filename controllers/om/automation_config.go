@@ -504,6 +504,7 @@ func (ac *AutomationConfig) CanEnableX509ProjectAuthentication() (bool, string) 
 func BuildAutomationConfigFromDeployment(deployment Deployment) (*AutomationConfig, error) {
 	finalAutomationConfig := &AutomationConfig{Deployment: deployment}
 	finalAutomationConfig.Auth = &Auth{}
+	finalAutomationConfig.AgentSSL = &AgentSSL{}
 
 	authMap, ok := deployment["auth"]
 	if ok {

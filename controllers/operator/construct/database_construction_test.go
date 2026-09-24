@@ -377,3 +377,59 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 		})
 	}
 }
+
+func TestHeadlessStaticArchitectureAgentWiring(t *testing.T) {
+	rs := mdbv1.NewReplicaSetBuilder().Build()
+	secretName := rs.Name + "-config"
+
+	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(
+		GetPodEnvOptions(),
+		WithDefaultArchitecture(architectures.Static),
+		WithHeadlessAutomationConfig(secretName),
+	), zap.S())
+
+	acVolumeIdx := slices.IndexFunc(sts.Spec.Template.Spec.Volumes, func(volume corev1.Volume) bool {
+		return volume.Name == headlessAutomationConfigVolumeName
+	})
+	require.NotEqual(t, -1, acVolumeIdx)
+	require.NotNil(t, sts.Spec.Template.Spec.Volumes[acVolumeIdx].Secret)
+	assert.Equal(t, secretName, sts.Spec.Template.Spec.Volumes[acVolumeIdx].Secret.SecretName)
+
+	agentContainerIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
+		return container.Name == util.AgentContainerName
+	})
+	require.NotEqual(t, -1, agentContainerIdx)
+	agent := sts.Spec.Template.Spec.Containers[agentContainerIdx]
+
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: headlessAgentEnv, Value: "true"})
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: automationConfigMapEnv, Value: secretName})
+	assert.Contains(t, agent.Env, corev1.EnvVar{
+		Name: podNamespaceEnv,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+		},
+	})
+	assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{
+		Name:      headlessAutomationConfigVolumeName,
+		MountPath: headlessClusterConfigDir,
+		ReadOnly:  true,
+	})
+	require.NotNil(t, agent.ReadinessProbe)
+	assert.Equal(t, []string{databaseReadinessProbeCommand}, agent.ReadinessProbe.Exec.Command)
+}
+
+func TestNonHeadlessStaticArchitectureHasNoAutomationConfigWiring(t *testing.T) {
+	rs := mdbv1.NewReplicaSetBuilder().Build()
+
+	sts := DatabaseStatefulSet(*rs, ReplicaSetOptions(
+		GetPodEnvOptions(),
+		WithDefaultArchitecture(architectures.Static),
+	), zap.S())
+
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		assert.NotEqual(t, headlessAutomationConfigVolumeName, volume.Name)
+	}
+	for _, container := range sts.Spec.Template.Spec.Containers {
+		assert.NotContains(t, container.Env, corev1.EnvVar{Name: headlessAgentEnv, Value: "true"})
+	}
+}

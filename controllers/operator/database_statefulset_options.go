@@ -166,3 +166,9 @@ func WithStsAnnotations(annotations map[string]string) func(options *construct.D
 		options.Annotations = annotations
 	}
 }
+
+func WithHeadlessAutomationConfig(secretName string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.HeadlessAutomationConfigSecretName = secretName
+	}
+}

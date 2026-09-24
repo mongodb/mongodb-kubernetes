@@ -39,6 +39,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
@@ -327,7 +328,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 
 	// And then add the ones we care about
 	connectionSpec := watcherResource.GetConnectionSpec()
-	if connectionSpec != nil {
+	if connectionSpec != nil && connectionSpec.GetProject() != "" {
 		r.resourceWatcher.RegisterWatchedMongodbResources(objectToReconcile, connectionSpec.GetProject(), connectionSpec.Credentials)
 	}
 
@@ -798,6 +799,36 @@ func agentVersionFromURL(url string) string {
 	return rest
 }
 
+// agentVersionFromImageURL extracts the version tag from a container image reference,
+// e.g. quay.io/mongodb/mongodb-agent-ubi:108.0.30.7791-1 -> 108.0.30.7791-1.
+// It returns an empty string when the image is referenced by digest or carries no tag.
+func agentVersionFromImageURL(image string) string {
+	if image == "" || strings.Contains(image, "@") {
+		return ""
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 {
+		return ""
+	}
+	tag := image[idx+1:]
+	if tag == "" || strings.Contains(tag, "/") {
+		return ""
+	}
+	return tag
+}
+
+// agentVersionFromImageUrls resolves the agent version from the configured agent image
+// references. AGENT_IMAGE carries the full reference including the tag while
+// MDB_AGENT_IMAGE_REPOSITORY may only contain the repository.
+func agentVersionFromImageUrls(imageUrls images.ImageUrls) string {
+	for _, key := range []string{util.AgentImageEnv, util.AgentImageUrlEnv} {
+		if version := agentVersionFromImageURL(imageUrls[key]); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
 // deleteClusterResources removes all resources that are associated with the given resource owner in a given cluster.
 func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, client kubernetesClient.Client, clusterName string, resourceOwner v1.ObjectOwner, log *zap.SugaredLogger) error {
 	errs := deleteOwnedClusterResources(ctx, client, clusterName, resourceOwner, log)
@@ -1021,6 +1052,13 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 
+	if mdb.IsHeadless() {
+		// The headless readiness probe reads the automation config Secret, so the Secret must
+		// exist before the StatefulSet pods can become ready. Publishing first also avoids the
+		// cycle where the StatefulSet is pending because the config has not been written yet.
+		return true
+	}
+
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {
@@ -1107,7 +1145,7 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]interface{}, resourceName string, rs om.ReplicaSetWithProcesses, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, headless bool, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -1119,7 +1157,11 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, log)
-	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
+	if !headless {
+		// Monitoring and backup modules require an Ops Manager instance; the agents must not
+		// try to start them for headless deployments.
+		d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
+	}
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 

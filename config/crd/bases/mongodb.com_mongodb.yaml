@@ -821,7 +821,9 @@ spec:
                     type: array
                 type: object
               credentials:
-                description: Name of the Secret holding credentials information
+                description: |-
+                  Name of the Secret holding credentials information.
+                  Required unless the resource is not managed by Ops Manager or Cloud Manager (headless mode).
                 type: string
               duplicateServiceObjects:
                 description: |-
@@ -2643,7 +2645,6 @@ spec:
                 pattern: ^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
                 type: string
             required:
-            - credentials
             - type
             - version
             type: object

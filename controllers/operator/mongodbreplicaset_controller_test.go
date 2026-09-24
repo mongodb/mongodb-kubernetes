@@ -1464,6 +1464,12 @@ func baseTestMongoDB(name string, members int) mdbv1.MongoDB {
 		},
 		Spec: mdbv1.MongoDbSpec{
 			DbCommonSpec: mdbv1.DbCommonSpec{
+				ConnectionSpec: mdbv1.ConnectionSpec{
+					SharedConnectionSpec: mdbv1.SharedConnectionSpec{
+						OpsManagerConfig: &mdbv1.PrivateCloudConfig{ConfigMapRef: mdbv1.ConfigMapRef{Name: "test-project"}},
+					},
+					Credentials: "test-credentials",
+				},
 				Security: &mdbv1.Security{
 					TLSConfig:      &mdbv1.TLSConfig{},
 					Authentication: &mdbv1.Authentication{},
@@ -1499,6 +1505,21 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 				return m
 			}(),
 			expectedPublishACFirst: false,
+		},
+		{
+			name:        "New StatefulSet without Ops Manager (headless)",
+			existingSts: nil,
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.OpsManagerConfig = nil
+				m.Spec.CloudManagerConfig = nil
+				m.Spec.Credentials = ""
+				m.Spec.Security = nil
+				return m
+			}(),
+			// The headless readiness probe depends on the automation config Secret, so it must
+			// always be published before the StatefulSet.
+			expectedPublishACFirst: true,
 		},
 		{
 			name:                   "Scaling down",
@@ -2310,4 +2331,76 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 		assert.Equal(t, types.UID("om-uid-1111"), s.OwnerReferences[0].UID,
 			"secret %s must stay OM-owned while the CR is released", name)
 	}
+}
+
+func TestHeadlessReplicaSetReconcile(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("headless-rs").Build()
+	// No Ops Manager and no Cloud Manager: the resource is managed headlessly.
+	rs.Spec.OpsManagerConfig = nil
+	rs.Spec.CloudManagerConfig = nil
+	rs.Spec.Credentials = ""
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	imageUrls := images.ImageUrls{util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent-ubi:108.0.30.7791-1"}
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, imageUrls, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.Static, om.NewConnection)
+
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	assert.Equal(t, status.PhaseRunning, rs.Status.Phase)
+	assert.Equal(t, rs.Name, rs.Status.ProjectId)
+	assert.Empty(t, rs.Status.Link)
+
+	// The automation config is persisted in a headless secret, versioned.
+	acSecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{
+		Name:      rs.Name + om.HeadlessAutomationConfigSecretSuffix,
+		Namespace: rs.Namespace,
+	}, acSecret))
+
+	storedDeployment, err := om.BuildDeploymentFromBytes(acSecret.Data["cluster-config.json"])
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, storedDeployment.Version(), int64(1))
+	assert.Equal(t, 3, storedDeployment.NumberOfProcesses())
+	// Monitoring and backup modules require an Ops Manager and must not be configured.
+	assert.Empty(t, storedDeployment.MonitoringVersionsCopy())
+	assert.Empty(t, storedDeployment.BackupVersionsCopy())
+
+	// The agent API key secret still exists (mounted unconditionally by the StatefulSet).
+	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{
+		Name:      fmt.Sprintf("%s-group-secret", rs.Name),
+		Namespace: rs.Namespace,
+	}, &corev1.Secret{}))
+
+	// The StatefulSet runs the agent headless against the mounted automation config.
+	sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+
+	var automationConfigVolume *corev1.Volume
+	for i := range sts.Spec.Template.Spec.Volumes {
+		if sts.Spec.Template.Spec.Volumes[i].Name == "automation-config" {
+			automationConfigVolume = &sts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, automationConfigVolume)
+	require.NotNil(t, automationConfigVolume.Secret)
+	assert.Equal(t, rs.Name+om.HeadlessAutomationConfigSecretSuffix, automationConfigVolume.Secret.SecretName)
+
+	var agent *corev1.Container
+	for i := range sts.Spec.Template.Spec.Containers {
+		if sts.Spec.Template.Spec.Containers[i].Name == util.AgentContainerName {
+			agent = &sts.Spec.Template.Spec.Containers[i]
+		}
+	}
+	require.NotNil(t, agent)
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: "HEADLESS_AGENT", Value: "true"})
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: "AUTOMATION_CONFIG_MAP", Value: rs.Name + om.HeadlessAutomationConfigSecretSuffix})
+	assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "automation-config", MountPath: "/var/lib/mongodb-automation", ReadOnly: true})
+	require.NotNil(t, agent.ReadinessProbe)
+	assert.Equal(t, []string{"/opt/scripts/readinessprobe"}, agent.ReadinessProbe.Exec.Command)
 }
