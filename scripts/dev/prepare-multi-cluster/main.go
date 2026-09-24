@@ -83,13 +83,17 @@ func main() {
 	}
 
 	// Phase 2: Ensure namespaces + label istio-injection (parallel per member cluster)
+	// The label is applied unconditionally to mirror the original bash flow
+	// in scripts/funcs/multicluster — tests that need no-mesh override it
+	// to "disabled" themselves (see e.g. multi_cluster_tls_no_mesh.py).
+	// STRICT PeerAuthentication remains mTLS-gated.
 	fmt.Println("Phase 2: Ensuring namespaces")
 	ensureNamespace(ctx, clients[cfg.centralCluster], cfg.centralCluster, cfg.namespace, cfg.taskID, collectErrorFor(cfg.centralCluster))
 	runParallel(cfg.memberClusters, func(cluster string) {
 		collectError := collectErrorFor(cluster)
 		ensureNamespace(ctx, clients[cluster], cluster, cfg.namespace, cfg.taskID, collectError)
+		labelNamespaceIstio(ctx, clients[cluster], cluster, cfg.namespace, collectError)
 		if cfg.applyMTLS {
-			labelNamespaceIstio(ctx, clients[cluster], cluster, cfg.namespace, collectError)
 			applyPeerAuthentication(ctx, dynamicClients[cluster], cluster, cfg.namespace, collectError)
 		}
 	})

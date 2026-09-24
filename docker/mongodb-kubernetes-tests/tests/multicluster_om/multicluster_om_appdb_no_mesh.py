@@ -27,6 +27,7 @@ from tests.conftest import (
     get_member_cluster_clients,
     update_coredns_hosts,
 )
+from tests.kind_network import KIND_LB_SLOT_CLUSTER_1, KIND_LB_SLOT_CLUSTER_2, KIND_LB_SLOT_CLUSTER_3, kind_lb_ip_str
 from tests.multicluster_appdb.conftest import create_s3_bucket_blockstore, create_s3_bucket_oplog
 
 from .. import test_logger
@@ -126,55 +127,55 @@ def s3_bucket_oplog(namespace: str, aws_s3_client: AwsS3Client) -> str:
 def test_configure_dns(disable_istio):
     host_mappings = [
         (
-            "172.18.255.211",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1),
             NGINX_EXT_SVC_COREDNS_HOSTNAME,
         ),
         (
-            "172.18.255.212",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 2),
             OM_DB_0_0_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.213",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 3),
             OM_1_EXT_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.214",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 4),
             MDB_0_0_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.221",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 1),
             OM_DB_1_0_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.222",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 2),
             OM_DB_1_1_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.223",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 3),
             OM_2_EXT_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.224",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_2, 4),
             MDB_1_0_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.231",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 1),
             OM_DB_2_0_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.232",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 2),
             OM_DB_2_1_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.233",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 3),
             OM_DB_2_2_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.234",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 4),
             OM_3_EXT_SVC_HOSTNAME,
         ),
         (
-            "172.18.255.235",
+            kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_3, 5),
             MDB_2_0_SVC_HOSTNAME,
         ),
     ]

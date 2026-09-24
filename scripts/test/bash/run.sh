@@ -54,7 +54,7 @@ cd "${project_dir}"
 # triggers `make switch` fails with "workdir: unbound variable".
 # Note: set_env_context.sh redefines $script_dir, so any local of that name
 # inherited from this script would be overwritten — keep our names distinct.
-if [[ -f .generated/context.export.env && -f scripts/dev/set_env_context.sh ]]; then
+if [[ -f .generated/context.env && -f scripts/dev/set_env_context.sh ]]; then
     # shellcheck disable=SC1091
     source scripts/dev/set_env_context.sh
 fi

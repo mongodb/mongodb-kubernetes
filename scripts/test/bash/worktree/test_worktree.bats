@@ -45,6 +45,17 @@ require_init_in_main_repo() {
         || skip "init_worktree.sh not present in main clone (${MAIN_REPO}); merge this branch first or run from main clone"
 }
 
+# create_worktree.sh sources scripts/dev/devenv from the freshly-added worktree.
+# `git worktree add` checks out HEAD's committed tree; in an EVG patch build the
+# patch is applied to the working tree but files newly added by the branch are
+# not in the checkout-able HEAD tree, so the child worktree lacks devenv and
+# create_worktree fails sourcing it. Skip when HEAD can't reproduce devenv —
+# runs normally on a committed checkout (local dev, post-merge CI).
+require_committed_worktree_files() {
+    git -C "${PROJECT_DIR}" cat-file -e "HEAD:scripts/dev/devenv" 2>/dev/null \
+        || skip "HEAD tree lacks scripts/dev/devenv (uncommitted patch build); git worktree add can't reproduce it into the child worktree"
+}
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -96,6 +107,7 @@ install_hook() {
 # ---------------------------------------------------------------------------
 
 @test "create_worktree: places worktree in parent dir with slashes converted to underscores" {
+    require_committed_worktree_files
     run env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
 
     [ "$status" -eq 0 ]
@@ -103,6 +115,7 @@ install_hook() {
 }
 
 @test "create_worktree: creates branch when it does not exist yet" {
+    require_committed_worktree_files
     run env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
 
     [ "$status" -eq 0 ]
@@ -110,6 +123,7 @@ install_hook() {
 }
 
 @test "create_worktree: worktree is fully initialized after creation" {
+    require_committed_worktree_files
     run env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
 
     [ "$status" -eq 0 ]
@@ -120,6 +134,7 @@ install_hook() {
 }
 
 @test "create_worktree: uses existing local branch without error" {
+    require_committed_worktree_files
     git -C "${PROJECT_DIR}" branch "${TEST_BRANCH}"
 
     run env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
@@ -129,6 +144,7 @@ install_hook() {
 }
 
 @test "create_worktree -f: re-initializes an already-initialized worktree" {
+    require_committed_worktree_files
     env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
     echo "corrupted" > "${WORKTREE_PATH}/scripts/dev/contexts/private-context"
 
@@ -144,6 +160,11 @@ install_hook() {
 
 @test "post-checkout hook: initializes worktree automatically on git worktree add" {
     require_init_in_main_repo
+    # Apple Git (macOS/Xcode) does not run the post-checkout hook on
+    # `git worktree add`, so auto-init is unobservable here. Upstream git (EVG,
+    # Linux) does fire it, so the test still provides coverage there.
+    git --version | grep -q "Apple Git" \
+        && skip "Apple Git does not fire post-checkout on 'git worktree add'"
     install_hook
     git -C "${PROJECT_DIR}" worktree add -b "${TEST_BRANCH}" "${WORKTREE_PATH}"
 
