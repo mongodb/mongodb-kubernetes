@@ -22,10 +22,11 @@ func newMockConnection(orgsAndProjects map[*om.Organization][]*om.Project) *om.M
 }
 
 func TestFindOrganization_WithOrgID(t *testing.T) {
+	ctx := t.Context()
 	org := &om.Organization{ID: "org-123", Name: "my-org"}
 	conn := newMockConnection(map[*om.Organization][]*om.Project{org: {}})
 
-	result, err := FindOrganization("org-123", "my-project", conn, testLogger())
+	result, err := FindOrganization(ctx, "org-123", "my-project", conn, testLogger())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "org-123", result.ID)
@@ -33,58 +34,64 @@ func TestFindOrganization_WithOrgID(t *testing.T) {
 }
 
 func TestFindOrganization_WithoutOrgID_FoundByName(t *testing.T) {
+	ctx := t.Context()
 	org := &om.Organization{ID: "org-456", Name: "my-project"}
 	conn := newMockConnection(map[*om.Organization][]*om.Project{org: {}})
 
-	result, err := FindOrganization("", "my-project", conn, testLogger())
+	result, err := FindOrganization(ctx, "", "my-project", conn, testLogger())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "org-456", result.ID)
 }
 
 func TestFindOrganization_WithoutOrgID_NotFound(t *testing.T) {
+	ctx := t.Context()
 	conn := newMockConnection(map[*om.Organization][]*om.Project{})
 
-	result, err := FindOrganization("", "nonexistent", conn, testLogger())
+	result, err := FindOrganization(ctx, "", "nonexistent", conn, testLogger())
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
 
 func TestFindOrganization_InvalidOrgID(t *testing.T) {
+	ctx := t.Context()
 	conn := newMockConnection(map[*om.Organization][]*om.Project{})
 
-	_, err := FindOrganization("bad-id", "my-project", conn, testLogger())
+	_, err := FindOrganization(ctx, "bad-id", "my-project", conn, testLogger())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
 
 func TestFindProjectInsideOrganization_SingleMatch(t *testing.T) {
+	ctx := t.Context()
 	org := &om.Organization{ID: "org-1", Name: "my-org"}
 	proj := &om.Project{ID: "proj-1", Name: "my-project", OrgID: "org-1"}
 	conn := newMockConnection(map[*om.Organization][]*om.Project{org: {proj}})
 
-	result, err := FindProjectInsideOrganization(conn, "my-project", org, testLogger())
+	result, err := FindProjectInsideOrganization(ctx, conn, "my-project", org, testLogger())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "proj-1", result.ID)
 }
 
 func TestFindProjectInsideOrganization_NotFound(t *testing.T) {
+	ctx := t.Context()
 	org := &om.Organization{ID: "org-1", Name: "my-org"}
 	conn := newMockConnection(map[*om.Organization][]*om.Project{org: {}})
 
-	result, err := FindProjectInsideOrganization(conn, "missing-project", org, testLogger())
+	result, err := FindProjectInsideOrganization(ctx, conn, "missing-project", org, testLogger())
 	require.NoError(t, err)
 	assert.Nil(t, result)
 }
 
 func TestFindProjectInsideOrganization_MultipleMatches(t *testing.T) {
+	ctx := t.Context()
 	org := &om.Organization{ID: "org-1", Name: "my-org"}
 	proj1 := &om.Project{ID: "proj-1", Name: "dup-project", OrgID: "org-1"}
 	proj2 := &om.Project{ID: "proj-2", Name: "dup-project", OrgID: "org-1"}
 	conn := newMockConnection(map[*om.Organization][]*om.Project{org: {proj1, proj2}})
 
-	_, err := FindProjectInsideOrganization(conn, "dup-project", org, testLogger())
+	_, err := FindProjectInsideOrganization(ctx, conn, "dup-project", org, testLogger())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "found more than one project")
 }

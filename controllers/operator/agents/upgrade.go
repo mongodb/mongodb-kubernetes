@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"time"
 
 	"go.uber.org/zap"
@@ -27,14 +28,14 @@ type ClientSecret struct {
 	SecretClient secrets.SecretClient
 }
 
-func upgradeIfNeeded(conn om.Connection, key types.NamespacedName, spec mdbv1.DbCommonSpec) {
+func upgradeIfNeeded(ctx context.Context, conn om.Connection, key types.NamespacedName, spec mdbv1.DbCommonSpec) {
 	if !time.Now().After(nextScheduledTime) {
 		return
 	}
 	log := zap.S()
 	log.Infof("Performing a regular upgrade of Agents for the %s/%s MongoDB resources in the cluster...", key.Namespace, key.Name)
 
-	err := doUpgrade(conn, key, spec)
+	err := doUpgrade(ctx, conn, key, spec)
 	if err != nil {
 		log.Errorf("Failed to perform upgrade of Agents: %s", err)
 	}
@@ -43,17 +44,17 @@ func upgradeIfNeeded(conn om.Connection, key types.NamespacedName, spec mdbv1.Db
 	nextScheduledTime = nextScheduledTime.Add(pause)
 }
 
-func UpgradeIfNeeded(mdb *mdbv1.MongoDB, conn om.Connection) {
+func UpgradeIfNeeded(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) {
 	if len(mdb.Spec.GetExternalMembers()) > 0 {
 		// Skip automatic agent upgrades when external (VM) members are present.
 		zap.S().Debugf("Skipping agent upgrade for %s: resource has external members", mdb.ObjectKey())
 		return
 	}
-	upgradeIfNeeded(conn, mdb.ObjectKey(), mdb.Spec.DbCommonSpec)
+	upgradeIfNeeded(ctx, conn, mdb.ObjectKey(), mdb.Spec.DbCommonSpec)
 }
 
-func UpgradeIfNeededMC(mdb *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) {
-	upgradeIfNeeded(conn, mdb.ObjectKey(), mdb.Spec.DbCommonSpec)
+func UpgradeIfNeededMC(ctx context.Context, mdb *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) {
+	upgradeIfNeeded(ctx, conn, mdb.ObjectKey(), mdb.Spec.DbCommonSpec)
 }
 
 // ScheduleUpgrade allows to reset the timer to Now() which makes sure the next MongoDB reconciliation will ensure
@@ -69,14 +70,14 @@ func NextScheduledUpgradeTime() time.Time {
 	return nextScheduledTime
 }
 
-func doUpgrade(conn om.Connection, key types.NamespacedName, spec mdbv1.DbCommonSpec) error {
+func doUpgrade(ctx context.Context, conn om.Connection, key types.NamespacedName, spec mdbv1.DbCommonSpec) error {
 	log := zap.S().With(string(spec.ResourceType), key)
 
 	currentVersion := ""
-	if deployment, err := conn.ReadDeployment(); err == nil {
+	if deployment, err := conn.ReadDeployment(ctx); err == nil {
 		currentVersion = deployment.GetAgentVersion()
 	}
-	version, err := conn.UpgradeAgentsToLatest()
+	version, err := conn.UpgradeAgentsToLatest(ctx)
 	if err != nil {
 		log.Warnf("Failed to schedule Agent upgrade: %s, this could be due do ongoing Automation Config publishing in Ops Manager and will get fixed during next trial", err)
 		return nil

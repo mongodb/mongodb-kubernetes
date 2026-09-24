@@ -22,7 +22,7 @@ func (s *automationConfigScramSha) GetName() MechanismName {
 }
 
 func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if err := configureScramAgentUsers(ctx, client, ac, opts); err != nil {
 			return err
 		}
@@ -36,28 +36,27 @@ func (s *automationConfigScramSha) EnableAgentAuthentication(ctx context.Context
 		auth.KeyFile = opts.GetKeyfilePath()
 		auth.KeyFileWindows = util.AutomationAgentWindowsKeyFilePath
 
-		// We can only have a single agent authentication mechanism specified at a given time
 		auth.AutoAuthMechanisms = []string{string(s.MechanismName)}
 		return nil
 	}, log)
 }
 
-func (s *automationConfigScramSha) DisableAgentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (s *automationConfigScramSha) DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.AutoAuthMechanisms = stringutil.Remove(ac.Auth.AutoAuthMechanisms, string(s.MechanismName))
 		return nil
 	}, log)
 }
 
-func (s *automationConfigScramSha) DisableDeploymentAuthentication(conn om.Connection, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (s *automationConfigScramSha) DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = stringutil.Remove(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 		return nil
 	}, log)
 }
 
-func (s *automationConfigScramSha) EnableDeploymentAuthentication(conn om.Connection, _ Options, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+func (s *automationConfigScramSha) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, _ Options, log *zap.SugaredLogger) error {
+	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName)) {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
 		}

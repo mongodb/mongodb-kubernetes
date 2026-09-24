@@ -134,11 +134,11 @@ type stubOMAgentRequester struct {
 	getOMVersionFn func(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
 }
 
-func (s stubOMAgentRequester) RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+func (s stubOMAgentRequester) RequestWithAgentAuth(_ context.Context, projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
 	return s.fn(projectConfig, method, path, authHeader, body)
 }
 
-func (s stubOMAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
+func (s stubOMAgentRequester) GetOMVersion(_ context.Context, projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
 	if s.getOMVersionFn != nil {
 		return s.getOMVersionFn(projectConfig)
 	}
@@ -1955,13 +1955,13 @@ type recordingOMAgentRequester struct {
 	gotBody   any
 }
 
-func (r *recordingOMAgentRequester) RequestWithAgentAuth(_ mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+func (r *recordingOMAgentRequester) RequestWithAgentAuth(_ context.Context, _ mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
 	r.called++
 	r.gotMethod, r.gotPath, r.gotAuth, r.gotBody = method, path, authHeader, body
 	return r.resp, r.err
 }
 
-func (r *recordingOMAgentRequester) GetOMVersion(_ mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
+func (r *recordingOMAgentRequester) GetOMVersion(_ context.Context, _ mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
 	// recordingOMAgentRequester is used only for host-deletion tests; return a supported version.
 	return versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion}, nil
 }

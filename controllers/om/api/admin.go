@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -37,58 +38,58 @@ type Whitelist struct {
 
 type S3OplogStoreAdmin interface {
 	// ReadS3OplogStoreConfigs returns a list of all Oplog S3Configs
-	ReadS3OplogStoreConfigs() ([]backup.S3Config, error)
+	ReadS3OplogStoreConfigs(ctx context.Context) ([]backup.S3Config, error)
 
 	// UpdateS3OplogConfig updates the given Oplog S3Config
-	UpdateS3OplogConfig(s3Config backup.S3Config) error
+	UpdateS3OplogConfig(ctx context.Context, s3Config backup.S3Config) error
 
 	// CreateS3OplogStoreConfig creates the given Oplog S3Config
-	CreateS3OplogStoreConfig(s3Config backup.S3Config) error
+	CreateS3OplogStoreConfig(ctx context.Context, s3Config backup.S3Config) error
 
 	// DeleteS3OplogStoreConfig removes an Oplog S3Config by id
-	DeleteS3OplogStoreConfig(id string) error
+	DeleteS3OplogStoreConfig(ctx context.Context, id string) error
 }
 
 type S3StoreBlockStoreAdmin interface {
 	// CreateS3Config creates the given S3Config
-	CreateS3Config(s3Config backup.S3Config) error
+	CreateS3Config(ctx context.Context, s3Config backup.S3Config) error
 
 	// UpdateS3Config updates the given S3Config
-	UpdateS3Config(s3Config backup.S3Config) error
+	UpdateS3Config(ctx context.Context, s3Config backup.S3Config) error
 
 	// ReadS3Configs returns a list of all S3Configs
-	ReadS3Configs() ([]backup.S3Config, error)
+	ReadS3Configs(ctx context.Context) ([]backup.S3Config, error)
 
 	// DeleteS3Config removes an s3config by id
-	DeleteS3Config(id string) error
+	DeleteS3Config(ctx context.Context, id string) error
 }
 
 type BlockStoreAdmin interface {
 	// ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
-	ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error)
+	ReadBlockStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error)
 
 	// CreateBlockStoreConfig creates a Block store in Ops Manager
-	CreateBlockStoreConfig(config backup.DataStoreConfig) error
+	CreateBlockStoreConfig(ctx context.Context, config backup.DataStoreConfig) error
 
 	// UpdateBlockStoreConfig updates the Block store in Ops Manager
-	UpdateBlockStoreConfig(config backup.DataStoreConfig) error
+	UpdateBlockStoreConfig(ctx context.Context, config backup.DataStoreConfig) error
 
 	// DeleteBlockStoreConfig removes the Block store by its ID
-	DeleteBlockStoreConfig(id string) error
+	DeleteBlockStoreConfig(ctx context.Context, id string) error
 }
 
 type OplogStoreAdmin interface {
 	// ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
-	ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error)
+	ReadOplogStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error)
 
 	// CreateOplogStoreConfig creates an oplog store in Ops Manager
-	CreateOplogStoreConfig(config backup.DataStoreConfig) error
+	CreateOplogStoreConfig(ctx context.Context, config backup.DataStoreConfig) error
 
 	// UpdateOplogStoreConfig updates the oplog store in Ops Manager
-	UpdateOplogStoreConfig(config backup.DataStoreConfig) error
+	UpdateOplogStoreConfig(ctx context.Context, config backup.DataStoreConfig) error
 
 	// DeleteOplogStoreConfig removes the oplog store by its ID
-	DeleteOplogStoreConfig(id string) error
+	DeleteOplogStoreConfig(ctx context.Context, id string) error
 }
 
 // OpsManagerAdmin (imported as 'api.OpsManagerAdmin') is the client to all "administrator" related operations with Ops Manager
@@ -100,25 +101,25 @@ type OpsManagerAdmin interface {
 	BlockStoreAdmin
 	OplogStoreAdmin
 	// ReadDaemonConfig returns the daemon config by hostname and head db path
-	ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error)
+	ReadDaemonConfig(ctx context.Context, hostName, headDbDir string) (backup.DaemonConfig, error)
 
 	// UpdateDaemonConfig updates the daemon config
-	UpdateDaemonConfig(backup.DaemonConfig) error
+	UpdateDaemonConfig(ctx context.Context, config backup.DaemonConfig) error
 
 	// CreateDaemonConfig creates the daemon config with specified hostname and head db path
-	CreateDaemonConfig(hostName, headDbDir string, assignmentLabels []string) error
+	CreateDaemonConfig(ctx context.Context, hostName, headDbDir string, assignmentLabels []string) error
 
 	// ReadFileSystemStoreConfigs reads the FileSystemSnapshot store by its ID
-	ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error)
+	ReadFileSystemStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error)
 
 	// ReadGlobalAPIKeys reads the global API Keys in Ops Manager
-	ReadGlobalAPIKeys() ([]Key, error)
+	ReadGlobalAPIKeys(ctx context.Context) ([]Key, error)
 
 	// CreateGlobalAPIKey creates a new Global API Key in Ops Manager
-	CreateGlobalAPIKey(description string) (Key, error)
+	CreateGlobalAPIKey(ctx context.Context, description string) (Key, error)
 
 	// ReadOpsManagerVersion reads the version returned in the Header
-	ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error)
+	ReadOpsManagerVersion(ctx context.Context) (versionutil.OpsManagerVersion, error)
 }
 
 // AdminProvider is a function which returns an instance of OpsManagerAdmin interface initialized with connection parameters.
@@ -142,8 +143,8 @@ func NewOmAdmin(baseUrl, user, privateKey string, ca *string) OpsManagerAdmin {
 	return &DefaultOmAdmin{BaseURL: baseUrl, User: user, PrivateAPIKey: privateKey, CA: ca}
 }
 
-func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error) {
-	ans, _, apiErr := a.get("admin/backup/daemon/configs/%s/%s", hostName, headDbDir)
+func (a *DefaultOmAdmin) ReadDaemonConfig(ctx context.Context, hostName, headDbDir string) (backup.DaemonConfig, error) {
+	ans, _, apiErr := a.get(ctx, "admin/backup/daemon/configs/%s/%s", hostName, headDbDir)
 	if apiErr != nil {
 		return backup.DaemonConfig{}, apiErr
 	}
@@ -155,18 +156,18 @@ func (a *DefaultOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Da
 	return *daemonConfig, nil
 }
 
-func (a *DefaultOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
-	_, _, err := a.put("admin/backup/daemon/configs/%s/%s", config, config.Machine.MachineHostName, config.Machine.HeadRootDirectory)
+func (a *DefaultOmAdmin) UpdateDaemonConfig(ctx context.Context, config backup.DaemonConfig) error {
+	_, _, err := a.put(ctx, "admin/backup/daemon/configs/%s/%s", config, config.Machine.MachineHostName, config.Machine.HeadRootDirectory)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignmentLabels []string) error {
+func (a *DefaultOmAdmin) CreateDaemonConfig(ctx context.Context, hostName, headDbDir string, assignmentLabels []string) error {
 	config := backup.NewDaemonConfig(hostName, headDbDir, assignmentLabels)
 	// dev note, for creation we don't specify the second path parameter (head db) - it's used only during update
-	_, _, err := a.put("admin/backup/daemon/configs/%s", config, hostName)
+	_, _, err := a.put(ctx, "admin/backup/daemon/configs/%s", config, hostName)
 	if err != nil {
 		return err
 	}
@@ -176,8 +177,8 @@ func (a *DefaultOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignme
 // ReadOplogStoreConfigs returns all oplog stores registered in Ops Manager
 // Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite improbable
 // to have 500+ configs)
-func (a *DefaultOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error) {
-	res, _, err := a.get("admin/backup/oplog/mongoConfigs/")
+func (a *DefaultOmAdmin) ReadOplogStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
+	res, _, err := a.get(ctx, "admin/backup/oplog/mongoConfigs/")
 	if err != nil {
 		return nil, err
 	}
@@ -191,24 +192,24 @@ func (a *DefaultOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, erro
 }
 
 // CreateOplogStoreConfig creates an oplog store in Ops Manager
-func (a *DefaultOmAdmin) CreateOplogStoreConfig(config backup.DataStoreConfig) error {
-	_, _, err := a.post("admin/backup/oplog/mongoConfigs/", config)
+func (a *DefaultOmAdmin) CreateOplogStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
+	_, _, err := a.post(ctx, "admin/backup/oplog/mongoConfigs/", config)
 	return err
 }
 
 // UpdateOplogStoreConfig updates an oplog store in Ops Manager
-func (a *DefaultOmAdmin) UpdateOplogStoreConfig(config backup.DataStoreConfig) error {
-	_, _, err := a.put("admin/backup/oplog/mongoConfigs/%s", config, config.Id)
+func (a *DefaultOmAdmin) UpdateOplogStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
+	_, _, err := a.put(ctx, "admin/backup/oplog/mongoConfigs/%s", config, config.Id)
 	return err
 }
 
 // DeleteOplogStoreConfig removes the oplog store by its ID
-func (a *DefaultOmAdmin) DeleteOplogStoreConfig(id string) error {
-	return a.delete("admin/backup/oplog/mongoConfigs/%s", id)
+func (a *DefaultOmAdmin) DeleteOplogStoreConfig(ctx context.Context, id string) error {
+	return a.delete(ctx, "admin/backup/oplog/mongoConfigs/%s", id)
 }
 
-func (a *DefaultOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
-	res, _, err := a.get("admin/backup/oplog/s3Configs")
+func (a *DefaultOmAdmin) ReadS3OplogStoreConfigs(ctx context.Context) ([]backup.S3Config, error) {
+	res, _, err := a.get(ctx, "admin/backup/oplog/s3Configs")
 	if err != nil {
 		return nil, err
 	}
@@ -221,25 +222,25 @@ func (a *DefaultOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
 	return s3Configs.S3Configs, nil
 }
 
-func (a *DefaultOmAdmin) UpdateS3OplogConfig(s3Config backup.S3Config) error {
-	_, _, err := a.put("admin/backup/oplog/s3Configs/%s", s3Config, s3Config.Id)
+func (a *DefaultOmAdmin) UpdateS3OplogConfig(ctx context.Context, s3Config backup.S3Config) error {
+	_, _, err := a.put(ctx, "admin/backup/oplog/s3Configs/%s", s3Config, s3Config.Id)
 	return err
 }
 
-func (a *DefaultOmAdmin) CreateS3OplogStoreConfig(s3Config backup.S3Config) error {
-	_, _, err := a.post("admin/backup/oplog/s3Configs", s3Config)
+func (a *DefaultOmAdmin) CreateS3OplogStoreConfig(ctx context.Context, s3Config backup.S3Config) error {
+	_, _, err := a.post(ctx, "admin/backup/oplog/s3Configs", s3Config)
 	return err
 }
 
-func (a *DefaultOmAdmin) DeleteS3OplogStoreConfig(id string) error {
-	return a.delete("admin/backup/oplog/s3Configs/%s", id)
+func (a *DefaultOmAdmin) DeleteS3OplogStoreConfig(ctx context.Context, id string) error {
+	return a.delete(ctx, "admin/backup/oplog/s3Configs/%s", id)
 }
 
 // ReadBlockStoreConfigs returns all Block stores registered in Ops Manager
 // Some assumption: while the API returns the paginated source we don't handle it to make api simpler (quite improbable
 // to have 500+ configs)
-func (a *DefaultOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error) {
-	res, _, err := a.get("admin/backup/snapshot/mongoConfigs/")
+func (a *DefaultOmAdmin) ReadBlockStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
+	res, _, err := a.get(ctx, "admin/backup/snapshot/mongoConfigs/")
 	if err != nil {
 		return nil, err
 	}
@@ -253,35 +254,35 @@ func (a *DefaultOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, erro
 }
 
 // CreateBlockStoreConfig creates a Block store in Ops Manager
-func (a *DefaultOmAdmin) CreateBlockStoreConfig(config backup.DataStoreConfig) error {
-	_, _, err := a.post("admin/backup/snapshot/mongoConfigs/", config)
+func (a *DefaultOmAdmin) CreateBlockStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
+	_, _, err := a.post(ctx, "admin/backup/snapshot/mongoConfigs/", config)
 	return err
 }
 
 // UpdateBlockStoreConfig updates a Block store in Ops Manager
-func (a *DefaultOmAdmin) UpdateBlockStoreConfig(config backup.DataStoreConfig) error {
-	_, _, err := a.put("admin/backup/snapshot/mongoConfigs/%s", config, config.Id)
+func (a *DefaultOmAdmin) UpdateBlockStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
+	_, _, err := a.put(ctx, "admin/backup/snapshot/mongoConfigs/%s", config, config.Id)
 	return err
 }
 
 // DeleteBlockStoreConfig removes the Block store by its ID
-func (a *DefaultOmAdmin) DeleteBlockStoreConfig(id string) error {
-	return a.delete("admin/backup/snapshot/mongoConfigs/%s", id)
+func (a *DefaultOmAdmin) DeleteBlockStoreConfig(ctx context.Context, id string) error {
+	return a.delete(ctx, "admin/backup/snapshot/mongoConfigs/%s", id)
 }
 
 // S3 related methods
-func (a *DefaultOmAdmin) CreateS3Config(s3Config backup.S3Config) error {
-	_, _, err := a.post("admin/backup/snapshot/s3Configs", s3Config)
+func (a *DefaultOmAdmin) CreateS3Config(ctx context.Context, s3Config backup.S3Config) error {
+	_, _, err := a.post(ctx, "admin/backup/snapshot/s3Configs", s3Config)
 	return err
 }
 
-func (a *DefaultOmAdmin) UpdateS3Config(s3Config backup.S3Config) error {
-	_, _, err := a.put("admin/backup/snapshot/s3Configs/%s", s3Config, s3Config.Id)
+func (a *DefaultOmAdmin) UpdateS3Config(ctx context.Context, s3Config backup.S3Config) error {
+	_, _, err := a.put(ctx, "admin/backup/snapshot/s3Configs/%s", s3Config, s3Config.Id)
 	return err
 }
 
-func (a *DefaultOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
-	res, _, err := a.get("admin/backup/snapshot/s3Configs")
+func (a *DefaultOmAdmin) ReadS3Configs(ctx context.Context) ([]backup.S3Config, error) {
+	res, _, err := a.get(ctx, "admin/backup/snapshot/s3Configs")
 	if err != nil {
 		return nil, apierror.New(err)
 	}
@@ -293,12 +294,12 @@ func (a *DefaultOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
 	return s3ConfigResponse.S3Configs, nil
 }
 
-func (a *DefaultOmAdmin) DeleteS3Config(id string) error {
-	return a.delete("admin/backup/snapshot/s3Configs/%s", id)
+func (a *DefaultOmAdmin) DeleteS3Config(ctx context.Context, id string) error {
+	return a.delete(ctx, "admin/backup/snapshot/s3Configs/%s", id)
 }
 
-func (a *DefaultOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error) {
-	res, _, err := a.get("admin/backup/snapshot/fileSystemConfigs/")
+func (a *DefaultOmAdmin) ReadFileSystemStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
+	res, _, err := a.get(ctx, "admin/backup/snapshot/fileSystemConfigs/")
 	if err != nil {
 		return nil, err
 	}
@@ -312,8 +313,8 @@ func (a *DefaultOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig,
 }
 
 // ReadGlobalAPIKeys reads the global API Keys in Ops Manager
-func (a *DefaultOmAdmin) ReadGlobalAPIKeys() ([]Key, error) {
-	res, _, err := a.get("admin/apiKeys")
+func (a *DefaultOmAdmin) ReadGlobalAPIKeys(ctx context.Context) ([]Key, error) {
+	res, _, err := a.get(ctx, "admin/apiKeys")
 	if err != nil {
 		return nil, err
 	}
@@ -327,11 +328,12 @@ func (a *DefaultOmAdmin) ReadGlobalAPIKeys() ([]Key, error) {
 }
 
 // addWhitelistEntryIfItDoesntExist adds a whitelist through OM API. If it already exists, in just return
-func (a *DefaultOmAdmin) addWhitelistEntryIfItDoesntExist(cidrBlock string, description string) error {
-	_, _, err := a.post("admin/whitelist", Whitelist{
+func (a *DefaultOmAdmin) addWhitelistEntryIfItDoesntExist(ctx context.Context, cidrBlock string, description string) error {
+	_, _, err := a.post(ctx, "admin/whitelist", Whitelist{
 		CidrBlock:   cidrBlock,
 		Description: description,
 	})
+
 	if apierror.NewNonNil(err).ErrorCode == apierror.DuplicateWhitelistEntry {
 		return err
 	}
@@ -339,15 +341,15 @@ func (a *DefaultOmAdmin) addWhitelistEntryIfItDoesntExist(cidrBlock string, desc
 }
 
 // CreateGlobalAPIKey creates a new Global API Key in Ops Manager.
-func (a *DefaultOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
-	if err := a.addWhitelistEntryIfItDoesntExist("0.0.0.0/1", description); err != nil {
+func (a *DefaultOmAdmin) CreateGlobalAPIKey(ctx context.Context, description string) (Key, error) {
+	if err := a.addWhitelistEntryIfItDoesntExist(ctx, "0.0.0.0/1", description); err != nil {
 		return Key{}, err
 	}
-	if err := a.addWhitelistEntryIfItDoesntExist("128.0.0.0/1", description); err != nil {
+	if err := a.addWhitelistEntryIfItDoesntExist(ctx, "128.0.0.0/1", description); err != nil {
 		return Key{}, err
 	}
 
-	newKeyBytes, _, err := a.post("admin/apiKeys", GlobalApiKeyRequest{
+	newKeyBytes, _, err := a.post(ctx, "admin/apiKeys", GlobalApiKeyRequest{
 		Description: description,
 		Roles:       []string{"GLOBAL_OWNER"},
 	})
@@ -363,8 +365,8 @@ func (a *DefaultOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
 }
 
 // ReadOpsManagerVersion read the version returned in the Header.
-func (a *DefaultOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error) {
-	_, header, err := a.get("")
+func (a *DefaultOmAdmin) ReadOpsManagerVersion(ctx context.Context) (versionutil.OpsManagerVersion, error) {
+	_, header, err := a.get(ctx, "")
 	if err != nil {
 		return versionutil.OpsManagerVersion{}, err
 	}
@@ -375,24 +377,24 @@ func (a *DefaultOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion,
 
 //********************************** Private methods *******************************************************************
 
-func (a *DefaultOmAdmin) get(path string, params ...interface{}) ([]byte, http.Header, error) {
-	return a.httpVerb("GET", path, nil, params...)
+func (a *DefaultOmAdmin) get(ctx context.Context, path string, params ...interface{}) ([]byte, http.Header, error) {
+	return a.httpVerb(ctx, "GET", path, nil, params...)
 }
 
-func (a *DefaultOmAdmin) put(path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
-	return a.httpVerb("PUT", path, v, params...)
+func (a *DefaultOmAdmin) put(ctx context.Context, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+	return a.httpVerb(ctx, "PUT", path, v, params...)
 }
 
-func (a *DefaultOmAdmin) post(path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
-	return a.httpVerb("POST", path, v, params...)
+func (a *DefaultOmAdmin) post(ctx context.Context, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+	return a.httpVerb(ctx, "POST", path, v, params...)
 }
 
-func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
-	_, _, err := a.httpVerb("DELETE", path, nil, params...)
+func (a *DefaultOmAdmin) delete(ctx context.Context, path string, params ...interface{}) error {
+	_, _, err := a.httpVerb(ctx, "DELETE", path, nil, params...)
 	return err
 }
 
-func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) httpVerb(ctx context.Context, method, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
 	client, err := CreateOMHttpClient(a.CA, &a.User, &a.PrivateAPIKey)
 	if err != nil {
 		return nil, nil, apierror.New(err)
@@ -409,7 +411,7 @@ func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...
 	path = fmt.Sprintf("/api/public/v1.0/%s", path)
 	path = fmt.Sprintf(path, escaped...)
 
-	return client.Request(method, a.BaseURL, path, v)
+	return client.Request(ctx, method, a.BaseURL, path, v)
 }
 
 // CreateOMHttpClient creates the om http client with auth. The client will add digest if the provided creds exist.

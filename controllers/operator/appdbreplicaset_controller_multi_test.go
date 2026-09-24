@@ -459,12 +459,13 @@ func TestAppDB_MultiCluster_AutomationConfig(t *testing.T) {
 }
 
 func assertExpectedHostnamesAndPreferred(t *testing.T, omConnection *om.MockedOmConnection, expectedHostnames []string) {
-	hosts, _ := omConnection.GetHosts()
+	ctx := t.Context()
+	hosts, _ := omConnection.GetHosts(ctx)
 	assert.Equal(t, expectedHostnames, util.Transform(hosts.Results, func(obj host.Host) string {
 		return obj.Hostname
 	}), "the AppDB hosts should have been added")
 
-	preferredHostnames, _ := omConnection.GetPreferredHostnames(omConnection.AgentAPIKey)
+	preferredHostnames, _ := omConnection.GetPreferredHostnames(ctx, omConnection.AgentAPIKey)
 	assert.Equal(t, expectedHostnames, util.Transform(preferredHostnames, func(obj om.PreferredHostname) string {
 		return obj.Value
 	}), "the AppDB preferred hostnames should have been added")
@@ -2077,7 +2078,7 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 
 		// Ensure the hosts are removed in the right reconcile step.
 		omConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-		hosts, _ := omConnection.GetHosts()
+		hosts, _ := omConnection.GetHosts(ctx)
 		assert.Equal(t, expectedHostnamesAfterReconcileStep[i], util.Transform(hosts.Results, func(obj host.Host) string {
 			return obj.Hostname
 		}), "the AppDB hosts should have been removed after scale-down")
