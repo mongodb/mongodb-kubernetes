@@ -4,6 +4,12 @@ set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
 
+# Prevent hung AWS calls from blocking the whole cleanup until the Evergreen
+# exec timeout: cap connect/read timeouts and retries for every invocation.
+aws() {
+  command aws --cli-connect-timeout 10 --cli-read-timeout 60 "$@"
+}
+
 calculate_hours_since_creation() {
   if [[ $(uname) == "Darwin" ]]; then
     creation_timestamp=$(gdate -d "$1" +%s)
@@ -19,23 +25,34 @@ calculate_hours_since_creation() {
 # versioning is enabled. `aws s3 rb --force` only removes current versions
 # and silently leaves versioned buckets undeletable (BucketNotEmpty), so
 # every patch retries the same zombies forever. This drains versions in
-# 1000-key batches before calling rb.
+# 1000-key batches with governance-retention bypass before calling rb.
+# Buckets with unexpired COMPLIANCE-mode retention (or when the IAM role
+# lacks s3:BypassGovernanceRetention) fail deletion with AccessDenied and
+# are left for a later run instead of hanging.
 delete_bucket_with_versions() {
   bucket=$1
 
-  while :; do
+  local iteration=0
+  while (( iteration++ < 100 )); do
     payload=$(aws s3api list-object-versions \
                 --bucket "${bucket}" \
                 --max-items 1000 \
                 --output json 2>/dev/null \
               | jq -c '{Objects: [(.Versions // []), (.DeleteMarkers // [])
-                                  | .[] | {Key, VersionId}], Quiet: true}')
+                                  | .[] | {Key, VersionId}] | .[0:1000], Quiet: true}')
     count=$(echo "${payload}" | jq '.Objects | length')
     if [[ -z "${count}" || "${count}" == "0" ]]; then
       break
     fi
-    aws s3api delete-objects --bucket "${bucket}" --delete "${payload}" >/dev/null 2>&1 || break
+    if ! aws s3api delete-objects --bucket "${bucket}" --delete "${payload}" --bypass-governance-retention >/dev/null 2>&1; then
+      echo "WARNING: bucket ${bucket}: delete-objects failed (possibly object-lock retention, COMPLIANCE mode). Will retry on a later cleanup run."
+      break
+    fi
   done
+
+  if (( iteration >= 100 )); then
+    echo "WARNING: bucket ${bucket} still has versions after 100 drain iterations."
+  fi
 
   aws s3 rb "s3://${bucket}" --force || true
 }
@@ -50,8 +67,8 @@ delete_buckets_from_file() {
     bucket_creation_date=$(echo "${bucket_entry}" | jq -r '.CreationDate')
     echo "[${list_file}/${bucket_name}] Processing bucket name=${bucket_name}, creationDate=${bucket_creation_date})"
 
-    tags=$(aws s3api get-bucket-tagging --bucket "${bucket_name}" --output json || true)
-    operatorTagExists=$(echo "${tags}" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .evg_task and .environment == "mongodb-enterprise-operator-tests")')
+    tags=$(aws s3api get-bucket-tagging --bucket "${bucket_name}" --output json 2>/dev/null || echo '{"TagSet":[]}')
+    operatorTagExists=$(echo "${tags}" | jq -r '(.TagSet | map({(.Key): .Value}) | add) // {} | select(.evg_task != null and .environment == "mongodb-enterprise-operator-tests") | "yes"')
     if [[ -n "${operatorTagExists}" ]]; then
       # Bucket created by the test run in EVG, check if it's older than 2 hours
       hours_since_creation=$(calculate_hours_since_creation "${bucket_creation_date}")
@@ -66,7 +83,7 @@ delete_buckets_from_file() {
     else
       # Bucket not created by the test run in EVG, check if it's older than 24 hours and owned by us
       hours_since_creation=$(calculate_hours_since_creation "${bucket_creation_date}")
-      operatorOwnedTagExists=$(echo "${tags}" |  jq -r 'select(.TagSet | map({(.Key): .Value}) | add | .environment == "mongodb-enterprise-operator-tests")')
+      operatorOwnedTagExists=$(echo "${tags}" | jq -r '(.TagSet | map({(.Key): .Value}) | add) // {} | select(.environment == "mongodb-enterprise-operator-tests") | "yes"')
       if [[ ${hours_since_creation} -ge 24 && -n "${operatorOwnedTagExists}" ]]; then
         aws_cmd="delete_bucket_with_versions ${bucket_name}"
         echo "[${list_file}/${bucket_name}] Deleting manual bucket: ${bucket_name}/${bucket_creation_date}; age in hours: ${hours_since_creation}; (${aws_cmd}), tags: Tags: $(echo "${tags}" | jq -cr .)"
