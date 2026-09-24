@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.45; color:#202124; }
+h1 { font-size: 22pt; } h2 { font-size: 16pt; margin-top: 20px; } h3 { font-size: 13pt; }
+code { font-family: 'Roboto Mono','Courier New',monospace; font-size: 10pt; background:#f1f3f4; padding:1px 3px; border-radius:3px; }
+pre { font-family: 'Roboto Mono','Courier New',monospace; font-size: 9.5pt; background:#f1f3f4; padding:10px; border-radius:5px; white-space:pre-wrap; }
+pre code { background:none; padding:0; }
+blockquote { border-left:3px solid #dadce0; margin:0; padding:4px 12px; color:#5f6368; }
+table { border-collapse:collapse; } th,td { border:1px solid #dadce0; padding:4px 8px; }
+</style></head><body>
+<h1 id="external-appdb-fresh-start-step-by-step-walkthrough">External AppDB — Fresh Start: step-by-step walkthrough</h1>
+<p>This guide shows how to deploy an Ops Manager whose Application Database is an <strong>external</strong>
+<code>MongoDB</code> resource (<code>role: AppDB</code>) referenced through <code>spec.externalApplicationDatabaseRef</code>,
+starting from scratch. Every step here is a plain <code>kubectl</code>/<code>helm</code> command with the resource YAML
+inlined, so you can reproduce it on your own cluster without any test harness.</p>
+<blockquote>
+<p>For the migration variants see <a href="../02-forward-migration">../02-forward-migration</a> (move an existing
+internal AppDB to an external one) and <a href="../03-reverse-migration">../03-reverse-migration</a> (move
+back to an internal AppDB).</p>
+</blockquote>
+<h2 id="topology">Topology</h2>
+<pre><code>                 manages (project + credentials)
+ management OM ───────────────────────────────► MongoDB (role: AppDB)   name = &quot;&lt;primary-om-name&gt;-db&quot;
+                                                        ▲
+                                                        │ externalApplicationDatabaseRef
+                                                        │
+                                                   primary OM  (no spec.applicationDatabase)
+</code></pre>
+<ul>
+<li><strong>Management Ops Manager</strong> — an ordinary Ops Manager (with its own internal AppDB) that <em>manages</em>
+  the AppDB-role <code>MongoDB</code> resource the same way it manages any other database project.</li>
+<li><strong>External AppDB</strong> — a <code>MongoDB</code> replica set with <code>spec.role: AppDB</code>. <strong>Its name must be exactly
+  <code>&lt;primary-om-name&gt;-db</code></strong>; the operator enforces this when resolving <code>externalApplicationDatabaseRef</code>.</li>
+<li><strong>Primary Ops Manager</strong> — has <strong>no</strong> <code>spec.applicationDatabase</code>; it references the external AppDB
+  via <code>spec.externalApplicationDatabaseRef</code>. The operator resolves that <code>MongoDB</code> CR to compute the
+  AppDB connection string (and its TLS/CA if enabled) and never creates an internal AppDB
+  StatefulSet for this OM. Its <code>status.applicationDatabase.phase</code> is therefore reported as
+  <code>Disabled</code> (not <code>Running</code>).</li>
+</ul>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>A running Kubernetes cluster with a default StorageClass.</li>
+<li><code>kubectl</code> and <code>helm</code> configured for that cluster.</li>
+<li>Access to the MongoDB Kubernetes operator Helm chart.</li>
+</ul>
+<h2 id="0-set-your-variables">0. Set your variables</h2>
+<pre><code class="language-bash">export K8S_CTX=&quot;&lt;your-kube-context&gt;&quot;     # kubectl config get-contexts
+export MDB_NS=&quot;mongodb&quot;                    # namespace for operator, both OMs and the AppDB
+
+export OPERATOR_HELM_CHART=&quot;oci://quay.io/mongodb/helm-charts/mongodb-kubernetes&quot;
+
+# IMPORTANT: OM_VERSION and APPDB_VERSION must be a consistent pair. The external AppDB is an
+# Ops-Manager-managed MongoDB, so APPDB_VERSION must be a MongoDB version the management OM actually
+# offers. An 8.0.x Ops Manager offers 8.0.x MongoDB; a 7.0.x OM does NOT — see Troubleshooting.
+export OM_VERSION=&quot;8.0.7&quot;                  # management + primary Ops Manager version
+export APPDB_VERSION=&quot;8.0.5-ent&quot;           # MongoDB version for the AppDB
+
+export MANAGEMENT_OM_NAME=&quot;management-om&quot;
+export PRIMARY_OM_NAME=&quot;primary-om&quot;
+
+# The AppDB CR name is fixed by the operator's naming convention:
+export APPDB_NAME=&quot;${PRIMARY_OM_NAME}-db&quot;
+
+# In-cluster URL of the management Ops Manager:
+export MANAGEMENT_OM_URL=&quot;http://${MANAGEMENT_OM_NAME}-svc.${MDB_NS}.svc.cluster.local:8080&quot;
+
+# Programmatic API-key secret the operator provisions for the management OM
+# (naming format: &quot;&lt;namespace&gt;-&lt;om-name&gt;-admin-key&quot;):
+export MANAGEMENT_OM_ADMIN_KEY_SECRET=&quot;${MDB_NS}-${MANAGEMENT_OM_NAME}-admin-key&quot;
+
+# Project connection ConfigMap the AppDB CR points at:
+export APPDB_PROJECT_CONFIGMAP=&quot;${APPDB_NAME}-config&quot;
+export APPDB_PROJECT_NAME=&quot;external-appdb&quot;
+
+# Connection-string secret the operator computes for the primary OM:
+export APPDB_CONNECTION_STRING_SECRET=&quot;${APPDB_NAME}-connection-string&quot;
+
+# Ops Manager admin user (first global admin of each OM):
+export OM_ADMIN_EMAIL=&quot;admin@example.com&quot;
+export OM_ADMIN_PASSWORD=&quot;Passw0rd.&quot;
+export OM_ADMIN_FIRST_NAME=&quot;Admin&quot;
+export OM_ADMIN_LAST_NAME=&quot;User&quot;
+</code></pre>
+<hr />
+<h2 id="1-create-the-namespace">1. Create the namespace</h2>
+<pre><code class="language-bash">kubectl create namespace &quot;${MDB_NS}&quot; --context &quot;${K8S_CTX}&quot;
+</code></pre>
+<h2 id="2-install-the-operator">2. Install the operator</h2>
+<pre><code class="language-bash">helm upgrade --install --kube-context &quot;${K8S_CTX}&quot; \
+  --namespace &quot;${MDB_NS}&quot; --create-namespace \
+  mongodb-kubernetes &quot;${OPERATOR_HELM_CHART}&quot;
+
+kubectl rollout status deployment/mongodb-kubernetes-operator \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=300s
+</code></pre>
+<h2 id="3-create-the-ops-manager-admin-secret">3. Create the Ops Manager admin secret</h2>
+<p>Both Ops Managers reference this secret via <code>spec.adminCredentials</code>.</p>
+<pre><code class="language-bash">kubectl create secret generic ops-manager-admin-secret \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  --from-literal=Username=&quot;${OM_ADMIN_EMAIL}&quot; \
+  --from-literal=Password=&quot;${OM_ADMIN_PASSWORD}&quot; \
+  --from-literal=FirstName=&quot;${OM_ADMIN_FIRST_NAME}&quot; \
+  --from-literal=LastName=&quot;${OM_ADMIN_LAST_NAME}&quot;
+</code></pre>
+<h2 id="4-deploy-the-management-ops-manager">4. Deploy the management Ops Manager</h2>
+<p>An ordinary Ops Manager with its own internal AppDB. It will own the project under which the
+external AppDB <code>MongoDB</code> resource is registered.</p>
+<blockquote>
+<p>The <code>mms.*</code> mail settings are <strong>required</strong>: with <code>mms.ignoreInitialUiSetup: "true"</code> the OM
+pre-flight check refuses to start unless <code>mms.fromEmailAddr</code> (and the related mail settings) are
+present. See Troubleshooting.</p>
+</blockquote>
+<pre><code class="language-bash">kubectl apply --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; -f - &lt;&lt;EOF
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: ${MANAGEMENT_OM_NAME}
+spec:
+  replicas: 1
+  version: ${OM_VERSION}
+  adminCredentials: ops-manager-admin-secret
+  applicationDatabase:
+    members: 3
+    version: ${APPDB_VERSION}
+  backup:
+    enabled: false
+  configuration:
+    automation.versions.source: mongodb
+    mms.ignoreInitialUiSetup: &quot;true&quot;
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: &quot;465&quot;
+    mms.mail.ssl: &quot;true&quot;
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+EOF
+</code></pre>
+<h2 id="5-wait-for-the-management-ops-manager">5. Wait for the management Ops Manager</h2>
+<p>Wait for the internal AppDB, then the OM application, then confirm the public REST API is actually
+serving (see the note below).</p>
+<pre><code class="language-bash">kubectl wait --for=jsonpath='{.status.applicationDatabase.phase}'=Running \
+  om/&quot;${MANAGEMENT_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1200s
+
+kubectl wait --for=jsonpath='{.status.opsManager.phase}'=Running \
+  om/&quot;${MANAGEMENT_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1800s
+</code></pre>
+<p><code>opsManager.phase=Running</code> only means the OM pod is up; the public REST API the operator needs to
+create the AppDB project can lag a few seconds. Confirm it is answering before continuing (a <code>401</code>
+is the expected unauthenticated response and means the API layer is ready):</p>
+<pre><code class="language-bash">om_pod=&quot;${MANAGEMENT_OM_NAME}-0&quot;
+until [ &quot;$(kubectl exec &quot;${om_pod}&quot; -c mongodb-ops-manager --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; -- \
+  curl -s -o /dev/null -w '%{http_code}' \
+  &quot;http://$(kubectl get pod &quot;${om_pod}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+    -o jsonpath='{.status.podIP}'):8080/api/public/v1.0&quot; 2&gt;/dev/null)&quot; = &quot;401&quot; ]; do
+  echo &quot;waiting for management OM public API...&quot;; sleep 10
+done
+echo &quot;management OM public API is serving&quot;
+</code></pre>
+<p>The operator provisions a programmatic API-key secret for the management OM; the AppDB CR will use
+it as its credentials:</p>
+<pre><code class="language-bash">kubectl get secret &quot;${MANAGEMENT_OM_ADMIN_KEY_SECRET}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot;
+</code></pre>
+<h2 id="6-create-the-appdb-project-configmap">6. Create the AppDB project ConfigMap</h2>
+<p>Points the AppDB CR at a project on the management OM.</p>
+<pre><code class="language-bash">kubectl create configmap &quot;${APPDB_PROJECT_CONFIGMAP}&quot; \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  --from-literal=baseUrl=&quot;${MANAGEMENT_OM_URL}&quot; \
+  --from-literal=projectName=&quot;${APPDB_PROJECT_NAME}&quot; \
+  --from-literal=orgId=&quot;&quot;
+</code></pre>
+<h2 id="7-create-the-external-appdb-mongodb">7. Create the external AppDB <code>MongoDB</code></h2>
+<p>A normal replica set with <code>role: AppDB</code>. <strong>The name must be <code>${APPDB_NAME}</code> (<code>&lt;primary-om-name&gt;-db</code>).</strong></p>
+<pre><code class="language-bash">kubectl apply --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; -f - &lt;&lt;EOF
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: ${APPDB_NAME}
+spec:
+  members: 3
+  version: ${APPDB_VERSION}
+  type: ReplicaSet
+  role: AppDB
+  opsManager:
+    configMapRef:
+      name: ${APPDB_PROJECT_CONFIGMAP}
+  credentials: ${MANAGEMENT_OM_ADMIN_KEY_SECRET}
+  persistent: true
+  security:
+    authentication:
+      enabled: true
+      modes: [&quot;SCRAM&quot;]
+      ignoreUnknownUsers: true
+EOF
+
+kubectl wait --for=jsonpath='{.status.phase}'=Running \
+  mdb/&quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1200s
+</code></pre>
+<h2 id="8-create-the-primary-ops-manager">8. Create the primary Ops Manager</h2>
+<p>No <code>spec.applicationDatabase</code> — it references the external AppDB instead.</p>
+<pre><code class="language-bash">kubectl apply --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; -f - &lt;&lt;EOF
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: ${PRIMARY_OM_NAME}
+spec:
+  replicas: 1
+  version: ${OM_VERSION}
+  adminCredentials: ops-manager-admin-secret
+  externalApplicationDatabaseRef:
+    name: ${APPDB_NAME}
+    kind: MongoDB
+  backup:
+    enabled: false
+  configuration:
+    automation.versions.source: mongodb
+    mms.ignoreInitialUiSetup: &quot;true&quot;
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: &quot;465&quot;
+    mms.mail.ssl: &quot;true&quot;
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+EOF
+</code></pre>
+<h2 id="9-wait-for-the-primary-ops-manager">9. Wait for the primary Ops Manager</h2>
+<pre><code class="language-bash">kubectl wait --for=jsonpath='{.status.opsManager.phase}'=Running \
+  om/&quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1800s
+
+# In external-AppDB mode the operator does not manage an internal AppDB for this OM,
+# so its AppDB status is Disabled (this is expected, not an error):
+kubectl wait --for=jsonpath='{.status.applicationDatabase.phase}'=Disabled \
+  om/&quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=600s
+</code></pre>
+<h2 id="10-verify">10. Verify</h2>
+<pre><code class="language-bash">kubectl get pods --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot;
+
+# The AppDB StatefulSet must be owned solely by the MongoDB CR (not by the primary OM):
+kubectl get statefulset &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{range .metadata.ownerReferences[*]}{.kind}/{.name}{&quot;\n&quot;}{end}'
+
+# The operator computes the AppDB connection string for the primary OM:
+kubectl get secret &quot;${APPDB_CONNECTION_STRING_SECRET}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot;
+</code></pre>
+<p>You should see: the management OM, the external AppDB (<code>${APPDB_NAME}-0/1/2</code>) and the primary OM
+pods all <code>Running</code>; the AppDB StatefulSet owned by <code>MongoDB/${APPDB_NAME}</code>; and the connection-string
+secret present.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong>AppDB <code>MongoDB</code> is <code>Failed</code> with <code>Invalid config: MongoDB version &lt;x&gt; is not available</code></strong> — the
+  external AppDB is an Ops-Manager-managed MongoDB, so its <code>spec.version</code> must be a version the
+  <strong>management OM</strong> offers in its version manifest. Keep <code>OM_VERSION</code> and <code>APPDB_VERSION</code> on the same
+  major line (e.g. OM <code>8.0.x</code> with AppDB <code>8.0.x-ent</code>). A <code>7.0.x</code> OM does not offer <code>8.0.x</code> MongoDB.
+  (Note the management OM's <em>own</em> internal AppDB is unaffected because it downloads binaries directly
+  via <code>automation.versions.source: mongodb</code>; only the external AppDB is gated by the OM manifest.)</li>
+<li><strong>Management OM pod CrashLoops right after start; logs show
+  <code>mms.ignoreInitialUiSetup ... mms.fromEmailAddr must not be blank</code></strong> — add the <code>mms.*</code> mail block
+  shown in step 4 to <code>spec.configuration</code>.</li>
+<li><strong>AppDB <code>MongoDB</code> stays <code>Pending</code> and its agents never get an automation config (empty
+  <code>agent-health-status.json</code>)</strong> — the AppDB CR was created before the management OM's public REST API
+  was serving, so the operator could not create/seed the project. Ensure the readiness poll in step 5
+  passes before step 7.</li>
+<li><strong><code>externalApplicationDatabaseRef.name</code> rejected</strong> — the referenced <code>MongoDB</code> name must be exactly
+  <code>&lt;primary-om-name&gt;-db</code>.</li>
+<li><strong>Primary OM <code>status.applicationDatabase.phase</code> is <code>Disabled</code>, not <code>Running</code></strong> — expected: in
+  external-AppDB mode the operator does not manage the AppDB for this OM.
+</content>
+</invoke></li>
+</ul>
+</body></html>

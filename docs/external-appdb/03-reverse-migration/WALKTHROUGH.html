@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.45; color:#202124; }
+h1 { font-size: 22pt; } h2 { font-size: 16pt; margin-top: 20px; } h3 { font-size: 13pt; }
+code { font-family: 'Roboto Mono','Courier New',monospace; font-size: 10pt; background:#f1f3f4; padding:1px 3px; border-radius:3px; }
+pre { font-family: 'Roboto Mono','Courier New',monospace; font-size: 9.5pt; background:#f1f3f4; padding:10px; border-radius:5px; white-space:pre-wrap; }
+pre code { background:none; padding:0; }
+blockquote { border-left:3px solid #dadce0; margin:0; padding:4px 12px; color:#5f6368; }
+table { border-collapse:collapse; } th,td { border:1px solid #dadce0; padding:4px 8px; }
+</style></head><body>
+<h1 id="external-appdb-reverse-migration-step-by-step-walkthrough">External AppDB — Reverse Migration: step-by-step walkthrough</h1>
+<p>This guide migrates an <strong>existing</strong> Ops Manager from an <strong>external</strong> Application Database (a <code>MongoDB</code>
+<code>role: AppDB</code> CR referenced via <code>spec.externalApplicationDatabaseRef</code>) <strong>back to an
+internally-managed</strong> AppDB (<code>spec.applicationDatabase</code>) — gracefully, <strong>without downtime and without
+rolling the OM pods</strong>. The Ops Manager re-adopts the existing AppDB StatefulSet, and the now-released
+<code>MongoDB</code> CR is deleted afterwards.</p>
+<p>It assumes the external-AppDB setup is already running (see Prerequisites) and only shows the
+reverse-migration steps. Every step is a plain <code>kubectl</code> command with the resource YAML inlined.</p>
+<blockquote>
+<p>See also: <a href="../01-fresh-start">../01-fresh-start</a> and <a href="../02-forward-migration">../02-forward-migration</a>.</p>
+</blockquote>
+<h2 id="how-it-works">How it works</h2>
+<pre><code>BEFORE                                                        AFTER
+─────────                                                     ─────────
+primary OM ──externalApplicationDatabaseRef──►┐               primary OM ──owns──► StatefulSet
+ (no spec.applicationDatabase)                │                (spec.applicationDatabase)
+                                              ▼
+management OM ──manages──► MongoDB(role:AppDB) ──owns──► STS   MongoDB(role:AppDB)  → released, deleted
+</code></pre>
+<ol>
+<li>Starting state: the primary OM uses an external AppDB — a <code>MongoDB</code> (<code>role: AppDB</code>) CR named
+   <code>&lt;primary-om-name&gt;-db</code> that owns the AppDB StatefulSet.</li>
+<li>You remove <code>spec.externalApplicationDatabaseRef</code> and add <code>spec.applicationDatabase</code>. The operator
+   asks the <code>MongoDB</code> CR to <strong>release</strong> the StatefulSet; the CR reports <code>Pending</code> (released/unmanaged).
+   The operator then <strong>re-adopts</strong> the StatefulSet as an internally-managed AppDB. The connection
+   string is unchanged (same hosts), so the OM pods do not roll.</li>
+<li>After the handover the <code>MongoDB</code> CR is a leftover and is deleted.</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>This guide starts from an already-running external-AppDB deployment. Before you begin you must have:</p>
+<ul>
+<li>A Kubernetes cluster with the <strong>MongoDB Kubernetes operator installed</strong> and <code>kubectl</code> configured.</li>
+<li>A <strong>primary Ops Manager</strong> (<code>${PRIMARY_OM_NAME}</code>, below) currently using an <strong>external AppDB</strong> —
+  i.e. it has <code>spec.externalApplicationDatabaseRef</code> pointing at a <code>MongoDB</code> (<code>role: AppDB</code>) CR named
+  <code>&lt;primary-om-name&gt;-db</code>, and no internal <code>spec.applicationDatabase</code>. Its
+  <code>status.applicationDatabase.phase</code> reads <code>Disabled</code>. <strong>This guide does not cover reaching that
+  state</strong> — see <a href="../01-fresh-start">../01-fresh-start</a> or <a href="../02-forward-migration">../02-forward-migration</a>.</li>
+<li>The <strong><code>MongoDB</code> (<code>role: AppDB</code>) CR</strong> (<code>${APPDB_NAME}</code>) is <code>Running</code> and owns the AppDB StatefulSet.</li>
+</ul>
+<p>Quick sanity check that the prerequisites are in place:</p>
+<pre><code class="language-bash"># primary OM references an external AppDB, and its own AppDB status is Disabled:
+kubectl get om &quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='ref={.spec.externalApplicationDatabaseRef.name} appdb={.status.applicationDatabase.phase}{&quot;\n&quot;}'
+# -&gt; ref=${APPDB_NAME} appdb=Disabled
+
+# the MongoDB (role: AppDB) CR is Running and owns the StatefulSet:
+kubectl get mdb &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.status.phase}{&quot;\n&quot;}'
+kubectl get statefulset &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{range .metadata.ownerReferences[*]}{.kind}/{.name}{&quot;\n&quot;}{end}'
+# -&gt; MongoDB/${APPDB_NAME}
+</code></pre>
+<h2 id="0-set-your-variables">0. Set your variables</h2>
+<pre><code class="language-bash">export K8S_CTX=&quot;&lt;your-kube-context&gt;&quot;     # kubectl config get-contexts
+export MDB_NS=&quot;mongodb&quot;                    # namespace of the existing OM and AppDB
+
+export PRIMARY_OM_NAME=&quot;primary-om&quot;        # the OM being migrated back to an internal AppDB
+export APPDB_NAME=&quot;${PRIMARY_OM_NAME}-db&quot;  # the external AppDB MongoDB CR / StatefulSet name
+
+# Must match the AppDB version currently running (the version on the MongoDB role:AppDB CR / the
+# StatefulSet being re-adopted). Reusing the same version keeps the same binaries and data in place.
+export APPDB_VERSION=&quot;8.0.5-ent&quot;
+</code></pre>
+<hr />
+<h2 id="1-reconfigure-the-primary-om-to-an-internal-appdb">1. Reconfigure the primary OM to an internal AppDB</h2>
+<p>Remove <code>spec.externalApplicationDatabaseRef</code> (set it to <code>null</code>) and add <code>spec.applicationDatabase</code>.
+The operator asks the <code>MongoDB</code> CR to release the StatefulSet, then re-adopts it. The computed
+connection string is unchanged, so the OM pods do not roll.</p>
+<pre><code class="language-bash">kubectl patch om &quot;${PRIMARY_OM_NAME}&quot; \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  --type merge \
+  -p &quot;{\&quot;spec\&quot;:{\&quot;externalApplicationDatabaseRef\&quot;:null,\&quot;applicationDatabase\&quot;:{\&quot;members\&quot;:3,\&quot;version\&quot;:\&quot;${APPDB_VERSION}\&quot;}}}&quot;
+</code></pre>
+<h2 id="2-wait-for-the-release-and-adopt-handover">2. Wait for the release-and-adopt handover</h2>
+<p>First the <code>MongoDB</code> CR is released (becomes <code>Pending</code> / unmanaged), then the OM re-adopts the
+StatefulSet and its internal AppDB returns to <code>Running</code>.</p>
+<pre><code class="language-bash"># the MongoDB CR is released:
+kubectl wait --for=jsonpath='{.status.phase}'=Pending \
+  mdb/&quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=300s
+kubectl get mdb &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.status.message}{&quot;\n&quot;}'
+
+# the OM manages the internal AppDB again:
+kubectl wait --for=jsonpath='{.status.applicationDatabase.phase}'=Running \
+  om/&quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1200s
+kubectl wait --for=jsonpath='{.status.opsManager.phase}'=Running \
+  om/&quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --timeout=1800s
+</code></pre>
+<h2 id="3-delete-the-released-mongodb-cr">3. Delete the released <code>MongoDB</code> CR</h2>
+<blockquote>
+<p><strong>Wait for step 2 to finish first.</strong> Only delete the <code>MongoDB</code> CR once the OM manages the internal
+AppDB again (step 2 shows <code>applicationDatabase.phase=Running</code>). Deleting it earlier — while it
+still owns the StatefulSet — would garbage-collect the AppDB.</p>
+</blockquote>
+<p>The handover is complete and the Ops Manager owns the StatefulSet, so the released CR is a safe-to-
+remove leftover:</p>
+<pre><code class="language-bash">kubectl delete mdb &quot;${APPDB_NAME}&quot; \
+  --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; --wait=true --timeout=300s
+</code></pre>
+<h2 id="4-verify">4. Verify</h2>
+<pre><code class="language-bash">kubectl get pods --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot;
+
+# The AppDB StatefulSet must now be owned solely by the Ops Manager (not the MongoDB CR):
+kubectl get statefulset &quot;${APPDB_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{range .metadata.ownerReferences[*]}{.kind}/{.name}{&quot;\n&quot;}{end}'
+# -&gt; MongoDBOpsManager/${PRIMARY_OM_NAME}
+
+# The primary OM's AppDB status is Running again (internally managed):
+kubectl get om &quot;${PRIMARY_OM_NAME}&quot; --context &quot;${K8S_CTX}&quot; -n &quot;${MDB_NS}&quot; \
+  -o jsonpath='{.status.applicationDatabase.phase}{&quot;\n&quot;}'
+# -&gt; Running
+</code></pre>
+<p>You should see the AppDB StatefulSet owned by <code>MongoDBOpsManager/${PRIMARY_OM_NAME}</code>, the primary OM's
+internal AppDB <code>Running</code>, and the <code>MongoDB</code> CR gone — with the OM pods never having rolled during the
+handover.</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+<li><strong><code>MongoDB</code> CR not released (stays <code>Running</code>, StatefulSet still owned by it)</strong> — the OM must first
+  request the release. Confirm the patch set <code>spec.externalApplicationDatabaseRef</code> to <code>null</code> <strong>and</strong>
+  added <code>spec.applicationDatabase</code>.</li>
+<li><strong>Deleting the CR before the handover</strong> — do not delete the <code>MongoDB</code> CR until step 2 shows the OM
+  managing the internal AppDB again; deleting early (while it still owns the StatefulSet) would
+  garbage-collect the AppDB. If you need the delete-first fallback path instead, see the operator
+  documentation for recreate-from-retained-PVCs.</li>
+<li><strong><code>applicationDatabase.version</code> mismatch</strong> — set it to the version the AppDB is already running so
+  the re-adopted StatefulSet keeps the same binaries; changing it here triggers an AppDB upgrade at
+  the same time as the handover.
+</content></li>
+</ul>
+</body></html>

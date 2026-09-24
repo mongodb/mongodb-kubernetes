@@ -306,5 +306,3 @@ secret present.
   `<primary-om-name>-db`.
 - **Primary OM `status.applicationDatabase.phase` is `Disabled`, not `Running`** — expected: in
   external-AppDB mode the operator does not manage the AppDB for this OM.
-</content>
-</invoke>
