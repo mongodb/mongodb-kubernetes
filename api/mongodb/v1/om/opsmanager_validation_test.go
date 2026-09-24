@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -377,11 +378,11 @@ func TestOpsManagerValidation(t *testing.T) {
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 
 			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, status.None, part)
 			}
 
@@ -463,11 +464,11 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 
 			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, status.None, part)
 			}
 		})

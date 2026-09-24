@@ -75,6 +75,10 @@ func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
 }
 
+func (m *MongoDBMultiCluster) IsRoleAppDB() bool {
+	return m.Spec.Role == mdbv1.RoleAppDB
+}
+
 func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
 	hostnames := make([]string, 0)
 
@@ -233,7 +237,7 @@ type MongoDBMultiStatus struct {
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role == \"\"",message="spec.role is not supported on MongoDBMultiCluster"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.clusterSpecList.map(c, c.members).sum() >= 3",message="the total number of members across spec.clusterSpecList must be >= 3 when spec.role is AppDB"
 type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
