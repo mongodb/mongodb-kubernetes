@@ -457,7 +457,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reclaimAppDBStatefulsetOwnership(ctx c
 }
 
 func (r *ReconcileMongoDbMultiReplicaSet) releaseAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
-	sts.Labels = util.StripOwnerLabels(sts.Labels)
+	delete(sts.Labels, util.MongoDBMultiClusterResourceOwnerLabel)
 	if err := memberClient.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
 	}
@@ -517,9 +517,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx co
 	}
 
 	for _, key := range []string{util.MongoDBResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBMultiClusterResourceOwnerLabel} {
-		if value := ownershipLabels[key]; value != "" && value != currentOwner {
-			return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner")
+		value := ownershipLabels[key]
+		if value == "" || (key == util.MongoDBMultiClusterResourceOwnerLabel && value == currentOwner) {
+			continue
 		}
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner")
 	}
 
 	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {

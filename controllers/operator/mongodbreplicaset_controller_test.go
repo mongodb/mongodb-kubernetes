@@ -2074,6 +2074,7 @@ func TestEnsureMongoDBStatefulSetOwnershipGate(t *testing.T) {
 		annotations         map[string]string
 		ownerReferences     []metav1.OwnerReference
 		expectedOK          bool
+		expectedPhase       status.Phase
 		expectedError       string
 		expectedLabels      map[string]string
 		expectedOwnerRefs   []metav1.OwnerReference
@@ -2124,6 +2125,7 @@ func TestEnsureMongoDBStatefulSetOwnershipGate(t *testing.T) {
 			labels:              map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
 			annotations:         map[string]string{util.AppDBMigrationReadyAnnotation: "true"},
 			expectedOK:          false,
+			expectedPhase:       status.PhasePending,
 			expectedError:       "Cannot take ownership of the AppDB Statefulset: it has other owner",
 			expectedLabels:      map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
 			expectedAnnotations: map[string]string{util.AppDBMigrationReadyAnnotation: "true"},
@@ -2147,6 +2149,9 @@ func TestEnsureMongoDBStatefulSetOwnershipGate(t *testing.T) {
 
 			ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 			assert.Equal(t, tt.expectedOK, ownershipStatus.IsOK())
+			if tt.expectedPhase != "" {
+				assert.Equal(t, tt.expectedPhase, ownershipStatus.Phase())
+			}
 			if tt.expectedError != "" {
 				assert.Equal(t, tt.expectedError, statusMessage(ownershipStatus))
 			}
