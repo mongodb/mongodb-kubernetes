@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path"
 	"reflect"
-	"slices"
 	"sort"
 
 	"github.com/google/go-cmp/cmp"
@@ -177,6 +176,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 	if len(failedClusterNames) > 0 && !multicluster.ShouldPerformFailover() {
 		log.Warnf("Reconciling with degraded clusters; the following will be skipped this cycle: %+v (automated failover disabled)", failedClusterNames)
+	}
+
+	if mrs.IsRoleAppDB() {
+		ownershipStatus := r.ensureAppDBStatefulSetOwnershipAll(ctx, &mrs, log)
+		if !ownershipStatus.IsOK() {
+			return r.updateStatus(ctx, &mrs, ownershipStatus, log)
+		}
+
+		if err := r.claimAppDBRoleSecrets(ctx, &mrs); err != nil {
+			return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+		}
 	}
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
@@ -438,7 +448,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) validateAppDBForwardMigration(ctx cont
 
 func (r *ReconcileMongoDbMultiReplicaSet) reclaimAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
 	sts.Labels = merge.StringToStringMap(sts.Labels, mrs.GetOwnerLabels())
-	sts.OwnerReferences = kube.BaseOwnerReference(mrs)
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	if err := memberClient.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
@@ -449,12 +458,44 @@ func (r *ReconcileMongoDbMultiReplicaSet) reclaimAppDBStatefulsetOwnership(ctx c
 
 func (r *ReconcileMongoDbMultiReplicaSet) releaseAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
 	sts.Labels = util.StripOwnerLabels(sts.Labels)
-	sts.OwnerReferences = nil
 	if err := memberClient.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
 	}
 
 	return nil
+}
+
+// ensureAppDBStatefulSetOwnershipAll arbitrates the AppDB StatefulSet ownership in every member cluster
+// and merges the per-cluster statuses. The AppDB is a single logical deployment, so the merged status
+// decides whether credential handover and StatefulSet reconciliation may proceed.
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnershipAll(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) workflow.Status {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
+	}
+
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
+	}
+
+	var aggregated workflow.Status = workflow.OK()
+	for _, item := range clusterSpecList {
+		if stringutil.Contains(failedClusterNames, item.ClusterName) {
+			log.Warnf(fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s is marked as failed", item.ClusterName))
+			continue
+		}
+
+		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			log.Warnf(fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s missing from client map", item.ClusterName))
+			continue
+		}
+
+		aggregated = aggregated.Merge(r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, r.memberClusterSecretClientsMap[item.ClusterName], log))
+	}
+
+	return aggregated
 }
 
 func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, memberClient client.Client, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
@@ -470,12 +511,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx co
 	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
 	currentOwnerLabels := mrs.GetOwnerLabels()
 	currentOwner := currentOwnerLabels[util.MongoDBMultiClusterResourceOwnerLabel]
-
-	if slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
-		return ref.UID == mrs.UID
-	}) && len(ownershipLabels) == 0 {
-		ownershipLabels[util.MongoDBMultiClusterResourceOwnerLabel] = currentOwner
-	}
 
 	if validationStatus := r.validateAppDBForwardMigration(ctx, mrs, item, sts, secretGetter, log); !validationStatus.IsOK() {
 		return validationStatus
@@ -683,18 +718,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	// stateful-sets in parallel.
 	scalingFirstTime := len(processes) == 0
 
-	if mrs.IsRoleAppDB() {
-		if err := r.ensureAppDBRoleUser(ctx, mrs, conn); err != nil {
-			return workflow.Failed(err)
-		}
-		if err := r.ensureAppDBRoleKeyfile(ctx, mrs, conn); err != nil {
-			return workflow.Failed(err)
-		}
-	}
-
 	var workflowStatus workflow.Status = workflow.OK()
-	var ownershipGateStatus workflow.Status
-	var hasOwnershipGateStatus bool
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to reconcile statefulset: cluster %s is marked as failed", item.ClusterName))
@@ -707,17 +731,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 		secretMemberClient := r.memberClusterSecretClientsMap[item.ClusterName]
-
-		if mrs.IsRoleAppDB() {
-			ownershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, secretMemberClient, log)
-			if !ownershipStatus.IsOK() {
-				if !hasOwnershipGateStatus {
-					ownershipGateStatus = ownershipStatus
-					hasOwnershipGateStatus = true
-				}
-				continue
-			}
-		}
 		replicasThisReconciliation, err := getMembersForClusterSpecItemThisReconciliation(mrs, item)
 		clusterNum := mrs.ClusterNum(item.ClusterName)
 		if err != nil {
@@ -860,16 +873,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		workflowStatus = workflowStatus.Merge(statefulsetStatus)
-	}
-
-	if hasOwnershipGateStatus {
-		return ownershipGateStatus
-	}
-
-	if mrs.IsRoleAppDB() {
-		if err := r.claimAppDBRoleSecrets(ctx, mrs); err != nil {
-			return workflow.Failed(err)
-		}
 	}
 
 	// wait for all statefulsets to become ready
@@ -1069,6 +1072,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	)
 	if err != nil && !isRecovering {
 		return err
+	}
+
+	if mrs.IsRoleAppDB() {
+		if err := r.ensureAppDBRoleUser(ctx, &mrs, conn); err != nil {
+			return err
+		}
+		if err := r.ensureAppDBRoleKeyfile(ctx, &mrs, conn); err != nil {
+			return err
+		}
 	}
 
 	reconcileResult, err := ReconcileLogRotateSetting(conn, mrs.Spec.Agent, log)
