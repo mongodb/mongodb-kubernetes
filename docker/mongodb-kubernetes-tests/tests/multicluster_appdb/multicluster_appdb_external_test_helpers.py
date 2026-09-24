@@ -5,22 +5,21 @@ from typing import Optional
 import kubernetes.client
 from kubetester import create_or_update_configmap
 from kubetester.awss3client import s3_endpoint
-from kubetester.kubetester import KubernetesTester
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.constants import S3_BLOCKSTORE_NAME, S3_OPLOG_NAME
-from tests.constants import AWS_REGION
 from tests.conftest import get_member_cluster_api_client
+from tests.constants import AWS_REGION
 from tests.multicluster.conftest import cluster_spec_list
 
 PRIMARY_OM_NAME = "primary-om"
 APPDB_NAME = f"{PRIMARY_OM_NAME}-db"
 APPDB_CERT_PREFIX = "appdb"
 APPDB_MEMBER_CLUSTER_NAMES = ["kind-e2e-cluster-2", "kind-e2e-cluster-3"]
-APPDB_MEMBER_COUNTS = [2, 2]
+APPDB_MEMBER_COUNTS: list[int | None] = [2, 2]
 
 
 def appdb_ca_configmap(multi_cluster_issuer_ca_configmap: str) -> str:
