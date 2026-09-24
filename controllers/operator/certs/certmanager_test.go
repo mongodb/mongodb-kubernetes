@@ -419,3 +419,108 @@ func TestResolveUserCA(t *testing.T) {
 		})
 	}
 }
+
+func TestCertificateReady(t *testing.T) {
+	withReady := func(status cmmeta.ConditionStatus, observedGen int64) certmanagerv1.CertificateStatus {
+		return certmanagerv1.CertificateStatus{
+			Conditions: []certmanagerv1.CertificateCondition{
+				{Type: certmanagerv1.CertificateConditionReady, Status: status, ObservedGeneration: observedGen},
+			},
+		}
+	}
+	tests := []struct {
+		name       string
+		generation int64
+		status     certmanagerv1.CertificateStatus
+		expected   bool
+	}{
+		{name: "certificate ready for the current generation", generation: 3, status: withReady(cmmeta.ConditionTrue, 3), expected: true},
+		{name: "ready but for a previous generation, is stale", generation: 3, status: withReady(cmmeta.ConditionTrue, 2), expected: false},
+		{name: "not ready", generation: 3, status: withReady(cmmeta.ConditionFalse, 3), expected: false},
+		{name: "no ready status condition", generation: 1, status: certmanagerv1.CertificateStatus{}, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cert := &certmanagerv1.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
+				Status:     tc.status,
+			}
+			assert.Equal(t, tc.expected, certificateReady(cert))
+		})
+	}
+}
+
+func TestInspectCertificateStatus(t *testing.T) {
+	certName := fmt.Sprintf("%s-cert", resName)
+	now := metav1.Now()
+	attempts := 3
+
+	newCert := func(ready bool, lastFailure *metav1.Time, failedAttempts *int) *certmanagerv1.Certificate {
+		status := cmmeta.ConditionFalse
+		if ready {
+			status = cmmeta.ConditionTrue
+		}
+		return &certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{Name: certName, Namespace: resNamespace, Generation: 1},
+			Status: certmanagerv1.CertificateStatus{
+				Conditions: []certmanagerv1.CertificateCondition{
+					{Type: certmanagerv1.CertificateConditionReady, Status: status, ObservedGeneration: 1},
+				},
+				LastFailureTime:        lastFailure,
+				FailedIssuanceAttempts: failedAttempts,
+			},
+		}
+	}
+
+	tests := []struct {
+		name               string
+		cert               *certmanagerv1.Certificate
+		expReady           bool
+		expRenewalFailed   bool
+		expIssuanceFailing bool
+	}{
+		{name: "ready, no failure", cert: newCert(true, nil, nil), expReady: true},
+		{name: "ready but a renewal is failing is a soft warning", cert: newCert(true, &now, &attempts), expReady: true, expRenewalFailed: true},
+		{name: "not ready and issuance is failing is surfaced", cert: newCert(false, &now, &attempts), expReady: false, expIssuanceFailing: true},
+		{name: "not ready with no recorded failure is just not ready", cert: newCert(false, nil, nil), expReady: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			insp := inspectCertificateStatus(certName, tc.cert)
+			assert.Equal(t, tc.expReady, insp.ready)
+			assert.Equal(t, tc.expRenewalFailed, insp.renewalFailed)
+			assert.Equal(t, tc.expIssuanceFailing, insp.issuanceFailing)
+			if tc.expRenewalFailed || tc.expIssuanceFailing {
+				assert.Contains(t, insp.detail, certName)
+				assert.Contains(t, insp.detail, "failed attempt")
+			}
+		})
+	}
+}
+
+func TestBuildDNSNamesExternalDomain(t *testing.T) {
+	ext := "example.com"
+	opts := Options{
+		ResourceName:   resName,
+		ServiceName:    fmt.Sprintf("%s-svc", resName),
+		Namespace:      resNamespace,
+		ClusterDomain:  "cluster.local",
+		Replicas:       3,
+		ExternalDomain: &ext,
+	}
+
+	dnsNames := buildDNSNames(opts)
+
+	for _, n := range dnsNames {
+		assert.NotContains(t, n, "*", "external SANs must be absolute URLs with no wildcards")
+	}
+	for i := range 3 {
+		assert.Contains(t, dnsNames, fmt.Sprintf("%s-%d.%s", resName, i, ext), "external FQDN for member %d must be present", i)
+	}
+
+	t.Run("no external domain contributes no external SANs", func(t *testing.T) {
+		noExt := opts
+		noExt.ExternalDomain = nil
+		assert.Nil(t, GetExternalDNSNames(noExt))
+	})
+}

@@ -220,6 +220,18 @@ func GetDNSNames(opts Options) (hostnames, podNames []string) {
 	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
 }
 
+// GetExternalDNSNames returns the external per-member FQDNs (<pod>.<externalDomain>) for the
+// members covered this reconcile, or nil when no external domain is configured. The pod
+// hostnames are ordinal-deterministic, so we can list the real names instead of relying on a
+// "*." wildcard. This is the single-cluster form.
+func GetExternalDNSNames(opts Options) []string {
+	if opts.ExternalDomain == nil {
+		return nil
+	}
+	hostnames, _ := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, opts.ExternalDomain)
+	return hostnames
+}
+
 // GetAdditionalCertDomainsForMember gets any additional domains that the
 // certificate for the given member of the stateful set should be signed for.
 func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []string) {
