@@ -210,6 +210,10 @@ func (m *MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *mdbv1.Cl
 	return nil
 }
 
+func (m *MongoDBMultiCluster) StatefulSetNameForCluster(clusterName string) string {
+	return dns.GetMultiStatefulSetName(m.Name, m.ClusterNum(clusterName))
+}
+
 // ClusterStatusList holds a list of clusterStatuses corresponding to each cluster
 type ClusterStatusList struct {
 	ClusterStatuses []ClusterStatusItem `json:"clusterStatuses,omitempty"`
@@ -638,9 +642,6 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 }
 
 // BuildConnectionString for a MultiCluster user.
-//
-// Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
-// to complete.
 func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
