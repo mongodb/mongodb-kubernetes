@@ -287,7 +287,6 @@ func TestLabelsAndAnotations(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(annotations).SetLabels(labels).Build()
 	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
-	// add the default label to the map
 	labels["app"] = "test-mdb-svc"
 	assert.Equal(t, labels, sts.Labels)
 }
@@ -613,6 +612,25 @@ func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
 	// An external domain means processes advertise their external hostname, which only works with the
 	// hostname override ConfigMap mounted into the pods.
 	assert.Equal(t, rs.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+}
+
+func TestReplicaSetStatefulSetStripsOwnerLabels(t *testing.T) {
+	labels := map[string]string{"app": "demo", util.MongoDBMultiClusterResourceOwnerLabel: "spoofed-mdbm"}
+	rs := mdbv1.NewReplicaSetBuilder().SetName("rs").SetNamespace("test-ns").SetMembers(3).Build()
+	rs.Labels = labels
+
+	opts := ReplicaSetOptions(GetPodEnvOptions())(*rs)
+	opts.StsLabels = rs.GetOwnerLabels()
+	sts := DatabaseStatefulSet(*rs, func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions { return opts }, zap.S())
+
+	assert.Equal(t, "demo", sts.Labels["app"], "non-reserved user label must survive")
+	assert.NotContains(t, sts.Labels, util.MongoDBMultiClusterResourceOwnerLabel, "spoofed participant key must be stripped")
+
+	ownerLabels := rs.GetOwnerLabels()
+	require.NotEmpty(t, ownerLabels)
+	for k, v := range ownerLabels {
+		assert.Equal(t, v, sts.Labels[k], "owner label %s applied via StsLabels must be present", k)
+	}
 }
 
 // TestStandaloneOptionsCarryTopLevelExternalAccess guards against the external service of a standalone

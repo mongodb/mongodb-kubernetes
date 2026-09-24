@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -73,6 +74,42 @@ func Float64Ref(i float64) *float64 {
 // BooleanRef is required to return a *bool, which can't be declared as a literal.
 func BooleanRef(b bool) *bool {
 	return &b
+}
+
+func GetOwnershipLabels(stsLabels map[string]string) map[string]string {
+	labels := make(map[string]string)
+	if len(stsLabels) == 0 {
+		return labels
+	}
+
+	for _, key := range mongoDBOwnerLabels {
+		if stsLabels[key] != "" {
+			labels[key] = stsLabels[key]
+		}
+	}
+
+	return labels
+}
+
+// StripOwnerLabels removes every AppDB participant resource-owner label so user-supplied labels
+// cannot claim ownership on behalf of another participant.
+func StripOwnerLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	stripped := make(map[string]string, len(labels))
+	for key, value := range labels {
+		if !slices.Contains(mongoDBOwnerLabels, key) {
+			stripped[key] = value
+		}
+	}
+
+	if len(stripped) == 0 {
+		return nil
+	}
+
+	return stripped
 }
 
 func StripEnt(version string) string {
