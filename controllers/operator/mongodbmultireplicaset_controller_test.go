@@ -1782,6 +1782,48 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 	}
 }
 
+func TestMDBMultiAppDBOwnershipGate_MemberClusterClients(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		deleteClient  bool
+		nilClient     bool
+		expectedOK    bool
+		expectedError string
+	}{
+		{
+			name:         "cluster absent from the client map is skipped",
+			deleteClient: true,
+			expectedOK:   true,
+		},
+		{
+			name:          "cluster with a nil client fails arbitration",
+			nilClient:     true,
+			expectedOK:    false,
+			expectedError: fmt.Sprintf("member cluster %s client is not available", clusters[0]),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs, reconciler, _, _ := newMultiClusterGateFixture(mdb.RoleAppDB)
+			switch {
+			case tt.deleteClient:
+				delete(reconciler.memberClusterClientsMap, clusters[0])
+			case tt.nilClient:
+				reconciler.memberClusterClientsMap[clusters[0]] = nil
+			}
+
+			gateStatus := reconciler.ensureAppDBStatefulSetOwnershipAll(ctx, mrs, zap.S())
+			assert.Equal(t, tt.expectedOK, gateStatus.IsOK())
+			if tt.expectedError != "" {
+				assert.Equal(t, tt.expectedError, statusMessage(gateStatus))
+			}
+		})
+	}
+}
+
 func TestMDBMultiAppDBAdoptionGate_WiredIntoReconcileStatefulSets(t *testing.T) {
 	ctx := context.Background()
 	clusterName := clusters[0]

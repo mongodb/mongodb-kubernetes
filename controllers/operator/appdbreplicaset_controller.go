@@ -637,6 +637,7 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.C
 
 	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 		if memberCluster.Client == nil {
+			errList = multierror.Append(errList, xerrors.Errorf("member cluster %s client is not available", memberCluster.Name))
 			continue
 		}
 
