@@ -25,9 +25,25 @@ def image_config(
     rh_cert_project_id: str,
     name_prefix: str = "mongodb-kubernetes-",
     name_suffix: str = "",
+    apply_registry_override: bool = True,
 ) -> Tuple[str, Dict[str, str]]:
-    # Redirect registry lookups to staging org during dry-run (dryrun_registry_override=quay.io/mongodb/staging).
-    base_registry = os.environ.get("dryrun_registry_override", "quay.io/mongodb")
+    # Only operator-published images get the staging override, and only in actual dry-runs
+    # (detected via the [dry-run] tag annotation). The dryrun_registry_override expansion alone
+    # is NOT a dry-run signal: it leaks into task environments via include_expansions_in_env.
+    # Third-party images (Ops Manager, Agent, etc.) are not pushed to staging and always resolve to quay.io/mongodb.
+    is_dryrun = "[dry-run]" in os.environ.get("tag_description_override", "")
+    if apply_registry_override:
+        override = os.environ.get("dryrun_registry_override", "").strip()
+        if not override:
+            # dryrun_registry_override is a project-level expansion; if it is missing the task
+            # environment is misconfigured. Mirrors publish_images.sh, which also fails hard.
+            raise RuntimeError(
+                "dryrun_registry_override is unset — refusing to guess the registry for operator image "
+                f"'{name_prefix}{image}{name_suffix}'"
+            )
+        base_registry = override if is_dryrun else "quay.io/mongodb"
+    else:
+        base_registry = "quay.io/mongodb"
     api_path = base_registry.replace("quay.io/", "")
     args = {
         "registry": f"{base_registry}/{name_prefix}{image}{name_suffix}",
@@ -41,8 +57,8 @@ def official_server_image(
     image: str,
     rh_cert_project_id: str,
 ) -> Tuple[str, Dict[str, str]]:
-    # Redirect registry lookups to staging org during dry-run.
-    base_registry = os.environ.get("dryrun_registry_override", "quay.io/mongodb")
+    # Third-party image (mongodb-enterprise-server) is not pushed to staging; always use quay.io/mongodb.
+    base_registry = "quay.io/mongodb"
     api_path = base_registry.replace("quay.io/", "")
     args = {
         "registry": f"{base_registry}/mongodb-enterprise-server",
@@ -84,9 +100,16 @@ def args_for_image(image: str) -> Dict[str, str]:
             rh_cert_project_id="633fcd36c4ee7ff29edff589",
             name_prefix="mongodb-enterprise-",
             name_suffix="-ubi",
+            # Third-party image, never pushed to staging.
+            apply_registry_override=False,
         ),
         image_config(
-            image="mongodb-agent", rh_cert_project_id="68e37c471f673a855dfe1a99", name_prefix="", name_suffix=""
+            image="mongodb-agent",
+            rh_cert_project_id="68e37c471f673a855dfe1a99",
+            name_prefix="",
+            name_suffix="",
+            # Third-party image, never pushed to staging.
+            apply_registry_override=False,
         ),
     ]
     images = {k: v for k, v in image_configs}
