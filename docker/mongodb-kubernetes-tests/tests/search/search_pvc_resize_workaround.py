@@ -1,5 +1,6 @@
 import time
 
+import pymongo.errors
 from kubernetes import client
 from kubernetes.utils import parse_quantity
 from kubetester import create_or_update_secret, try_load
@@ -40,6 +41,8 @@ MONGOT_DATA_PATH = "/mongot/data"
 MARKER_FILE = f"{MONGOT_DATA_PATH}/pvc-resize-marker"
 
 EVIDENCE = "PVC-RESIZE-EVIDENCE:"
+
+SEARCH_NOT_ENABLED = 31082
 
 # Observations carried across the ordered steps of the workaround.
 baseline: dict = {}
@@ -180,13 +183,28 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_pvc_resize_workaround
+def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
+    mdbc.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_search_pvc_resize_workaround
 def test_search_restore_sample_database(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.restore_sample_database()
 
 
 @mark.e2e_search_pvc_resize_workaround
 def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelper):
-    sample_movies_helper.create_search_index()
+    def created() -> tuple[bool, str]:
+        try:
+            sample_movies_helper.create_search_index()
+        except pymongo.errors.OperationFailure as exc:
+            # mongod reports SearchNotEnabled until its rolling restart with mongotHost completes.
+            if exc.code != SEARCH_NOT_ENABLED:
+                raise
+            return False, str(exc)
+        return True, "created"
+
+    run_periodically(created, timeout=600, sleep_time=10, msg="search index creation")
 
 
 @mark.e2e_search_pvc_resize_workaround
