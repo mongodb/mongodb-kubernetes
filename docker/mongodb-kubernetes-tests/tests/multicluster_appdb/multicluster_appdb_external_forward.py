@@ -2,6 +2,7 @@ from typing import ClassVar, Optional
 
 import kubernetes.client
 from kubetester import try_load
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.opsmanager import MongoDBOpsManager
@@ -19,13 +20,18 @@ from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import (
     appdb_member_cluster_names as default_appdb_member_cluster_names,
 )
 from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import (
+    appdb_statefulset,
     assert_multi_cluster_appdb_statefulset_identity,
     assert_no_appdb_migration_annotations,
     configure_appdb_role_mongodb_multi,
     primary_om_internal_appdb_resource,
     read_appdb_connection_url,
 )
-from tests.opsmanager.om_external_appdb_test_helpers import assert_sentinel_doc_present, write_sentinel_doc
+from tests.opsmanager.om_external_appdb_test_helpers import (
+    assert_project_exists,
+    assert_sentinel_doc_present,
+    write_sentinel_doc,
+)
 
 
 @fixture(scope="module")
@@ -203,3 +209,76 @@ class TestForwardMigrationToExternalAppDB:
         self, primary_om: MongoDBOpsManager, appdb_member_cluster_names: list[str]
     ):
         assert read_appdb_connection_url(primary_om, appdb_member_cluster_names[0]) == self.connection_string_before
+
+
+@mark.usefixtures("multi_cluster_operator")
+@mark.e2e_om_external_multi_cluster_appdb_forward
+class TestReverseMigrationAfterForwardMigration:
+    def test_reverse_migration_delete_mongodb_first(self, external_appdb: MongoDBMulti, namespace: str):
+        external_appdb.delete()
+
+        def cr_is_gone():
+            try:
+                kubernetes.client.CustomObjectsApi().get_namespaced_custom_object(
+                    "mongodb.com", "v1", namespace, "mongodbmulticluster", APPDB_NAME
+                )
+                return False
+            except ApiException as e:
+                if e.status == 404:
+                    return True
+                raise
+
+        KubernetesTester.wait_until(cr_is_gone, timeout=300)
+
+    def test_statefulsets_survive_cr_deletion(
+        self,
+        external_appdb: MongoDBMulti,
+        appdb_member_cluster_names: list[str],
+    ):
+        expected_owner = f"{external_appdb.namespace}-{external_appdb.name}"
+        for cluster_name in appdb_member_cluster_names:
+            sts = appdb_statefulset(external_appdb, cluster_name)
+            assert (
+                not sts.metadata.owner_references
+            ), f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no ownerReferences, but got: {sts.metadata.owner_references}"
+            assert (
+                sts.metadata.labels.get("mongodbmulticluster") == expected_owner
+            ), f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must keep the multi-cluster owner label, but got labels: {sts.metadata.labels}"
+
+    def test_reverse_migration_reconfigure_om(self, primary_om: MongoDBOpsManager):
+        primary_om.load()
+        primary_om["spec"]["externalApplicationDatabaseRef"] = None
+        primary_om.update()
+
+    def test_internal_appdb_management_resumes(self, primary_om: MongoDBOpsManager):
+        primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+        primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+
+    def test_internal_appdb_statefulsets_are_reclaimed(
+        self,
+        external_appdb: MongoDBMulti,
+        primary_om: MongoDBOpsManager,
+        appdb_member_cluster_names: list[str],
+    ):
+        for cluster_name in appdb_member_cluster_names:
+            sts = appdb_statefulset(external_appdb, cluster_name)
+            assert (
+                not sts.metadata.owner_references
+            ), f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no ownerReferences, but got: {sts.metadata.owner_references}"
+            assert (
+                sts.metadata.labels.get("mongodb.com/v1.mongodbOpsManagerResourceOwner") == primary_om.name
+            ), f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must be owned by the Ops Manager, but got labels: {sts.metadata.labels}"
+        assert_no_appdb_migration_annotations(external_appdb, appdb_member_cluster_names)
+
+    def test_sentinel_doc_survives_reverse_migration(
+        self,
+        primary_om: MongoDBOpsManager,
+        appdb_member_cluster_names: list[str],
+        issuer_ca_filepath: str,
+    ):
+        cnx_string = read_appdb_connection_url(primary_om, appdb_member_cluster_names[0])
+        assert "ssl=true" in cnx_string
+        assert_sentinel_doc_present(cnx_string, tls_ca_file=issuer_ca_filepath)
+
+    def test_project_still_exists_after_reverse_migration(self, meta_om: MongoDBOpsManager):
+        assert_project_exists(meta_om, APPDB_NAME)
