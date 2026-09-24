@@ -2,11 +2,11 @@
   "mongodbToolsBundle": {
     "ubi": "mongodb-database-tools-rhel88-x86_64-100.17.0.tgz"
   },
-  "mongodbOperator": "1.12.1",
-  "initDatabaseVersion": "1.12.1",
-  "initOpsManagerVersion": "1.12.1",
-  "databaseImageVersion": "1.12.1",
-  "agentVersion": "108.0.26.9062-1",
+  "mongodbOperator": "1.13.0",
+  "initDatabaseVersion": "1.13.0",
+  "initOpsManagerVersion": "1.13.0",
+  "databaseImageVersion": "1.13.0",
+  "agentVersion": "109.0.0.9285-1",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
@@ -32,6 +32,12 @@
       "8": {
         "opsManagerVersion": "8.0.26",
         "agentVersion": "108.0.26.9062-1"
+      }
+    },
+    {
+      "9": {
+        "opsManagerVersion": "9.0.0",
+        "agentVersion": "109.0.0.9285-1"
       }
     }
   ],
@@ -76,7 +82,8 @@
         "8.0.23",
         "8.0.24",
         "8.0.25",
-        "8.0.26"
+        "8.0.26",
+        "9.0.0"
       ],
       "variants": [
         "ubi"
@@ -104,7 +111,8 @@
         "1.10.0",
         "1.11.0",
         "1.12.0",
-        "1.12.1"
+        "1.12.1",
+        "1.13.0"
       ],
       "variants": [
         "ubi"
@@ -285,6 +293,10 @@
           "8.0.26": {
             "agent_version": "108.0.26.9062-1",
             "tools_version": "100.17.0"
+          },
+          "9.0.0": {
+            "agent_version": "109.0.0.9285-1",
+            "tools_version": "100.17.0"
           }
         }
       },
@@ -314,7 +326,8 @@
         "1.10.0",
         "1.11.0",
         "1.12.0",
-        "1.12.1"
+        "1.12.1",
+        "1.13.0"
       ],
       "variants": [
         "ubi"
@@ -342,7 +355,8 @@
         "1.10.0",
         "1.11.0",
         "1.12.0",
-        "1.12.1"
+        "1.12.1",
+        "1.13.0"
       ],
       "variants": [
         "ubi"
@@ -370,7 +384,8 @@
         "1.10.0",
         "1.11.0",
         "1.12.0",
-        "1.12.1"
+        "1.12.1",
+        "1.13.0"
       ],
       "variants": [
         "ubi"

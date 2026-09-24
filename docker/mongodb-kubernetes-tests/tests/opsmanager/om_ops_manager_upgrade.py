@@ -301,7 +301,9 @@ class TestOpsManagerVersionUpgrade:
         om_tester.assert_version(ops_manager.get_version())
 
     def test_appdb(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        mdb_tester = ops_manager.get_appdb_tester()
+        # The AppDB has SCRAM auth enabled, and buildInfo requires authentication on MongoDB 9.0,
+        # so the tester must authenticate (OM_USER_NAME + generated password) to assert the version.
+        mdb_tester = ops_manager.get_appdb_tester(authenticate=True)
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version(custom_appdb_version)
 
@@ -320,6 +322,15 @@ class TestOpsManagerVersionUpgrade:
 
 @pytest.mark.e2e_om_ops_manager_upgrade
 class TestMongoDbsVersionUpgrade:
+    def test_update_version_manifest(self, ops_manager: MongoDBOpsManager):
+        """Pushes the version manifest bundled in the (just upgraded) OM image onto Ops Manager.
+
+        Temporary workaround for CLOUDP-444668, which tracks teaching Ops Manager to read its own
+        bundled manifest on update; once that lands, OM loads the new versions itself and this step
+        (and push_version_manifest) can be removed.
+        """
+        ops_manager.push_version_manifest()
+
     def test_mongodb_upgrade(self, mdb: MongoDB, custom_mdb_version: str):
         """Ensures that the existing MongoDB works fine with the new Ops Manager (scales up one member)
         Some details:
@@ -339,9 +350,11 @@ class TestMongoDbsVersionUpgrade:
         mdb["spec"]["version"] = custom_mdb_version
         mdb.update()
 
-        # After the Ops Manager Upgrade, there's no time guarantees when a new manifest will be downloaded.
-        # Therefore, we may occasionally get "Invalid config: MongoDB version 8.0.0 is not available."
-        # This shouldn't happen very often at our customers as upgrading OM and MDB is usually separate processes.
+        # The version manifest bundled in the OM image was pushed in test_update_version_manifest
+        # above, so the target version is deterministically available and there's no manifest-download
+        # race. This push is a temporary workaround for CLOUDP-444668 (OM reading its own bundled
+        # manifest on update); ignore_errors is kept only as a safety net for unrelated transient
+        # reconciliation errors.
         mdb.assert_reaches_phase(Phase.Running, timeout=1200, ignore_errors=True)
         mdb.assert_connectivity()
         mdb.tester().assert_version(custom_mdb_version)

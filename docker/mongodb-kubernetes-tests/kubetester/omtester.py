@@ -861,6 +861,14 @@ class OMTester(object):
         body = requests.get(url=f"https://opsmanager.mongodb.com/static/version_manifest/{major_version}.json").json()
         self.om_request("put", "/versionManifest", json_object=body)
 
+    def api_put_version_manifest(self, manifest: Dict):
+        """PUTs an arbitrary version manifest body onto Ops Manager.
+
+        Unlike api_update_version_manifest, the caller controls the manifest contents, so RC builds
+        (e.g. 9.0.0-rc0) that the public manifest does not carry can be pushed deterministically.
+        """
+        self.om_request("put", "/versionManifest", json_object=manifest)
+
     def api_get_automation_status(self) -> dict[str, str]:
         return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
 

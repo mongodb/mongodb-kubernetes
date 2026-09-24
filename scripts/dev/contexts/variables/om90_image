@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_90_latest\s+(\S+)\s+#" < "${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
+export OM_VERSION

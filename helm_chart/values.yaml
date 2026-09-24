@@ -17,7 +17,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.12.1
+  version: 1.13.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -146,11 +146,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.12.1
+  version: 1.13.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.12.1
+  version: 1.13.0
 
 ## Ops Manager
 opsManager:
@@ -158,11 +158,11 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.12.1
+  version: 1.13.0
 
 agent:
   name: mongodb-agent
-  version: 108.0.26.9062-1
+  version: 109.0.0.9285-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
@@ -213,7 +213,7 @@ community:
     imageType: ubi8
   agent:
     name: mongodb-agent
-    version: 108.0.26.9062-1
+    version: 109.0.0.9285-1
   registry:
     agent: quay.io/mongodb
   resource:

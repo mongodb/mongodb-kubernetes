@@ -33,7 +33,6 @@ def new_om_s3_store(
     mdb: MongoDB,
     s3_id: str,
     s3_bucket_name: str,
-    aws_s3_client: AwsS3Client,
     assignment_enabled: bool = True,
     path_style_access_enabled: bool = True,
     user_name: Optional[str] = None,
@@ -45,8 +44,6 @@ def new_om_s3_store(
         "pathStyleAccessEnabled": path_style_access_enabled,
         "s3BucketEndpoint": s3_endpoint(AWS_REGION),
         "s3BucketName": s3_bucket_name,
-        "awsAccessKey": aws_s3_client.aws_access_key,
-        "awsSecretKey": aws_s3_client.aws_secret_access_key,
         "assignmentEnabled": assignment_enabled,
     }
 

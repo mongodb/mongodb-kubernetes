@@ -30,6 +30,7 @@ get_operator_helm_values() {
     "readinessProbe.version=${READINESS_PROBE_VERSION}"
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
+    "mongodb.repo=${MONGODB_REPO_URL}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     # only send the telemetry to the backend on a specific variant, thus default to false
