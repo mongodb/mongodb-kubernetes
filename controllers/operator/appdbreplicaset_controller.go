@@ -630,7 +630,6 @@ func (r *ReconcileAppDbReplicaSet) shouldReconcileAppDB(ctx context.Context, ops
 func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) workflow.Status {
 	var (
 		hasExistingStatefulSet bool
-		reclaimedStatefulSet   bool
 		pendingMessage         string
 		blocked                bool
 		errList                error
@@ -691,8 +690,6 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.C
 
 		if err := r.reclaimAppDBStatefulset(ctx, memberCluster.Client, opsManager, sts); err != nil {
 			errList = multierror.Append(errList, err)
-		} else {
-			reclaimedStatefulSet = true
 		}
 	}
 
@@ -708,10 +705,8 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.C
 		return workflow.OK()
 	}
 
-	if reclaimedStatefulSet {
-		if err := r.reclaimAppDBSecrets(ctx, opsManager); err != nil {
-			return workflow.Failed(err)
-		}
+	if err := r.reclaimAppDBSecrets(ctx, opsManager); err != nil {
+		return workflow.Failed(err)
 	}
 
 	return workflow.OK()
