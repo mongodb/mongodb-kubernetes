@@ -449,7 +449,7 @@ def test_step6_same_volume_mounted_in_mongot(namespace: str, mdbs: MongoDBSearch
 
 
 @mark.e2e_search_pvc_resize_workaround
-def test_step6_search_query_without_reingest(sample_movies_helper: SampleMoviesSearchHelper):
+def test_step6_search_returns_same_hits(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=300)
     hits = search_hit_count(sample_movies_helper)
     evidence(f"[after] $search hit count={hits} (before={baseline['hits']})")
@@ -507,7 +507,7 @@ def test_step7_marker_preserved_after_pod_restart(namespace: str, mdbs: MongoDBS
 
 
 @mark.e2e_search_pvc_resize_workaround
-def test_step7_search_query_after_pod_restart(sample_movies_helper: SampleMoviesSearchHelper):
+def test_step7_search_returns_same_hits_after_pod_restart(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=300)
     hits = search_hit_count(sample_movies_helper)
     evidence(f"[step7] $search hit count after pod restart={hits} (before={baseline['hits']})")
