@@ -86,8 +86,17 @@ const (
 // StatefulSets. Depending on which StatefulSet is being built, a number of these will be pre-set,
 // while the remainder will be configurable via configuration functions which modify this type.
 type DatabaseStatefulSetOptions struct {
-	Replicas                int
-	Name                    string
+	Replicas int
+	Name     string
+
+	// We use one common CA bundle ConfigMap per resource/deployment (<resource>-managed-{server,client}-ca-bundle).
+	// DatabaseStatefulSetOptions.Name differs per sharded component (mongos, configserver, each shard)
+	// because it's set to the STS name, so it can't be used to find that ConfigMap. OwnerResourceName
+	// holds the owning resource name for the lookup of the CA bundle. Only the sharded components set it,
+	// elsewhere (e.g. RS) it's empty and the volume builder falls back to DatabaseStatefulSetOptions.Name,
+	// which already equals the resource name there.
+	OwnerResourceName string
+
 	ServiceName             string
 	PodSpec                 *mdbv1.PodSpecWrapper
 	PodVars                 *env.PodEnvVars
@@ -289,6 +298,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 
 	opts := DatabaseStatefulSetOptions{
 		Name:                    cfg.rsName,
+		OwnerResourceName:       cfg.mdb.Name,
 		ServiceName:             cfg.serviceName,
 		Annotations:             map[string]string{"type": "ShardedCluster"},
 		PodSpec:                 NewDefaultPodSpecWrapper(podSpec),

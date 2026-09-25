@@ -1090,6 +1090,7 @@ task_groups:
       - e2e_replica_set_tls_managedcert
       - e2e_replica_set_tls_managedcert_server
       - e2e_replica_set_tls_managedcert_both_configured
+      - e2e_sharded_cluster_tls_managedcert
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
   # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
