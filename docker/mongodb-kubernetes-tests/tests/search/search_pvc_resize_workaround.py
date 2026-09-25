@@ -44,6 +44,9 @@ EVIDENCE = "PVC-RESIZE-EVIDENCE:"
 
 SEARCH_NOT_ENABLED = 31082
 
+# How long kubelet gets to finish an online filesystem expansion before the pod is restarted.
+FS_RESIZE_GRACE_SECONDS = 180
+
 # Observations carried across the ordered steps of the workaround.
 baseline: dict = {}
 
@@ -270,6 +273,7 @@ def test_step2_patch_pvcs(namespace: str, mdbs: MongoDBSearch):
 def test_step3_wait_for_pvc_capacity(namespace: str, mdbs: MongoDBSearch):
     core = client.CoreV1Api()
     name = sts_name(mdbs)
+    fs_resize_pending_since: dict[str, float] = {}
     restarted_for_fs_resize: set[str] = set()
 
     def expanded() -> tuple[bool, str]:
@@ -280,14 +284,24 @@ def test_step3_wait_for_pvc_capacity(namespace: str, mdbs: MongoDBSearch):
             if parse_quantity(capacity) < parse_quantity(RESIZED_STORAGE):
                 pending.append(f"{pvc.metadata.name}={capacity}")
             conditions = {c.type for c in (pvc.status.conditions or [])}
-            if "FileSystemResizePending" in conditions and pvc.metadata.name not in restarted_for_fs_resize:
+            if "FileSystemResizePending" not in conditions or pvc.metadata.name in restarted_for_fs_resize:
+                continue
+            if pvc.metadata.name not in fs_resize_pending_since:
+                fs_resize_pending_since[pvc.metadata.name] = time.time()
+                evidence(f"[step3] {pvc.metadata.name} has FileSystemResizePending, waiting for online expansion")
+            elif time.time() - fs_resize_pending_since[pvc.metadata.name] > FS_RESIZE_GRACE_SECONDS:
                 pod_name = pvc.metadata.name.removeprefix("data-")
-                evidence(f"[step3] {pvc.metadata.name} has FileSystemResizePending, deleting pod {pod_name}")
+                evidence(
+                    f"[step3] {pvc.metadata.name} still FileSystemResizePending after {FS_RESIZE_GRACE_SECONDS}s, "
+                    f"deleting pod {pod_name}"
+                )
                 core.delete_namespaced_pod(pod_name, namespace)
                 restarted_for_fs_resize.add(pvc.metadata.name)
         return not pending, f"pending={pending}"
 
-    run_periodically(expanded, timeout=600, sleep_time=5, msg="mongot data PVCs to report expanded capacity")
+    started = time.time()
+    run_periodically(expanded, timeout=900, sleep_time=5, msg="mongot data PVCs to report expanded capacity")
+    evidence(f"[step3] PVC capacity reached {RESIZED_STORAGE} after {time.time() - started:.0f}s")
 
     pvcs = read_pvcs(namespace, name)
     log_pvcs("after-expand", pvcs)
@@ -329,6 +343,10 @@ def test_step4_update_search_storage(
 @mark.e2e_search_pvc_resize_workaround
 def test_step5_orphan_delete_statefulset(namespace: str, mdbs: MongoDBSearch):
     name = sts_name(mdbs)
+    pods = mongot_pods(namespace, name, baseline["replicas"])
+    log_pods("before-sts-delete", pods)
+    baseline["pod_uids_before_sts_delete"] = {pod.metadata.name: pod.metadata.uid for pod in pods}
+
     client.AppsV1Api().delete_namespaced_stateful_set(name, namespace, propagation_policy="Orphan")
     baseline["deleted_at"] = time.time()
     evidence(f"[step5] deleted STS {name} uid={baseline['sts_uid']} with propagationPolicy=Orphan")
@@ -393,9 +411,10 @@ def test_step6_mongot_pods_ready(namespace: str, mdbs: MongoDBSearch):
     pods = mongot_pods(namespace, name, baseline["replicas"])
     log_pods("after", pods)
     for pod in pods:
+        before = baseline["pod_uids_before_sts_delete"][pod.metadata.name]
         evidence(
-            f"[step6] pod {pod.metadata.name} uid before={baseline['pod_uids'][pod.metadata.name]} "
-            f"after={pod.metadata.uid} replaced={pod.metadata.uid != baseline['pod_uids'][pod.metadata.name]}"
+            f"[step6] pod {pod.metadata.name} uid before STS delete={before} after={pod.metadata.uid} "
+            f"replaced by STS recreate={pod.metadata.uid != before}"
         )
 
 
