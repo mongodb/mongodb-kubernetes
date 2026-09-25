@@ -1225,7 +1225,7 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_om_ops_manager_backup_restore_minio
+  - name: e2e_om_ops_manager_backup_restore_rustfs
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

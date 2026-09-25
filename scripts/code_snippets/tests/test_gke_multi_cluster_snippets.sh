@@ -63,6 +63,9 @@ source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variabl
 
 ./public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
 
+source public/architectures/setup-multi-cluster/ra-13-setup-rustfs/env_variables.sh
+./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/test.sh
+
 source public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
 ./public/architectures/ra-06-ops-manager-multi-cluster/test.sh
 

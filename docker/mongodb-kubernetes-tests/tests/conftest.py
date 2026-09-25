@@ -501,7 +501,7 @@ def custom_version() -> str:
 
 
 def get_custom_om_version():
-    return os.getenv("CUSTOM_OM_VERSION", "6.0.22")
+    return os.getenv("CUSTOM_OM_VERSION", "8.0.26")
 
 
 @fixture(scope="module")
