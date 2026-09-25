@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -13,7 +14,10 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-var nextScheduledTime time.Time
+var (
+	nextScheduledTime   time.Time
+	nextScheduledTimeMu sync.Mutex
+)
 
 const pause = time.Hour * 24
 
@@ -28,7 +32,7 @@ type ClientSecret struct {
 }
 
 func upgradeIfNeeded(conn om.Connection, key types.NamespacedName, spec mdbv1.DbCommonSpec) {
-	if !time.Now().After(nextScheduledTime) {
+	if !scheduleNextUpgrade() {
 		return
 	}
 	log := zap.S()
@@ -40,7 +44,17 @@ func upgradeIfNeeded(conn om.Connection, key types.NamespacedName, spec mdbv1.Db
 	}
 
 	log.Infof("The upgrade of Agents for the MongoDB resource %s/%s in the cluster is finished.", key.Namespace, key.Name)
+}
+
+func scheduleNextUpgrade() bool {
+	nextScheduledTimeMu.Lock()
+	defer nextScheduledTimeMu.Unlock()
+
+	if !time.Now().After(nextScheduledTime) {
+		return false
+	}
 	nextScheduledTime = nextScheduledTime.Add(pause)
+	return true
 }
 
 func UpgradeIfNeeded(mdb *mdbv1.MongoDB, conn om.Connection) {
@@ -61,11 +75,17 @@ func UpgradeIfNeededMC(mdb *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) 
 // This is needed for major/minor OM upgrades as all dependent MongoDBs won't get reconciled with "You need to upgrade the
 // automation agent before publishing other changes"
 func ScheduleUpgrade() {
+	nextScheduledTimeMu.Lock()
+	defer nextScheduledTimeMu.Unlock()
+
 	nextScheduledTime = time.Now()
 }
 
 // NextScheduledUpgradeTime returns the next scheduled time. Mostly needed for testing.
 func NextScheduledUpgradeTime() time.Time {
+	nextScheduledTimeMu.Lock()
+	defer nextScheduledTimeMu.Unlock()
+
 	return nextScheduledTime
 }
 
