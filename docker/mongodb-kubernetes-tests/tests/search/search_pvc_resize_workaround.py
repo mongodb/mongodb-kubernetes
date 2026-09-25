@@ -3,7 +3,7 @@ import time
 import pymongo.errors
 from kubernetes import client
 from kubernetes.utils import parse_quantity
-from kubetester import create_or_update_secret, try_load
+from kubetester import create_or_update_secret, pod_is_ready, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -146,14 +146,20 @@ def mongot_exec(namespace: str, pod_name: str, cmd: list[str]) -> str:
     return KubernetesTester.run_command_in_pod_container(pod_name, namespace, cmd, container=MONGOT_CONTAINER)
 
 
-def data_mount_size_bytes(stage: str, namespace: str, pod_name: str) -> int:
+# Logged only: csi-hostpath volumes don't enforce capacity, so df reports the node's disk, not the PV size.
+def log_data_mount_usage(stage: str, namespace: str, pod_name: str):
     out = mongot_exec(namespace, pod_name, ["df", "-kP", MONGOT_DATA_PATH])
     evidence(f"[{stage}] {pod_name} df -kP {MONGOT_DATA_PATH}:\n{out}")
-    return int(out.strip().splitlines()[-1].split()[1]) * 1024
 
 
 def search_hit_count(helper: SampleMoviesSearchHelper) -> int:
     return len(list(helper.execute_example_search_query()))
+
+
+def assert_marker_preserved(stage: str, namespace: str, pod_name: str):
+    marker = mongot_exec(namespace, pod_name, ["cat", MARKER_FILE]).strip()
+    evidence(f"[{stage}] {pod_name} marker file {MARKER_FILE} content={marker!r}")
+    assert marker == baseline["pod_uids"][pod_name]
 
 
 @mark.e2e_search_pvc_resize_workaround
@@ -240,7 +246,7 @@ def test_record_baseline(namespace: str, mdbs: MongoDBSearch):
 
     for pod in pods:
         mongot_exec(namespace, pod.metadata.name, ["/bin/sh", "-c", f"echo {pod.metadata.uid} > {MARKER_FILE}"])
-        data_mount_size_bytes("before", namespace, pod.metadata.name)
+        log_data_mount_usage("before", namespace, pod.metadata.name)
 
     baseline.update(
         sts_uid=sts.metadata.uid,
@@ -412,10 +418,13 @@ def test_step6_mongot_pods_ready(namespace: str, mdbs: MongoDBSearch):
     log_pods("after", pods)
     for pod in pods:
         before = baseline["pod_uids_before_sts_delete"][pod.metadata.name]
+        restarts = [cs.restart_count for cs in pod.status.container_statuses]
         evidence(
             f"[step6] pod {pod.metadata.name} uid before STS delete={before} after={pod.metadata.uid} "
-            f"replaced by STS recreate={pod.metadata.uid != before}"
+            f"replaced by STS recreate={pod.metadata.uid != before} restartCounts={restarts}"
         )
+        assert pod.metadata.uid == before
+        assert set(restarts) == {0}
 
 
 @mark.e2e_search_pvc_resize_workaround
@@ -435,10 +444,8 @@ def test_step6_pvc_owner_refs_readopted(namespace: str, mdbs: MongoDBSearch):
 @mark.e2e_search_pvc_resize_workaround
 def test_step6_same_volume_mounted_in_mongot(namespace: str, mdbs: MongoDBSearch):
     for pod in mongot_pods(namespace, sts_name(mdbs), baseline["replicas"]):
-        marker = mongot_exec(namespace, pod.metadata.name, ["cat", MARKER_FILE]).strip()
-        evidence(f"[step6] {pod.metadata.name} marker file {MARKER_FILE} content={marker!r}")
-        assert marker in baseline["pod_uids"].values()
-        assert data_mount_size_bytes("after", namespace, pod.metadata.name) >= parse_quantity(RESIZED_STORAGE)
+        assert_marker_preserved("step6", namespace, pod.metadata.name)
+        log_data_mount_usage("after", namespace, pod.metadata.name)
 
 
 @mark.e2e_search_pvc_resize_workaround
@@ -447,3 +454,68 @@ def test_step6_search_query_without_reingest(sample_movies_helper: SampleMoviesS
     hits = search_hit_count(sample_movies_helper)
     evidence(f"[after] $search hit count={hits} (before={baseline['hits']})")
     assert hits == baseline["hits"]
+
+
+@mark.e2e_search_pvc_resize_workaround
+def test_step7_mongot_pod_restart(namespace: str, mdbs: MongoDBSearch):
+    core = client.CoreV1Api()
+    name = sts_name(mdbs)
+    old_uids = {pod.metadata.name: pod.metadata.uid for pod in mongot_pods(namespace, name, baseline["replicas"])}
+    for pod_name, uid in old_uids.items():
+        core.delete_namespaced_pod(pod_name, namespace)
+        evidence(f"[step7] deleted pod {pod_name} uid={uid}")
+
+    def replaced_and_ready() -> tuple[bool, str]:
+        pending = []
+        for pod_name, old_uid in old_uids.items():
+            try:
+                pod = core.read_namespaced_pod(pod_name, namespace)
+            except client.exceptions.ApiException as exc:
+                if exc.status != 404:
+                    raise
+                pending.append(f"{pod_name}=absent")
+                continue
+            if pod.metadata.uid == old_uid or not pod_is_ready(pod):
+                pending.append(f"{pod_name}(uid={pod.metadata.uid} ready={pod_is_ready(pod)})")
+        return not pending, f"pending={pending}"
+
+    run_periodically(replaced_and_ready, timeout=600, sleep_time=5, msg="mongot pods recreated and Ready")
+
+    pods = mongot_pods(namespace, name, baseline["replicas"])
+    log_pods("after-pod-restart", pods)
+    for pod in pods:
+        evidence(f"[step7] pod {pod.metadata.name} uid before={old_uids[pod.metadata.name]} after={pod.metadata.uid}")
+        assert pod.metadata.uid != old_uids[pod.metadata.name]
+
+
+@mark.e2e_search_pvc_resize_workaround
+def test_step7_same_pvc_bound_after_pod_restart(namespace: str, mdbs: MongoDBSearch):
+    pvcs = read_pvcs(namespace, sts_name(mdbs))
+    log_pvcs("after-pod-restart", pvcs)
+    assert {pvc.metadata.name: pvc.metadata.uid for pvc in pvcs} == baseline["pvc_uids"]
+    assert {pvc.metadata.name: pvc.spec.volume_name for pvc in pvcs} == baseline["pv_names"]
+    for pvc in pvcs:
+        evidence(f"[step7] PVC {pvc.metadata.name} phase={pvc.status.phase}")
+        assert pvc.status.phase == "Bound"
+        assert parse_quantity(pvc.status.capacity["storage"]) == parse_quantity(RESIZED_STORAGE)
+
+
+@mark.e2e_search_pvc_resize_workaround
+def test_step7_marker_preserved_after_pod_restart(namespace: str, mdbs: MongoDBSearch):
+    for pod in mongot_pods(namespace, sts_name(mdbs), baseline["replicas"]):
+        assert_marker_preserved("step7", namespace, pod.metadata.name)
+
+
+@mark.e2e_search_pvc_resize_workaround
+def test_step7_search_query_after_pod_restart(sample_movies_helper: SampleMoviesSearchHelper):
+    sample_movies_helper.assert_search_query(retry_timeout=300)
+    hits = search_hit_count(sample_movies_helper)
+    evidence(f"[step7] $search hit count after pod restart={hits} (before={baseline['hits']})")
+    assert hits == baseline["hits"]
+
+
+@mark.e2e_search_pvc_resize_workaround
+def test_step7_search_resource_running_after_pod_restart(mdbs: MongoDBSearch):
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+    mdbs.load()
+    evidence(f"[step7] MongoDBSearch phase={mdbs.get_status_phase()} message={mdbs.get_status_message()!r}")
