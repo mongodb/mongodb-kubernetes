@@ -524,3 +524,34 @@ func TestBuildDNSNamesExternalDomain(t *testing.T) {
 		assert.Nil(t, GetExternalDNSNames(noExt))
 	})
 }
+
+type fakeScaler struct {
+	current int
+	desired int
+}
+
+func (f fakeScaler) DesiredReplicas() int          { return f.desired }
+func (f fakeScaler) CurrentReplicas() int          { return f.current }
+func (f fakeScaler) ForcedIndividualScaling() bool { return false }
+func (f fakeScaler) ScalingFirstTime() bool        { return false }
+func (f fakeScaler) TargetReplicas() int           { return f.desired }
+func (f fakeScaler) MemberClusterName() string     { return "" }
+func (f fakeScaler) MemberClusterNum() int         { return 0 }
+func (f fakeScaler) ScalerDescription() string     { return "" }
+
+// TestShardedComponentConfigsSetMembersToCover covers that the sharded cert Options builders set
+// the never-shrink MembersToCover count (max of current and desired), like the replica set does.
+// Without it the shared member cert would reissue on every one-at-a-time scale step.
+func TestShardedComponentConfigsSetMembersToCover(t *testing.T) {
+	mdb := newMongoDB(resName, nil)
+	scaler := fakeScaler{current: 3, desired: 5}
+
+	builders := map[string]Options{
+		"shard":  ShardConfig(*mdb, 0, nil, scaler),
+		"mongos": MongosConfig(*mdb, nil, scaler),
+		"config": ConfigSrvConfig(*mdb, nil, scaler),
+	}
+	for name, opts := range builders {
+		assert.Equal(t, 5, opts.MembersToCover, "%s cert Options must set MembersToCover to max(current, desired)", name)
+	}
+}
