@@ -12,7 +12,9 @@ OPERATOR_VERSION = "1.6.0"
 
 @patch.object(DockerImageBuilder, "get_manfiest_list_digest")
 def test_create_release_info_json(mock_get_digest, monkeypatch):
-    monkeypatch.setenv("dryrun_registry_override", "")
+    # Non-dryrun defaults: no override is applied to repository refs.
+    monkeypatch.setenv("BUILD_SCENARIO", "release")
+    monkeypatch.delenv("REGISTRY", raising=False)
     expected_json = {
         "images": {
             "operator": {

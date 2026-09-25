@@ -78,8 +78,6 @@ export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
 export VERSION_ID="${version_id:-"unknown"}"
 GIT_TAG="${triggered_by_git_tag:-}"
-IS_DRYRUN="${IS_DRYRUN:-false}"
-export IS_DRYRUN
 export GIT_TAG
 
 # var used in pipeline.py to determine if we're running on EVG host
@@ -106,6 +104,7 @@ export MDB_UPDATE_LICENSES=true
 BUILD_SCENARIO_RELEASE="release" # Official release triggered by a git tag
 BUILD_SCENARIO_STAGING="staging" # CI build from a merge to the master
 BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
+BUILD_SCENARIO_DRYRUN_RELEASE="dryrun-release" # Release pipeline dry-run
 if [ -n "${BUILD_SCENARIO-}" ]; then
   echo "Build scenario has been set externally, not overriding it"
 elif [ "${GIT_TAG}" ]; then
@@ -147,6 +146,18 @@ case ${BUILD_SCENARIO} in
     OPERATOR_VERSION="${OPERATOR_VERSION:-${VERSION_ID}}"
     READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-${VERSION_ID}}"
     VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION:-${VERSION_ID}}"
+    ;;
+
+  "${BUILD_SCENARIO_DRYRUN_RELEASE}")
+    # Dry-run release: same version resolution as release, but images/chart/plugins
+    # go to the staging org by default. Overridable via the external REGISTRY param.
+    DRYRUN_RELEASE_REGISTRY_DEFAULT="quay.io/mongodb/staging"
+    REGISTRY="${REGISTRY:-${DRYRUN_RELEASE_REGISTRY_DEFAULT}}"
+    OPERATOR_VERSION="${OPERATOR_VERSION:-${GIT_TAG}}"
+    READINESS_PROBE_VERSION_FROM_RELEASE_JSON="$(jq -r '.readinessProbeVersion' "${PROJECT_DIR}/release.json")"
+    READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-${READINESS_PROBE_VERSION_FROM_RELEASE_JSON}}"
+    VERSION_UPGRADE_HOOK_VERSION_FROM_RELEASE_JSON="$(jq -r '.versionUpgradeHookVersion' "${PROJECT_DIR}/release.json")"
+    VERSION_UPGRADE_HOOK_VERSION="${VERSION_UPGRADE_HOOK_VERSION:-${VERSION_UPGRADE_HOOK_VERSION_FROM_RELEASE_JSON}}"
     ;;
 
   *)
