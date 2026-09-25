@@ -20,8 +20,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: 'Dry run: do not publish for real'
-        required: false
+        description: "Dry run: post a non release tag"
         type: boolean
         default: false
 
@@ -29,9 +28,6 @@ jobs:
   create_tag_and_draft_release:
     name: Create Draft Release & Push Tag
     runs-on: ubuntu-latest
-    outputs:
-      commit: ${{ github.event.inputs.commit_sha }}
-      version: ${{ github.event.inputs.version }}
     permissions:
       contents: write
     steps:
@@ -45,9 +41,10 @@ jobs:
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
 
-      - name: Validate commit SHA
+      - name: Validate commit SHA and version
         env:
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
           if ! echo "$COMMIT_SHA" | grep -qP '^[0-9a-f]{40}$'; then
             echo "Error: commit_sha '$COMMIT_SHA' is not a valid 40-character hex SHA"
@@ -57,7 +54,12 @@ jobs:
             echo "Error: commit_sha '$COMMIT_SHA' does not exist in the repository"
             exit 1
           fi
-          echo "Commit SHA $COMMIT_SHA is valid"
+          RELEASED_VERSION="$(git show "$COMMIT_SHA:release.json" | jq -er '.mongodbOperator')"
+          if [ "$RELEASED_VERSION" != "$VERSION" ]; then
+            echo "Error: version mismatch for commit $COMMIT_SHA: expected '$VERSION', but release.json has '$RELEASED_VERSION'"
+            exit 1
+          fi
+          echo "Commit SHA $COMMIT_SHA is valid and matches version $VERSION"
 
       - name: Generate Release Notes
         id: generate_release_notes
@@ -66,81 +68,62 @@ jobs:
           INITIAL_COMMIT_SHA: ${{ vars.RELEASE_INITIAL_COMMIT_SHA }}
           INITIAL_VERSION: ${{ vars.RELEASE_INITIAL_VERSION }}
 
-      - name: Generate draft release
-        run: |
-          release_title="Release of MCK $VERSION"
-          if [[ "${DRY_RUN}" == "true" ]]; then
-            release_title="[TEST] Release of MCK $VERSION"
-          fi
-          gh release create "$VERSION" --target "$COMMIT_SHA" --draft --latest --notes-file release_notes_final.md --title "$release_title"
+      - name: Create annotated tag and draft release
         env:
           VERSION: ${{ github.event.inputs.version }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
-          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          DRY_RUN: ${{ inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create git tag
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          annotation="[new] Release of MCK $VERSION"
-          if [[ "${DRY_RUN}" == "true" ]]; then
-            annotation="[new][dry-run] Release of MCK $VERSION"
+          TAG_NAME="${VERSION}"
+          latest_args=(--latest)
+          if [[ "$DRY_RUN" == "true" ]]; then
+            TAG_NAME="test-$VERSION"
+            latest_args=()
           fi
-          git tag -a "$VERSION" -m "${annotation}" "$COMMIT_SHA"
-          git push origin "$VERSION"
-        env:
-          VERSION: ${{ github.event.inputs.version }}
-          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
-          DRY_RUN: ${{ github.event.inputs.dry_run }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          annotation="[new] Release of MCK $VERSION"
+          git tag -a "$TAG_NAME" -m "${annotation}" "$COMMIT_SHA"
+          git push origin "$TAG_NAME"
+          gh release create "$TAG_NAME" --target "$COMMIT_SHA" --verify-tag --draft "${latest_args[@]}" --notes-file release_notes_final.md --title "Release of MCK $VERSION"
 
       - name: Show Evergreen links
         env:
           VERSION: ${{ github.event.inputs.version }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
-        run: scripts/release/evergreen_links.sh
+        run: scripts/release/show_links.sh evergreen | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash
 
-  wait_for_evergreen_and_prep_pr:
-    name: Wait for Evergreen & Synthesize PR Link
+  wait_for_evergreen:
+    name: Wait for Evergreen
     runs-on: ubuntu-latest
     needs: create_tag_and_draft_release
-    environment: production # Manual gate: user checks EVG before approving
+    environment: ${{ inputs.dry_run && 'dry-run' || 'production' }} # manual gate in production
     permissions:
       contents: read
       checks: read
     steps:
-      - name: Show Evergreen links
-        run: |
-          echo "## 🔗 Evergreen Links" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Confirm the Evergreen publish pipeline has completed successfully:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **[Tag-triggered builds (waterfall)](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/waterfall?requesters=git_tag_request)**" >> $GITHUB_STEP_SUMMARY
-          echo "- **[All project patches](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/patches)**" >> $GITHUB_STEP_SUMMARY
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: '0'
+
+      - name: Evergreen wait
+        run: echo "Evergreen wait complete." # in Dry runs Evergreen does not run and there is no such wait
 
       - name: Generate RedHat PR Links in Job Summary
-        run: |
-          RH_FORK_ORG="mongodb-forks"
-          COMMUNITY_REPO="community-operators"
-          CERTIFIED_REPO="certified-operators"
-          VERSION="${{ needs.create_tag_and_draft_release.outputs.version }}"
-          RH_BRANCH="mongodb-kubernetes-${VERSION}"
-
-          COMMUNITY_PR_CREATION_URL="https://github.com/k8s-operatorhub/community-operators/compare/main...${RH_FORK_ORG}:${COMMUNITY_REPO}:${RH_BRANCH}?quick_pull=1"
-          CERTIFIED_PR_CREATION_URL="https://github.com/redhat-openshift-ecosystem/certified-operators/compare/main...${RH_FORK_ORG}:${CERTIFIED_REPO}:${RH_BRANCH}?quick_pull=1"
-          echo "## 🚀 Evergreen Finished: RedHat PR Ready" >> $GITHUB_STEP_SUMMARY
-          echo "Evergreen successfully created the release branches on the RedHat fork." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "👉 **[Click here to create the RedHat Community Operators PR](${COMMUNITY_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
-          echo "👉 **[Click here to create the RedHat Certified Operators PR](${CERTIFIED_PR_CREATION_URL})**" >> $GITHUB_STEP_SUMMARY
+        env:
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: scripts/release/show_links.sh redhat-prs | tee -a "$GITHUB_STEP_SUMMARY"
+        shell: bash
 
   publish_release:
     name: Publish Release
-    if: ${{ github.event.inputs.dry_run != 'true' }} # Hard stop: never publish on dry runs
-    environment: production # Manual gate
+    environment: ${{ inputs.dry_run && 'dry-run' || 'production' }} # Manual gate in production
     runs-on: ubuntu-latest
-    needs: wait_for_evergreen_and_prep_pr
+    needs: wait_for_evergreen
     permissions:
       contents: write
     steps:
@@ -150,8 +133,13 @@ jobs:
           fetch-depth: '0'
 
       - name: Publish Release Notes
-        run: |
-          gh release edit $VERSION --draft=false --verify-tag --latest
         env:
-          VERSION: ${{ needs.create_tag_and_draft_release.outputs.version }}
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "$DRY_RUN" == "true" ]]; then
+            gh release edit "test-$VERSION" --draft=true --verify-tag
+          else
+            gh release edit "$VERSION" --draft=false --verify-tag --latest
+          fi

@@ -16,7 +16,6 @@ variables:
       - build_id
       - build_variant
       - distro
-      - dryrun_registry_override  # defaults to production when unset
       - e2e_cloud_qa_apikey_owner_ubi_cloudqa
       - e2e_cloud_qa_orgid_owner_ubi_cloudqa
       - e2e_cloud_qa_user_owner_ubi_cloudqa
@@ -27,7 +26,6 @@ variables:
       - github_pr_head_branch
       - image_name
       - is_patch
-      - IS_DRYRUN
       - TRIVY_SCAN_FORCE
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_region
@@ -38,9 +36,10 @@ variables:
       - otel_parent_id
       - otel_trace_id
       - registry
+      - REGISTRY  # patch param: dryrun-release destination override, consumed by scripts/dev/contexts/evg-private-context
       - requester
       - task_name
-      - tag_description_override  # synthetic annotation for patches; real tags read actual git annotation
+      - tag_description_override  # only used for "[new]" pipeline selection by decide_release_process
       - triggered_by_git_tag
       - version_id
       - workdir
@@ -52,6 +51,7 @@ variables:
       - READINESS_PROBE_VERSION
       - VERSION_UPGRADE_HOOK_VERSION
       - BUILD_SCENARIO
+      - preflight_submit  # normalized by evg-private-context; explicit patch param is honored as-is
       - MDB_BASH_DEBUG
       - AI_MONGODB_EMBEDDING_INDEXING_KEY
       - AI_MONGODB_EMBEDDING_QUERY_KEY
@@ -81,6 +81,11 @@ functions:
       shell: bash
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       <<: *e2e_include_expansions_in_env
+      env:
+        quay_prod_username: ${quay_prod_username}
+        quay_prod_robot_token: ${quay_prod_robot_token}
+        quay_staging_username: ${quay_staging_username}
+        quay_staging_robot_token: ${quay_staging_robot_token}
       script: |
         echo "Initializing context files"
         cp scripts/dev/contexts/evg-private-context scripts/dev/contexts/private-context
@@ -228,19 +233,6 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/setup_docker_sbom.sh
 
-  helm_registry_login_prod: &helm_registry_login_prod
-    command: subprocess.exec
-    type: setup
-    retry_on_failure: true
-    params:
-      working_dir: src/github.com/mongodb/mongodb-kubernetes
-      add_to_path:
-        - ${workdir}/bin
-        - ${PROJECT_DIR}/bin
-      env:
-        QUAY_USERNAME: ${quay_prod_username}
-        QUAY_PASSWORD: ${quay_prod_robot_token}
-      binary: scripts/release/helm_registry_login.sh
 
   helm_registry_login_staging: &helm_registry_login_staging
     command: subprocess.exec
@@ -585,8 +577,6 @@ functions:
           - ${image_name}
           - --version
           - ${mongodbOperator}
-          - --submit
-          - ${preflight_submit}
 
   # Same OM/agent versions as scripts/release/release_om_and_agents.py (after that task on master).
   run_preflight_om_and_agents:
@@ -623,11 +613,9 @@ functions:
     - command: subprocess.exec
       params:
         include_expansions_in_env:
-          - dryrun_registry_override
-          - tag_description_override
+          - registry
+          - BUILD_SCENARIO
           - triggered_by_git_tag
-          - quay_staging_username
-          - quay_staging_robot_token
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/release/publish_helm_chart.sh
 
@@ -1034,6 +1022,7 @@ functions:
           - GH_TOKEN
           - workdir
           - OPERATOR_VERSION
+          - BUILD_SCENARIO
         env:
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/create_chart_release_pr.py --chart_version ${OPERATOR_VERSION|*triggered_by_git_tag}
@@ -1048,8 +1037,8 @@ functions:
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         include_expansions_in_env:
           - OPERATOR_VERSION
-          - tag_description_override  # dry-run detection (IS_DRYRUN doesn't propagate across task wildcards)
-          - dryrun_registry_override  # redirects repo lookups to staging org
+          - BUILD_SCENARIO
+          - registry
         env:
           GH_TOKEN: ${GH_TOKEN}
         binary: scripts/dev/run_python.sh scripts/release/release_info.py --version ${OPERATOR_VERSION|*triggered_by_git_tag}
@@ -1075,7 +1064,8 @@ functions:
           - triggered_by_git_tag
           - OPERATOR_VERSION
           - SKIP_GITHUB_RELEASE_UPLOAD
-          - tag_description_override  # dry-run detection (IS_DRYRUN doesn't propagate across task wildcards)
+          - BUILD_SCENARIO
+          - registry
           - target_commit  # resolves S3 staging path when tag doesn't exist in git (dry-run patches)
         env:
           MACOS_NOTARY_KEY: ${macos_notary_keyid}
