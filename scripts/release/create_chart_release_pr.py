@@ -10,6 +10,7 @@ from typing import List, Optional
 from github import Github, GithubException
 
 from lib.base_logger import logger
+from scripts.release.build.build_scenario import is_dryrun
 
 REPO_URL = "https://github.com/mongodb/helm-charts.git"
 REPO_NAME = "mongodb/helm-charts"
@@ -97,6 +98,15 @@ def commit_and_push_chart(chart_version):
             run_command(
                 ["git", "push", "--force", "-u", "origin", branch_name], cwd=helm_repo_path
             )  # --force so the chart branch is re-pushable on re-runs for the same version.
+
+            # In dry-run releases (BUILD_SCENARIO=dryrun-release) only push the branch;
+            # the real release will open the PR.
+            if is_dryrun():
+                logger.info(
+                    "Dry-run release (BUILD_SCENARIO=dryrun-release): branch pushed, "
+                    "skipping PR creation — the real release will open the PR."
+                )
+                return
 
             create_pull_request(branch_name, chart_version, github_token)
 

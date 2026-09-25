@@ -7,8 +7,8 @@
 # The scan is notify-only: it reports findings to the task logs and Slack
 # (see scripts/release/trivy_scan.py) and never blocks the publishing pipeline.
 #
-# Scans only run for the "staging" and "release" build scenarios (build-and-publish
-# flows). Patch/development builds are skipped unless TRIVY_SCAN_FORCE=true.
+# Scans only run for the "staging", "release" and "dryrun-release" build scenarios
+# (build-and-publish flows). Patch/development builds are skipped unless TRIVY_SCAN_FORCE=true.
 
 set -Eeou pipefail
 
@@ -16,16 +16,8 @@ source scripts/dev/set_env_context.sh
 
 scenario="${BUILD_SCENARIO_OVERRIDE:-${BUILD_SCENARIO}}"
 
-if [[ "${TRIVY_SCAN_FORCE:-false}" != "true" && "${scenario}" != "staging" && "${scenario}" != "release" ]]; then
+if [[ "${TRIVY_SCAN_FORCE:-false}" != "true" && "${scenario}" != "staging" && "${scenario}" != "release" && "${scenario}" != "dryrun-release" ]]; then
   echo "Skipping CVE scan of '${IMAGE_NAME}' for build scenario '${scenario}' (set TRIVY_SCAN_FORCE=true to override)"
-  exit 0
-fi
-
-# Dry-run releases (release_publish variant with [dry-run] in the tag annotation)
-# publish to an override registry, so the production image refs we would scan
-# do not correspond to the published artifacts.
-if [[ "${IS_DRYRUN:-false}" == "true" ]]; then
-  echo "Skipping CVE scan of '${IMAGE_NAME}': IS_DRYRUN=true (dry-run release)"
   exit 0
 fi
 

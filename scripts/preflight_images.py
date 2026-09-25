@@ -16,6 +16,8 @@ from typing import Dict, Tuple
 
 import requests
 
+from scripts.release.build.build_scenario import is_dryrun
+
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
 
@@ -27,21 +29,22 @@ def image_config(
     name_suffix: str = "",
     apply_registry_override: bool = True,
 ) -> Tuple[str, Dict[str, str]]:
-    # Only operator-published images get the staging override, and only in actual dry-runs
-    # (detected via the [dry-run] tag annotation). The dryrun_registry_override expansion alone
-    # is NOT a dry-run signal: it leaks into task environments via include_expansions_in_env.
-    # Third-party images (Ops Manager, Agent, etc.) are not pushed to staging and always resolve to quay.io/mongodb.
-    is_dryrun = "[dry-run]" in os.environ.get("tag_description_override", "")
+    # Only operator-published images get the registry override, and only in dryrun-release
+    # scenarios (signaled via BUILD_SCENARIO=dryrun-release); the override destination comes
+    # from the REGISTRY env var. Third-party images (Ops Manager, Agent, etc.) are never pushed
+    # to staging and always resolve to quay.io/mongodb.
+    dryrun = is_dryrun()
     if apply_registry_override:
-        override = os.environ.get("dryrun_registry_override", "").strip()
-        if not override:
-            # dryrun_registry_override is a project-level expansion; if it is missing the task
-            # environment is misconfigured. Mirrors publish_images.sh, which also fails hard.
+        override = os.environ.get("REGISTRY", "").strip()
+        if dryrun and not override:
+            # REGISTRY must be provided explicitly for dryrun-release scenarios; if it is
+            # missing the task environment is misconfigured. Mirrors publish_images.sh,
+            # which also fails hard.
             raise RuntimeError(
-                "dryrun_registry_override is unset — refusing to guess the registry for operator image "
+                "REGISTRY is unset — refusing to guess the registry for operator image "
                 f"'{name_prefix}{image}{name_suffix}'"
             )
-        base_registry = override if is_dryrun else "quay.io/mongodb"
+        base_registry = override if dryrun else "quay.io/mongodb"
     else:
         base_registry = "quay.io/mongodb"
     api_path = base_registry.replace("quay.io/", "")
@@ -243,9 +246,6 @@ def main() -> int:
     parser.add_argument("--version", help="specific version to check", type=str, default=None)
     args = parser.parse_args()
     submit = args.submit.lower() == "true"
-    # Never submit to Red Hat certification project during dry-run patches.
-    if "[dry-run]" in os.environ.get("tag_description_override", ""):
-        submit = False
     image_version = os.environ.get("image_version", args.version)
     image_args = args_for_image(args.image)
 
