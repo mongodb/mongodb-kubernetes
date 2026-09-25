@@ -80,6 +80,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             # Ops Manager must be recovering from an Upgrade, and it is
             # currently DOWN.
             "connect: connection refused",
+            "no such host",
             "MongoDB version information is not yet available",
             # Enabling authentication is a lengthy process where the agents might not reach READY in time.
             # That can cause a failure and a restart of the reconcile.
