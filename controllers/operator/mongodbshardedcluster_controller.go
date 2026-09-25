@@ -1225,6 +1225,30 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
 
+	// When managedCertificate is enabled, issue and wait for the cert-manager Certificates for
+	// every sharded component (mongos, config server, each shard). EnsureCertificatesAndCA loops
+	// over all component Options and populates the single per-resource CA trust bundle.
+	if sc.GetSecurity().IsManagedCertificateEnabled() {
+		var allComponentOptions []certs.Options
+		for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+			allComponentOptions = append(allComponentOptions, certs.MongosConfig(*sc, sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster)))
+		}
+		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+			allComponentOptions = append(allComponentOptions, certs.ConfigSrvConfig(*sc, sc.Spec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster)))
+		}
+		for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+				allComponentOptions = append(allComponentOptions, certs.ShardConfig(*sc, shardIdx, sc.Spec.GetExternalDomain(), r.GetShardScaler(shardIdx, memberCluster)))
+			}
+		}
+
+		status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, allComponentOptions, log)
+		sc.SetStatusCondition(certsCondition)
+		if !status.IsOK() {
+			return status
+		}
+	}
+
 	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
