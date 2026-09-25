@@ -213,3 +213,86 @@ func TestPredicatesForStatefulSet(t *testing.T) {
 		})
 	}
 }
+
+func TestPredicatesForMultiStatefulSet(t *testing.T) {
+	buildSts := func(labels, annotations map[string]string, readyReplicas int32) *appsv1.StatefulSet {
+		stsAnnotations := map[string]string{handler.MongoDBMultiResourceAnnotation: "test-ns-temple"}
+		for key, value := range annotations {
+			stsAnnotations[key] = value
+		}
+
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "temple-0", Labels: labels, Annotations: stsAnnotations},
+			Status:     appsv1.StatefulSetStatus{ReadyReplicas: readyReplicas},
+		}
+	}
+	buildStsWithoutOwnerAnnotation := func(readyReplicas int32) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "temple-0"},
+			Status:     appsv1.StatefulSetStatus{ReadyReplicas: readyReplicas},
+		}
+	}
+
+	tests := []struct {
+		name            string
+		oldSts          *appsv1.StatefulSet
+		newSts          *appsv1.StatefulSet
+		expectedForward bool
+	}{
+		{
+			name:            "reverse-migration request added: forwarded",
+			oldSts:          buildSts(nil, nil, 3),
+			newSts:          buildSts(nil, map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}, 3),
+			expectedForward: true,
+		},
+		{
+			name:            "reverse-migration request removed: forwarded",
+			oldSts:          buildSts(nil, map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}, 3),
+			newSts:          buildSts(nil, nil, 3),
+			expectedForward: true,
+		},
+		{
+			name:            "forward-migration request added: forwarded",
+			oldSts:          buildSts(nil, nil, 3),
+			newSts:          buildSts(nil, map[string]string{util.AppDBMigrationReadyAnnotation: "true"}, 3),
+			expectedForward: true,
+		},
+		{
+			name:            "ops manager owner label added: forwarded",
+			oldSts:          buildSts(nil, nil, 3),
+			newSts:          buildSts(map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "test-om"}, nil, 3),
+			expectedForward: true,
+		},
+		{
+			name:            "multi-cluster owner label removed: forwarded",
+			oldSts:          buildSts(map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: "test-ns-temple"}, nil, 3),
+			newSts:          buildSts(nil, nil, 3),
+			expectedForward: true,
+		},
+		{
+			name:            "unrelated annotation change: filtered",
+			oldSts:          buildSts(nil, map[string]string{"unrelated": "a"}, 3),
+			newSts:          buildSts(nil, map[string]string{"unrelated": "b"}, 3),
+			expectedForward: false,
+		},
+		{
+			name:            "statefulset status change: forwarded",
+			oldSts:          buildSts(nil, nil, 2),
+			newSts:          buildSts(nil, nil, 3),
+			expectedForward: true,
+		},
+		{
+			name:            "status change without the multi-cluster annotation: filtered",
+			oldSts:          buildStsWithoutOwnerAnnotation(2),
+			newSts:          buildStsWithoutOwnerAnnotation(3),
+			expectedForward: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedForward,
+				PredicatesForMultiStatefulSet().Update(event.UpdateEvent{ObjectOld: tt.oldSts, ObjectNew: tt.newSts}))
+		})
+	}
+}
