@@ -149,6 +149,8 @@ right after the image is pushed. The step invokes `scripts/release/trivy_scan.sh
 resolves the image repository/tag the same way the build pipeline does (from `build_info.json`
 and the version env vars) and scans it with
 [trivy](https://github.com/aquasecurity/trivy) (pinned in `scripts/evergreen/setup_trivy.sh`).
+Only findings with an available fix are reported (stdout/Slack); unfixed findings are still
+captured in the uploaded raw JSON.
 
 Where scans run:
 
@@ -172,8 +174,11 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "test trivy scan" -u -y --p
 Raw trivy JSON reports are written to `trivy-reports/` in the task working directory and
 uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as `upload_e2e_logs`) at
 `trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even for tasks that
-didn't trigger a Slack notification. The upload link is available on the task page in the
-Evergreen UI (Files tab). To run a scan locally:
+didn't trigger a Slack notification. These raw reports contain *all* findings, including the
+unfixed ones. The stdout/Slack report lists only vulnerabilities that have an available fix
+(a non-empty `FixedVersion`), since those are the only actionable ones, and states the total
+(fixable vs not fixable); images with no fixable findings produce no notification. The upload
+link is available on the task page in the Evergreen UI (Files tab). To run a scan locally:
 
 ```bash
 scripts/evergreen/setup_trivy.sh

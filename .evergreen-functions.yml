@@ -685,9 +685,11 @@ functions:
           MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
 
   # Scans the image that was just built and pushed by the pipeline function for
-  # known CVEs using trivy, and notifies Slack when CRITICAL/HIGH vulnerabilities
-  # are found on mainline (staging/release) builds. The scan is notify-only:
-  # continue_on_err ensures it never blocks the build-and-publish flow.
+  # known CVEs using trivy, and notifies Slack when fixable CRITICAL/HIGH
+  # vulnerabilities are found on mainline (staging/release) builds. Findings
+  # without an available fix are not actionable and are omitted from the report.
+  # The scan is notify-only: continue_on_err ensures it never blocks the
+  # build-and-publish flow.
   trivy_scan:
     - command: subprocess.exec
       type: setup
