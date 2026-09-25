@@ -80,6 +80,8 @@ class MongoDB(CustomObject, MongoDBCommon):
             # Ops Manager must be recovering from an Upgrade, and it is
             # currently DOWN.
             "connect: connection refused",
+            # tests that restart OM might cause the operator to hit "no such host" due to NXDOMAIN from headless fqdn
+            "no such host",
             "MongoDB version information is not yet available",
             # Enabling authentication is a lengthy process where the agents might not reach READY in time.
             # That can cause a failure and a restart of the reconcile.
