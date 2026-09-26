@@ -209,6 +209,13 @@ class TestReverseMigrationAfterFreshStart:
         primary_om["spec"]["applicationDatabase"] = internal_primary_om["spec"]["applicationDatabase"]
         primary_om.update()
 
+    def test_external_appdb_is_unmanaged(self, external_appdb: MongoDBMulti):
+        external_appdb.assert_reaches_phase(
+            Phase.Pending,
+            msg_regexp="Cannot take ownership of the AppDB Statefulset: it has other owner",
+            timeout=300,
+        )
+
     def test_internal_appdb_management_resumes(self, primary_om: MongoDBOpsManager):
         primary_om.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
         primary_om.om_status().assert_reaches_phase(Phase.Running, timeout=900)
