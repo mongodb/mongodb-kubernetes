@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  labels:
+    app: rustfs
+spec:
+  selector:
+    app: rustfs
+  ports:
+    - name: s3-https
+      port: 443
+      targetPort: 9000
+    - name: s3
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+  labels:
+    app: rustfs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rustfs
+  template:
+    metadata:
+      labels:
+        app: rustfs
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rustfs
+          image: quay.io/rustfs/rustfs:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+          env:
+            - name: RUSTFS_ACCESS_KEY
+              value: rustfsadmin
+            - name: RUSTFS_SECRET_KEY
+              value: rustfsadmin123
+            - name: RUSTFS_VOLUMES
+              value: /data
+            - name: RUSTFS_ADDRESS
+              value: 0.0.0.0:9000
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "false"
+            - name: RUSTFS_TLS_PATH
+              value: /opt/tls
+          ports:
+            - name: s3
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /health
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tls
+              mountPath: /opt/tls
+              readOnly: true
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tls
+          secret:
+            secretName: rustfs-tls
+            defaultMode: 0444

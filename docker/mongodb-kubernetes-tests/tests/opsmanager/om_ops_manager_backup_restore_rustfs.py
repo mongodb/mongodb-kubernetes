@@ -16,7 +16,7 @@ from pymongo import ReadPreference
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import assert_data_got_restored, get_evergreen_task_id, is_multi_cluster
-from tests.opsmanager.conftest import mino_operator_install, mino_tenant_install
+from tests.opsmanager.conftest import rustfs_install
 from tests.opsmanager.om_ops_manager_backup import S3_SECRET_NAME
 from tests.opsmanager.om_ops_manager_backup_tls_custom_ca import FIRST_PROJECT_RS_NAME, SECOND_PROJECT_RS_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
@@ -39,7 +39,7 @@ def ops_manager_certs(namespace: str, issuer: str, tenant_domains: List[str]):
 # In the helm-chart we hard-code the server secret which contains the secrets for the clients.
 # To make it work, we generate these from our existing tls secret and copy them over.
 @fixture(scope="module")
-def copy_manager_certs_for_minio(namespace: str, ops_manager_certs: str, tenant_name: str) -> str:
+def copy_manager_certs_for_rustfs(namespace: str, ops_manager_certs: str, tenant_name: str) -> str:
     create_or_update_namespace(
         tenant_name,
         labels={"evg": "task"},
@@ -47,16 +47,10 @@ def copy_manager_certs_for_minio(namespace: str, ops_manager_certs: str, tenant_
     )
 
     data = read_secret(namespace, ops_manager_certs)
-    crt = data["tls.crt"]
-    key = data["tls.key"]
-    new_data = dict()
-    new_data["tls.crt"] = crt
-    new_data["tls.key"] = key
     return create_or_update_secret(
         namespace=tenant_name,
-        type="kubernetes.io/tls",
-        name="tls-ssl-minio",
-        data=new_data,
+        name="rustfs-tls",
+        data={"rustfs_cert.pem": data["tls.crt"], "rustfs_key.pem": data["tls.key"]},
     )
 
 
@@ -88,23 +82,20 @@ def tenant_name() -> str:
 
 
 @fixture(scope="module")
-def tenant_domains() -> List[str]:
+def tenant_domains(tenant_name: str) -> List[str]:
     return [
-        "tenant-0-pool-0-0.tenant-0-hl.tenant-0.svc.cluster.local",
-        "tenant-0-pool-0-1.tenant-0-hl.tenant-0.svc.cluster.local",
-        "tenant-0-pool-0-2.tenant-0-hl.tenant-0.svc.cluster.local",
-        "tenant-0-pool-0-3.tenant-0-hl.tenant-0.svc.cluster.local",
-        "minio.tenant-0.svc.cluster.local",
-        "minio.tenant-0",
-        "minio.tenant-0.svc",
-        "*.tenant-0-hl.tenant-0.svc.cluster.local",
-        "*.tenant-0.svc.cluster.local",
+        f"rustfs.{tenant_name}.svc.cluster.local",
+        f"rustfs.{tenant_name}.svc",
+        f"rustfs.{tenant_name}",
+        "rustfs",
+        f"*.{tenant_name}.svc.cluster.local",
+        f"*.{tenant_name}.svc",
     ]
 
 
 @fixture(scope="module")
 def s3_bucket_endpoint(tenant_name: str) -> str:
-    return f"minio.{tenant_name}.svc.cluster.local"
+    return f"rustfs.{tenant_name}.svc.cluster.local"
 
 
 @fixture(scope="module")
@@ -118,13 +109,13 @@ def s3_store_bucket_name() -> str:
 
 
 @fixture(scope="module")
-def minio_s3_access_key() -> str:
-    return "minio"  # this is defined in the values.yaml in the helm-chart
+def s3_access_key() -> str:
+    return "rustfsadmin"
 
 
 @fixture(scope="module")
-def minio_s3_secret_key() -> str:
-    return "minio123"  # this is defined in the values.yaml in the helm-chart
+def s3_secret_key() -> str:
+    return "rustfsadmin123"
 
 
 @fixture(scope="module")
@@ -137,8 +128,8 @@ def ops_manager(
     appdb_certs: str,
     s3_bucket_endpoint: str,
     s3_store_bucket_name: str,
-    minio_s3_access_key: str,
-    minio_s3_secret_key: str,
+    s3_access_key: str,
+    s3_secret_key: str,
     issuer_ca_filepath: str,
 ) -> MongoDBOpsManager:
     # ensure the requests library will use this CA when communicating with Ops Manager
@@ -148,13 +139,12 @@ def ops_manager(
         yaml_fixture("om_ops_manager_backup_light.yaml"), namespace=namespace
     )
 
-    # these values come from the tenant creation in minio.
     create_or_update_secret(
         namespace,
         S3_SECRET_NAME,
         {
-            "accessKey": minio_s3_access_key,
-            "secretKey": minio_s3_secret_key,
+            "accessKey": s3_access_key,
+            "secretKey": s3_secret_key,
         },
     )
 
@@ -162,8 +152,8 @@ def ops_manager(
         namespace,
         OPLOG_SECRET_NAME,
         {
-            "accessKey": minio_s3_access_key,
-            "secretKey": minio_s3_secret_key,
+            "accessKey": s3_access_key,
+            "secretKey": s3_secret_key,
         },
     )
 
@@ -184,7 +174,7 @@ def ops_manager(
         "tls": {"ca": issuer_ca_configmap},
     }
 
-    # Disable validation only for backup tests using minio
+    # Disable validation only for backup tests using a custom S3 endpoint
     resource["spec"]["configuration"]["brs.s3.validation.testing"] = "disabled"
 
     if is_multi_cluster():
@@ -265,16 +255,15 @@ def mdb_latest_project(ops_manager: MongoDBOpsManager) -> OMTester:
     return ops_manager.get_om_tester(project_name="mdbLatestProject")
 
 
-@mark.e2e_om_ops_manager_backup_restore_minio
-class TestMinioCreation:
-    def test_install_minio(
-        self, tenant_name: str, issuer_ca_configmap: str, copy_manager_certs_for_minio: str, issuer_ca_filepath: str
+@mark.e2e_om_ops_manager_backup_restore_rustfs
+class TestRustfsCreation:
+    def test_install_rustfs(
+        self, tenant_name: str, issuer_ca_configmap: str, copy_manager_certs_for_rustfs: str, issuer_ca_filepath: str
     ):
-        mino_operator_install(namespace=tenant_name)
-        mino_tenant_install(namespace=tenant_name, issuer_ca_filepath=issuer_ca_filepath)
+        rustfs_install(namespace=tenant_name, issuer_ca_filepath=issuer_ca_filepath)
 
 
-@mark.e2e_om_ops_manager_backup_restore_minio
+@mark.e2e_om_ops_manager_backup_restore_rustfs
 class TestOpsManagerCreation:
     def test_create_om(self, ops_manager: MongoDBOpsManager):
         """creates a s3 bucket and an OM resource, the S3 configs get created using AppDB. Oplog store is still required."""
@@ -336,7 +325,7 @@ class TestOpsManagerCreation:
         time.sleep(10)
 
 
-@mark.e2e_om_ops_manager_backup_restore_minio
+@mark.e2e_om_ops_manager_backup_restore_rustfs
 class TestBackupForMongodb:
     """This part ensures that backup for the client works correctly and the snapshot is created.
     Both Mdb 4.0 and 4.2 are tested (as the backup process for them differs significantly)"""
@@ -357,7 +346,7 @@ class TestBackupForMongodb:
         mdb_latest_project.wait_until_backup_snapshots_are_ready(expected_count=1)
 
 
-@mark.e2e_om_ops_manager_backup_restore_minio
+@mark.e2e_om_ops_manager_backup_restore_rustfs
 class TestBackupRestorePIT:
     """This part checks the work of PIT restore."""
 
@@ -395,7 +384,7 @@ class TestBackupRestorePIT:
         assert_data_got_restored(TEST_DATA, mdb_prev_test_collection, mdb_latest_test_collection)
 
 
-@mark.e2e_om_ops_manager_backup_restore_minio
+@mark.e2e_om_ops_manager_backup_restore_rustfs
 class TestBackupRestoreFromSnapshot:
     """This part tests the restore to the snapshot built once the backup has been enabled."""
 
