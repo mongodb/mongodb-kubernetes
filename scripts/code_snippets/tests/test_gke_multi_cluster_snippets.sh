@@ -63,6 +63,7 @@ source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variabl
 
 ./public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
 
+export RUSTFS_ISTIO_INJECTION=enabled
 source public/architectures/setup-multi-cluster/ra-13-setup-rustfs/env_variables.sh
 ./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/test.sh
 

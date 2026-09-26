@@ -4,4 +4,4 @@ kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${OM_NAMESPACE}" create se
 
 # RustFS serves a cert-manager certificate; OM must trust the CA that signed it.
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${OM_NAMESPACE}" create secret generic s3-ca-cert \
-  --from-literal=ca.crt="$(kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n rustfs get secret rustfs-tls -o jsonpath="{.data['ca\.crt']}" | base64 --decode)"
+  --from-literal=ca.crt="$(kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${RUSTFS_NAMESPACE}" get secret rustfs-tls -o jsonpath="{.data['ca\.crt']}" | base64 --decode)"

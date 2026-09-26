@@ -1,6 +1,10 @@
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" create namespace "${RUSTFS_NAMESPACE}" --dry-run=client -o yaml | \
   kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" apply -f -
 
+if [ "${RUSTFS_ISTIO_INJECTION:-}" = "enabled" ]; then
+  kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" label namespace "${RUSTFS_NAMESPACE}" istio-injection=enabled --overwrite
+fi
+
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${RUSTFS_NAMESPACE}" delete job rustfs-create-buckets --ignore-not-found=true || true
 
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${RUSTFS_NAMESPACE}" apply -f - <<EOF
