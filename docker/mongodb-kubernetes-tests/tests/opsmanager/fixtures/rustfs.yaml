@@ -78,6 +78,8 @@ spec:
               readOnly: true
       volumes:
         - name: data
+          # emptyDir is intentional: fixture data is throwaway and buckets are
+          # (re)created by rustfs_install() at pytest setup.
           emptyDir: {}
         - name: tls
           secret:

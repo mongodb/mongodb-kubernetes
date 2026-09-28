@@ -156,8 +156,8 @@ spec:
                 fi
                 sleep 5
               done
-              aws \$aws_opts s3api create-bucket --bucket "\$S3_OPLOG_BUCKET_NAME" || true
-              aws \$aws_opts s3api create-bucket --bucket "\$S3_SNAPSHOT_BUCKET_NAME" || true
+              aws \$aws_opts s3api create-bucket --bucket "\$S3_OPLOG_BUCKET_NAME"
+              aws \$aws_opts s3api create-bucket --bucket "\$S3_SNAPSHOT_BUCKET_NAME"
 EOF
 
 kubectl --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -n "${RUSTFS_NAMESPACE}" wait --for=condition=available deployment/rustfs --timeout=300s
