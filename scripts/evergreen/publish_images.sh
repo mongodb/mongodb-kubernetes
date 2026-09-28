@@ -18,6 +18,18 @@ else
   IS_DRYRUN=false
 fi
 
+# Login to quay.io with the credentials matching the publish target: prod robot
+# for real publishes (quay.io/mongodb/*), staging robot for dry runs
+# (dryrun_registry_override -> quay.io/mongodb/staging). docker stores one
+# credential per registry host, so the last login wins — pick deliberately.
+if [[ "${IS_DRYRUN}" == "true" ]]; then
+  echo "${QUAY_STAGING_PASSWORD:?QUAY_STAGING_PASSWORD must be set}" | \
+    docker login --username "${QUAY_STAGING_USERNAME:?QUAY_STAGING_USERNAME must be set}" --password-stdin quay.io
+else
+  echo "${QUAY_PROD_PASSWORD:?QUAY_PROD_PASSWORD must be set}" | \
+    docker login --username "${QUAY_PROD_USERNAME:?QUAY_PROD_USERNAME must be set}" --password-stdin quay.io
+fi
+
 registry_override=""
 if [[ "${IS_DRYRUN}" == "true" ]]; then
   if [[ -z "${dryrun_registry_override:-}" ]]; then
