@@ -84,7 +84,7 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
     f"""
     Load build information based on the specified scenario.
 
-    :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "patch", "staging", "release"). "development" scenario will return build info for "patch" scenario.
+    :param scenario: BuildScenario enum value indicating the build scenario (e.g. "development", "patch", "staging", "release"). "development" scenario will return build info for "patch" scenario. "dryrun-release" scenario will return build info for "release" scenario.
     :return: BuildInfo object containing images, binaries, and helm charts information for specified scenario.
     """
 
@@ -95,6 +95,10 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
     # For "development" builds, we use the "patch" scenario to get the build info
     if scenario == BuildScenario.DEVELOPMENT:
         build_info_scenario = BuildScenario.PATCH
+    # For "dryrun-release" builds, we use the "release" scenario to get the build info;
+    # the registry redirect happens via the REGISTRY override
+    if scenario == BuildScenario.DRYRUN_RELEASE:
+        build_info_scenario = BuildScenario.RELEASE
 
     images = {}
     for name, data in build_info["images"].items():

@@ -39,7 +39,7 @@ from lib.base_logger import logger
 from scripts.release.agent.agents_to_rebuild import get_currently_used_agents
 from scripts.release.argparse_utils import get_scenario_from_arg
 from scripts.release.build.build_info import AGENT_IMAGE, load_build_info
-from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
+from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario, is_dryrun
 
 DEFAULT_SEVERITIES = "CRITICAL,HIGH"
 DEFAULT_OUTPUT_DIR = "trivy-reports"
@@ -107,6 +107,14 @@ def get_trivy_binary() -> str:
     raise RuntimeError("trivy binary not found. Run scripts/evergreen/setup_trivy.sh or set TRIVY_BIN.")
 
 
+def _override_registry_prefix(repo: str) -> str:
+    """Redirect a repository to the override registry in dryrun-release scenarios."""
+    override = os.environ.get("REGISTRY", "").strip()
+    if not override:
+        raise RuntimeError("REGISTRY is unset — refusing to guess the registry for dryrun-release scans")
+    return f"{override}/{repo.rsplit('/', 1)[-1]}"
+
+
 def resolve_scan_targets(image: str, scenario: BuildScenario, version: str) -> list[tuple[str, list[str]]]:
     """Resolve the (image_ref, platforms) tuples to scan from build_info.json.
 
@@ -127,7 +135,13 @@ def resolve_scan_targets(image: str, scenario: BuildScenario, version: str) -> l
         logger.info(f"Scanning currently used agent versions instead of '{version}': {agents}")
         versions = agents
 
-    return [(f"{image_info.repository}:{v}", image_info.platforms) for v in versions]
+    # In dryrun-release scenarios the images are published under the registry (REGISTRY)
+    if is_dryrun():
+        repository = _override_registry_prefix(image_info.repository)
+    else:
+        repository = image_info.repository
+
+    return [(f"{repository}:{v}", image_info.platforms) for v in versions]
 
 
 def run_trivy_scan(trivy_bin: str, image_ref: str, platform: str, severities: str, output_file: str) -> ScanResult:

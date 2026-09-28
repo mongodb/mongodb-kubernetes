@@ -47,34 +47,35 @@ tasks:
           binary: bash
           args:
             - scripts/evergreen/publish_images.sh
-      # CVE scan of the just-published production images (skipped automatically
-      # when IS_DRYRUN=true, since dry runs publish to an override registry).
+      # CVE scan of the just-published production images. In dry-run releases
+      # (BUILD_SCENARIO=dryrun-release) the scan runs against the REGISTRY override
+      # (staging) instead of production.
       # Covers the release image set promoted by mckci (images carrying a
       # version-ref in build_info.json). Notify-only, never blocks the release.
       - func: trivy_scan
         vars:
           image_name: operator
-          build_scenario: release
+          build_scenario: ${BUILD_SCENARIO|release}
       - func: trivy_scan
         vars:
           image_name: init-database
-          build_scenario: release
+          build_scenario: ${BUILD_SCENARIO|release}
       - func: trivy_scan
         vars:
           image_name: init-ops-manager
-          build_scenario: release
+          build_scenario: ${BUILD_SCENARIO|release}
       - func: trivy_scan
         vars:
           image_name: database
-          build_scenario: release
+          build_scenario: ${BUILD_SCENARIO|release}
       - func: trivy_scan
         vars:
           image_name: readiness-probe
-          build_scenario: release
+          build_scenario: ${BUILD_SCENARIO|release}
       - func: trivy_scan
         vars:
           image_name: upgrade-hook
-          build_scenario: release
+          build_scenario: ${BUILD_SCENARIO|release}
 
 buildvariants:
   # Named *_patch so Evergreen patch filtering targets this variant without colliding
