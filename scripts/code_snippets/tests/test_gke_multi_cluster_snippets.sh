@@ -18,6 +18,7 @@ function cleanup() {
       ./public/architectures/ra-06-ops-manager-multi-cluster/teardown.sh &
       ./public/architectures/ra-08-mongodb-sharded-multi-cluster/teardown.sh &
       ./public/architectures/ra-07-mongodb-replicaset-multi-cluster/teardown.sh &
+      ./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/teardown.sh &
       wait
 
       ./public/architectures/setup-multi-cluster/ra-02-setup-operator/teardown.sh
@@ -64,6 +65,10 @@ source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variabl
 ./public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
 
 source public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
+export RUSTFS_ISTIO_INJECTION=enabled
+source public/architectures/setup-multi-cluster/ra-13-setup-rustfs/env_variables.sh
+./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/test.sh
+
 ./public/architectures/ra-06-ops-manager-multi-cluster/test.sh
 
 source public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh

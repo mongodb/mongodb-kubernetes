@@ -38,11 +38,14 @@ function cleanup() {
       pid3=$!
       ./public/architectures/setup-multi-cluster/ra-09-setup-externaldns/teardown.sh &
       pid4=$!
+      ./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/teardown.sh &
+      pid5=$!
 
       wait ${pid1} || echo "Warning: ra-10-ops-manager-mc-no-mesh teardown failed"
       wait ${pid2} || echo "Warning: ra-11-mongodb-sharded-mc-no-mesh teardown failed"
       wait ${pid3} || echo "Warning: ra-12-mongodb-replicaset-mc-no-mesh teardown failed"
       wait ${pid4} || echo "Warning: ra-09-setup-externaldns teardown failed"
+      wait ${pid5} || echo "Warning: ra-13-setup-rustfs teardown failed"
 
       ./public/architectures/setup-multi-cluster/ra-02-setup-operator/teardown.sh || echo "Warning: ra-02-setup-operator teardown failed"
   else
@@ -89,9 +92,12 @@ source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variabl
 ./public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
 
 source public/architectures/setup-multi-cluster/ra-09-setup-externaldns/env_variables.sh
+source public/architectures/ra-10-ops-manager-mc-no-mesh/env_variables.sh
+source public/architectures/setup-multi-cluster/ra-13-setup-rustfs/env_variables.sh
+./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/test.sh
+
 ./public/architectures/setup-multi-cluster/ra-09-setup-externaldns/test.sh
 
-source public/architectures/ra-10-ops-manager-mc-no-mesh/env_variables.sh
 ./public/architectures/ra-10-ops-manager-mc-no-mesh/test.sh
 
 source public/architectures/ra-12-mongodb-replicaset-mc-no-mesh/env_variables.sh
