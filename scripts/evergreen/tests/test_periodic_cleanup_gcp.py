@@ -1,327 +1,314 @@
-"""Tests for the periodic GCP reaper (scripts/evergreen/periodic_cleanup_gcp.py)."""
+"""Tests for the periodic GCP reaper (scripts/evergreen/periodic_cleanup_gcp.py).
 
-import time
+The GCP clients are autospecced from the real classes so a wrong call signature
+fails the test; payloads use the real proto types.
+"""
+
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
+from unittest.mock import create_autospec
 
+import pytest
 from google.api_core import exceptions as api_errors
-from google.cloud import compute_v1, container_v1, iam_admin_v1, resourcemanager_v3
+from google.cloud import asset_v1, iam_admin_v1, resourcemanager_v3
+from google.iam.v1 import policy_pb2
 
-from scripts.evergreen import periodic_cleanup_gcp as reaper_module
-from scripts.evergreen.periodic_cleanup_gcp import Reaper, is_denylisted, parse_time
+from scripts.evergreen import periodic_cleanup_gcp as gc
+from scripts.evergreen.periodic_cleanup_gcp import Api, InventoryError, Reaper, parse_asset
 
-
-def iso(hours_ago: float) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).isoformat()
-
-
-def gce_item(name: str, hours_ago: float = 48) -> SimpleNamespace:
-    return SimpleNamespace(name=name, creation_timestamp=iso(hours_ago))
+PROJECT = "test-project"
+COMPUTE = f"https://compute.googleapis.com/compute/v1/projects/{PROJECT}/"
+FIREWALL = "compute.googleapis.com/Firewall"
 
 
-def scoped(collection: str, *items) -> SimpleNamespace:
-    return SimpleNamespace(**{collection: list(items)})
+@pytest.fixture(autouse=True)
+def no_sleep(monkeypatch):
+    monkeypatch.setattr(gc, "POLL_SECONDS", 0)
 
 
-class FakeComputeClient:
-    def __init__(self, items=(), aggregated=(), failing=()):
-        self.items = list(items)
-        self.aggregated = list(aggregated)
-        self.failing = set(failing)
-        self.deletes: list[dict] = []
-
-    def list(self, project):
-        return list(self.items)
-
-    def aggregated_list(self, project):
-        return list(self.aggregated)
-
-    def delete(self, **kwargs):
-        self.deletes.append(kwargs)
-        name = next(value for key, value in kwargs.items() if key not in ("project", "zone", "region"))
-        if name in self.failing:
-            raise api_errors.InvalidArgument("resource is in use")
+def ago(hours: float) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(hours=hours)
 
 
-class FakeContainerClient:
-    def __init__(self, clusters, operation_statuses=(container_v1.Operation.Status.DONE,)):
-        self.clusters = list(clusters)
-        self.operation_statuses = iter(operation_statuses)
-        self.deleted: list[str] = []
-
-    def list_clusters(self, parent):
-        return SimpleNamespace(clusters=self.clusters)
-
-    def delete_cluster(self, name):
-        self.deleted.append(name)
-        return SimpleNamespace(name="operation-1", status=container_v1.Operation.Status.RUNNING)
-
-    def get_operation(self, name):
-        status = next(self.operation_statuses, container_v1.Operation.Status.DONE)
-        return SimpleNamespace(name=name, status=status, error=SimpleNamespace(code=0, message=""))
-
-
-class FakeIAMClient:
-    def __init__(self, accounts, keys):
-        self.accounts = list(accounts)
-        self.keys = keys
-        self.deleted: list[str] = []
-
-    def list_service_accounts(self, name):
-        return list(self.accounts)
-
-    def list_service_account_keys(self, name, key_types):
-        email = name.rsplit("/", 1)[-1]
-        return SimpleNamespace(keys=self.keys.get(email, []))
-
-    def delete_service_account(self, name):
-        self.deleted.append(name)
-
-
-class FakeIAMPolicy:
-    def __init__(self, bindings):
-        self.bindings = list(bindings)
-
-
-class FakeIAMBinding:
-    def __init__(self, role, members):
-        self.role = role
-        self.members = list(members)
-
-
-class FakeResourceManagerClient:
-    def __init__(self, policy):
-        self.policy = policy
-        self.written = []
-
-    def get_iam_policy(self, resource):
-        return self.policy
-
-    def set_iam_policy(self, resource, policy):
-        self.written.append(policy)
-
-
-class FakeRestClient:
-    def __init__(self, responses=None, failing=()):
-        self.responses = responses or {}
-        self.failing = set(failing)
-        self.calls: list[tuple[str, str]] = []
-
-    def get(self, url, key):
-        self.calls.append(("GET", url))
-        if url in self.failing:
-            raise api_errors.InternalServerError("list failed")
-        return self.responses.get(url, [])
-
-    def post(self, url, body):
-        self.calls.append(("POST", url))
-        self.responses.setdefault("posted", []).append(body)
-        return {}
-
-    def delete(self, url):
-        self.calls.append(("DELETE", url))
-        if url in self.failing:
-            raise api_errors.InvalidArgument("in use")
-
-
-class FakeClients:
-    def __init__(self, mapping=None, rest=None, default=None):
-        self.mapping = mapping or {}
-        self.rest = rest
-        self.default = default if default is not None else FakeComputeClient()
-
-    def get(self, client_class):
-        return self.mapping.get(client_class, self.default)
-
-
-def make_reaper(clients, dry_run=False):
-    return Reaper("test-project", 24, dry_run, clients)
-
-
-def test_parse_time_accepts_rfc3339_with_offset_and_zulu():
-    assert parse_time("2026-09-28T08:11:35+00:00") is not None
-    assert parse_time("2026-09-28T08:11:35Z") is not None
-    assert parse_time("not-a-timestamp") is None
-    assert parse_time("") is None
-
-
-def test_denylists():
-    assert is_denylisted("firewall-rules", "default-allow-ssh")
-    assert not is_denylisted("firewall-rules", "k8s-fw-abc")
-    assert is_denylisted("service-accounts", "k8s-operator-e2e-tests@test-project.iam.gserviceaccount.com")
-    assert is_denylisted("service-accounts", "123456-compute@developer.gserviceaccount.com")
-    assert not is_denylisted("service-accounts", "ext-dns-sa-abc@test-project.iam.gserviceaccount.com")
-
-
-def test_firewall_rules_skip_denylist_and_young(capsys):
-    client = FakeComputeClient(
-        items=[
-            gce_item("default-allow-ssh", hours_ago=48),
-            gce_item("k8s-fw-abc", hours_ago=48),
-            gce_item("k8s-fw-new", hours_ago=1),
-        ]
+def asset(asset_type: str, path: str, hours: float = 48, project: str = PROJECT) -> asset_v1.ResourceSearchResult:
+    service = asset_type.split("/")[0]
+    return asset_v1.ResourceSearchResult(
+        name=f"//{service}/projects/{project}/{path}", asset_type=asset_type, create_time=ago(hours)
     )
-    reaper = make_reaper(FakeClients({compute_v1.FirewallsClient: client}))
 
-    reaper.reap_firewall_rules()
 
-    assert [call["firewall"] for call in client.deletes] == ["k8s-fw-abc"]
-    out = capsys.readouterr().out
-    assert "skipped 1 denylisted rule(s)" in out
-    assert "3 listed, 2 older than 24h, 1 deleted, 0 failed" in out
+class FakeApi(Api):
+    """Serves scripted responses per (method, url); the last one repeats."""
+
+    def __init__(self, **scripted):
+        super().__init__(session=None)
+        self.responses = {tuple(key.split(" ", 1)): list(values) for key, values in scripted.items()}
+        self.calls, self.bodies = [], []
+
+    def script(self, method: str, url: str, *responses) -> None:
+        self.responses[(method, url)] = list(responses)
+
+    def _call(self, method, url, **kwargs):
+        self.calls.append((method, url))
+        self.bodies.append(kwargs.get("json"))
+        queue = self.responses.get((method, url))
+        assert queue, f"unexpected {method} {url}"
+        response = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def compute_delete(api: FakeApi, path: str, *final_ops) -> str:
+    """Script a compute DELETE whose operation is RUNNING, then final_ops."""
+    url, op = COMPUTE + path, f"{COMPUTE}global/operations/op-{path.rsplit('/', 1)[-1]}"
+    api.script("DELETE", url, {"status": "RUNNING", "selfLink": op})
+    api.script("GET", op, *(final_ops or ({"status": "DONE"},)))
+    return url
+
+
+def make_reaper(api=None, results=(), dry_run=False, accounts=(), keys=None, policy=None):
+    assets = create_autospec(asset_v1.AssetServiceClient, instance=True)
+    assets.search_all_resources.return_value = list(results)
+    iam = create_autospec(iam_admin_v1.IAMClient, instance=True)
+    iam.list_service_accounts.return_value = list(accounts)
+    iam.list_service_account_keys.side_effect = lambda name, key_types: iam_admin_v1.ListServiceAccountKeysResponse(
+        keys=[iam_admin_v1.ServiceAccountKey(valid_after_time=ago(hours)) for hours in (keys or {}).get(name, [])]
+    )
+    projects = create_autospec(resourcemanager_v3.ProjectsClient, instance=True)
+    projects.get_iam_policy.return_value = policy or policy_pb2.Policy()
+    return Reaper(PROJECT, 24, dry_run, api=api or FakeApi(), assets=assets, iam=iam, projects=projects)
+
+
+def test_parse_asset_maps_names_to_rest_urls():
+    cluster = parse_asset(asset("container.googleapis.com/Cluster", "zones/z-a/clusters/k8s-1"), PROJECT)
+    assert cluster.url == f"https://container.googleapis.com/v1/projects/{PROJECT}/zones/z-a/clusters/k8s-1"
+    assert (cluster.name, cluster.label) == ("k8s-1", "zones/z-a/clusters/k8s-1")
+    zone = parse_asset(asset("dns.googleapis.com/ManagedZone", "managedZones/246523"), PROJECT)
+    assert zone.url == f"https://dns.googleapis.com/dns/v1/projects/{PROJECT}/managedZones/246523"
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        asset_v1.ResourceSearchResult(name=f"//compute.googleapis.com/projects/{PROJECT}/global/firewalls/x"),
+        asset(FIREWALL, "global/firewalls/x", project="other-project"),
+        asset("storage.googleapis.com/Bucket", "buckets/b"),
+        asset_v1.ResourceSearchResult(name=f"compute.googleapis.com/projects/{PROJECT}/x", create_time=ago(48)),
+    ],
+    ids=["no-create-time", "foreign-project", "unknown-service", "not-an-asset-name"],
+)
+def test_parse_asset_fails_closed(result):
+    with pytest.raises(InventoryError):
+        parse_asset(result, PROJECT)
+
+
+def test_old_resources_deleted_after_their_operation_is_done(capsys):
+    api = FakeApi()
+    old = compute_delete(api, "global/firewalls/k8s-old", {"status": "RUNNING"}, {"status": "DONE"})
+    reaper = make_reaper(api, [asset(FIREWALL, "global/firewalls/k8s-old"), asset(FIREWALL, "global/firewalls/new", 1)])
+
+    reaper.reap_assets()
+
+    assert api.calls == [("DELETE", old)] + [("GET", f"{COMPUTE}global/operations/op-k8s-old")] * 2
+    assert "summary: 2 listed, 0 denylisted, 1 older than 24h, 1 deleted, 0 failed" in capsys.readouterr().out
     assert not reaper.failed
 
 
-def test_zonal_deletes_include_zone_from_aggregated_scope():
-    client = FakeComputeClient(aggregated=[("zones/europe-central2-a", scoped("disks", gce_item("pvc-1")))])
-    reaper = make_reaper(FakeClients({compute_v1.DisksClient: client}))
-
-    reaper.reap_compute("disks")
-
-    assert client.deletes == [{"project": "test-project", "disk": "pvc-1", "zone": "europe-central2-a"}]
-
-
-def test_regional_forwarding_rules_include_region():
-    client = FakeComputeClient(aggregated=[("regions/europe-central2", scoped("forwarding_rules", gce_item("fw-1")))])
-    reaper = make_reaper(FakeClients({compute_v1.ForwardingRulesClient: client}))
-
-    reaper.reap_compute("forwarding-rules")
-
-    assert client.deletes == [{"project": "test-project", "forwarding_rule": "fw-1", "region": "europe-central2"}]
-
-
-def test_malformed_timestamp_aborts_class(capsys):
-    bad = SimpleNamespace(name="pvc-1", creation_timestamp="garbage")
-    client = FakeComputeClient(aggregated=[("zones/z-a", scoped("disks", bad))])
-    reaper = make_reaper(FakeClients({compute_v1.DisksClient: client}))
-
-    reaper.reap_compute("disks")
-
-    assert client.deletes == []
-    assert reaper.failed
-    out = capsys.readouterr().out
-    assert "ERROR: failed to list disks" in out
-    assert "bad creation timestamp" in out
-    assert "0 deleted" in out
-
-
-def test_dry_run_never_calls_delete(capsys):
-    client = FakeComputeClient(items=[gce_item("k8s-fw-abc")])
-    reaper = make_reaper(FakeClients({compute_v1.FirewallsClient: client}), dry_run=True)
-
-    reaper.reap_firewall_rules()
-
-    assert client.deletes == []
-    assert "dry-run: delete firewall-rules/k8s-fw-abc" in capsys.readouterr().out
-
-
-def test_delete_failure_marks_overall_failed_and_continues(capsys):
-    client = FakeComputeClient(items=[gce_item("k8s-fw-abc"), gce_item("k8s-fw-def")], failing={"k8s-fw-abc"})
-    reaper = make_reaper(FakeClients({compute_v1.FirewallsClient: client}))
-
-    reaper.reap_firewall_rules()
-
-    assert [call["firewall"] for call in client.deletes] == ["k8s-fw-abc", "k8s-fw-def"]
-    assert reaper.failed
-    assert "1 deleted, 1 failed" in capsys.readouterr().out
-
-
-def test_cluster_delete_waits_for_operation(monkeypatch):
-    monkeypatch.setattr(reaper_module, "CLUSTER_POLL_SECONDS", 0)
-    cluster = SimpleNamespace(name="k8s-mdb-0-abc", location="europe-central2-a", create_time=iso(48))
-    client = FakeContainerClient(
-        [cluster], operation_statuses=(container_v1.Operation.Status.RUNNING, container_v1.Operation.Status.DONE)
+def test_denylisted_firewall_is_kept(capsys):
+    api = FakeApi()
+    kept = compute_delete(api, "global/firewalls/k8s-fw")
+    reaper = make_reaper(
+        api, [asset(FIREWALL, "global/firewalls/default-allow-ssh"), asset(FIREWALL, "global/firewalls/k8s-fw")]
     )
-    reaper = make_reaper(FakeClients({container_v1.ClusterManagerClient: client}))
 
-    reaper.reap_clusters()
+    reaper.reap_assets()
 
-    assert client.deleted == ["projects/test-project/locations/europe-central2-a/clusters/k8s-mdb-0-abc"]
-    assert not reaper.failed
+    assert [url for method, url in api.calls if method == "DELETE"] == [kept]
+    assert "summary: 2 listed, 1 denylisted, 1 older than 24h, 1 deleted, 0 failed" in capsys.readouterr().out
 
 
-def test_service_accounts_delete_only_stale_keyed_accounts(capsys):
-    def account(email):
-        return SimpleNamespace(email=email, name=f"projects/test-project/serviceAccounts/{email}")
-
-    def key(hours_ago):
-        return SimpleNamespace(valid_after_time=SimpleNamespace(timestamp=lambda: time.time() - hours_ago * 3600))
-
-    denylisted = "k8s-operator-e2e-tests@test-project.iam.gserviceaccount.com"
-    stale = "ext-dns-sa-old@test-project.iam.gserviceaccount.com"
-    young = "ext-dns-sa-young@test-project.iam.gserviceaccount.com"
-    iam = FakeIAMClient([account(denylisted), account(stale), account(young)], {stale: [key(48)], young: [key(1)]})
-    policy = FakeIAMPolicy(
+def test_types_are_deleted_in_dependency_order():
+    api = FakeApi()
+    rule = compute_delete(api, "regions/r/forwardingRules/fr")
+    pool = compute_delete(api, "regions/r/targetPools/tp")
+    reaper = make_reaper(
+        api,
         [
-            FakeIAMBinding("roles/dns.admin", [f"serviceAccount:{stale}"]),
-            FakeIAMBinding("roles/viewer", ["user:x@y.com"]),
+            asset("compute.googleapis.com/TargetPool", "regions/r/targetPools/tp"),
+            asset("compute.googleapis.com/ForwardingRule", "regions/r/forwardingRules/fr"),
+        ],
+    )
+
+    reaper.reap_assets()
+
+    # The forwarding rule's operation completes before the target pool is touched.
+    assert [call[1] for call in api.calls] == [
+        rule,
+        f"{COMPUTE}global/operations/op-fr",
+        pool,
+        f"{COMPUTE}global/operations/op-tp",
+    ]
+
+
+def test_failed_operation_fails_only_its_resource(capsys):
+    api = FakeApi()
+    compute_delete(api, "global/firewalls/bad", {"status": "DONE", "error": {"errors": [{"message": "in use"}]}})
+    compute_delete(api, "global/firewalls/good")
+    reaper = make_reaper(api, [asset(FIREWALL, "global/firewalls/bad"), asset(FIREWALL, "global/firewalls/good")])
+
+    reaper.reap_assets()
+
+    out = capsys.readouterr().out
+    assert "error: global/firewalls/bad: in use" in out
+    assert "1 deleted, 1 failed" in out
+    assert reaper.failed
+
+
+def test_operation_timeout_is_a_failure(monkeypatch, capsys):
+    monkeypatch.setattr(gc, "OPERATION_TIMEOUT_SECONDS", -1)
+    api = FakeApi()
+    compute_delete(api, "global/firewalls/stuck", {"status": "RUNNING"})
+    reaper = make_reaper(api, [asset(FIREWALL, "global/firewalls/stuck")])
+
+    reaper.reap_assets()
+
+    assert "not done after" in capsys.readouterr().out
+    assert reaper.failed
+
+
+def test_malformed_entry_aborts_only_its_type(capsys):
+    api = FakeApi()
+    disk = compute_delete(api, "zones/z/disks/pvc-1")
+    broken = asset_v1.ResourceSearchResult(
+        name=f"//compute.googleapis.com/projects/{PROJECT}/global/firewalls/x", asset_type=FIREWALL
+    )
+    reaper = make_reaper(
+        api,
+        [broken, asset(FIREWALL, "global/firewalls/y"), asset("compute.googleapis.com/Disk", "zones/z/disks/pvc-1")],
+    )
+
+    reaper.reap_assets()
+
+    assert [url for method, url in api.calls if method == "DELETE"] == [disk]
+    assert f"ERROR: failed to list {FIREWALL}" in capsys.readouterr().out
+    assert reaper.failed
+
+
+def test_search_failure_deletes_nothing(capsys):
+    api = FakeApi()
+    reaper = make_reaper(api)
+    reaper.assets.search_all_resources.side_effect = api_errors.InternalServerError("boom")
+
+    reaper.reap_assets()
+
+    assert api.calls == []
+    assert "asset search failed, nothing deleted" in capsys.readouterr().out
+    assert reaper.failed
+
+
+def test_dry_run_makes_no_calls(capsys):
+    api = FakeApi()
+    reaper = make_reaper(api, [asset(FIREWALL, "global/firewalls/k8s-fw")], dry_run=True)
+
+    reaper.reap_assets()
+
+    assert api.calls == []
+    out = capsys.readouterr().out
+    assert "dry-run: delete global/firewalls/k8s-fw" in out
+    assert "1 would-delete, 0 failed" in out
+
+
+def test_already_deleted_counts_as_deleted(capsys):
+    api = FakeApi(**{f"DELETE {COMPUTE}global/firewalls/gone": [api_errors.NotFound("gone")]})
+    reaper = make_reaper(api, [asset(FIREWALL, "global/firewalls/gone")])
+
+    reaper.reap_assets()
+
+    assert "1 deleted, 0 failed" in capsys.readouterr().out
+    assert not reaper.failed
+
+
+def test_dns_zone_is_emptied_then_deleted():
+    zone = f"https://dns.googleapis.com/dns/v1/projects/{PROJECT}/managedZones/246523"
+    a_record = {"name": "om.example.", "type": "A", "ttl": 60, "rrdatas": ["1.2.3.4"]}
+    api = FakeApi()
+    api.script(
+        "GET",
+        f"{zone}/rrsets",
+        {"rrsets": [{"name": "example.", "type": "NS"}, {"name": "example.", "type": "SOA"}], "nextPageToken": "p2"},
+        {"rrsets": [a_record]},
+    )
+    api.script("POST", f"{zone}/changes", {"id": "7", "status": "pending"})
+    api.script("GET", f"{zone}/changes/7", {"id": "7", "status": "done"})
+    api.script("DELETE", zone, {})
+    reaper = make_reaper(api, [asset("dns.googleapis.com/ManagedZone", "managedZones/246523")])
+
+    reaper.reap_assets()
+
+    assert api.bodies[2] == {"deletions": [a_record]}
+    assert api.calls[-2:] == [("GET", f"{zone}/changes/7"), ("DELETE", zone)]
+    assert not reaper.failed
+
+
+def sa(email: str) -> iam_admin_v1.ServiceAccount:
+    return iam_admin_v1.ServiceAccount(email=email, name=f"projects/{PROJECT}/serviceAccounts/{email}")
+
+
+def test_service_accounts_are_unbound_then_deleted(capsys):
+    old, young, keyless = (sa(f"{prefix}@{PROJECT}.iam.gserviceaccount.com") for prefix in ("old", "young", "keyless"))
+    ci = sa(f"k8s-operator-e2e-tests@{PROJECT}.iam.gserviceaccount.com")
+    member = f"serviceAccount:{old.email}"
+    policy = policy_pb2.Policy(
+        bindings=[
+            policy_pb2.Binding(role="roles/dns.admin", members=[member, "user:x@y.com"]),
+            policy_pb2.Binding(role="roles/viewer", members=[member]),
         ]
     )
-    rm = FakeResourceManagerClient(policy)
-    reaper = make_reaper(FakeClients({iam_admin_v1.IAMClient: iam, resourcemanager_v3.ProjectsClient: rm}))
+    reaper = make_reaper(
+        accounts=[ci, old, young, keyless], keys={ci.name: [48], old.name: [48, 30], young.name: [48, 1]}, policy=policy
+    )
 
     reaper.reap_service_accounts()
 
-    assert iam.deleted == [f"projects/test-project/serviceAccounts/{stale}"]
-    assert rm.written
-    assert [binding.role for binding in rm.written[0].bindings] == ["roles/viewer"]
-    out = capsys.readouterr().out
-    assert "skipped 1 denylisted account(s)" in out
-    assert "3 listed, 1 older than 24h, 1 deleted, 0 failed" in out
-    assert not reaper.failed
+    reaper.projects.set_iam_policy.assert_called_once()
+    written = reaper.projects.set_iam_policy.call_args.kwargs["request"]["policy"]
+    assert [(b.role, list(b.members)) for b in written.bindings] == [("roles/dns.admin", ["user:x@y.com"])]
+    reaper.iam.delete_service_account.assert_called_once_with(name=old.name)
+    assert "summary: 4 listed, 1 denylisted, 1 older than 24h, 1 deleted, 0 failed" in capsys.readouterr().out
 
 
-def test_http_health_checks_are_deleted_via_rest(capsys):
-    url = "https://compute.googleapis.com/compute/v1/projects/test-project/global/httpHealthChecks"
-    rest = FakeRestClient(
-        {
-            url: [
-                {"name": "k8s-abc-node", "creationTimestamp": iso(48)},
-                {"name": "k8s-new-node", "creationTimestamp": iso(1)},
-            ]
-        }
+def test_service_account_unbind_failure_deletes_nothing():
+    old = sa(f"old@{PROJECT}.iam.gserviceaccount.com")
+    policy = policy_pb2.Policy(
+        bindings=[policy_pb2.Binding(role="roles/viewer", members=[f"serviceAccount:{old.email}"])]
     )
-    reaper = make_reaper(FakeClients(rest=rest))
+    reaper = make_reaper(accounts=[old], keys={old.name: [48]}, policy=policy)
+    reaper.projects.set_iam_policy.side_effect = api_errors.Aborted("etag mismatch")
 
-    reaper.reap_http_health_checks()
+    reaper.reap_service_accounts()
 
-    assert ("DELETE", f"{url}/k8s-abc-node") in rest.calls
-    assert ("DELETE", f"{url}/k8s-new-node") not in rest.calls
-    assert "2 listed, 1 older than 24h, 1 deleted, 0 failed" in capsys.readouterr().out
-
-
-def test_dns_zone_deletes_records_then_zone(capsys):
-    zones_url = "https://dns.googleapis.com/dns/v1/projects/test-project/managedZones"
-    zone = "mongodb-abc"
-    records_url = f"{zones_url}/{zone}/rrsets"
-    records = [
-        {"name": f"{zone}.", "type": "NS"},
-        {"name": f"{zone}.", "type": "SOA"},
-        {"name": f"om.{zone}.", "type": "A", "ttl": 60, "rrdatas": ["1.2.3.4"]},
-    ]
-    rest = FakeRestClient({zones_url: [{"name": zone, "creationTime": iso(48)}], records_url: records})
-    reaper = make_reaper(FakeClients(rest=rest))
-
-    reaper.reap_dns_zones()
-
-    posted = rest.responses["posted"][0]
-    assert [record["name"] for record in posted["deletions"]] == [f"om.{zone}."]
-    assert ("DELETE", f"{zones_url}/{zone}") in rest.calls
-    assert "1 listed, 1 older than 24h, 1 deleted, 0 failed" in capsys.readouterr().out
-    assert not reaper.failed
-
-
-def test_rest_list_failure_aborts_class():
-    url = "https://dns.googleapis.com/dns/v1/projects/test-project/managedZones"
-    rest = FakeRestClient(failing={url})
-    reaper = make_reaper(FakeClients(rest=rest))
-
-    reaper.reap_dns_zones()
-
-    assert rest.calls == [("GET", url)]
+    reaper.iam.delete_service_account.assert_not_called()
     assert reaper.failed
 
 
-def test_main_requires_project(monkeypatch):
-    monkeypatch.delenv("MDB_GKE_PROJECT", raising=False)
-    assert reaper_module.main() == 1
+def test_service_accounts_dry_run_mutates_nothing():
+    old = sa(f"old@{PROJECT}.iam.gserviceaccount.com")
+    reaper = make_reaper(accounts=[old], keys={old.name: [48]}, dry_run=True)
+
+    reaper.reap_service_accounts()
+
+    reaper.projects.get_iam_policy.assert_not_called()
+    reaper.iam.delete_service_account.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "env",
+    [{}, {"MDB_GKE_PROJECT": "p", "AGE_THRESHOLD_HOURS": "0"}, {"MDB_GKE_PROJECT": "p", "DRY_RUN": "yes"}],
+    ids=["no-project", "bad-threshold", "bad-dry-run"],
+)
+def test_main_rejects_bad_env(monkeypatch, env):
+    for name in ("MDB_GKE_PROJECT", "AGE_THRESHOLD_HOURS", "DRY_RUN"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert gc.main() == 1

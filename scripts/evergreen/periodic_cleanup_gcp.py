@@ -1,26 +1,24 @@
 """Age-based garbage collector for the GKE code-snippet test project (KUBE-268).
 
-Deletes every resource older than AGE_THRESHOLD_HOURS, except the auditable
-DENYLISTS below. Age is the only ownership filter: the project is used
-exclusively by ephemeral e2e tests, and an in-flight run's resources are
-younger than the threshold (deleting them is what broke the KUBE-268 run).
-Clusters go first; delete failures are tolerated and retried on the next run;
-malformed inventories abort their class instead of deleting from a partial
-view.
+Deletes every resource of REAPED_TYPES, plus service accounts, older than
+AGE_THRESHOLD_HOURS, except names matching DENYLISTS. Age is the only ownership
+filter: the project only hosts ephemeral e2e resources, and an in-flight run's
+resources are younger than the threshold.
 
-GCP access uses the typed google-cloud clients. Two surfaces they do not cover
-are handled over REST with the same credentials: the legacy httpHealthChecks
-collection (absent from google-cloud-compute), and Cloud DNS record deletion
-(google-cloud-dns cannot delete records, and a zone that still contains
-records cannot be deleted).
+Resources are discovered with one Cloud Asset Inventory search. An asset name is
+"//<service>/<REST path>", so deleting it is a DELETE on API_ROOTS[service] +
+path, followed by waiting for the returned operation. Types are deleted in
+dependency order, each type finishing before the next one starts. The inventory
+has no creation time for service accounts, so they are aged by their keys.
 
-Run through the project venv (created by the periodic_teardown setup):
-  scripts/dev/run_python.sh scripts/evergreen/periodic_cleanup_gcp.py
+A malformed inventory skips its type rather than deleting from a partial view;
+failed deletes are reported and retried on the next run; any failure makes the
+exit code 1.
 
-Auth: the GCP_SERVICE_ACCOUNT_JSON_FOR_SNIPPETS_TESTS expansion in Evergreen,
-Application Default Credentials locally.
-
-Env: MDB_GKE_PROJECT (required), AGE_THRESHOLD_HOURS (24), DRY_RUN (false).
+Requires cloudasset.googleapis.com on the project and roles/cloudasset.viewer.
+Auth: GCP_SERVICE_ACCOUNT_JSON_FOR_SNIPPETS_TESTS, else Application Default
+Credentials. Env: MDB_GKE_PROJECT (required), AGE_THRESHOLD_HOURS (24),
+DRY_RUN (false). Run: scripts/dev/run_python.sh scripts/evergreen/periodic_cleanup_gcp.py
 """
 
 import json
@@ -28,520 +26,325 @@ import os
 import re
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Callable, Optional
+from typing import Callable
 
 import google.auth
 from google.api_core import exceptions as api_errors
 from google.auth.transport.requests import AuthorizedSession
-from google.cloud import compute_v1, container_v1, iam_admin_v1, resourcemanager_v3
+from google.cloud import asset_v1, iam_admin_v1, resourcemanager_v3
+from google.protobuf import field_mask_pb2
 
-SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
-COMPUTE_API = "https://compute.googleapis.com/compute/v1"
-DNS_API = "https://dns.googleapis.com/dns/v1"
-DNS_ADMIN_ROLE = "roles/dns.admin"
-CLUSTER_POLL_SECONDS = 15
-USER_MANAGED_KEY = iam_admin_v1.ListServiceAccountKeysRequest.KeyType.USER_MANAGED
-
-# The reaper never deletes a name matching one of these regexes. Everything not
-# listed is deleted once older than the threshold, so keep the lists small and
-# auditable.
-DENYLISTS: dict[str, tuple[str, ...]] = {
-    "firewall-rules": (r"^default-",),  # shared VPC networking rules
-    "service-accounts": (
+# Deletion (dependency) order; types not listed are never touched. The compute
+# Global* types are not searchable: the regional type names include them.
+REAPED_TYPES = (
+    "container.googleapis.com/Cluster",
+    "compute.googleapis.com/ForwardingRule",
+    "compute.googleapis.com/TargetPool",
+    "compute.googleapis.com/BackendService",
+    "compute.googleapis.com/HttpHealthCheck",
+    "compute.googleapis.com/HealthCheck",
+    "compute.googleapis.com/TargetHttpsProxy",
+    "compute.googleapis.com/UrlMap",
+    "compute.googleapis.com/SslCertificate",
+    "compute.googleapis.com/Address",
+    "compute.googleapis.com/NetworkEndpointGroup",
+    "compute.googleapis.com/Firewall",
+    "compute.googleapis.com/Disk",
+    "dns.googleapis.com/ManagedZone",
+)
+SERVICE_ACCOUNT_TYPE = "iam.googleapis.com/ServiceAccount"
+API_ROOTS = {
+    "compute.googleapis.com": "https://compute.googleapis.com/compute/v1/",
+    "container.googleapis.com": "https://container.googleapis.com/v1/",
+    "dns.googleapis.com": "https://dns.googleapis.com/dns/v1/",
+}
+# Never deleted, matched against the short resource name (email for accounts).
+# Keep these small and auditable: everything else is deleted once old.
+DENYLISTS = {
+    "compute.googleapis.com/Firewall": (r"^default-",),  # shared VPC networking rules
+    SERVICE_ACCOUNT_TYPE: (
         r"^k8s-operator-e2e-tests@",  # CI infrastructure account
-        r".*@developer\.gserviceaccount\.com$",  # GCE default compute account
+        r"@developer\.gserviceaccount\.com$",  # GCE default compute account
     ),
 }
+SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+USER_MANAGED_KEY = iam_admin_v1.ListServiceAccountKeysRequest.KeyType.USER_MANAGED
+OPERATION_TIMEOUT_SECONDS = 1800  # GKE cluster deletions take several minutes
+POLL_SECONDS = 5
+DELETE_WORKERS = 16
 
 
 class InventoryError(ValueError):
-    """A list response does not match the expected shape."""
+    """An inventory entry cannot be trusted for deletion."""
+
+
+class OperationError(RuntimeError):
+    """A long-running operation failed or timed out."""
 
 
 @dataclass(frozen=True)
-class ComputeKind:
-    """One API collection backing a reaped compute class.
-
-    A class like addresses has both a global and a regional collection; each
-    is listed and deleted through its own client.
-    """
-
-    client: type
-    collection: str  # attribute holding the resources in the list response
-    delete_arg: str  # keyword argument naming the resource in delete()
-    scope: str = "global"  # "global", "regional" or "zonal"
-
-
-# The tests only create network load balancers (target pools / forwarding
-# rules), so global-only collections are listed where the regional variant is
-# never populated (backend services, proxy resources, certificates).
-COMPUTE_CLASSES: dict[str, tuple[ComputeKind, ...]] = {
-    "forwarding-rules": (
-        ComputeKind(compute_v1.GlobalForwardingRulesClient, "forwarding_rules", "forwarding_rule"),
-        ComputeKind(compute_v1.ForwardingRulesClient, "forwarding_rules", "forwarding_rule", "regional"),
-    ),
-    "target-pools": (ComputeKind(compute_v1.TargetPoolsClient, "target_pools", "target_pool", "regional"),),
-    "backend-services": (ComputeKind(compute_v1.BackendServicesClient, "backend_services", "backend_service"),),
-    "health-checks": (ComputeKind(compute_v1.HealthChecksClient, "health_checks", "health_check"),),
-    "target-https-proxies": (
-        ComputeKind(compute_v1.TargetHttpsProxiesClient, "target_https_proxies", "target_https_proxy"),
-    ),
-    "url-maps": (ComputeKind(compute_v1.UrlMapsClient, "url_maps", "url_map"),),
-    "ssl-certificates": (ComputeKind(compute_v1.SslCertificatesClient, "ssl_certificates", "ssl_certificate"),),
-    "addresses": (
-        ComputeKind(compute_v1.GlobalAddressesClient, "addresses", "address"),
-        ComputeKind(compute_v1.AddressesClient, "addresses", "address", "regional"),
-    ),
-    "network-endpoint-groups": (
-        ComputeKind(
-            compute_v1.NetworkEndpointGroupsClient, "network_endpoint_groups", "network_endpoint_group", "zonal"
-        ),
-    ),
-    "firewall-rules": (ComputeKind(compute_v1.FirewallsClient, "firewalls", "firewall"),),
-    "disks": (ComputeKind(compute_v1.DisksClient, "disks", "disk", "zonal"),),
-}
-
-
-@dataclass(frozen=True)
-class Item:
-    kind: ComputeKind
-    name: str
+class Resource:
+    service: str
+    path: str  # "projects/<project>/..."
     created: float
-    scope: str = ""  # "zones/<zone>", "regions/<region>" or "" for global
+
+    @property
+    def url(self) -> str:
+        return API_ROOTS[self.service] + self.path
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit("/", 1)[-1]
+
+    @property
+    def label(self) -> str:
+        return self.path.split("/", 2)[2]  # without "projects/<project>/"
 
 
 @dataclass
 class Summary:
-    """Per-class counters printed as one summary line after each class."""
-
-    resource: str
     listed: int = 0
+    skipped: int = 0
     old: int = 0
     deleted: int = 0
     failed: int = 0
-    skipped: int = 0
 
-    def footer(self, threshold_hours: int, dry_run: bool) -> str:
-        action = "would-delete" if dry_run else "deleted"
-        return (
-            f"summary: {self.listed} listed, {self.old} older than {threshold_hours}h, "
-            f"{self.deleted} {action}, {self.failed} failed"
+
+def parse_asset(result, project: str) -> Resource:
+    """Fail closed on any entry that is not a dated resource of our project."""
+    service, _, path = result.name.removeprefix("//").partition("/")
+    if not result.name.startswith("//") or service not in API_ROOTS or not path.startswith(f"projects/{project}/"):
+        raise InventoryError(f"unexpected asset name {result.name!r}")
+    created = result.create_time.timestamp() if result.create_time else 0
+    if created <= 0:
+        raise InventoryError(f"{result.name}: missing create_time")
+    return Resource(service, path, created)
+
+
+def is_denylisted(kind: str, name: str) -> bool:
+    return any(re.search(pattern, name) for pattern in DENYLISTS.get(kind, ()))
+
+
+class Api:
+    """Minimal JSON REST client raising google-api-core errors."""
+
+    def __init__(self, session: AuthorizedSession):
+        self._session = session
+
+    def _call(self, method: str, url: str, **kwargs) -> dict:
+        response = self._session.request(method, url, **kwargs)
+        if not response.ok:
+            raise api_errors.from_http_response(response)
+        return response.json() if response.content else {}
+
+    def get(self, url: str, params: dict | None = None) -> dict:
+        return self._call("GET", url, params=params)
+
+    def post(self, url: str, body: dict) -> dict:
+        return self._call("POST", url, json=body)
+
+    def delete(self, url: str) -> dict:
+        return self._call("DELETE", url)
+
+    def get_all(self, url: str, key: str) -> list[dict]:
+        items, token = [], None
+        while True:
+            page = self.get(url, {"pageToken": token} if token else None)
+            items += page.get(key, [])
+            token = page.get("nextPageToken")
+            if not token:
+                return items
+
+
+class Reaper:
+    def __init__(self, project: str, age_threshold_hours: int, dry_run: bool, *, api, assets, iam, projects):
+        self.project = project
+        self.age_threshold_hours = age_threshold_hours
+        self.dry_run = dry_run
+        self.api, self.assets, self.iam, self.projects = api, assets, iam, projects
+        self.cutoff = time.time() - age_threshold_hours * 3600
+        self.failed = False
+
+    def run(self) -> None:
+        if self.dry_run:
+            print("=== DRY RUN: no delete or IAM mutation commands will execute ===")
+        self.reap_assets()
+        self.reap_service_accounts()
+
+    # --- bookkeeping -------------------------------------------------------
+
+    @contextmanager
+    def _section(self, kind: str):
+        """Print a header and summary around one kind; listing errors abort it."""
+        print(f"\n=== {kind} (threshold: {self.age_threshold_hours}h) ===")
+        summary = Summary()
+        try:
+            # this yield line is effectively replaced by the body of with self._section(kind) as summary: expression
+            yield summary
+        except (api_errors.GoogleAPIError, InventoryError) as exc:
+            print(f"ERROR: failed to list {kind}: {exc}")
+            summary.failed += 1
+        self.failed |= summary.failed > 0
+        print(
+            f"summary: {summary.listed} listed, {summary.skipped} denylisted, "
+            f"{summary.old} older than {self.age_threshold_hours}h, "
+            f"{summary.deleted} {'would-delete' if self.dry_run else 'deleted'}, {summary.failed} failed"
         )
 
+    def _allowed(self, summary: Summary, kind: str, items: list, name: Callable) -> list:
+        summary.listed = len(items)
+        allowed = [item for item in items if not is_denylisted(kind, name(item))]
+        summary.skipped = len(items) - len(allowed)
+        return allowed
 
-def parse_time(value: str) -> Optional[float]:
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return None
+    def _attempt(self, label: str, action: Callable[[], object]) -> bool:
+        """Run a mutation; True on success, in dry-run, or when already gone."""
+        print(f"  {'dry-run' if self.dry_run else 'running'}: delete {label}")
+        if self.dry_run:
+            return True
+        try:
+            action()
+            return True
+        except api_errors.NotFound:
+            return True
+        except (api_errors.GoogleAPIError, OperationError) as exc:
+            print(f"  error: {label}: {exc}")
+            return False
 
+    def _delete_all(self, summary: Summary, items: list, label: Callable, delete: Callable) -> None:
+        """Delete in parallel and return only when every item is done."""
+        with ThreadPoolExecutor(DELETE_WORKERS) as pool:
+            results = list(pool.map(lambda item: self._attempt(label(item), lambda: delete(item)), items))
+        summary.deleted += results.count(True)
+        summary.failed += results.count(False)
 
-def is_denylisted(resource: str, name: str) -> bool:
-    return any(re.search(pattern, name) for pattern in DENYLISTS.get(resource, ()))
+    # --- inventory resources -----------------------------------------------
 
+    def reap_assets(self) -> None:
+        request = asset_v1.SearchAllResourcesRequest(
+            scope=f"projects/{self.project}",
+            asset_types=REAPED_TYPES,
+            read_mask=field_mask_pb2.FieldMask(paths=["name", "asset_type", "create_time"]),
+        )
+        try:
+            results = list(self.assets.search_all_resources(request=request))
+        except api_errors.GoogleAPIError as exc:
+            print(f"ERROR: asset search failed, nothing deleted: {exc}")
+            self.failed = True
+            return
+        for kind in REAPED_TYPES:
+            with self._section(kind) as summary:
+                resources = [parse_asset(result, self.project) for result in results if result.asset_type == kind]
+                old = [r for r in self._allowed(summary, kind, resources, lambda r: r.name) if r.created <= self.cutoff]
+                summary.old = len(old)
+                self._delete_all(summary, old, lambda r: r.label, self._delete)
 
-def positive_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, str(default))
-    if not raw.isdigit() or int(raw) < 1:
-        raise ValueError(f"{name} must be a positive integer, got {raw!r}")
-    return int(raw)
+    def _delete(self, resource: Resource) -> None:
+        if resource.service == "dns.googleapis.com":  # a zone must be empty before deletion
+            records = self.api.get_all(f"{resource.url}/rrsets", "rrsets")
+            deletions = [record for record in records if record["type"] not in ("NS", "SOA")]
+            if deletions:
+                change = self.api.post(f"{resource.url}/changes", {"deletions": deletions})
+                self._wait(change, f"{resource.url}/changes/{change['id']}")
+        operation = self.api.delete(resource.url)
+        if "selfLink" in operation:  # compute and GKE deletes are asynchronous
+            self._wait(operation, operation["selfLink"])
 
+    def _wait(self, operation: dict, url: str) -> None:
+        """Poll a compute/GKE operation or DNS change until done."""
+        deadline = time.monotonic() + OPERATION_TIMEOUT_SECONDS
+        while operation.get("status", "").upper() != "DONE":
+            if time.monotonic() > deadline:
+                raise OperationError(f"{url} not done after {OPERATION_TIMEOUT_SECONDS}s")
+            time.sleep(POLL_SECONDS)
+            operation = self.api.get(url)
+        if error := operation.get("error"):
+            raise OperationError("; ".join(e.get("message", str(e)) for e in error.get("errors", [error])))
 
-def bool_env(name: str, default: bool) -> bool:
-    raw = os.environ.get(name, str(default)).lower()
-    if raw not in ("true", "false"):
-        raise ValueError(f"{name} must be 'true' or 'false', got {raw!r}")
-    return raw == "true"
+    # --- service accounts --------------------------------------------------
+
+    def reap_service_accounts(self) -> None:
+        with self._section(SERVICE_ACCOUNT_TYPE) as summary:
+            accounts = list(self.iam.list_service_accounts(name=f"projects/{self.project}"))
+            old = []
+            for account in self._allowed(summary, SERVICE_ACCOUNT_TYPE, accounts, lambda a: a.email):
+                try:
+                    if self._is_old(account):
+                        old.append(account)
+                except (api_errors.GoogleAPIError, InventoryError) as exc:
+                    print(f"  error: cannot age {account.email}: {exc}")
+                    summary.failed += 1
+            summary.old = len(old)
+            # Unbind first, or deleted accounts linger as "deleted:serviceAccount:" members.
+            if old and not self._attempt(f"IAM bindings of {len(old)} account(s)", lambda: self._unbind(old)):
+                summary.failed += len(old)
+                return
+            self._delete_all(
+                summary,
+                old,
+                lambda a: f"serviceAccounts/{a.email}",
+                lambda a: self.iam.delete_service_account(name=a.name),
+            )
+
+    def _is_old(self, account) -> bool:
+        """Accounts have no creation time: an account is old when it has
+        user-managed keys and all of them are. Keyless accounts are kept, since
+        they may belong to a test that is still setting up."""
+        keys = self.iam.list_service_account_keys(name=account.name, key_types=[USER_MANAGED_KEY]).keys
+        created = [key.valid_after_time.timestamp() for key in keys]
+        if any(timestamp <= 0 for timestamp in created):
+            raise InventoryError("key without valid_after_time")
+        return bool(created) and max(created) <= self.cutoff
+
+    def _unbind(self, accounts: list) -> None:
+        """Remove the accounts from every project IAM binding in one update."""
+        members = {f"serviceAccount:{account.email}" for account in accounts}
+        resource = f"projects/{self.project}"
+        policy = self.projects.get_iam_policy(resource=resource)
+        if not any(members.intersection(binding.members) for binding in policy.bindings):
+            return
+        for index in reversed(range(len(policy.bindings))):
+            binding = policy.bindings[index]
+            remaining = [member for member in binding.members if member not in members]
+            del binding.members[:]
+            binding.members.extend(remaining)
+            if not remaining:
+                del policy.bindings[index]
+        self.projects.set_iam_policy(request={"resource": resource, "policy": policy})
 
 
 def default_credentials():
     raw = os.environ.get("GCP_SERVICE_ACCOUNT_JSON_FOR_SNIPPETS_TESTS")
     if raw:
-        credentials, _ = google.auth.load_credentials_from_dict(json.loads(raw), scopes=SCOPES)
-        return credentials
-    credentials, _ = google.auth.default(scopes=SCOPES)
-    return credentials
-
-
-class RestClient:
-    """AuthorizedSession wrapper for the API surfaces the typed clients miss."""
-
-    def __init__(self, credentials):
-        self._session = AuthorizedSession(credentials)
-
-    def get(self, url: str, key: str) -> list[dict]:
-        """GET a paginated collection, returning concatenated ``key`` items."""
-        items, page_token = [], None
-        while True:
-            params = {"pageToken": page_token} if page_token else None
-            response = self._session.get(url, params=params)
-            if not response.ok:
-                raise api_errors.from_http_response(response)
-            data = response.json()
-            items.extend(data.get(key, []))
-            page_token = data.get("nextPageToken")
-            if not page_token:
-                return items
-
-    def post(self, url: str, body: dict) -> dict:
-        response = self._session.post(url, json=body)
-        if not response.ok:
-            raise api_errors.from_http_response(response)
-        return response.json()
-
-    def delete(self, url: str) -> None:
-        response = self._session.delete(url)
-        if not response.ok:
-            raise api_errors.from_http_response(response)
-
-
-class Clients:
-    """Lazily created, cached GCP API clients plus the REST helper."""
-
-    def __init__(self, credentials):
-        self._credentials = credentials
-        self._cache: dict[type, object] = {}
-        self.rest = RestClient(credentials)
-
-    def get(self, client_class: type):
-        if client_class not in self._cache:
-            self._cache[client_class] = client_class(credentials=self._credentials)
-        return self._cache[client_class]
-
-
-class Reaper:
-    def __init__(self, project: str, age_threshold_hours: int, dry_run: bool, clients: Clients):
-        self.project = project
-        self.age_threshold_hours = age_threshold_hours
-        self.dry_run = dry_run
-        self.clients = clients
-        self.cutoff = time.time() - age_threshold_hours * 3600
-        self.failed = False
-
-    def _start(self, summary: Summary) -> None:
-        print(f"\n=== {summary.resource} (threshold: {self.age_threshold_hours}h) ===")
-
-    def _finish(self, summary: Summary) -> None:
-        print(summary.footer(self.age_threshold_hours, self.dry_run))
-
-    def _record(self, summary: Summary, ok: bool) -> None:
-        if ok:
-            summary.deleted += 1
-        else:
-            summary.failed += 1
-            self.failed = True
-
-    def _mutate(self, description: str, call: Callable[[], object]) -> bool:
-        """Run a mutating API call; True on success or when it is already gone."""
-        if self.dry_run:
-            print(f"  dry-run: delete {description}")
-            return True
-        print(f"  running: delete {description}")
-        try:
-            call()
-            return True
-        except api_errors.NotFound:
-            return True
-        except api_errors.GoogleAPIError as exc:
-            print(f"  error: {exc}")
-            return False
-
-    def _list_compute(self, resource: str) -> Optional[list[Item]]:
-        """List every collection of a compute class, failing closed on any error."""
-        items: list[Item] = []
-        for kind in COMPUTE_CLASSES[resource]:
-            try:
-                client = self.clients.get(kind.client)
-                if kind.scope == "global":
-                    items.extend(self._item(kind, raw) for raw in client.list(project=self.project))
-                else:
-                    for scope, scoped in client.aggregated_list(project=self.project):
-                        items.extend(self._item(kind, raw, scope) for raw in getattr(scoped, kind.collection))
-            except (api_errors.GoogleAPIError, InventoryError) as exc:
-                print(f"ERROR: failed to list {resource}: {exc}")
-                self.failed = True
-                return None
-        return items
-
-    def _item(self, kind: ComputeKind, raw, scope: str = "") -> Item:
-        created = parse_time(raw.creation_timestamp)
-        if created is None:
-            raise InventoryError(f"{kind.collection} {raw.name}: bad creation timestamp {raw.creation_timestamp!r}")
-        return Item(kind, raw.name, created, scope)
-
-    def _stale(self, items: list[Item]) -> list[Item]:
-        return [item for item in items if item.created <= self.cutoff]
-
-    def _delete_item(self, resource: str, item: Item) -> bool:
-        client = self.clients.get(item.kind.client)
-        kwargs = {"project": self.project, item.kind.delete_arg: item.name}
-        if item.scope.startswith("zones/"):
-            kwargs["zone"] = item.scope.removeprefix("zones/")
-        elif item.scope.startswith("regions/"):
-            kwargs["region"] = item.scope.removeprefix("regions/")
-        return self._mutate(f"{resource}/{item.name}", lambda: client.delete(**kwargs))
-
-    def reap_compute(self, resource: str) -> None:
-        summary = Summary(resource)
-        self._start(summary)
-        items = self._list_compute(resource)
-        if items is not None:
-            stale = self._stale(items)
-            summary.listed = len(items)
-            summary.old = len(stale)
-            for item in stale:
-                self._record(summary, self._delete_item(resource, item))
-        self._finish(summary)
-
-    def reap_firewall_rules(self) -> None:
-        summary = Summary("firewall-rules")
-        self._start(summary)
-        items = self._list_compute("firewall-rules")
-        if items is not None:
-            stale = self._stale(items)
-            summary.listed = len(items)
-            # summary.old includes denylisted rules; skipped reports the difference.
-            summary.old = len(stale)
-            candidates = [item for item in stale if not is_denylisted("firewall-rules", item.name)]
-            summary.skipped = len(stale) - len(candidates)
-            if summary.skipped:
-                print(f"  skipped {summary.skipped} denylisted rule(s)")
-            for item in candidates:
-                self._record(summary, self._delete_item("firewall-rules", item))
-        self._finish(summary)
-
-    def reap_clusters(self) -> None:
-        summary = Summary("clusters")
-        self._start(summary)
-        client = self.clients.get(container_v1.ClusterManagerClient)
-        try:
-            clusters = list(client.list_clusters(parent=f"projects/{self.project}/locations/-").clusters)
-            stale = []
-            for cluster in clusters:
-                created = parse_time(cluster.create_time)
-                if created is None:
-                    raise InventoryError(f"cluster {cluster.name}: bad create_time {cluster.create_time!r}")
-                if created <= self.cutoff:
-                    stale.append(cluster)
-        except (api_errors.GoogleAPIError, InventoryError) as exc:
-            print(f"ERROR: failed to list clusters: {exc}")
-            self.failed = True
-            self._finish(summary)
-            return
-        summary.listed = len(clusters)
-        summary.old = len(stale)
-        if stale:
-            # Cluster deletions take minutes; run them in parallel so the
-            # dependent load-balancer resources are released together.
-            with ThreadPoolExecutor() as pool:
-                futures = [pool.submit(self._delete_cluster, cluster) for cluster in stale]
-                for future in as_completed(futures):
-                    self._record(summary, future.result())
-        self._finish(summary)
-
-    def _delete_cluster(self, cluster) -> bool:
-        client = self.clients.get(container_v1.ClusterManagerClient)
-        name = f"projects/{self.project}/locations/{cluster.location}/clusters/{cluster.name}"
-        if self.dry_run:
-            print(f"  dry-run: delete clusters/{cluster.name}")
-            return True
-        print(f"  running: delete clusters/{cluster.name}")
-        try:
-            operation = client.delete_cluster(name=name)
-            while operation.status != container_v1.Operation.Status.DONE:
-                time.sleep(CLUSTER_POLL_SECONDS)
-                operation = client.get_operation(name=operation.name)
-            if operation.error.code:
-                print(f"  error: {operation.error.message}")
-                return False
-            return True
-        except api_errors.NotFound:
-            return True
-        except api_errors.GoogleAPIError as exc:
-            print(f"  error: {exc}")
-            return False
-
-    def reap_http_health_checks(self) -> None:
-        """Legacy global collection handled over REST: google-cloud-compute
-        does not generate an httpHealthChecks client."""
-        summary = Summary("http-health-checks")
-        self._start(summary)
-        url = f"{COMPUTE_API}/projects/{self.project}/global/httpHealthChecks"
-        try:
-            items = []
-            for raw in self.clients.rest.get(url, "items"):
-                created = parse_time(raw.get("creationTimestamp", ""))
-                if created is None:
-                    raise InventoryError(f"httpHealthCheck {raw.get('name')}: bad creationTimestamp")
-                items.append((raw["name"], created))
-        except (api_errors.GoogleAPIError, InventoryError) as exc:
-            print(f"ERROR: failed to list http-health-checks: {exc}")
-            self.failed = True
-            self._finish(summary)
-            return
-        summary.listed = len(items)
-        stale = [(name, created) for name, created in items if created <= self.cutoff]
-        summary.old = len(stale)
-        for name, _ in stale:
-            self._record(
-                summary,
-                self._mutate(f"http-health-checks/{name}", lambda name=name: self.clients.rest.delete(f"{url}/{name}")),
-            )
-        self._finish(summary)
-
-    def reap_dns_zones(self) -> None:
-        summary = Summary("dns-managed-zones")
-        self._start(summary)
-        url = f"{DNS_API}/projects/{self.project}/managedZones"
-        try:
-            zones = self.clients.rest.get(url, "managedZones")
-            stale = []
-            for zone in zones:
-                created = parse_time(zone.get("creationTime", ""))
-                if created is None:
-                    raise InventoryError(f"managed zone {zone.get('name')}: bad creationTime")
-                if created <= self.cutoff:
-                    stale.append(zone)
-        except (api_errors.GoogleAPIError, InventoryError) as exc:
-            print(f"ERROR: failed to list dns-managed-zones: {exc}")
-            self.failed = True
-            self._finish(summary)
-            return
-        summary.listed = len(zones)
-        summary.old = len(stale)
-        for zone in stale:
-            self._record(summary, self._delete_zone(zone["name"]))
-        self._finish(summary)
-
-    def _delete_zone(self, zone: str) -> bool:
-        """Delete a zone together with its records: Cloud DNS refuses to delete
-        a zone that still contains resource records, and google-cloud-dns
-        cannot delete records, so the records go through a change set."""
-        records_url = f"{DNS_API}/projects/{self.project}/managedZones/{zone}/rrsets"
-        try:
-            records = self.clients.rest.get(records_url, "rrsets")
-        except api_errors.GoogleAPIError as exc:
-            print(f"ERROR: failed to list records of {zone}: {exc}")
-            return False
-        deletions = [record for record in records if record.get("type") not in ("NS", "SOA")]
-        if deletions:
-            changes_url = f"{DNS_API}/projects/{self.project}/managedZones/{zone}/changes"
-            if not self._mutate(
-                f"dns records in {zone} ({len(deletions)})",
-                lambda: self.clients.rest.post(changes_url, {"deletions": deletions}),
-            ):
-                return False
-        return self._mutate(
-            f"dns-managed-zones/{zone}",
-            lambda: self.clients.rest.delete(f"{DNS_API}/projects/{self.project}/managedZones/{zone}"),
-        )
-
-    def reap_service_accounts(self) -> None:
-        summary = Summary("service-accounts")
-        self._start(summary)
-        client = self.clients.get(iam_admin_v1.IAMClient)
-        try:
-            accounts = list(client.list_service_accounts(name=f"projects/{self.project}"))
-        except api_errors.GoogleAPIError as exc:
-            print(f"ERROR: failed to list service-accounts: {exc}")
-            self.failed = True
-            self._finish(summary)
-            return
-        summary.listed = len(accounts)
-        for account in accounts:
-            if is_denylisted("service-accounts", account.email):
-                summary.skipped += 1
-                continue
-            # Service accounts have no creation timestamp: age is established
-            # by requiring at least one user-managed key and all keys being
-            # old. An account without user-managed keys has no age signal and
-            # is skipped (an interrupted ra-09 run can leave one behind, but
-            # deleting it blindly could hit a test mid-setup).
-            try:
-                keys = client.list_service_account_keys(name=account.name, key_types=[USER_MANAGED_KEY]).keys
-                valid_after = [key.valid_after_time.timestamp() for key in keys]
-                if any(valid_after_time <= 0 for valid_after_time in valid_after):
-                    raise InventoryError(f"service account {account.email}: key without valid_after_time")
-            except (api_errors.GoogleAPIError, InventoryError) as exc:
-                print(f"ERROR: failed to age {account.email}: {exc}")
-                summary.failed += 1
-                self.failed = True
-                continue
-            if not valid_after or any(valid_after_time > self.cutoff for valid_after_time in valid_after):
-                continue
-            summary.old += 1
-            if self._remove_dns_admin_binding(account.email):
-                self._record(
-                    summary,
-                    self._mutate(
-                        f"service-accounts/{account.email}", lambda: client.delete_service_account(name=account.name)
-                    ),
-                )
-            else:
-                summary.failed += 1
-                self.failed = True
-        if summary.skipped:
-            print(f"  skipped {summary.skipped} denylisted account(s)")
-        self._finish(summary)
-
-    def _remove_dns_admin_binding(self, email: str) -> bool:
-        """Remove the account's project-level roles/dns.admin binding so a
-        deleted account does not linger as a deleted:serviceAccount member."""
-        client = self.clients.get(resourcemanager_v3.ProjectsClient)
-        resource = f"projects/{self.project}"
-
-        def remove() -> None:
-            policy = client.get_iam_policy(resource=resource)
-            member = f"serviceAccount:{email}"
-            changed = False
-            for binding in policy.bindings:
-                if binding.role == DNS_ADMIN_ROLE and member in binding.members:
-                    binding.members.remove(member)
-                    changed = True
-            if not changed:
-                return
-            kept = [binding for binding in policy.bindings if len(binding.members) > 0]
-            del policy.bindings[:]
-            policy.bindings.extend(kept)
-            client.set_iam_policy(resource=resource, policy=policy)
-
-        return self._mutate(f"iam-binding serviceAccount:{email}", remove)
-
-    def run(self) -> None:
-        if self.dry_run:
-            print("=== DRY RUN: no delete or IAM mutation commands will execute ===")
-        self.reap_clusters()
-        self.reap_compute("forwarding-rules")
-        self.reap_compute("target-pools")
-        self.reap_compute("backend-services")
-        self.reap_http_health_checks()
-        self.reap_compute("health-checks")
-        self.reap_compute("target-https-proxies")
-        self.reap_compute("url-maps")
-        self.reap_compute("ssl-certificates")
-        self.reap_compute("addresses")
-        self.reap_compute("network-endpoint-groups")
-        self.reap_firewall_rules()
-        self.reap_compute("disks")
-        self.reap_dns_zones()
-        self.reap_service_accounts()
+        return google.auth.load_credentials_from_dict(json.loads(raw), scopes=SCOPES)[0]
+    return google.auth.default(scopes=SCOPES)[0]
 
 
 def main() -> int:
     project = os.environ.get("MDB_GKE_PROJECT", "")
-    if not project:
-        print("ERROR: MDB_GKE_PROJECT is required", file=sys.stderr)
-        return 1
-    try:
-        age_threshold_hours = positive_int_env("AGE_THRESHOLD_HOURS", 24)
-        dry_run = bool_env("DRY_RUN", False)
-    except ValueError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-    reaper = Reaper(project, age_threshold_hours, dry_run, Clients(default_credentials()))
+    hours = os.environ.get("AGE_THRESHOLD_HOURS", "24")
+    dry_run = os.environ.get("DRY_RUN", "false").lower()
+    for problem, message in (
+        (not project, "MDB_GKE_PROJECT is required"),
+        (not hours.isdigit() or int(hours) < 1, f"AGE_THRESHOLD_HOURS must be a positive integer, got {hours!r}"),
+        (dry_run not in ("true", "false"), f"DRY_RUN must be 'true' or 'false', got {dry_run!r}"),
+    ):
+        if problem:
+            print(f"ERROR: {message}", file=sys.stderr)
+            return 1
+    credentials = default_credentials()
+    reaper = Reaper(
+        project,
+        int(hours),
+        dry_run == "true",
+        api=Api(AuthorizedSession(credentials)),
+        assets=asset_v1.AssetServiceClient(credentials=credentials),
+        iam=iam_admin_v1.IAMClient(credentials=credentials),
+        projects=resourcemanager_v3.ProjectsClient(credentials=credentials),
+    )
     reaper.run()
     return 1 if reaper.failed else 0
 
