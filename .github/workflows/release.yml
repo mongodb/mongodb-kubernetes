@@ -96,21 +96,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Show Evergreen links
-        run: |
-          echo "## 🔗 Evergreen Links" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The tag has been pushed. Check Evergreen for the triggered build:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **[Tag-triggered builds (waterfall)](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/waterfall?requesters=git_tag_request)**" >> $GITHUB_STEP_SUMMARY
-          echo "- **[All project patches](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/patches)**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Once the Evergreen publish pipeline completes successfully, approve the next job to continue." >> $GITHUB_STEP_SUMMARY
-          echo "In case you need to kick the patch manually:"
-          echo "  evergreen patch -p mongodb-kubernetes -v release_decider_patch \ "
-          echo "    -t decide_release_process -d "Release version $VERSION \ "
-          echo "    -f -y -u --path .evergreen.yml \ "
-          echo "    --param BUILD_SCENARIO=release --param triggered_by_git_tag=${VERSION} \ "
-          echo "    --param target_commit=${COMMIT_SHA}"
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+        run: scripts/release/evergreen_links.sh
 
   wait_for_evergreen_and_prep_pr:
     name: Wait for Evergreen & Synthesize PR Link
