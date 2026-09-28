@@ -34,6 +34,12 @@ tasks:
           binary: scripts/evergreen/periodic-cleanup-gcp.sh
           env:
             MDB_GKE_PROJECT: "scratch-kubernetes-team"
+            # Patches can dry-run the reaper with
+            #   --param gcp_cleanup_dry_run=true
+            # and/or exercise a different age threshold with
+            #   --param gcp_cleanup_age_threshold_hours=1
+            DRY_RUN: ${gcp_cleanup_dry_run|false}
+            AGE_THRESHOLD_HOURS: ${gcp_cleanup_age_threshold_hours|24}
 
 task_groups:
   - name: periodic_teardown_task_group
