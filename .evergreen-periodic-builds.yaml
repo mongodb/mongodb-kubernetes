@@ -31,7 +31,9 @@ tasks:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           add_to_path:
             - ${workdir}/google-cloud-sdk/bin
-          binary: scripts/evergreen/periodic-cleanup-gcp.sh
+          binary: scripts/dev/run_python.sh
+          args:
+            - scripts/evergreen/periodic_cleanup_gcp.py
           env:
             MDB_GKE_PROJECT: "scratch-kubernetes-team"
             # Patches can dry-run the reaper with
