@@ -120,6 +120,11 @@ metadata:
 spec:
   backoffLimit: 1
   template:
+    metadata:
+      annotations:
+        # istio-proxy keeps running after the aws-cli container exits, so an
+        # injected Job never reaches Complete.
+        sidecar.istio.io/inject: "false"
     spec:
       restartPolicy: Never
       containers:
