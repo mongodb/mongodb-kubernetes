@@ -46,6 +46,8 @@ func upgradeIfNeeded(conn om.Connection, key types.NamespacedName, spec mdbv1.Db
 	log.Infof("The upgrade of Agents for the MongoDB resource %s/%s in the cluster is finished.", key.Namespace, key.Name)
 }
 
+// scheduleNextUpgrade mutates a global timestamp of the next agent upgrade attempt.
+// It must be synchronized as it's executed concurrently in case of parallel reconciles enabled.
 func scheduleNextUpgrade() bool {
 	nextScheduledTimeMu.Lock()
 	defer nextScheduledTimeMu.Unlock()
