@@ -91,22 +91,21 @@ func (o Options) database() string {
 	return o.DefaultDatabase
 }
 
-// port returns the mongod port, defaulting to the standard one when unset.
-func (o Options) port() int32 {
-	if o.Port == 0 {
-		return util.MongoDbDefaultPort
+// OperatorParams returns the connection parameters the operator applies to
+// every connection string it builds. Callers include them in Options.Params
+// and can override any of them.
+func OperatorParams() map[string]string {
+	return map[string]string{
+		"connectTimeoutMS":         "20000",
+		"serverSelectionTimeoutMS": "20000",
 	}
-	return o.Port
 }
 
 // mergedParams combines the parameters derived from the resource with the
 // operator and user provided ones, in increasing order of priority. Keys in
 // ProtectedConnectionParams never make it through from user input.
 func (o Options) mergedParams() map[string]string {
-	params := map[string]string{
-		"connectTimeoutMS":         "20000",
-		"serverSelectionTimeoutMS": "20000",
-	}
+	params := map[string]string{}
 	if o.IsReplicaSet {
 		params["replicaSet"] = o.Name
 	}
@@ -175,7 +174,7 @@ func (o Options) Build(scheme Scheme) string {
 		} else {
 			hostnames, _ = dns.GetDNSNames(o.Name, o.Service, o.Namespace, o.ClusterDomain, o.Replicas, o.ExternalDomain)
 			for i, h := range hostnames {
-				hostnames[i] = fmt.Sprintf("%s:%d", h, o.port())
+				hostnames[i] = fmt.Sprintf("%s:%d", h, o.Port)
 			}
 		}
 		uri += strings.Join(hostnames, ",")
@@ -282,6 +281,11 @@ func (b *builder) SetHostnames(hostnames []string) *builder {
 
 func (b *builder) SetConnectionStringDatabase(connectionStringDatabase string) *builder {
 	b.options.Database = connectionStringDatabase
+	return b
+}
+
+func (b *builder) SetDefaultDatabase(defaultDatabase string) *builder {
+	b.options.DefaultDatabase = defaultDatabase
 	return b
 }
 

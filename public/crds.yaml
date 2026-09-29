@@ -6726,6 +6726,10 @@ spec:
               connectionStringSecretName:
                 type: string
               db:
+                default: admin
+                description: |-
+                  Database is the database the user is created in. Defaults to the admin
+                  database, the recommended place for creating non-$external users.
                 type: string
               mongodbResourceRef:
                 properties:
@@ -6764,7 +6768,6 @@ spec:
               username:
                 type: string
             required:
-            - db
             - username
             type: object
           status:

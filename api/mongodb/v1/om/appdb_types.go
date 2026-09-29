@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -12,9 +13,9 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -481,6 +482,9 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		hostnames = multiClusterHostnames
 	}
 
+	params := connectionstring.OperatorParams()
+	maps.Copy(params, connectionParams)
+
 	options := connectionstring.Options{
 		Name:                m.Name(),
 		Namespace:           m.Namespace,
@@ -488,6 +492,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		Password:            password,
 		Replicas:            replicas,
 		Service:             m.ServiceName(),
+		Port:                util.MongoDbDefaultPort,
 		Version:             m.GetMongoDBVersion(),
 		AuthenticationModes: m.GetSecurityAuthenticationModes(),
 		ClusterDomain:       m.GetClusterDomain(),
@@ -495,7 +500,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 		IsReplicaSet:        true,
 		IsTLSEnabled:        m.IsSecurityTLSConfigEnabled(),
 		Hostnames:           hostnames,
-		Params:              connectionParams,
+		Params:              params,
 	}
 
 	return options.Build(scheme)

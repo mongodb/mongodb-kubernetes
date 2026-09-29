@@ -113,8 +113,9 @@ func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.R
 		return nil, err
 	}
 
-	// if database isn't specified default to the admin database, the recommended
-	// place for creating non-$external users
+	// The database defaults to admin at the API level (CRD default). This
+	// mirrors that for objects built directly in tests or older cached
+	// objects that never went through API server defaulting.
 	if user.Spec.Database == "" {
 		user.Spec.Database = "admin"
 	}

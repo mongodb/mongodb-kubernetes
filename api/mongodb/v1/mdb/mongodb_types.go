@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,9 +19,9 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -2298,6 +2299,9 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 		name = m.GetReplicaSetName()
 	}
 
+	params := connectionstring.OperatorParams()
+	maps.Copy(params, connectionParams)
+
 	options := connectionstring.Options{
 		Name:                name,
 		Namespace:           m.Namespace,
@@ -2314,7 +2318,7 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 		IsTLSEnabled:        m.Spec.IsSecurityTLSConfigEnabled(),
 		Hostnames:           m.hostnames,
 		Database:            connectionStringDatabase,
-		Params:              connectionParams,
+		Params:              params,
 	}
 
 	return options.Build(scheme)

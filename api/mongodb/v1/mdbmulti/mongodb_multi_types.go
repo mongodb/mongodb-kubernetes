@@ -3,6 +3,7 @@ package mdbmulti
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/blang/semver"
@@ -13,9 +14,9 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -641,6 +642,9 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connecti
 		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), domain)...)
 	}
 
+	params := connectionstring.OperatorParams()
+	maps.Copy(params, connectionParams)
+
 	options := connectionstring.Options{
 		Name:                m.Name,
 		Namespace:           m.Namespace,
@@ -657,7 +661,7 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connecti
 		IsTLSEnabled:        m.Spec.IsSecurityTLSConfigEnabled(),
 		Hostnames:           hostnames,
 		Database:            connectionStringDatabase,
-		Params:              connectionParams,
+		Params:              params,
 	}
 
 	return options.Build(scheme)
