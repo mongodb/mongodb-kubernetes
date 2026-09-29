@@ -9,6 +9,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
@@ -71,22 +72,23 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 			}
 		}
 
-		connectionStringSecret := secret.Builder().
-			SetName(secretName).
-			SetNamespace(secretNamespace).
-			SetAnnotations(user.ConnectionStringSecretAnnotations).
-			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd)).
-			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd)).
-			SetField("username", user.Username).
-			SetField("password", pwd).
-			SetOwnerReferences(mdb.GetOwnerReferences()).
-			Build()
-
-		if err := secret.CreateOrUpdate(ctx, r.client, connectionStringSecret); err != nil {
+		err = connectionstringsecret.Publish(ctx, r.client, connectionstringsecret.Secret{
+			Name:            secretName,
+			Namespace:       secretNamespace,
+			Annotations:     user.ConnectionStringSecretAnnotations,
+			OwnerReferences: mdb.GetOwnerReferences(),
+			Fields: map[string]string{
+				connectionstringsecret.StandardURIField:    mdb.MongoAuthUserURI(user, pwd),
+				connectionstringsecret.StandardSrvURIField: mdb.MongoAuthUserSRVURI(user, pwd),
+				connectionstringsecret.UsernameField:       user.Username,
+				connectionstringsecret.PasswordField:       pwd,
+			},
+		})
+		if err != nil {
 			return err
 		}
 
-		secretNamespacedName := types.NamespacedName{Name: connectionStringSecret.Name, Namespace: connectionStringSecret.Namespace}
+		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: secretNamespace}
 		r.secretWatcher.Watch(ctx, secretNamespacedName, mdb.NamespacedName())
 	}
 

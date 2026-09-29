@@ -36,7 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
