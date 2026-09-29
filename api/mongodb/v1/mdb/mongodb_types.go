@@ -3,7 +3,6 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +20,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -2185,12 +2183,6 @@ func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}}
 }
 
-// BuildConnectionString returns a string with a connection string for this resource.
-func (m *MongoDB) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	builder := NewMongoDBConnectionStringBuilder(*m, nil)
-	return builder.BuildConnectionString(username, password, connectionStringDatabase, scheme, connectionParams)
-}
-
 func (m *MongoDB) GetAuthenticationModes() []string {
 	return m.Spec.Security.Authentication.GetModes()
 }
@@ -2265,63 +2257,6 @@ func (m *MongoDbSpec) GetConfigSrvClusterSpecList() ClusterSpecList {
 			},
 		}
 	}
-}
-
-type MongoDBConnectionStringBuilder struct {
-	MongoDB
-	hostnames []string
-}
-
-// NewMongoDBConnectionStringBuilder creates a new instance of MongoDBConnectionStringBuilder.
-// Parameters:
-//   - mdb: The MongoDB resource object containing the configuration and metadata for the MongoDB instance.
-//   - hostnames: A slice of strings representing the hostnames to be included in the connection string,
-//     if this parameter is passed then no other hostnames will be generated or used.
-func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDBConnectionStringBuilder {
-	return &MongoDBConnectionStringBuilder{
-		MongoDB:   mdb,
-		hostnames: hostnames,
-	}
-}
-
-func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	name := m.Name
-	// Both connection strings are built from the mongos tier for a sharded cluster, so the external
-	// domain must be resolved from spec.mongos.externalAccess too, not only from the top-level field.
-	// EffectiveExternalDomain still falls back to spec.externalAccess for the mongos tier. The member
-	// cluster is left empty on purpose: a connection string is cluster-agnostic, so per-cluster
-	// clusterSpecList domains are not honoured here.
-	externalDomain := m.Spec.GetExternalDomain()
-	if m.IsShardedCluster() {
-		name = m.MongosRsName()
-		externalDomain = m.Spec.EffectiveExternalDomain(m.Spec.MongosSpec, TierMongos, "")
-	} else if m.IsReplicaSet() {
-		name = m.GetReplicaSetName()
-	}
-
-	params := connectionstring.OperatorParams()
-	maps.Copy(params, connectionParams)
-
-	options := connectionstring.Options{
-		Name:                name,
-		Namespace:           m.Namespace,
-		Username:            username,
-		Password:            password,
-		Replicas:            m.Spec.Replicas(),
-		Service:             m.ServiceName(),
-		Port:                m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		Version:             m.Spec.GetMongoDBVersion(),
-		AuthenticationModes: m.Spec.GetSecurityAuthenticationModes(),
-		ClusterDomain:       m.Spec.GetClusterDomain(),
-		ExternalDomain:      externalDomain,
-		IsReplicaSet:        m.Spec.ResourceType == ReplicaSet,
-		IsTLSEnabled:        m.Spec.IsSecurityTLSConfigEnabled(),
-		Hostnames:           m.hostnames,
-		Database:            connectionStringDatabase,
-		Params:              params,
-	}
-
-	return options.Build(scheme)
 }
 
 // MongodbCleanUpOptions implements the required interface to be passed

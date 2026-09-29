@@ -79,6 +79,10 @@ type User struct {
 	// These options will be appended at the end of the connection string and
 	// will override any existing options from the resources.
 	ConnectionStringOptions map[string]interface{}
+
+	// ConnectionStringDatabase is an optional database name for the connection
+	// string URI path. When empty the admin database is used.
+	ConnectionStringDatabase string
 }
 
 func (u User) GetLoginString(password string) string {

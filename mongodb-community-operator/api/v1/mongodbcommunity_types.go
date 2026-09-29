@@ -276,6 +276,11 @@ type MongoDBUser struct {
 	// +optional
 	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
 
+	// ConnectionStringDatabase is an optional database name for the connection string URI path
+	// (e.g. .../myapp?...). When unset, the admin database is used.
+	// +optional
+	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
+
 	// Additional options to be appended to the connection string.
 	// These options apply only to this user and will override any existing options in the resource.
 	// +kubebuilder:validation:Type=object
@@ -548,6 +553,7 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
 			ConnectionStringSecretAnnotations: u.ConnectionStringSecretAnnotations,
 			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
+			ConnectionStringDatabase:          u.ConnectionStringDatabase,
 		}
 
 		if u.DB != constants.ExternalDB {
@@ -703,13 +709,14 @@ func (m *MongoDBCommunity) MongoSRVURI() string {
 
 // authedOptions extends the resource level options with the authentication
 // data of the given user. Following the enterprise behavior, the user's
-// database becomes the authSource and the URI path defaults to the admin
-// database.
+// database becomes the authSource and the URI path comes from the user's
+// connection string database, defaulting to the admin database.
 func (m *MongoDBCommunity) authedOptions(user authtypes.User, password string) connectionstring.Options {
 	options := m.connectionOptions()
 	options.Username = user.Username
 	options.Password = password
 	options.Params["authSource"] = user.Database
+	options.Database = user.ConnectionStringDatabase
 	options.DefaultDatabase = util.DefaultUserDatabase
 	options.UserParams = toStringParams(user.ConnectionStringOptions)
 	return options

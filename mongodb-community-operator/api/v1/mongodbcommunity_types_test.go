@@ -23,6 +23,7 @@ type args struct {
 	additionalMongodConfig           map[string]interface{}
 	additionalConnectionStringConfig map[string]interface{}
 	userConnectionStringConfig       map[string]interface{}
+	connectionStringDatabase         string
 	connectionString                 string
 }
 
@@ -392,6 +393,10 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true",
 		},
 		{
+			connectionStringDatabase: "myapp",
+			connectionString:         "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/myapp?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
+		},
+		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
 			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=secondary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
@@ -406,6 +411,7 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	for _, params := range tests {
 		mdb.Spec.AdditionalConnectionStringConfig.Object = params.additionalConnectionStringConfig
 		testuser.ConnectionStringOptions = params.userConnectionStringConfig
+		testuser.ConnectionStringDatabase = params.connectionStringDatabase
 		assert.Equal(t, mdb.MongoAuthUserURI(testuser, "password"), params.connectionString)
 	}
 
@@ -475,6 +481,7 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	for _, params := range tests {
 		mdb.Spec.AdditionalConnectionStringConfig.Object = params.additionalConnectionStringConfig
 		testuser.ConnectionStringOptions = params.userConnectionStringConfig
+		testuser.ConnectionStringDatabase = params.connectionStringDatabase
 		assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, "password"), params.connectionString)
 	}
 
