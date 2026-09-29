@@ -2298,26 +2298,26 @@ func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, passwor
 		name = m.GetReplicaSetName()
 	}
 
-	builder := connectionstring.Builder().
-		SetName(name).
-		SetNamespace(m.Namespace).
-		SetUsername(username).
-		SetPassword(password).
-		SetReplicas(m.Spec.Replicas()).
-		SetService(m.ServiceName()).
-		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetVersion(m.Spec.GetMongoDBVersion()).
-		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
-		SetClusterDomain(m.Spec.GetClusterDomain()).
-		SetExternalDomain(externalDomain).
-		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
-		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
-		SetConnectionParams(connectionParams).
-		SetScheme(scheme).
-		SetHostnames(m.hostnames).
-		SetConnectionStringDatabase(connectionStringDatabase)
+	options := connectionstring.Options{
+		Name:                name,
+		Namespace:           m.Namespace,
+		Username:            username,
+		Password:            password,
+		Replicas:            m.Spec.Replicas(),
+		Service:             m.ServiceName(),
+		Port:                m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		Version:             m.Spec.GetMongoDBVersion(),
+		AuthenticationModes: m.Spec.GetSecurityAuthenticationModes(),
+		ClusterDomain:       m.Spec.GetClusterDomain(),
+		ExternalDomain:      externalDomain,
+		IsReplicaSet:        m.Spec.ResourceType == ReplicaSet,
+		IsTLSEnabled:        m.Spec.IsSecurityTLSConfigEnabled(),
+		Hostnames:           m.hostnames,
+		Database:            connectionStringDatabase,
+		Params:              connectionParams,
+	}
 
-	return builder.Build()
+	return options.Build(scheme)
 }
 
 // MongodbCleanUpOptions implements the required interface to be passed
