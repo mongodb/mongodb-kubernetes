@@ -65,7 +65,11 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 		return nil, xerrors.Errorf("failed to read shared password secret: %w", err)
 	}
 
-	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
+	options := refObject.ConnectionOptions()
+	options.Username = util.OpsManagerMongoDBUserName
+	options.Password = password
+	options.Params["authMechanism"] = "SCRAM-SHA-256"
+	connectionString := options.Build(connectionstring.SchemeMongoDB)
 
 	return &AppDBConfig{
 		IsTLSEnabled:     refObject.IsTLSEnabled(),

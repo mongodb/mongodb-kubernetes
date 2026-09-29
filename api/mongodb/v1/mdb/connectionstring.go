@@ -26,21 +26,23 @@ func (m *MongoDB) connectionOptions(hostnames []string) connectionstring.Options
 		name = m.GetReplicaSetName()
 	}
 
-	return connectionstring.Options{
-		Name:                name,
-		Namespace:           m.Namespace,
-		Replicas:            m.Spec.Replicas(),
-		Service:             m.ServiceName(),
-		Port:                m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		Version:             m.Spec.GetMongoDBVersion(),
-		AuthenticationModes: m.Spec.GetSecurityAuthenticationModes(),
-		ClusterDomain:       m.Spec.GetClusterDomain(),
-		ExternalDomain:      externalDomain,
-		IsReplicaSet:        m.Spec.ResourceType == ReplicaSet,
-		IsTLSEnabled:        m.Spec.IsSecurityTLSConfigEnabled(),
-		Hostnames:           hostnames,
-		Params:              connectionstring.OperatorParams(),
-	}
+	options := connectionstring.ForSpec(&m.Spec, connectionstring.Options{
+		Name:         name,
+		Namespace:    m.Namespace,
+		Service:      m.ServiceName(),
+		Port:         m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		IsReplicaSet: m.Spec.ResourceType == ReplicaSet,
+		Hostnames:    hostnames,
+		Params:       connectionstring.OperatorParams(),
+	})
+	// The sharded topology can resolve a different domain than the top level spec.
+	options.ExternalDomain = externalDomain
+	return options
+}
+
+// ConnectionOptions fills the resource level connection string settings.
+func (m *MongoDB) ConnectionOptions() connectionstring.Options {
+	return m.connectionOptions(nil)
 }
 
 // BuildConnectionString returns a string with a connection string for this resource.
@@ -69,8 +71,13 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 	}
 }
 
-func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	options := m.connectionOptions(m.hostnames)
+// ConnectionOptions fills the resource level connection string settings.
+func (b *MongoDBConnectionStringBuilder) ConnectionOptions() connectionstring.Options {
+	return b.connectionOptions(b.hostnames)
+}
+
+func (b *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	options := b.ConnectionOptions()
 	options.Username = username
 	options.Password = password
 	options.Database = connectionStringDatabase

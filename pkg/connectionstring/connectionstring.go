@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -31,7 +32,42 @@ const (
 // ConnectionStringBuilder is implemented by resources that know how to fill
 // in the resource specific parts of a connection string request.
 type ConnectionStringBuilder interface {
-	BuildConnectionString(userName, password, connectionStringDatabase string, scheme Scheme, connectionParams map[string]string) string
+	ConnectionOptions() Options
+}
+
+// Spec is the part of a MongoDB resource specification that influences
+// connection strings. The enterprise and community spec types implement it.
+type Spec interface {
+	Replicas() int
+	GetMongoDBVersion() string
+	GetSecurityAuthenticationModes() []string
+	GetClusterDomain() string
+	GetExternalDomain() *string
+	IsSecurityTLSConfigEnabled() bool
+}
+
+// ForSpec returns the options for the given resource specification, filled
+// with the fields the spec carries. The resource identity (name, namespace,
+// service, hostnames) and the topology specific overrides stay with the
+// caller.
+func ForSpec(spec Spec, options Options) Options {
+	options.Replicas = spec.Replicas()
+	options.Version = spec.GetMongoDBVersion()
+	options.AuthenticationModes = spec.GetSecurityAuthenticationModes()
+	options.ClusterDomain = spec.GetClusterDomain()
+	options.ExternalDomain = spec.GetExternalDomain()
+	options.IsTLSEnabled = spec.IsSecurityTLSConfigEnabled()
+	return options
+}
+
+// StringParams converts a map of arbitrary option values into their string
+// representation used in connection string parameters.
+func StringParams(options map[string]interface{}) map[string]string {
+	params := make(map[string]string, len(options))
+	for key, value := range options {
+		params[key] = fmt.Sprintf("%v", value)
+	}
+	return params
 }
 
 // ProtectedConnectionParams are connection string parameters that the operator
@@ -81,6 +117,21 @@ type Options struct {
 	// UserParams come from user controlled configuration. They override
 	// Params and protected keys are dropped.
 	UserParams map[string]string
+}
+
+// WithUser extends the options with the authentication data of the given
+// user. The user's database becomes the authSource and the URI path comes
+// from the user's connection string database.
+func (o Options) WithUser(user authtypes.User, password string) Options {
+	if o.Params == nil {
+		o.Params = map[string]string{}
+	}
+	o.Username = user.Username
+	o.Password = password
+	o.Params["authSource"] = user.Database
+	o.Database = user.ConnectionStringDatabase
+	o.UserParams = StringParams(user.ConnectionStringOptions)
+	return o
 }
 
 // Database returns the database to place in the URI path.

@@ -47,6 +47,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -79,7 +80,7 @@ const (
 type S3ConfigGetter interface {
 	GetAuthenticationModes() []string
 	GetResourceName() string
-	BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string
+	connectionstring.ConnectionStringBuilder
 }
 
 // OpsManagerReconciler is a controller implementation.
@@ -1828,7 +1829,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsMa
 		return backup.S3Config{}, status
 	}
 
-	userName, password, connectionStringDatabase, status := r.getS3MongoDbUserNameAndPassword(ctx, mongodb.GetAuthenticationModes(), opsManager.Namespace, config)
+	mongodbUser, password, status := r.getS3MongoDbUser(ctx, mongodb.GetAuthenticationModes(), opsManager.Namespace, config)
 	if !status.IsOK() {
 		return backup.S3Config{}, status
 	}
@@ -1843,7 +1844,15 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsMa
 		}
 	}
 
-	uri := mongodb.BuildConnectionString(userName, password, connectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{})
+	options := mongodb.ConnectionOptions()
+	if mongodbUser != nil {
+		options = options.WithUser(authtypes.User{
+			Username:                 mongodbUser.Spec.Username,
+			Database:                 mongodbUser.Spec.Database,
+			ConnectionStringDatabase: mongodbUser.Spec.ConnectionStringDatabase,
+		}, password)
+	}
+	uri := options.Build(connectionstring.SchemeMongoDB)
 
 	bucket := backup.S3Bucket{
 		Endpoint: config.S3BucketEndpoint,
@@ -1944,30 +1953,29 @@ func (r *OpsManagerReconciler) getMongoDbForS3Config(ctx context.Context, opsMan
 	return mongodb, workflow.OK()
 }
 
-// getS3MongoDbUserNameAndPassword returns userName, password, connectionStringDatabase,
-// and status if MongoDB resource has scram-sha enabled.
+// getS3MongoDbUser returns the MongoDBUser backing the S3 metadata store and
+// its password, and status if MongoDB resource has scram-sha enabled. The
+// user is nil when SCRAM-SHA is not enabled.
 // Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 // user.
-func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Context, modes []string, namespace string, config omv1.S3Config) (string, string, string, workflow.Status) {
+func (r *OpsManagerReconciler) getS3MongoDbUser(ctx context.Context, modes []string, namespace string, config omv1.S3Config) (*user.MongoDBUser, string, workflow.Status) {
 	if !stringutil.Contains(modes, util.SCRAM) {
-		return "", "", "", workflow.OK()
+		return nil, "", workflow.OK()
 	}
 	mongodbUser := &user.MongoDBUser{}
 	mongodbUserObjectKey := config.MongodbUserObjectKey(namespace)
 	err := r.client.Get(ctx, mongodbUserObjectKey, mongodbUser)
 	if secret.SecretNotExist(err) {
-		return "", "", "", workflow.Pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)
+		return nil, "", workflow.Pending("The MongoDBUser object %s doesn't exist", mongodbUserObjectKey)
 	}
 	if err != nil {
-		return "", "", "", workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", mongodbUserObjectKey, err))
+		return nil, "", workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", mongodbUserObjectKey, err))
 	}
-	userName := mongodbUser.Spec.Username
-	connectionStringDatabase := mongodbUser.Spec.ConnectionStringDatabase
 	password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
 	if err != nil {
-		return "", "", "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
+		return nil, "", workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
 	}
-	return userName, password, connectionStringDatabase, workflow.OK()
+	return mongodbUser, password, workflow.OK()
 }
 
 // buildOMDatastoreConfig builds the OM API datastore config based on the Kubernetes OM resource one.
@@ -1993,7 +2001,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 	// If MongoDB resource has scram-sha enabled then we need to read the username and the password.
 	// Note, that we don't worry if the 'mongodbUserRef' is specified but SCRAM-SHA is not enabled - we just ignore the
 	// user
-	var userName, password, connectionStringDatabase string
+	var mongoUri string
 	if stringutil.Contains(mongodb.Spec.Security.Authentication.GetModes(), util.SCRAM) {
 		mongodbUser := &user.MongoDBUser{}
 		mongodbUserObjectKey := operatorConfig.MongodbUserObjectKey(opsManager.Namespace)
@@ -2004,16 +2012,20 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err))
 		}
-		userName = mongodbUser.Spec.Username
-		connectionStringDatabase = mongodbUser.Spec.ConnectionStringDatabase
-		password, err = mongodbUser.GetPassword(ctx, r.SecretClient)
+		password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
 		}
+		mongoUri = mongodb.ConnectionOptions().WithUser(authtypes.User{
+			Username:                 mongodbUser.Spec.Username,
+			Database:                 mongodbUser.Spec.Database,
+			ConnectionStringDatabase: mongodbUser.Spec.ConnectionStringDatabase,
+		}, password).Build(connectionstring.SchemeMongoDB)
+	} else {
+		mongoUri = mongodb.ConnectionOptions().Build(connectionstring.SchemeMongoDB)
 	}
 
 	tls := mongodb.Spec.Security.TLSConfig.Enabled
-	mongoUri := mongodb.BuildConnectionString(userName, password, connectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{})
 	return backup.NewDataStoreConfig(operatorConfig.Name, mongoUri, tls, operatorConfig.AssignmentLabels), workflow.OK()
 }
 

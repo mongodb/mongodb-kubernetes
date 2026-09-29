@@ -64,17 +64,15 @@ func Publish(ctx context.Context, c client.Client, s Secret) error {
 // names plus any spec.externalMembers entries that should appear in
 // the URI.
 func PublishForMongoDB(ctx context.Context, c client.Client, mdb *mdbv1.MongoDB, hostnames []string) error {
-	builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
-	std := builder.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
-	srv := builder.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
+	options := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames).ConnectionOptions()
 
 	return Publish(ctx, c, Secret{
 		Name:            SecretName(mdb),
 		Namespace:       mdb.Namespace,
 		OwnerReferences: kube.BaseOwnerReference(mdb),
 		Fields: map[string]string{
-			StandardURIField:    std,
-			StandardSrvURIField: srv,
+			StandardURIField:    options.Build(connectionstring.SchemeMongoDB),
+			StandardSrvURIField: options.Build(connectionstring.SchemeMongoDBSRV),
 		},
 	})
 }

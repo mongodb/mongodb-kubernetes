@@ -3,7 +3,6 @@ package mdbmulti
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 
 	"github.com/blang/semver"
@@ -634,37 +633,23 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 	return index
 }
 
-// BuildConnectionString for a MultiCluster user.
-func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+// ConnectionOptions fills the resource level connection string settings.
+func (m *MongoDBMultiCluster) ConnectionOptions() connectionstring.Options {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
 		domain := m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName)
 		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), domain)...)
 	}
 
-	params := connectionstring.OperatorParams()
-	maps.Copy(params, connectionParams)
-
-	options := connectionstring.Options{
-		Name:                m.Name,
-		Namespace:           m.Namespace,
-		Username:            username,
-		Password:            password,
-		Replicas:            m.Spec.Replicas(),
-		Service:             m.Name + "-svc",
-		Port:                m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		Version:             m.Spec.GetMongoDBVersion(),
-		AuthenticationModes: m.Spec.GetSecurityAuthenticationModes(),
-		ClusterDomain:       m.Spec.GetClusterDomain(),
-		ExternalDomain:      m.Spec.GetExternalDomain(),
-		IsReplicaSet:        true,
-		IsTLSEnabled:        m.Spec.IsSecurityTLSConfigEnabled(),
-		Hostnames:           hostnames,
-		Database:            connectionStringDatabase,
-		Params:              params,
-	}
-
-	return options.Build(scheme)
+	return connectionstring.ForSpec(&m.Spec, connectionstring.Options{
+		Name:         m.Name,
+		Namespace:    m.Namespace,
+		Service:      m.Name + "-svc",
+		Port:         m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		IsReplicaSet: true,
+		Hostnames:    hostnames,
+		Params:       connectionstring.OperatorParams(),
+	})
 }
 
 func (m *MongoDBMultiCluster) GetAuthenticationModes() []string {

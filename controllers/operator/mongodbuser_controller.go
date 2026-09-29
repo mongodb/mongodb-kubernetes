@@ -33,7 +33,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -327,15 +329,18 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	options := connectionBuilder.ConnectionOptions().WithUser(authtypes.User{
+		Username:                 user.Spec.Username,
+		Database:                 user.Spec.Database,
+		ConnectionStringDatabase: user.Spec.ConnectionStringDatabase,
+	}, password)
 
 	secretBuilder := secret.Builder().
 		SetName(secretName).
 		SetNamespace(user.Namespace).
-		SetField("connectionString.standard", mongoAuthUserURI).
-		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
-		SetField("username", user.Spec.Username)
+		SetField(connectionstringsecret.StandardURIField, options.Build(connectionstring.SchemeMongoDB)).
+		SetField(connectionstringsecret.StandardSrvURIField, options.Build(connectionstring.SchemeMongoDBSRV)).
+		SetField(connectionstringsecret.UsernameField, user.Spec.Username)
 
 	// External users have no password, so the key is left out rather than written empty.
 	if user.Spec.Database != authentication.ExternalDB {

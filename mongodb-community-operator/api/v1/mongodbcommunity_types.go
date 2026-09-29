@@ -657,44 +657,50 @@ func (m *MongoDBCommunity) AutomationConfigArbitersThisReconciliation() int {
 	})
 }
 
-// toStringParams converts a map of arbitrary option values into their string
-// representation used in connection string parameters.
-func toStringParams(options map[string]interface{}) map[string]string {
-	params := make(map[string]string, len(options))
-	for key, value := range options {
-		params[key] = fmt.Sprintf("%v", value)
-	}
-	return params
-}
-
 // authenticationModes returns the resource authentication modes as plain
 // strings for the connection string builder.
-func (m *MongoDBCommunity) authenticationModes() []string {
-	modes := make([]string, 0, len(m.Spec.Security.Authentication.Modes))
-	for _, mode := range m.Spec.Security.Authentication.Modes {
+func (m *MongoDBCommunitySpec) GetSecurityAuthenticationModes() []string {
+	modes := make([]string, 0, len(m.Security.Authentication.Modes))
+	for _, mode := range m.Security.Authentication.Modes {
 		modes = append(modes, string(mode))
 	}
 	return modes
 }
 
+// Replicas returns the desired number of members.
+func (m *MongoDBCommunitySpec) Replicas() int {
+	return m.Members
+}
+
+// GetMongoDBVersion returns the MongoDB version of the deployment.
+func (m *MongoDBCommunitySpec) GetMongoDBVersion() string {
+	return m.Version
+}
+
+// GetExternalDomain returns nil, the community resource does not support
+// publishing connection strings under a custom domain.
+func (m *MongoDBCommunitySpec) GetExternalDomain() *string {
+	return nil
+}
+
+// IsSecurityTLSConfigEnabled reports whether TLS is enabled for the deployment.
+func (m *MongoDBCommunitySpec) IsSecurityTLSConfigEnabled() bool {
+	return m.Security.TLS.Enabled
+}
+
 // connectionOptions fills the resource level connection string settings.
 func (m *MongoDBCommunity) connectionOptions() connectionstring.Options {
-	params := connectionstring.OperatorParams()
-	maps.Copy(params, toStringParams(m.Spec.AdditionalConnectionStringConfig.Object))
-
-	return connectionstring.Options{
-		Name:                m.Name,
-		Namespace:           m.Namespace,
-		Service:             m.ServiceName(),
-		Hostnames:           m.Hosts(),
-		Port:                int32(m.GetMongodConfiguration().GetDBPort()),
-		Version:             m.Spec.Version,
-		AuthenticationModes: m.authenticationModes(),
-		ClusterDomain:       m.Spec.GetClusterDomain(),
-		IsReplicaSet:        true,
-		IsTLSEnabled:        m.Spec.Security.TLS.Enabled,
-		Params:              params,
-	}
+	options := connectionstring.ForSpec(&m.Spec, connectionstring.Options{
+		Name:         m.Name,
+		Namespace:    m.Namespace,
+		Service:      m.ServiceName(),
+		Hostnames:    m.Hosts(),
+		Port:         int32(m.GetMongodConfiguration().GetDBPort()),
+		IsReplicaSet: true,
+		Params:       connectionstring.OperatorParams(),
+	})
+	maps.Copy(options.Params, connectionstring.StringParams(m.Spec.AdditionalConnectionStringConfig.Object))
+	return options
 }
 
 // MongoURI returns a mongo uri which can be used to connect to this deployment
@@ -708,18 +714,9 @@ func (m *MongoDBCommunity) MongoSRVURI() string {
 }
 
 // authedOptions extends the resource level options with the authentication
-// data of the given user. Following the enterprise behavior, the user's
-// database becomes the authSource and the URI path comes from the user's
-// connection string database, defaulting to the admin database.
+// data of the given user.
 func (m *MongoDBCommunity) authedOptions(user authtypes.User, password string) connectionstring.Options {
-	options := m.connectionOptions()
-	options.Username = user.Username
-	options.Password = password
-	options.Params["authSource"] = user.Database
-	options.Database = user.ConnectionStringDatabase
-	options.DefaultDatabase = util.DefaultUserDatabase
-	options.UserParams = toStringParams(user.ConnectionStringOptions)
-	return options
+	return m.connectionOptions().WithUser(user, password)
 }
 
 // MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
