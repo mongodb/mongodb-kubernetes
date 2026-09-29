@@ -33,7 +33,7 @@ func appdbMongodbAgentContainer(automationConfigSecretName string, volumeMounts 
 	return container.Apply(
 		container.WithName(util.AgentContainerName),
 		container.WithImage(agentImage),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithReadinessProbe(appdbDefaultReadiness()),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
@@ -70,7 +70,7 @@ func appdbMongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, init
 	return container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),
 		container.WithImage(initDatabaseImage),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		container.WithVolumeMounts(volumeMounts),
 		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
@@ -86,7 +86,7 @@ func appdbVersionUpgradeHookInit(volumeMount []corev1.VolumeMount, versionUpgrad
 		container.WithCommand([]string{"cp", "version-upgrade-hook", "/hooks/version-upgrade"}),
 		container.WithImage(versionUpgradeHookImage),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithVolumeMounts(volumeMount),
 		containerSecurityContext,
 	)
@@ -124,7 +124,7 @@ func appdbReadinessProbeInit(volumeMount []corev1.VolumeMount, readinessProbeIma
 		container.WithName(AppDBReadinessProbeContainerName),
 		container.WithCommand([]string{"cp", "/probes/readinessprobe", "/opt/scripts/readinessprobe"}),
 		container.WithImage(readinessProbeImage),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithVolumeMounts(volumeMount),
 		container.WithResourceRequirements(resourcerequirements.Defaults()),
 		containerSecurityContext,
