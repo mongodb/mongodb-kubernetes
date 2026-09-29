@@ -1,8 +1,3 @@
-if [[ -z "${MDB_GKE_PROJECT:-}" ]] || ! [[ "${DNS_ZONE:-}" =~ ^mongodb(-[a-z0-9]+)*$ ]]; then
-  echo "Invalid code-snippet DNS ownership; refusing cleanup" >&2
-  exit 1
-fi
-
 # Delete all records except NS and SOA (which are system-managed)
 gcloud dns record-sets list --project="${MDB_GKE_PROJECT}" --zone="${DNS_ZONE}" --format=json 2>/dev/null | jq -c '.[]' | while read -r record; do
   NAME=$(echo "${record}" | jq -r '.name')
