@@ -7,8 +7,8 @@
 
 ```json
 {
-  "kubernetes": { "min": "1.33.7", "max": "1.35.0" },
-  "openshift": "4.20"
+  "kubernetes": { "min": "1.34.3", "max": "1.36.1" },
+  "openshift": "4.22"
 }
 ```
 
@@ -18,7 +18,7 @@
 
 **Direction:** Pins (Kind node image, `kubectl` in scripts/Dockerfiles, CI cluster selectors) should **eventually** be driven from this file or generated from it.
 
-**Run:** `./scripts/check-kube-versions.sh` from repo root. 
+**Run:** `./scripts/check-kube-versions.sh` from repo root.
 
 Optional env:
 - **`CONFIG_FILE`**
