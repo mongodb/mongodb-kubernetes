@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -616,7 +617,14 @@ func checkShardedClusterCheckExtraReplicaSets(t *testing.T, d Deployment, expect
 
 	require.NotNil(t, cluster)
 
-	assert.Equal(t, expectedCluster, *cluster)
+	// The order of the draining array is not deterministic (removed shards are collected by iterating a map),
+	// so compare it order-insensitively and the rest of the cluster exactly.
+	expectedClusterWithoutDraining := maps.Clone(expectedCluster)
+	clusterWithoutDraining := maps.Clone(*cluster)
+	delete(expectedClusterWithoutDraining, "draining")
+	delete(clusterWithoutDraining, "draining")
+	assert.Equal(t, expectedClusterWithoutDraining, clusterWithoutDraining)
+	assert.ElementsMatch(t, expectedCluster.draining(), cluster.draining())
 
 	checkReplicaSets(t, d, expectedReplicaSets, checkExtraReplicaSets)
 
