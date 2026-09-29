@@ -10,7 +10,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
