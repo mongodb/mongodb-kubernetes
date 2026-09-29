@@ -149,7 +149,7 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
-		t.Setenv(util.AutomationAgentImagePullPolicy, "")
+		t.Setenv(util.ImagePullPolicyEnv, "")
 		sc := mdbv1.NewClusterBuilder().Build()
 
 		kubeClient, _ := mock.NewDefaultFakeClient(sc)
@@ -171,7 +171,7 @@ func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSet(t *testing.T) {
 
 func TestStatefulsetCreationPanicsIfEnvVariablesAreNotSetStatic(t *testing.T) {
 	t.Run("Empty Image Pull Policy", func(t *testing.T) {
-		t.Setenv(util.AutomationAgentImagePullPolicy, "")
+		t.Setenv(util.ImagePullPolicyEnv, "")
 		sc := mdbv1.NewClusterBuilder().Build()
 		kubeClient, _ := mock.NewDefaultFakeClient(sc)
 		shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sc)

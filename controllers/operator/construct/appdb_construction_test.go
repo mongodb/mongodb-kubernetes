@@ -375,7 +375,7 @@ func TestAppDbStatefulSet_ImagePullPolicy(t *testing.T) {
 
 	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
 		t.Run(string(arch), func(t *testing.T) {
-			t.Setenv(util.AutomationAgentImagePullPolicy, string(corev1.PullIfNotPresent))
+			t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
 
 			om := omv1.NewOpsManagerBuilderDefault().Build()
 			sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},

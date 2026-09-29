@@ -193,7 +193,7 @@ const (
 	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
-	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
+	ImagePullPolicyEnv               = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
