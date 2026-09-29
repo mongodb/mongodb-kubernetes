@@ -33,42 +33,42 @@ func TestMongoDB_MongoURI(t *testing.T) {
 			name:             "my-rs",
 			namespace:        "my-namespace",
 			clusterDomain:    "",
-			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs",
+			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:          2,
 			name:             "my-rs",
 			namespace:        "my-namespace",
 			clusterDomain:    "my.cluster",
-			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.my.cluster:27017,my-rs-1.my-rs-svc.my-namespace.svc.my.cluster:27017/?replicaSet=my-rs",
+			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.my.cluster:27017,my-rs-1.my-rs-svc.my-namespace.svc.my.cluster:27017/?connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:          1,
 			name:             "my-single-rs",
 			namespace:        "my-single-namespace",
 			clusterDomain:    "",
-			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.cluster.local:27017/?replicaSet=my-single-rs",
+			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&replicaSet=my-single-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:          1,
 			name:             "my-single-rs",
 			namespace:        "my-single-namespace",
 			clusterDomain:    "my.cluster",
-			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.my.cluster:27017/?replicaSet=my-single-rs",
+			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.my.cluster:27017/?connectTimeoutMS=20000&replicaSet=my-single-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:          5,
 			name:             "my-big-rs",
 			namespace:        "my-big-namespace",
 			clusterDomain:    "",
-			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017/?replicaSet=my-big-rs",
+			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&replicaSet=my-big-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:          5,
 			name:             "my-big-rs",
 			namespace:        "my-big-namespace",
 			clusterDomain:    "my.cluster",
-			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017/?replicaSet=my-big-rs",
+			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.my.cluster:27017/?connectTimeoutMS=20000&replicaSet=my-big-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:       2,
@@ -78,7 +78,7 @@ func TestMongoDB_MongoURI(t *testing.T) {
 			additionalMongodConfig: map[string]interface{}{
 				"net.port": 40333.,
 			},
-			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:40333,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:40333/?replicaSet=my-rs",
+			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:40333,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:40333/?connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:       2,
@@ -88,7 +88,7 @@ func TestMongoDB_MongoURI(t *testing.T) {
 			additionalMongodConfig: map[string]interface{}{
 				"net.port": 40333.,
 			},
-			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.my.cluster:40333,my-rs-1.my-rs-svc.my-namespace.svc.my.cluster:40333/?replicaSet=my-rs",
+			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.my.cluster:40333,my-rs-1.my-rs-svc.my-namespace.svc.my.cluster:40333/?connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 	}
 
@@ -107,7 +107,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			name:                             "my-rs",
 			namespace:                        "my-namespace",
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&readPreference=primary",
+			connectionString:                 "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:   2,
@@ -116,7 +116,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&readPreference=primary",
+			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true",
 		},
 		{
 			members:   1,
@@ -125,7 +125,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary",
 			},
-			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.cluster.local:27017/?replicaSet=my-single-rs&readPreference=primary",
+			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-single-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:   5,
@@ -134,7 +134,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary",
 			},
-			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017/?replicaSet=my-big-rs&readPreference=primary",
+			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-big-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			members:   2,
@@ -146,7 +146,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			additionalMongodConfig: map[string]interface{}{
 				"net.port": 40333.,
 			},
-			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:40333,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:40333/?replicaSet=my-rs&readPreference=primary",
+			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:40333,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:40333/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 	}
 
@@ -161,9 +161,9 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 
 func TestMongoDB_MongoSRVURI(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
-	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 	mdb.Spec.ClusterDomain = "my.cluster"
-	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 }
 
 func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
@@ -171,17 +171,17 @@ func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
 		"readPreference": "primary",
 	}
-	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 	mdb.Spec.ClusterDomain = "my.cluster"
-	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
 		"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 	}
-	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true")
 	mdb.Spec.ClusterDomain = "my.cluster"
-	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
+	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true")
 }
 
 func TestMongodConfiguration(t *testing.T) {
@@ -362,43 +362,44 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 		Database: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
+	mdb.Spec.Security.Authentication.Modes = []AuthMode{Scram256AuthMode}
 
 	tests := []args{
 		{
 			additionalConnectionStringConfig: map[string]interface{}{},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=secondary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=secondary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"retryReads": true},
-			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&retryReads=true&readPreference=primary",
+			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&retryReads=true&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 	}
 
@@ -410,9 +411,10 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
+	mdb.Spec.Security.Authentication.Modes = []AuthMode{Scram256AuthMode}
 	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
-	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false")
-	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass word"), "mongodb://rob:pass%20word@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserURI(spaceUser, "pass+word"), "mongodb://rob:pass%2Bword@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 
 	testuser = authtypes.User{
 		Username: "testuser",
@@ -420,7 +422,7 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/$external?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserURI(testuser, ""), "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 }
 
 func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
@@ -429,43 +431,44 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 		Database: "admin",
 	}
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
+	mdb.Spec.Security.Authentication.Modes = []AuthMode{Scram256AuthMode}
 
 	tests := []args{
 		{
 			additionalConnectionStringConfig: map[string]interface{}{},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "primary"},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig: map[string]interface{}{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
-			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
+			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false&tls=true",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=secondary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=secondary&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 		{
 			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
 			userConnectionStringConfig:       map[string]interface{}{"retryReads": true},
-			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&retryReads=true&readPreference=primary",
+			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&readPreference=primary&replicaSet=my-rs&retryReads=true&serverSelectionTimeoutMS=20000&ssl=false",
 		},
 	}
 
@@ -477,9 +480,10 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 
 	// space must be encoded as %20; + must be encoded as %2B (pymongo uses unquote_plus on userinfo)
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
+	mdb.Spec.Security.Authentication.Modes = []AuthMode{Scram256AuthMode}
 	spaceUser := authtypes.User{Username: "rob", Database: "admin"}
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false")
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass word"), "mongodb+srv://rob:pass%20word@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(spaceUser, "pass+word"), "mongodb+srv://rob:pass%2Bword@my-rs-svc.my-namespace.svc.cluster.local/admin?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 
 	testuser = authtypes.User{
 		Username: "testuser",
@@ -487,7 +491,7 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 	}
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
 
-	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/$external?replicaSet=my-rs&ssl=false")
+	assert.Equal(t, mdb.MongoAuthUserSRVURI(testuser, ""), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/admin?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false")
 }
 
 func TestConvertAuthModeToAuthMechanism(t *testing.T) {

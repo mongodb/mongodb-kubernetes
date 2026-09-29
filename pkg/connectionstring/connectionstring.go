@@ -140,7 +140,8 @@ func (o Options) mergedParams() map[string]string {
 // the $external database.
 func (o Options) userinfo(params map[string]string) string {
 	scramEnabled := stringutil.Contains(o.AuthenticationModes, util.SCRAM) ||
-		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA1)
+		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA1) ||
+		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA256)
 	if !scramEnabled || o.Username == "" || o.Password == "" {
 		return ""
 	}
@@ -330,6 +331,11 @@ func authSourceAndMechanism(authenticationModes []string, version string) (strin
 		} else {
 			authMechanism = "SCRAM-SHA-256"
 		}
+	}
+
+	if stringutil.Contains(authenticationModes, util.SCRAMSHA256) {
+		authSource = util.DefaultUserDatabase
+		authMechanism = "SCRAM-SHA-256"
 	}
 
 	if stringutil.Contains(authenticationModes, util.SCRAMSHA1) {
