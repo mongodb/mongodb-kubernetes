@@ -147,7 +147,7 @@ class MultiClusterOMClusterWideTestHelper:
         )
 
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-        resource["spec"]["version"] = get_custom_om_version()
+        resource.set_version(get_custom_om_version())
         resource["spec"]["topology"] = "MultiCluster"
         ## Force creating headless services for internal connectivity
         resource["spec"]["internalConnectivity"] = {

@@ -13,7 +13,7 @@
 # The "certified" term is used in the tarball file for historical reasons.
 #
 # Usage (runnable standalone from a CLI or from Evergreen):
-#   GH_TOKEN=<token-with-write-to-forks> VERSION=1.3.0 RH_DRYRUN=true \
+#   GH_TOKEN=<token-with-write-to-forks> VERSION=1.3.0 \
 #     scripts/release/publish-openshift-bundles-to-rh.sh
 #
 # Environment:
@@ -29,11 +29,7 @@
 #                                key for the app. In Evergreen this comes from the Private
 #                                project variable `rh_gh_app_pem_b64`.
 #   VERSION     (optional) operator version; defaults to .mongodbOperator in release.json.
-#   RH_DRYRUN   (optional) "true" performs a --dry-run push; "false" pushes. If unset,
-#               defaults to "false" (real push) when REQUESTER=github_tag (automated
-#               tag-triggered release), otherwise defaults to "true" (safe dry-run).
-#   REQUESTER   (optional) Evergreen trigger type (e.g. "github_tag", "patch"); used only
-#               to pick the RH_DRYRUN default described above.
+
 #   S3_BUNDLES_URL (optional) base URL of the bundles bucket.
 #   PACKAGE     (optional) operator package dir name; defaults to mongodb-kubernetes.
 
@@ -41,17 +37,10 @@ set -Eeou pipefail
 # Opt-in command tracing for debugging: MDB_DEBUG=1
 test "${MDB_DEBUG:-0}" -eq 1 && set -x
 
+# Pushes are always safe: we only push to mongodb-forks (not Red Hat directly),
+# and force-push is idempotent. The PRs to Red Hat are created manually.
+
 VERSION="${VERSION:-$(jq -r .mongodbOperator < release.json)}"
-# Default policy: real pushes only for the automated tag-triggered Evergreen release
-# (REQUESTER=github_tag); every other trigger (patch/manual run/local CLI) defaults to
-# a safe dry-run. An explicit RH_DRYRUN always overrides this default.
-if [[ -z "${RH_DRYRUN:-}" ]]; then
-  if [[ "${REQUESTER:-}" == "github_tag" ]]; then
-    RH_DRYRUN="false"
-  else
-    RH_DRYRUN="true"
-  fi
-fi
 PACKAGE="${PACKAGE:-mongodb-kubernetes}"
 S3_BUNDLES_URL="${S3_BUNDLES_URL:-https://operator-e2e-bundles.s3.amazonaws.com/bundles}"
 
@@ -88,15 +77,9 @@ REPO_UPSTREAMS=(
   "community-operators k8s-operatorhub"
 )
 
-# On a dry run we keep the workdir so the prepared checkouts/branches can be inspected;
-# on a real run we clean up. Override with KEEP_WORKDIR=true/false.
 workdir="$(mktemp -d)"
 echo "Workdir: ${workdir}"
-if [[ "${RH_DRYRUN}" == "false" ]]; then
-  KEEP_WORKDIR="${KEEP_WORKDIR:-false}"
-else
-  KEEP_WORKDIR="${KEEP_WORKDIR:-true}"
-fi
+KEEP_WORKDIR="${KEEP_WORKDIR:-true}"
 cleanup() {
   if [[ "${KEEP_WORKDIR}" == "false" ]]; then
     rm -rf "${workdir}"
@@ -143,11 +126,7 @@ publish_repo() {
   git -C "${repo_dir}" add "operators/${PACKAGE}/${VERSION}"
   git -C "${repo_dir}" commit --quiet --signoff -m "operator ${PACKAGE} (${VERSION})"
 
-  if [[ "${RH_DRYRUN}" == "false" ]]; then
-    git -C "${repo_dir}" push -fu origin "${branch}"
-  else
-    echo "RH_DRYRUN=${RH_DRYRUN}: skipping push (branch prepared locally at ${repo_dir})"
-  fi
+  git -C "${repo_dir}" push -fu origin "${branch}"
 }
 
 pr_urls=()
@@ -171,7 +150,7 @@ done
 
 echo
 if [[ ${#pr_urls[@]} -gt 0 ]]; then
-  echo "Release branches prepared (RH_DRYRUN=${RH_DRYRUN})."
+  echo "Release branches prepared."
   echo "Click the links below to open the upstream PR (mark it as a DRAFT), then ask the team"
   echo "for a quick look; certified merges on green CI, community may need a close/re-open:"
   for url in "${pr_urls[@]}"; do

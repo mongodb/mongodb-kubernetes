@@ -30,7 +30,7 @@ def ops_manager(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource["spec"]["version"] = custom_version
+    resource.set_version(custom_version)
 
     resource.allow_mdb_rc_versions()
     resource.create_admin_secret(api_client=central_cluster_client)

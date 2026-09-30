@@ -172,6 +172,57 @@ func TestGetAppDBImage(t *testing.T) {
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
 			},
 		},
+		{
+			name:  "Getting official image for a pre-release version",
+			input: "9.0.0-rc0",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:9.0.0-rc0-ubi8",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting official image for a pre-release version on static architecture",
+			input: "9.0.0-rc0",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:9.0.0-rc0-ubi9",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting official image for a pre-release version with legacy ent suffix",
+			input: "9.0.0-rc0-ent",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:9.0.0-rc0-ubi8",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Getting official image for a pre-release version that already has an image type suffix",
+			input: "9.0.0-rc0-ubi8",
+			annotations: map[string]string{
+				"mongodb.com/v1.architecture": string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:9.0.0-rc0-ubi9",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:  "Unknown image type suffixes are left alone",
+			input: "5.0.6-ubuntu",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:5.0.6-ubuntu",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

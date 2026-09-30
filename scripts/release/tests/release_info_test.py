@@ -1,14 +1,18 @@
 import json
 import os
+from unittest.mock import patch
 
 from scripts.release.build.build_info import load_build_info
 from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_process import DockerImageBuilder
 from scripts.release.release_info import convert_to_release_info_json
 
 OPERATOR_VERSION = "1.6.0"
 
 
-def test_create_release_info_json():
+@patch.object(DockerImageBuilder, "get_manfiest_list_digest")
+def test_create_release_info_json(mock_get_digest, monkeypatch):
+    monkeypatch.setenv("dryrun_registry_override", "")
     expected_json = {
         "images": {
             "operator": {
@@ -79,11 +83,17 @@ def test_create_release_info_json():
         ],
     }
 
+    digest_lookup = {f"{img['repoURL']}:{img['tag']}": img["digest"] for img in expected_json["images"].values()}
+
+    def _mock_get_digest(image):
+        if image in digest_lookup:
+            return digest_lookup[image]
+        raise Exception(f"Unexpected image: {image}")
+
+    mock_get_digest.side_effect = _mock_get_digest
+
     build_info = load_build_info(scenario=BuildScenario.RELEASE)
 
-    # release_test.json is just a copy of our original release.json file and it's created so that we can easily
-    # test release_info.py. If we directly used release.json, we will have to change the expected output `expected_json`
-    # because content of release.json changes after every MCK/OM/Agent release.
     test_release_json_path = os.path.join(os.getcwd(), "scripts/release/tests/testdata/release_test.json")
     release_info_asset = convert_to_release_info_json(build_info, test_release_json_path, OPERATOR_VERSION)
 

@@ -98,6 +98,10 @@ def get_latest_om_versions_from_evergreen_yaml() -> Set[str]:
     """
     Extract OM versions from .evergreen.yml anchors using YAML parsing and semver.
 
+    Prerelease versions (e.g. "9.0.0-rc0") are excluded: an RC anchor exists so CI can
+    build and e2e-test it on demand, but it must never reach the release or Red Hat
+    preflight paths, and its tarball is not in the public release archive.
+
     Returns: {"6.0.27", "7.0.19", "8.0.16"}
     Raises: RuntimeError if file is missing, malformed, or contains no valid versions
     """
@@ -128,9 +132,13 @@ def get_latest_om_versions_from_evergreen_yaml() -> Set[str]:
             continue
 
         try:
-            semver.VersionInfo.parse(var)
+            parsed = semver.VersionInfo.parse(var)
         except (ValueError, TypeError) as e:
             logger.debug(f"Skipping non-semver variable '{var}': {e}")
+            continue
+
+        if parsed.prerelease:
+            logger.debug(f"Skipping prerelease OM version '{var}'")
             continue
 
         versions.add(var)

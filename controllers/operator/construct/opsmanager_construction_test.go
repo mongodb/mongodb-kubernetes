@@ -5,9 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -97,13 +99,19 @@ func TestBuildJvmParamsEnvVars_FromCustomContainerResource(t *testing.T) {
 }
 
 func createOpsManagerStatefulset(ctx context.Context, om *omv1.MongoDBOpsManager, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
-	client, _ := mock.NewDefaultFakeClient()
+	return createOpsManagerStatefulsetWithObjects(ctx, om, nil, additionalOpts...)
+}
+
+// createOpsManagerStatefulsetWithObjects is createOpsManagerStatefulset with additional objects
+// seeded into the fake client, for cases where construction reads existing resources.
+func createOpsManagerStatefulsetWithObjects(ctx context.Context, om *omv1.MongoDBOpsManager, objects []client.Object, additionalOpts ...func(*OpsManagerStatefulSetOptions)) (appsv1.StatefulSet, error) {
+	kubeClient, _ := mock.NewDefaultFakeClient(objects...)
 	secretsClient := secrets.SecretClient{
 		VaultClient: &vault.VaultClient{},
-		KubeClient:  client,
+		KubeClient:  kubeClient,
 	}
 
-	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, client, secretsClient), zap.S(), additionalOpts...)
+	omSts, err := OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, kubeClient, secretsClient), zap.S(), additionalOpts...)
 	return omSts, err
 }
 
@@ -450,6 +458,67 @@ func TestOpsManagerPodTemplate_Container(t *testing.T) {
 	assert.Equal(t, []string{"/opt/scripts/docker-entry-point.sh"}, containerObj.Command)
 	assert.Equal(t, []string{"/bin/sh", "-c", "/mongodb-ops-manager/bin/mongodb-mms stop_mms"},
 		containerObj.Lifecycle.PreStop.Exec.Command)
+}
+
+func TestOpsManagerPodTemplate_ProbeSchemeAndPort(t *testing.T) {
+	tests := []struct {
+		name           string
+		tlsSecretName  string
+		expectedScheme corev1.URIScheme
+		expectedPort   int32
+	}{
+		{
+			name:           "no TLS uses http on the plain port",
+			tlsSecretName:  "",
+			expectedScheme: corev1.URISchemeHTTP,
+			expectedPort:   int32(util.OpsManagerDefaultPortHTTP),
+		},
+		{
+			name:           "TLS uses https on the TLS port",
+			tlsSecretName:  "om-tls-cert",
+			expectedScheme: corev1.URISchemeHTTPS,
+			expectedPort:   int32(util.OpsManagerDefaultPortHTTPS),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			builder := omv1.NewOpsManagerBuilderDefault().
+				SetName("test-om").
+				SetNamespace(mock.TestNamespace)
+
+			var seeded []client.Object
+			if tt.tlsSecretName != "" {
+				builder = builder.SetTLSConfig(omv1.MongoDBOpsManagerTLS{
+					SecretRef: omv1.TLSSecretRef{Name: tt.tlsSecretName},
+				})
+				// An Opaque secret is enough here: updateHTTPSCertSecret only rewrites the
+				// options for kubernetes.io/tls secrets, which is orthogonal to the probes.
+				seeded = append(seeded, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: tt.tlsSecretName, Namespace: mock.TestNamespace},
+					Type:       corev1.SecretTypeOpaque,
+				})
+			}
+
+			sts, err := createOpsManagerStatefulsetWithObjects(ctx, builder.Build(), seeded)
+			require.NoError(t, err)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+			containerObj := sts.Spec.Template.Spec.Containers[0]
+
+			for probeName, probe := range map[string]*corev1.Probe{
+				"readiness": containerObj.ReadinessProbe,
+				"liveness":  containerObj.LivenessProbe,
+				"startup":   containerObj.StartupProbe,
+			} {
+				require.NotNil(t, probe, "%s probe must be set", probeName)
+				require.NotNil(t, probe.HTTPGet, "%s probe must use an HTTPGet handler", probeName)
+				assert.Equal(t, tt.expectedScheme, probe.HTTPGet.Scheme, "%s probe scheme", probeName)
+				assert.Equal(t, tt.expectedPort, probe.HTTPGet.Port.IntVal, "%s probe port", probeName)
+				assert.Equal(t, "/monitor/health", probe.HTTPGet.Path, "%s probe path", probeName)
+			}
+		})
+	}
 }
 
 func defaultNodeAffinity() corev1.NodeAffinity {

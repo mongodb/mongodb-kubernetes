@@ -42,11 +42,35 @@ class AwsS3Client:
                 raise error
 
     def delete_s3_bucket(self, name: str, attempts: int = 10):
-        v = self.s3_client.list_objects_v2(Bucket=name)
-        print(v)
-        if v is not None and "Contents" in v:
-            for x in v["Contents"]:
-                self.s3_client.delete_object(Bucket=name, Key=x["Key"])
+        """Delete an S3 bucket, draining all object versions and delete markers first.
+
+        Versioned and object-lock enabled buckets cannot be deleted while any
+        versions remain, so this drains them (bypassing governance retention
+        where permitted). Warnings are printed instead of raised so that
+        teardown never obscures test results.
+        """
+        # Drain all object versions and delete markers (also covers unversioned
+        # buckets, whose objects appear as a single version).
+        to_delete = []
+        try:
+            paginator = self.s3_client.get_paginator("list_object_versions")
+            for page in paginator.paginate(Bucket=name):
+                for v in page.get("Versions", []):
+                    to_delete.append({"Key": v["Key"], "VersionId": v["VersionId"]})
+                for m in page.get("DeleteMarkers", []):
+                    to_delete.append({"Key": m["Key"], "VersionId": m["VersionId"]})
+
+            for i in range(0, len(to_delete), 1000):
+                self.s3_client.delete_objects(
+                    Bucket=name,
+                    Delete={"Objects": to_delete[i : i + 1000], "Quiet": True},
+                    BypassGovernanceRetention=True,
+                )
+        except ClientError:
+            print(
+                f"Warning: could not fully drain versions of bucket ({name}); "
+                "object-lock retention may prevent deletion"
+            )
 
         while attempts > 0:
             try:

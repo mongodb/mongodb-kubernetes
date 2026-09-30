@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -14,7 +15,10 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-var nextScheduledTime time.Time
+var (
+	nextScheduledTime   time.Time
+	nextScheduledTimeMu sync.Mutex
+)
 
 const pause = time.Hour * 24
 
@@ -29,7 +33,7 @@ type ClientSecret struct {
 }
 
 func upgradeIfNeeded(ctx context.Context, conn om.Connection, key types.NamespacedName, spec mdbv1.DbCommonSpec) {
-	if !time.Now().After(nextScheduledTime) {
+	if !scheduleNextUpgrade() {
 		return
 	}
 	log := zap.S()
@@ -41,7 +45,19 @@ func upgradeIfNeeded(ctx context.Context, conn om.Connection, key types.Namespac
 	}
 
 	log.Infof("The upgrade of Agents for the MongoDB resource %s/%s in the cluster is finished.", key.Namespace, key.Name)
+}
+
+// scheduleNextUpgrade mutates a global timestamp of the next agent upgrade attempt.
+// It must be synchronized as it's executed concurrently in case of parallel reconciles enabled.
+func scheduleNextUpgrade() bool {
+	nextScheduledTimeMu.Lock()
+	defer nextScheduledTimeMu.Unlock()
+
+	if !time.Now().After(nextScheduledTime) {
+		return false
+	}
 	nextScheduledTime = nextScheduledTime.Add(pause)
+	return true
 }
 
 func UpgradeIfNeeded(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) {
@@ -62,11 +78,17 @@ func UpgradeIfNeededMC(ctx context.Context, mdb *mdbmultiv1.MongoDBMultiCluster,
 // This is needed for major/minor OM upgrades as all dependent MongoDBs won't get reconciled with "You need to upgrade the
 // automation agent before publishing other changes"
 func ScheduleUpgrade() {
+	nextScheduledTimeMu.Lock()
+	defer nextScheduledTimeMu.Unlock()
+
 	nextScheduledTime = time.Now()
 }
 
 // NextScheduledUpgradeTime returns the next scheduled time. Mostly needed for testing.
 func NextScheduledUpgradeTime() time.Time {
+	nextScheduledTimeMu.Lock()
+	defer nextScheduledTimeMu.Unlock()
+
 	return nextScheduledTime
 }
 

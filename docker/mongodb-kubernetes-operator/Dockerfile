@@ -12,6 +12,7 @@ RUN go mod download
 COPY . /go/src/github.com/mongodb/mongodb-kubernetes
 
 ARG version
+ARG ldflag_version
 ARG log_automation_config_diff
 ARG use_race
 ARG TARGETOS
@@ -23,13 +24,13 @@ RUN mkdir /build && \
         CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /build/mongodb-kubernetes-operator \
         -buildvcs=false \
         -race \
-        -ldflags=" -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${version} \
+        -ldflags=" -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${ldflag_version} \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     else \
         echo "Building without race detector" && \
         CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /build/mongodb-kubernetes-operator \
         -buildvcs=false \
-        -ldflags="-s -w -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${version} \
+        -ldflags="-s -w -X github.com/mongodb/mongodb-kubernetes/pkg/util.OperatorVersion=${ldflag_version} \
         -X github.com/mongodb/mongodb-kubernetes/pkg/util.LogAutomationConfigDiff=${log_automation_config_diff}"; \
     fi
 

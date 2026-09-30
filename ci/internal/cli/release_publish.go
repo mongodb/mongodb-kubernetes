@@ -109,6 +109,7 @@ func newPublishImagesCmd() *cobra.Command {
 		commit           string
 		latestMarker     string
 		registryOverride string
+		failOnStomp      []string
 		force            bool
 		dryRun           bool
 		allowPartial     bool
@@ -140,7 +141,10 @@ published version.`,
 			if err != nil {
 				return err
 			}
-			results, err := release.PublishImages(images, commit, latestMarker, registryOverride, force, dryRun, allowPartial, release.DefaultRegistryConnector)
+			if len(failOnStomp) == 0 {
+				failOnStomp = []string{release.AnchorImageName}
+			}
+			results, err := release.PublishImages(images, commit, latestMarker, registryOverride, force, dryRun, allowPartial, failOnStomp, release.DefaultRegistryConnector)
 			if err != nil {
 				return err
 			}
@@ -171,6 +175,7 @@ published version.`,
 	cmd.Flags().StringVar(&registryOverride, "registry-override", "", "if set, replaces every image's release-registry host+namespace with this prefix (keeping each image's own repo name suffix) — for testing against a non-production registry; e.g. \"quay.io/my-test-org\"")
 	cmd.Flags().BoolVar(&force, "force", false, "publish every image even if any production tag already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
+	cmd.Flags().StringSliceVar(&failOnStomp, "fail-on-stomp", nil, fmt.Sprintf("image names that cause failure on tag conflict (default: %s only)", release.AnchorImageName))
 	cmd.Flags().BoolVar(&allowPartial, "allow-partial-signatures", false, "don't fail when child manifest .sig tags are missing")
 
 	MustNotErr(cmd.MarkFlagRequired("commit"))

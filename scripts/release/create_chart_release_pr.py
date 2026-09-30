@@ -34,6 +34,14 @@ def create_pull_request(branch_name, chart_version, github_token):
     try:
         g = Github(github_token)
         repo = g.get_repo(REPO_NAME)
+
+        # Idempotency: on release resumes the branch is already pushed and the
+        # PR already exists; creating it again would fail the task. Re-use it.
+        for pr in repo.get_pulls(state="open", base=BASE_BRANCH, sort="updated", direction="desc"):
+            if pr.head.ref == branch_name:
+                logger.info(f"Pull request for {branch_name} already exists ({pr.html_url}); skipping creation.")
+                return
+
         pr_title = f"Release MCK {chart_version}"
         body = f"This PR publishes the MCK chart version {chart_version}."
 
@@ -94,7 +102,9 @@ def commit_and_push_chart(chart_version):
             # Constructs a URL like https://x-access-token:YOUR_TOKEN@github.com/owner/repo.git
             authenticated_url = f"https://x-access-token:{github_token}@{REPO_URL.split('//')[1]}"
             run_command(["git", "remote", "set-url", "origin", authenticated_url], cwd=helm_repo_path)
-            run_command(["git", "push", "-u", "origin", branch_name], cwd=helm_repo_path)
+            run_command(
+                ["git", "push", "--force", "-u", "origin", branch_name], cwd=helm_repo_path
+            )  # --force so the chart branch is re-pushable on re-runs for the same version.
 
             create_pull_request(branch_name, chart_version, github_token)
 

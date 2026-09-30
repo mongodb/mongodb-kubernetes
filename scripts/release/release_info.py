@@ -45,17 +45,26 @@ def create_release_info_json(operator_version: str) -> str:
 
 
 def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, operator_version: str) -> dict:
+    # Redirect repo references to staging org during dry-run (dryrun_registry_override=quay.io/mongodb/staging).
+    # When the env var is unset (real tags), _repo() is a no-op returning the original value.
+    override = os.environ.get("dryrun_registry_override", "")
+
+    def _repo(repository: str) -> str:
+        return repository.replace("quay.io/mongodb", override) if override else repository
+
     with open(release_json_path, "r") as fd:
         release_data = json.load(fd)
 
     release_info_output = {
         "images": {},
     }
-    # Filter (and order) images to include only those relevant for release info
+    # Filter (and order) images to include only those relevant for release info.
+    # Only operator-published images get the staging override; third-party images
+    # (Ops Manager, Agent, Search, etc.) are not pushed to staging.
     images = {name: build_info.images[name] for name in RELEASE_INFO_IMAGES_ORDERED}
 
     for name, image in images.items():
-        add_image_info(release_info_output, name, image.repository, image.platforms, operator_version)
+        add_image_info(release_info_output, name, _repo(image.repository), image.platforms, operator_version)
 
     # add OPS manager image info
     om_build_info = build_info.images[OPS_MANAGER_IMAGE]
@@ -82,7 +91,7 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
     add_image_info(
         release_info_output,
         UPGRADE_HOOK_IMAGE,
-        upgradehook_build_info.repository,
+        _repo(upgradehook_build_info.repository),
         upgradehook_build_info.platforms,
         latest_upgrade_hook_version(release_data),
     )
@@ -92,7 +101,7 @@ def convert_to_release_info_json(build_info: BuildInfo, release_json_path: str, 
     add_image_info(
         release_info_output,
         READINESS_PROBE_IMAGE,
-        readiness_build_info.repository,
+        _repo(readiness_build_info.repository),
         readiness_build_info.platforms,
         latest_readiness_version(release_data),
     )
@@ -171,14 +180,13 @@ def latest_search_version(release_data):
     return release_data["search"]["version"]
 
 
-if __name__ == "__main__":
-    # This records real production digests (quay.io/mongodb/*) for the GitHub
-    # release assets, so it is meaningless (and would fail) against a
-    # dry-run's redirected registry: skip entirely.
-    if os.environ.get("IS_DRYRUN", "false").lower() == "true":
-        logger.info("IS_DRYRUN is set, skipping add_releaseinfo_to_github_assets")
-        sys.exit(0)
+# IS_DRYRUN doesn't propagate through Evergreen depends_on wildcards,
+# so dry-run is detected from the patch param tag_description_override instead.
+def _is_dryrun() -> bool:
+    return "[dry-run]" in os.environ.get("tag_description_override", "")
 
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Create relevant release artifacts information in JSON format.",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -194,4 +202,16 @@ if __name__ == "__main__":
         with open(release_info_filename, "w") as file:
             file.write(release_info)
 
-    upload_assets_to_github_release([release_info_filename], args.version)
+    # Dry runs draft the GitHub release under a "test-{version}" tag rather
+    # than the real "{version}" one (see .github/workflows/release.yml), so
+    # assets must be attached there instead.
+    is_dryrun = _is_dryrun()
+    github_release_tag = f"test-{args.version}" if is_dryrun else args.version
+
+    # Auto-creates the draft release if it doesn't exist (e.g. dry-run patches).
+    upload_assets_to_github_release(
+        [release_info_filename],
+        github_release_tag,
+        is_dryrun=is_dryrun,
+        target_commitish=os.environ.get("target_commit"),
+    )

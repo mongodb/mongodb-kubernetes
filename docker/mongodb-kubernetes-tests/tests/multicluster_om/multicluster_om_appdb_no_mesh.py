@@ -238,7 +238,7 @@ def ops_manager(
     )
 
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource["spec"]["version"] = custom_version
+    resource.set_version(custom_version)
     resource["spec"]["topology"] = "MultiCluster"
     resource["spec"]["clusterSpecList"] = [
         {

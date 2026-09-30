@@ -143,7 +143,7 @@ def ops_manager(
         yaml_fixture("multicluster_appdb_om.yaml"), namespace=namespace
     )
     resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    resource["spec"]["version"] = custom_version
+    resource.set_version(custom_version)
     resource["spec"]["topology"] = "MultiCluster"
     # OM cluster specs (not rescaled during the test)
     resource["spec"]["clusterSpecList"] = cluster_spec_list(["kind-e2e-cluster-1"], [1])

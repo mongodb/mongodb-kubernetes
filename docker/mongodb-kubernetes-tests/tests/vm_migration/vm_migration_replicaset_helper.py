@@ -301,10 +301,10 @@ def assert_generated_member_config_omitted(generated_cr: dict) -> None:
 
 
 def assert_common_generated_cr_shape(
-    generated_cr_yaml: str, generated_cr: dict, version_id: str, expected_external_members: int = 3
+    generated_cr_yaml: str, generated_cr: dict, expected_external_members: int = 3
 ) -> None:
     assert_migration_dry_run_annotation(generated_cr_yaml)
-    assert_migration_tool_version_annotation(generated_cr, version_id)
+    assert_migration_tool_version_annotation(generated_cr)
     assert_generated_external_members(generated_cr, expected_count=expected_external_members)
     assert_generated_member_config_omitted(generated_cr)
 

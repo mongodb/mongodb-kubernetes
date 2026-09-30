@@ -42,9 +42,12 @@ def s3_path(filename: str, version: str) -> str:
     return f"{KUBECTL_PLUGIN_BINARY}/{version}/{filename}"
 
 
-# upload_assets_to_github_release uploads the release artifacts (downloaded notarized/signed staging artifacts) to
-# the GitHub release as assets.
-def upload_assets_to_github_release(asset_paths: list[str], release_version: str):
+# upload_assets_to_github_release uploads artifacts to a GitHub release.
+# During dry-run patches, the GitHub Actions workflow didn't create the draft
+# release, so we auto-create it here if it doesn't exist.
+def upload_assets_to_github_release(
+    asset_paths: list[str], release_version: str, is_dryrun: bool = False, target_commitish: str | None = None
+):
     if not GITHUB_TOKEN:
         raise Exception("ERROR: GITHUB_TOKEN environment variable not set.")
 
@@ -56,22 +59,39 @@ def upload_assets_to_github_release(asset_paths: list[str], release_version: str
 
     try:
         gh_release = None
-        # list all the releases (including draft ones), and get the one corresponding to the passed release_version
         for r in repo.get_releases():
             if r.tag_name == release_version:
                 gh_release = r
                 break
 
         if gh_release is None:
-            raise Exception(
-                f"Could not find release (published or draft) with tag '{release_version}'. Please ensure the release exists."
+            if not is_dryrun:
+                raise Exception(
+                    f"Could not find release (published or draft) with tag '{release_version}'. "
+                    "Please ensure the release exists."
+                )
+            # Auto-create a draft release for dry-run patches.
+            logger.info(f"Creating draft release {release_version} for dry-run")
+            kwargs = dict(
+                tag=release_version,
+                name=f"Dry-run {release_version.replace('test-', '')}",
+                message=f"Dry-run test release for version {release_version}",
+                draft=True,
             )
+            if target_commitish:
+                kwargs["target_commitish"] = target_commitish
+            gh_release = repo.create_git_release(**kwargs)
+            logger.info(f"Draft release {release_version} created successfully")
     except GithubException as e:
-        raise Exception(f"Failed to retrieve releases from the repository {GITHUB_REPO}") from e
+        raise Exception(f"Failed to retrieve or create release for '{release_version}'") from e
 
     for asset_path in asset_paths:
         asset_name = os.path.basename(asset_path)
         logger.info(f"Uploading artifact '{asset_name}' to github release as asset")
+        for existing_asset in gh_release.get_assets():
+            if existing_asset.name == asset_name:
+                logger.info(f"Deleting existing asset '{asset_name}' from release")
+                existing_asset.delete_asset()
         try:
             gh_release.upload_asset(path=asset_path, name=asset_name, content_type="application/gzip")
         except GithubException as e:
