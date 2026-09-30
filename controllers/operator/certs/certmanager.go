@@ -204,9 +204,10 @@ func EnsureCertificatesAndCA(
 		names = append(names, cert.certName)
 	}
 
-	// check the status of resources and categorise them in two. Ones that are just not
-	// ready and ones whose renewal is failing.
-	var notReady, renewalFailures []string
+	// check the status of resources and categorise them. Ones that are not ready yet, ones
+	// that are not ready and whose issuance is actively failing (so we can surface the error),
+	// and ready ones whose renewal is failing (a soft warning).
+	var notReady, issuanceFailures, renewalFailures []string
 	for _, name := range names {
 		insp, status := inspectCertificate(ctx, c, res.GetNamespace(), name)
 		if !status.IsOK() {
@@ -215,14 +216,24 @@ func EnsureCertificatesAndCA(
 		switch {
 		case !insp.ready:
 			notReady = append(notReady, name)
+			if insp.issuanceFailing {
+				issuanceFailures = append(issuanceFailures, insp.detail)
+			}
 		case insp.renewalFailed:
 			renewalFailures = append(renewalFailures, insp.detail)
 		}
 	}
 
-	// Return status to be Pending if any of the certificates are not ready
+	// Return status to be Pending if any of the certificates are not ready. If issuance is
+	// actively failing for some of them, surface that error instead of a generic "waiting"
+	// message so a bad issuer is easy to spot.
 	if len(notReady) > 0 {
-		msg := fmt.Sprintf("Waiting for cert-manager to issue certificate(s): %s. See 'kubectl describe certificate <name>' and its CertificateRequest for issuer detail.", strings.Join(notReady, ", "))
+		msg := fmt.Sprintf("Waiting for cert-manager to issue certificate(s): %s.", strings.Join(notReady, ", "))
+		if len(issuanceFailures) > 0 {
+			msg += fmt.Sprintf(" Issuance is failing for: %s. Check the Certificate and its CertificateRequest for the issuer error.", strings.Join(issuanceFailures, "; "))
+		} else {
+			msg += " See 'kubectl describe certificate <name>' and its CertificateRequest for issuer detail."
+		}
 		return workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
 	}
 
@@ -265,16 +276,23 @@ func issuanceFailedCondition(message string) metav1.Condition {
 	return certificatesReadyCondition(metav1.ConditionFalse, reasonCertificateIssuanceError, message)
 }
 
-// certInspection captures the readiness + renewal state of a single Certificate.
+// certInspection captures the readiness and failure state of a single Certificate.
 type certInspection struct {
-	name          string
-	ready         bool
+	name string
+	// ready is true when cert-manager has issued a usable cert for the current Certificate spec.
+	ready bool
+	// renewalFailed is true when the cert is ready but a renewal attempt is failing. The
+	// deployment keeps running on the current cert, so this is only a soft warning.
 	renewalFailed bool
-	detail        string
+	// issuanceFailing is true when an issuance attempt is failing for currently created Certificate.
+	// Together with !ready it means there is no usable cert yet (surfaced in the Pending message).
+	issuanceFailing bool
+	// detail is a human readable line describing the failure (attempt count and last time).
+	detail string
 }
 
-// inspectCertificate reads one Certificate's status, whether it holds a usable
-// (Ready) cert, and whether a renewal is failing.
+// inspectCertificate reads one Certificate's status, whether it holds a usable (Ready) cert,
+// and whether an issuance/renewal attempt is failing.
 func inspectCertificate(ctx context.Context, c kubernetesClient.Client, namespace, name string) (certInspection, workflow.Status) {
 	cert := &certmanagerv1.Certificate{}
 	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cert); err != nil {
@@ -287,12 +305,31 @@ func inspectCertificate(ctx context.Context, c kubernetesClient.Client, namespac
 		}
 		return certInspection{}, workflow.Failed(err)
 	}
+	return inspectCertificateStatus(name, cert), workflow.OK()
+}
+
+// inspectCertificateStatus classifies a fetched Certificate's readiness and failure state.
+func inspectCertificateStatus(name string, cert *certmanagerv1.Certificate) certInspection {
 	insp := certInspection{name: name, ready: certificateReady(cert)}
-	if insp.ready && cert.Status.LastFailureTime != nil {
-		insp.renewalFailed = true
-		insp.detail = fmt.Sprintf("%s (last issuance attempt failed at %s)", name, cert.Status.LastFailureTime.Time.UTC().Format(time.RFC3339))
+	// cert-manager sets LastFailureTime when an issuance attempt fails and clears it on the
+	// next success, so a non-nil value means the most recent attempt failed and has not yet
+	// been cleared. Surface it whether or not the cert is currently ready.
+	if cert.Status.LastFailureTime != nil {
+		attempts := 0
+		if cert.Status.FailedIssuanceAttempts != nil {
+			attempts = *cert.Status.FailedIssuanceAttempts
+		}
+		insp.detail = fmt.Sprintf("certificate %s is failing renewal, has %d failed attempt(s), last at %s)", name, attempts, cert.Status.LastFailureTime.Time.UTC().Format(time.RFC3339))
+		if insp.ready {
+			// The current cert is still valid; a renewal is failing in the background.
+			insp.renewalFailed = true
+		} else {
+			// No usable cert yet (insp.ready is false) and issuance is failing (a first issuance, or a spec change
+			// whose new issuance is failing).
+			insp.issuanceFailing = true
+		}
 	}
-	return insp, workflow.OK()
+	return insp
 }
 
 // componentCertificates returns the per-component Certificates the operator must issue
@@ -820,9 +857,11 @@ func buildDNSNames(opts Options) []string {
 	for i := 0; i < opts.Replicas; i++ {
 		dnsNames = append(dnsNames, GetAdditionalCertDomainsForMember(opts, i)...)
 	}
-	if opts.ExternalDomain != nil {
-		dnsNames = append(dnsNames, "*."+*opts.ExternalDomain)
-	}
+	// External access exposes each member as <pod>.<externalDomain>. List those real member
+	// hostnames instead of a "*." wildcard so the cert only asserts the actual names. The pod
+	// hostnames are ordinal-deterministic, so a scale-up within the covered count reuses names
+	// already in the cert and does not reissue.
+	dnsNames = append(dnsNames, GetExternalDNSNames(opts)...)
 	return dnsNames
 }
 
@@ -906,7 +945,8 @@ func readCertOrgUnits(ctx context.Context, c kubernetesClient.Client, res Certif
 func certificateReady(cert *certmanagerv1.Certificate) bool {
 	for _, cond := range cert.Status.Conditions {
 		if cond.Type == certmanagerv1.CertificateConditionReady {
-			return cond.Status == cmmeta.ConditionTrue
+			return cond.Status == cmmeta.ConditionTrue &&
+				cond.ObservedGeneration == cert.Generation
 		}
 	}
 	return false
