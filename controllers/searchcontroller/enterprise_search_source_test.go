@@ -138,15 +138,6 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		// Resource type validation tests
 		{
-			name:           "Invalid resource type - Standalone",
-			version:        "8.2.0",
-			topology:       mdbv1.ClusterTopologySingleCluster,
-			resourceType:   mdbv1.Standalone,
-			authModes:      []string{},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch is only supported for ReplicaSet resources",
-		},
-		{
 			name:           "Invalid resource type - ShardedCluster",
 			version:        "8.2.0",
 			topology:       mdbv1.ClusterTopologySingleCluster,
@@ -265,7 +256,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			name:           "Multiple validation failures - version takes precedence",
 			version:        "7.0.0",
 			topology:       mdbv1.ClusterTopologyMultiCluster,
-			resourceType:   mdbv1.Standalone,
+			resourceType:   mdbv1.ShardedCluster,
 			authModes:      []string{"X509"},
 			expectError:    true,
 			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
@@ -278,15 +269,6 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			authModes:      []string{},
 			expectError:    true,
 			expectedErrMsg: "MongoDBSearch is only supported for SingleCluster topology",
-		},
-		{
-			name:           "Valid version and topology, invalid resource type",
-			version:        "8.2.0",
-			topology:       mdbv1.ClusterTopologySingleCluster,
-			resourceType:   mdbv1.Standalone,
-			authModes:      []string{},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch is only supported for ReplicaSet resources",
 		},
 	}
 

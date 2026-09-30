@@ -39,7 +39,7 @@ class TestShardedClusterRecoversBadOmConfiguration:
     name: Sharded cluster broken OM connection
     description: |
       Creates a sharded cluster with a bad OM connection (public key is broken) and ensures it enters a failed state |
-      Then the secret is fixed and the standalone is expected to reach good state eventually
+      Then the secret is fixed and the sharded cluster is expected to reach good state eventually
     """
 
     def test_create_sharded_cluster(self, sc: MongoDB):

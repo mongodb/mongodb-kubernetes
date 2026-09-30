@@ -37,7 +37,7 @@ class TestShardedClusterListensSecret:
     name: ShardedCluster tracks configmap changes
     description: |
       Creates a sharded cluster, then changes secret - breaks the api key and checks that the reconciliation for the |
-      standalone happened and it got into Failed state. Note, that this test cannot be run with 'make e2e .. light=true' |
+      sharded cluster happened and it got into Failed state. Note, that this test cannot be run with 'make e2e .. light=true' |
       flag locally as secret must be recreated
     """
 

@@ -127,17 +127,6 @@ def get_sharded(ops_manager, namespace: str, idx: int) -> MongoDB:
     return resource
 
 
-def get_standalone(ops_manager, namespace: str, idx: int) -> MongoDB:
-    name = f"mdb-{idx}-st"
-    resource = MongoDB.from_yaml(
-        yaml_fixture("standalone.yaml"),
-        namespace=namespace,
-        name=name,
-    ).configure(ops_manager, name, api_client=get_central_cluster_client())
-    try_load(resource)
-    return resource
-
-
 def get_user(namespace: str, idx: int, mdb: MongoDB) -> MongoDBUser:
     name = f"{mdb.name}-user-{idx}"
     resource = MongoDBUser.from_yaml(
@@ -159,10 +148,6 @@ def get_all_rs(ops_manager, namespace) -> list[MongoDB]:
 
 def get_all_mdbmc(ops_manager, namespace, om_external_base_url: str) -> list[MongoDB]:
     return [get_mdbmc(ops_manager, namespace, idx, om_external_base_url) for idx in range(0, 4)]
-
-
-def get_all_standalone(ops_manager, namespace) -> list[MongoDB]:
-    return [get_standalone(ops_manager, namespace, idx) for idx in range(0, 5)]
 
 
 def get_all_users(namespace, mdb: MongoDB) -> list[MongoDBUser]:
@@ -268,16 +253,6 @@ def test_create_sharded(ops_manager: MongoDBOpsManager, namespace: str):
 
 
 @pytest.mark.e2e_om_reconcile_race_with_telemetry
-def test_create_standalone(ops_manager: MongoDBOpsManager, namespace: str):
-    for resource in get_all_standalone(ops_manager, namespace):
-        resource.set_version(get_custom_mdb_version())
-        resource.update()
-
-    for r in get_all_standalone(ops_manager, namespace):
-        r.assert_reaches_phase(Phase.Running)
-
-
-@pytest.mark.e2e_om_reconcile_race_with_telemetry
 def test_create_users(ops_manager: MongoDBOpsManager, namespace: str):
     create_or_update_secret(
         namespace,
@@ -321,8 +296,6 @@ def test_restart_operator_pod(
     for r in get_all_mdbmc(ops_manager, namespace, om_external_base_url):
         r.assert_reaches_phase(Phase.Running)
     for r in get_all_sharded(ops_manager, namespace):
-        r.assert_reaches_phase(Phase.Running)
-    for r in get_all_standalone(ops_manager, namespace):
         r.assert_reaches_phase(Phase.Running)
 
 

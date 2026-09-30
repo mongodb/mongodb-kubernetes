@@ -210,12 +210,12 @@ func TestBasePodSpec_Affinity(t *testing.T) {
 // TestBasePodSpec_AntiAffinityDefaultTopology checks that the default topology key is created if the topology key is
 // not specified
 func TestBasePodSpec_AntiAffinityDefaultTopology(t *testing.T) {
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().SetName("my-standalone").Build(), StandaloneOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().SetName("my-rs").Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	spec := sts.Spec.Template.Spec
 	term := spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0]
 	assert.Equal(t, int32(100), term.Weight)
-	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "my-standalone"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
+	assert.Equal(t, map[string]string{PodAntiAffinityLabelKey: "my-rs"}, term.PodAffinityTerm.LabelSelector.MatchLabels)
 	assert.Equal(t, util.DefaultAntiAffinityTopologyKey, term.PodAffinityTerm.TopologyKey)
 }
 
@@ -225,14 +225,14 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 	// Cleaning the state (there is no tear down in go test :( )
 	defer mock.InitDefaultEnvVariables()
 
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	template := sts.Spec.Template
 	assert.Nil(t, template.Spec.ImagePullSecrets)
 
 	t.Setenv(util.ImagePullSecrets, "foo")
 
-	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), zap.S())
+	sts = DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	template = sts.Spec.Template
 	assert.Equal(t, []corev1.LocalObjectReference{{Name: "foo"}}, template.Spec.ImagePullSecrets)
@@ -283,7 +283,7 @@ func pvClaim(pvName, size string, storageClass *string, labels map[string]string
 func TestDefaultPodSpec_SecurityContext(t *testing.T) {
 	defer mock.InitDefaultEnvVariables()
 
-	sts := DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), zap.S())
+	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	spec := sts.Spec.Template.Spec
 	assert.Len(t, spec.InitContainers, 1)
@@ -297,7 +297,7 @@ func TestDefaultPodSpec_SecurityContext(t *testing.T) {
 
 	t.Setenv(util.ManagedSecurityContextEnv, "true")
 
-	sts = DatabaseStatefulSet(*mdbv1.NewStandaloneBuilder().Build(), StandaloneOptions(GetPodEnvOptions()), zap.S())
+	sts = DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 	assert.Nil(t, sts.Spec.Template.Spec.SecurityContext)
 }
 

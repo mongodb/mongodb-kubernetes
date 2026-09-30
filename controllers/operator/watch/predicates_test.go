@@ -64,12 +64,12 @@ func TestPredicatesForOpsManager(t *testing.T) {
 
 func TestPredicatesForMongoDB(t *testing.T) {
 	t.Run("Creation event is handled", func(t *testing.T) {
-		standalone := mdbv1.NewStandaloneBuilder().Build()
-		assert.True(t, PredicatesForMongoDB(mdbv1.Standalone).Create(event.CreateEvent{Object: standalone}))
+		rs := mdbv1.NewReplicaSetBuilder().Build()
+		assert.True(t, PredicatesForMongoDB(mdbv1.ReplicaSet).Create(event.CreateEvent{Object: rs}))
 	})
 	t.Run("Creation event is not handled", func(t *testing.T) {
 		rs := mdbv1.NewReplicaSetBuilder().Build()
-		assert.False(t, PredicatesForMongoDB(mdbv1.Standalone).Create(event.CreateEvent{Object: rs}))
+		assert.False(t, PredicatesForMongoDB(mdbv1.ShardedCluster).Create(event.CreateEvent{Object: rs}))
 	})
 	t.Run("Delete event is handled", func(t *testing.T) {
 		sc := mdbv1.NewClusterBuilder().Build()
@@ -80,23 +80,23 @@ func TestPredicatesForMongoDB(t *testing.T) {
 		assert.False(t, PredicatesForMongoDB(mdbv1.ShardedCluster).Delete(event.DeleteEvent{Object: rs}))
 	})
 	t.Run("Update event is handled, statuses not changed", func(t *testing.T) {
-		oldMdb := mdbv1.NewStandaloneBuilder().Build()
+		oldMdb := mdbv1.NewReplicaSetBuilder().Build()
 		newMdb := oldMdb.DeepCopy()
 		newMdb.Spec.Version = "4.2.0"
-		assert.True(t, PredicatesForMongoDB(mdbv1.Standalone).Update(
+		assert.True(t, PredicatesForMongoDB(mdbv1.ReplicaSet).Update(
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
 	})
 	t.Run("Update event is not handled, statuses changed", func(t *testing.T) {
-		oldMdb := mdbv1.NewStandaloneBuilder().Build()
+		oldMdb := mdbv1.NewReplicaSetBuilder().Build()
 		newMdb := oldMdb.DeepCopy()
 		newMdb.Status.Version = "4.2.0"
-		assert.False(t, PredicatesForMongoDB(mdbv1.Standalone).Update(
+		assert.False(t, PredicatesForMongoDB(mdbv1.ReplicaSet).Update(
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
 	})
 	t.Run("Update event is not handled, different types", func(t *testing.T) {
-		oldMdb := mdbv1.NewStandaloneBuilder().Build()
+		oldMdb := mdbv1.NewReplicaSetBuilder().Build()
 		newMdb := oldMdb.DeepCopy()
 		newMdb.Spec.Version = "4.2.0"
 		assert.False(t, PredicatesForMongoDB(mdbv1.ShardedCluster).Update(

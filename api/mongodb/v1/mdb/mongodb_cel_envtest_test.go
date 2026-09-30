@@ -172,15 +172,6 @@ func TestMongoDBCELValidation_AppDBRole(t *testing.T) {
 			errorContains: "spec.members must be >= 3 when spec.role is AppDB",
 		},
 		{
-			name: "role AppDB with resourceType Standalone is rejected",
-			mutate: func(rs *mdbv1.MongoDB) {
-				rs.Spec.Role = mdbv1.RoleAppDB
-				rs.Spec.ResourceType = mdbv1.Standalone
-				withAppDBSecurity(rs)
-			},
-			errorContains: "spec.resourceType must be ReplicaSet when spec.role is AppDB",
-		},
-		{
 			name: "role AppDB with topology MultiCluster is rejected",
 			mutate: func(rs *mdbv1.MongoDB) {
 				rs.Spec.Role = mdbv1.RoleAppDB

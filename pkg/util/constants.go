@@ -6,9 +6,6 @@ import (
 )
 
 const (
-	// MongoDbStandaloneController name of the Standalone controller
-	MongoDbStandaloneController = "mongodbstandalone-controller"
-
 	// MongoDbReplicaSetController name of the ReplicaSet controller
 	MongoDbReplicaSetController = "mongodbreplicaset-controller"
 

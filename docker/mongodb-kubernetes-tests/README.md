@@ -158,7 +158,7 @@ metadata:
   name: my-mdb-object-to-test
 spec:
   version: 4.0.8
-  type: Standalone
+  type: ReplicaSet
   project: my-project
   credentials: my-credentials
   persistent: false
@@ -229,7 +229,6 @@ task is testing something structural, it should go into
     - func: "setup_kubectl"
   tasks:
     - e2e_all_mongodb_resources_parallel
-    - e2e_standalone_config_map
     - .... # more tasks
     - e2e_my_new_feature  # this is our new task!
 ```
