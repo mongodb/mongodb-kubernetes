@@ -226,6 +226,22 @@ func TestOpsManagerValidation(t *testing.T) {
 				Build(),
 			expectedPart: status.None,
 		},
+		"Invalid S3 Store config - objectRetentionDays without objectRetentionMode": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true), ObjectRetentionDays: ptr.To(30)}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' must be specified together (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 Store config - objectRetentionMode without objectRetentionDays": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true), ObjectRetentionMode: ptr.To("COMPLIANCE")}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' must be specified together (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
 		"Invalid S3 OpLog Store config - object lock retention fields": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
