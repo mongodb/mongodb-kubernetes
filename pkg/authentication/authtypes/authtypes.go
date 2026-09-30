@@ -81,7 +81,8 @@ type User struct {
 	ConnectionStringOptions map[string]interface{}
 
 	// ConnectionStringDatabase is an optional database name for the connection
-	// string URI path. When empty the admin database is used.
+	// string URI path. When unset, the URI path is omitted and which database
+	// is used depends on the connecting client.
 	ConnectionStringDatabase string
 }
 

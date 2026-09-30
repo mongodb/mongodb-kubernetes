@@ -985,6 +985,40 @@ func TestUserReconciler_ConnectionString_IncludesExternalMembers(t *testing.T) {
 	assert.Contains(t, connStr, "my-rs-0.my-rs-svc.")
 }
 
+func TestUserReconciler_ConnectionString_ShardedIncludesExternalMongos(t *testing.T) {
+	ctx := context.Background()
+
+	sc := test.DefaultClusterBuilder().
+		SetName("my-sc").
+		Build()
+	// For a sharded cluster only mongos typed external members belong in the
+	// user connection strings.
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "ext-mongos-0", Hostname: "ext-mongos-0.example.com:27017", Type: "mongos"},
+		{ProcessName: "ext-mongos-1", Hostname: "ext-mongos-1.example.com:27017", Type: "mongos"},
+	}
+
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-sc").Build()
+	reconciler, kubeClient, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	require.NoError(t, kubeClient.Create(ctx, sc))
+	createUserControllerConfigMap(ctx, kubeClient)
+	createPasswordSecret(ctx, kubeClient, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connStr := string(secret.Data["connectionString.standard"])
+	// the external mongos members must appear next to the in-cluster mongos hosts
+	assert.Contains(t, connStr, "ext-mongos-0.example.com:27017")
+	assert.Contains(t, connStr, "ext-mongos-1.example.com:27017")
+	assert.Contains(t, connStr, "my-sc-mongos")
+}
+
 func TestMdbUserIndexBuilder(t *testing.T) {
 	cases := map[string]struct {
 		user *userv1.MongoDBUser

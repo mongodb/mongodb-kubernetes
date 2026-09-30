@@ -159,7 +159,7 @@ func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user u
 			if err != nil {
 				return connectionstring.Options{}, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
-			hostnames = rh.GetAllMongosHostnamesAndPorts()
+			hostnames = append(rh.GetAllMongosHostnamesAndPorts(), mdb.GetExternalMembersHostnames()...)
 		} else if mdb.IsReplicaSet() {
 			hostnames = mdb.GetConnectionHostnamesAndPorts()
 		}

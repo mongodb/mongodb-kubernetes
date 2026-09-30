@@ -275,7 +275,8 @@ type MongoDBUser struct {
 	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
 
 	// ConnectionStringDatabase is an optional database name for the connection string URI path
-	// (e.g. .../myapp?...). When unset, the admin database is used.
+	// (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
+	// depends on the connecting client.
 	// +optional
 	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
 
