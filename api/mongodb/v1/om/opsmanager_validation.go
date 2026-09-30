@@ -246,6 +246,8 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionS3ObjectLockRetention, config.Name)
 			} else if hasObjectLockRetention(config) && (config.ObjectLockEnabled == nil || !*config.ObjectLockEnabled) {
 				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (S3 Store: %s)", status.OpsManager, config.Name)
+			} else if hasPartialObjectLockRetention(config) {
+				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' must be specified together (S3 Store: %s)", status.OpsManager, config.Name)
 			}
 		}
 	}
@@ -271,6 +273,13 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 
 func hasObjectLockRetention(config S3Config) bool {
 	return config.ObjectRetentionDays != nil || config.ObjectRetentionMode != nil
+}
+
+// hasPartialObjectLockRetention reports whether exactly one of the retention fields is
+// set. S3 default retention requires a mode and a period as a pair, so OM rejects a
+// store carrying only one of them.
+func hasPartialObjectLockRetention(config S3Config) bool {
+	return (config.ObjectRetentionDays == nil) != (config.ObjectRetentionMode == nil)
 }
 
 func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
