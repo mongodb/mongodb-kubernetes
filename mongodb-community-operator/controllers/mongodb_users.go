@@ -51,20 +51,12 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 			secretNamespace = user.ConnectionStringSecretNamespace
 		}
 
-		existingSecret, err := r.client.GetSecret(ctx, types.NamespacedName{
-			Name:      secretName,
-			Namespace: secretNamespace,
-		})
-		if err != nil && !apiErrors.IsNotFound(err) {
+		if err := connectionstringsecret.ValidateExistingOwnership(ctx, r.client, secretName, secretNamespace, &mdb); err != nil {
 			return err
-		}
-		if err == nil {
-			if err := connectionstringsecret.ValidateOwnership(existingSecret, &mdb); err != nil {
-				return err
-			}
 		}
 
 		pwd := ""
+		var err error
 
 		if user.Database != constants.ExternalDB {
 			secretNamespacedName := types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdb.Namespace}

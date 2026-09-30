@@ -300,7 +300,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	if user.Spec.Database != constants.ExternalDB {
 		password, err = user.GetPassword(ctx, r.SecretClient)
 		if err != nil {
-			log.Debug("User does not have a configured password.")
+			return xerrors.Errorf("failed to read the user password: %w", err)
 		}
 	}
 
@@ -310,14 +310,8 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	}
 
 	secretName := user.GetConnectionStringSecretName()
-	existingSecret, err := r.client.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: user.Namespace})
-	if err != nil && !apiErrors.IsNotFound(err) {
+	if err := connectionstringsecret.ValidateExistingOwnership(ctx, r.client, secretName, user.Namespace, &user); err != nil {
 		return err
-	}
-	if err == nil {
-		if err := connectionstringsecret.ValidateOwnership(existingSecret, &user); err != nil {
-			return err
-		}
 	}
 
 	userOptions := authtypes.User{

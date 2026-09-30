@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"golang.org/x/xerrors"
 
@@ -71,6 +73,26 @@ func ValidateOwnership(existing corev1.Secret, owner v1.Object) error {
 		return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", existing.Name)
 	}
 	return nil
+}
+
+// secretGetter reads corev1.Secrets, satisfied by the operator Kubernetes
+// clients.
+type secretGetter interface {
+	GetSecret(ctx context.Context, objectKey types.NamespacedName) (corev1.Secret, error)
+}
+
+// ValidateExistingOwnership checks the connection string secret at the given
+// coordinates, when one exists, for ownership by the given resource. A
+// missing secret is not an error.
+func ValidateExistingOwnership(ctx context.Context, c secretGetter, name, namespace string, owner v1.Object) error {
+	existing, err := c.GetSecret(ctx, types.NamespacedName{Name: name, Namespace: namespace})
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return ValidateOwnership(existing, owner)
 }
 
 // Publish creates or updates the given connection string secret. The
