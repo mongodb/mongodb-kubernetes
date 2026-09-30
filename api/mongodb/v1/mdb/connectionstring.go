@@ -4,8 +4,6 @@
 package mdb
 
 import (
-	"maps"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 )
 
@@ -45,12 +43,6 @@ func (m *MongoDB) ConnectionOptions() connectionstring.Options {
 	return m.connectionOptions(nil)
 }
 
-// BuildConnectionString returns a string with a connection string for this resource.
-func (m *MongoDB) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	builder := NewMongoDBConnectionStringBuilder(*m, nil)
-	return builder.BuildConnectionString(username, password, connectionStringDatabase, scheme, connectionParams)
-}
-
 // MongoDBConnectionStringBuilder builds connection strings for the resource,
 // carrying hostnames computed by the caller for topologies that need it
 // (sharded clusters and external members).
@@ -74,14 +66,4 @@ func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDB
 // ConnectionOptions fills the resource level connection string settings.
 func (b *MongoDBConnectionStringBuilder) ConnectionOptions() connectionstring.Options {
 	return b.connectionOptions(b.hostnames)
-}
-
-func (b *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	options := b.ConnectionOptions()
-	options.Username = username
-	options.Password = password
-	options.Database = connectionStringDatabase
-	maps.Copy(options.Params, connectionParams)
-
-	return options.Build(scheme)
 }

@@ -703,6 +703,11 @@ func (m *MongoDBCommunity) connectionOptions() connectionstring.Options {
 	return options
 }
 
+// ConnectionOptions fills the resource level connection string settings.
+func (m *MongoDBCommunity) ConnectionOptions() connectionstring.Options {
+	return m.connectionOptions()
+}
+
 // MongoURI returns a mongo uri which can be used to connect to this deployment
 func (m *MongoDBCommunity) MongoURI() string {
 	return m.connectionOptions().Build(connectionstring.SchemeMongoDB)

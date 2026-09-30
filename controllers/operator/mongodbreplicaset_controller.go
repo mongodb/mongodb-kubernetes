@@ -57,6 +57,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
@@ -413,7 +414,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	connStringHostnames := rs.GetRSHostnamesAndPorts()
 	extHostnames := rs.GetExternalMembersHostnames()
 	connStringHostnames = append(connStringHostnames, extHostnames...)
-	if err := connectionstringsecret.PublishForMongoDB(ctx, r.reconciler.client, rs, connStringHostnames); err != nil {
+	if err := connectionstringsecret.PublishForMongoDB(ctx, kubernetesClient.NewClient(r.reconciler.client), rs, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
 	}
 

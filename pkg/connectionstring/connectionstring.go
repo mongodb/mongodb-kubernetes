@@ -72,11 +72,9 @@ func StringParams(options map[string]interface{}) map[string]string {
 
 // ProtectedConnectionParams are connection string parameters that the operator
 // controls through other means, so any value supplied for them in user or
-// resource configuration is dropped. Without this a user could for example
-// disable TLS for their own connection while the deployment still requires it.
+// resource configuration is dropped.
 var ProtectedConnectionParams = map[string]struct{}{
 	"replicaSet": {},
-	"ssl":        {},
 }
 
 // Options carries everything needed to build a MongoDB connection string.
@@ -152,6 +150,25 @@ func OperatorParams() map[string]string {
 	}
 }
 
+// normalizedParams drops protected keys and rewrites the deprecated tls
+// parameter to ssl, so the output only ever uses ssl. An explicit ssl value
+// wins over tls within the same input.
+func normalizedParams(input map[string]string) map[string]string {
+	normalized := make(map[string]string, len(input))
+	for key, value := range input {
+		if _, protected := ProtectedConnectionParams[key]; protected || key == "tls" {
+			continue
+		}
+		normalized[key] = value
+	}
+	if value, ok := input["tls"]; ok {
+		if _, hasSSL := input["ssl"]; !hasSSL {
+			normalized["ssl"] = value
+		}
+	}
+	return normalized
+}
+
 // mergedParams combines the parameters derived from the resource with the
 // operator and user provided ones, in increasing order of priority. Keys in
 // ProtectedConnectionParams never make it through from user input.
@@ -171,7 +188,7 @@ func (o Options) mergedParams() map[string]string {
 		params["authSource"] = authSource
 	}
 
-	maps.Copy(params, filterProtectedParams(o.Params))
+	maps.Copy(params, normalizedParams(o.Params))
 
 	// Omit authMechanism for $external users; the client supplies the
 	// mechanism at connect time.
@@ -181,7 +198,7 @@ func (o Options) mergedParams() map[string]string {
 		params["authMechanism"] = authMechanism
 	}
 
-	maps.Copy(params, filterProtectedParams(o.UserParams))
+	maps.Copy(params, normalizedParams(o.UserParams))
 
 	return params
 }
@@ -244,16 +261,6 @@ func (o Options) Build(scheme Scheme) string {
 		uri += fmt.Sprintf("%s=%s&", k, params[k])
 	}
 	return strings.TrimSuffix(uri, "&")
-}
-
-func filterProtectedParams(params map[string]string) map[string]string {
-	filtered := make(map[string]string, len(params))
-	for key, value := range params {
-		if _, protected := ProtectedConnectionParams[key]; !protected {
-			filtered[key] = value
-		}
-	}
-	return filtered
 }
 
 // authSourceAndMechanism returns AuthSource and AuthMechanism.

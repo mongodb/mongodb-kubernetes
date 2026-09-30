@@ -58,8 +58,10 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 		if err != nil && !apiErrors.IsNotFound(err) {
 			return err
 		}
-		if err == nil && !secret.HasOwnerReferences(existingSecret, mdb.GetOwnerReferences()) {
-			return fmt.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
+		if err == nil {
+			if err := connectionstringsecret.ValidateOwnership(existingSecret, &mdb); err != nil {
+				return err
+			}
 		}
 
 		pwd := ""
@@ -72,17 +74,13 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 			}
 		}
 
-		err = connectionstringsecret.Publish(ctx, r.client, connectionstringsecret.Secret{
+		// External users have no password, so the password field is left out
+		// rather than written empty.
+		err = connectionstringsecret.PublishForUser(ctx, r.client, mdb.ConnectionOptions(), user, pwd, connectionstringsecret.Secret{
 			Name:            secretName,
 			Namespace:       secretNamespace,
 			Annotations:     user.ConnectionStringSecretAnnotations,
 			OwnerReferences: mdb.GetOwnerReferences(),
-			Fields: map[string]string{
-				connectionstringsecret.StandardURIField:    mdb.MongoAuthUserURI(user, pwd),
-				connectionstringsecret.StandardSrvURIField: mdb.MongoAuthUserSRVURI(user, pwd),
-				connectionstringsecret.UsernameField:       user.Username,
-				connectionstringsecret.PasswordField:       pwd,
-			},
 		})
 		if err != nil {
 			return err

@@ -21,7 +21,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -39,7 +41,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -323,44 +324,36 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		return err
 	}
 	if err == nil {
-		existingController := metav1.GetControllerOf(&existingSecret)
-		if existingController == nil || existingController.UID != user.UID {
-			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
-		}
-	}
-
-	options := connectionBuilder.ConnectionOptions().WithUser(authtypes.User{
-		Username:                 user.Spec.Username,
-		Database:                 user.Spec.Database,
-		ConnectionStringDatabase: user.Spec.ConnectionStringDatabase,
-	}, password)
-
-	secretBuilder := secret.Builder().
-		SetName(secretName).
-		SetNamespace(user.Namespace).
-		SetField(connectionstringsecret.StandardURIField, options.Build(connectionstring.SchemeMongoDB)).
-		SetField(connectionstringsecret.StandardSrvURIField, options.Build(connectionstring.SchemeMongoDBSRV)).
-		SetField(connectionstringsecret.UsernameField, user.Spec.Username)
-
-	// External users have no password, so the key is left out rather than written empty.
-	if user.Spec.Database != authentication.ExternalDB {
-		secretBuilder.SetField("password", password)
-	}
-
-	memberClusterSecret := secretBuilder.Build()
-
-	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
-		if err != nil {
+		if err := connectionstringsecret.ValidateOwnership(existingSecret, &user); err != nil {
 			return err
 		}
 	}
 
-	centralClusterSecret := memberClusterSecret
-	if err := controllerutil.SetControllerReference(&user, &centralClusterSecret, r.client.Scheme()); err != nil {
-		return err
+	userOptions := authtypes.User{
+		Username:                 user.Spec.Username,
+		Database:                 user.Spec.Database,
+		ConnectionStringDatabase: user.Spec.ConnectionStringDatabase,
 	}
-	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
+
+	// The member cluster secrets carry no owner references, ownership is
+	// validated before overwriting since GC cannot reach across clusters.
+	memberSecret := connectionstringsecret.Secret{Name: secretName, Namespace: user.Namespace}
+	for _, c := range r.memberClusterSecretClientsMap {
+		if err := connectionstringsecret.PublishForUser(ctx, c, connectionBuilder.ConnectionOptions(), userOptions, password, memberSecret); err != nil {
+			return err
+		}
+	}
+
+	centralSecret := connectionstringsecret.Secret{
+		Name:      secretName,
+		Namespace: user.Namespace,
+		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(&user, schema.GroupVersionKind{
+			Group:   apiv1.SchemeGroupVersion.Group,
+			Version: apiv1.SchemeGroupVersion.Version,
+			Kind:    "MongoDBUser",
+		})},
+	}
+	return connectionstringsecret.PublishForUser(ctx, r.SecretClient, connectionBuilder.ConnectionOptions(), userOptions, password, centralSecret)
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
