@@ -8,7 +8,7 @@ package connectionstring
 import (
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -182,14 +182,11 @@ func (o Options) mergedParams() map[string]string {
 // userinfo returns the "user:password@" prefix to use in the connection
 // string, or the empty string when the request is unauthenticated or targets
 // the $external database.
-func (o Options) userinfo(params map[string]string) string {
+func (o Options) userinfo() string {
 	scramEnabled := stringutil.Contains(o.AuthenticationModes, util.SCRAM) ||
 		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA1) ||
 		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA256)
-	if !scramEnabled || o.Username == "" || o.Password == "" {
-		return ""
-	}
-	if params["authSource"] == constants.ExternalDB {
+	if !scramEnabled || o.ExternalAuth || o.Username == "" || o.Password == "" {
 		return ""
 	}
 	return fmt.Sprintf("%s:%s@", stringutil.EncodeUserinfoComponent(o.Username), stringutil.EncodeUserinfoComponent(o.Password))
@@ -201,7 +198,7 @@ func (o Options) Build(scheme Scheme) string {
 
 	var uri string
 	if scheme == SchemeMongoDBSRV {
-		uri = fmt.Sprintf("mongodb+srv://%s", o.userinfo(params))
+		uri = fmt.Sprintf("mongodb+srv://%s", o.userinfo())
 		// When an external domain is configured, the internal service FQDN is not reachable from
 		// outside the cluster, so we publish the external domain instead. Provisioning the
 		// _mongodb._tcp SRV records in that zone is the customer's responsibility, just as it is
@@ -212,7 +209,7 @@ func (o Options) Build(scheme Scheme) string {
 			uri += fmt.Sprintf("%s.%s.svc.%s", o.Service, o.Namespace, o.ClusterDomain)
 		}
 	} else {
-		uri = fmt.Sprintf("mongodb://%s", o.userinfo(params))
+		uri = fmt.Sprintf("mongodb://%s", o.userinfo())
 		var hostnames []string
 		if len(o.Hostnames) > 0 {
 			hostnames = o.Hostnames
@@ -227,19 +224,16 @@ func (o Options) Build(scheme Scheme) string {
 
 	uri += "/" + stringutil.EncodeUserinfoComponent(o.database()) + "?"
 
-	// sorting parameters to make a url stable
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	// sorted parameters make the url stable
+	for _, k := range slices.Sorted(maps.Keys(params)) {
 		uri += fmt.Sprintf("%s=%s&", k, params[k])
 	}
 	return strings.TrimSuffix(uri, "&")
 }
 
-// authSourceAndMechanism returns AuthSource and AuthMechanism.
+// authSourceAndMechanism returns the authSource and authMechanism implied by
+// the configured authentication modes, preferring the strongest SCRAM
+// mechanism the deployment version supports.
 func authSourceAndMechanism(authenticationModes []string, version string) (string, string) {
 	var authSource string
 	var authMechanism string
