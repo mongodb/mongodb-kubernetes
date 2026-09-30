@@ -15,8 +15,8 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -65,7 +65,11 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 		return nil, xerrors.Errorf("failed to read shared password secret: %w", err)
 	}
 
-	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
+	options := refObject.ConnectionOptions()
+	options.Username = util.OpsManagerMongoDBUserName
+	options.Password = password
+	options.Params["authMechanism"] = "SCRAM-SHA-256"
+	connectionString := options.Build(connectionstring.SchemeMongoDB)
 
 	return &AppDBConfig{
 		IsTLSEnabled:     refObject.IsTLSEnabled(),

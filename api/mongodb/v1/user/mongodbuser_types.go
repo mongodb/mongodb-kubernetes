@@ -2,8 +2,6 @@ package user
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"golang.org/x/xerrors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,6 +11,9 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -87,7 +88,11 @@ type MongoDBResourceRef struct {
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
-	Database string `json:"db"`
+	// Database is the database the user is created in. Defaults to the admin
+	// database, the recommended place for creating non-$external users.
+	// +optional
+	// +kubebuilder:default=admin
+	Database string `json:"db,omitempty"`
 	// ConnectionStringDatabase is an optional database name for the connection string URI path
 	// (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
 	// depends on the connecting client.
@@ -151,26 +156,35 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 	}
 }
 
-func (u MongoDBUser) GetConnectionStringSecretName() string {
-	if u.Spec.ConnectionStringSecretName != "" {
-		return u.Spec.ConnectionStringSecretName
-	}
-	var resourceRef string
-	if u.Spec.MongoDBResourceRef.Name != "" {
-		resourceRef = u.Spec.MongoDBResourceRef.Name + "-"
-	}
-
-	database := u.Spec.Database
-	if database == "$external" {
-		database = strings.TrimPrefix(database, "$")
-	}
-
-	return NormalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
+// GetKind returns the Kind of the resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (u *MongoDBUser) GetKind() string {
+	return "MongoDBUser"
 }
 
-// NormalizeName returns a string that conforms to RFC-1123.
-func NormalizeName(name string) string {
-	return util.NormalizeName(name)
+func (u *MongoDBUser) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(u.Namespace, u.Name)
+}
+
+func (u *MongoDBUser) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorLabelValue,
+	}
+}
+
+func (u MongoDBUser) GetConnectionStringSecretName() string {
+	return connectionstringsecret.UserSecretName(u.Spec.ConnectionStringSecretName, u.Spec.MongoDBResourceRef.Name, u.Name, u.Spec.Database)
+}
+
+// AuthUser returns the authentication user for this resource, carrying the
+// username, the database and the connection string database.
+func (u MongoDBUser) AuthUser() authtypes.User {
+	return authtypes.User{
+		Username:                 u.Spec.Username,
+		Database:                 u.Spec.Database,
+		ConnectionStringDatabase: u.Spec.ConnectionStringDatabase,
+	}
 }
 
 func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {

@@ -37,7 +37,7 @@ func GenerateUserCRs(ac *om.AutomationConfig, mongodbResourceName, namespace str
 			continue
 		}
 
-		crName := userv1.NormalizeName(user.Username)
+		crName := util.NormalizeName(user.Username)
 		if crName == "" {
 			return nil, fmt.Errorf("username %q cannot be normalized to a valid Kubernetes name: no alphanumeric characters", user.Username)
 		}

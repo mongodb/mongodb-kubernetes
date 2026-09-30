@@ -823,6 +823,7 @@ task_groups:
     <<: [*setup_group, *setup_and_teardown_task]
     tasks:
       - e2e_community_replicaset_scale
+      - e2e_community_scram_connectivity
 
   # This is the task group that contains all the tests run in the e2e_mdb_kind_ubi_cloudqa build variant
   - name: e2e_mdb_kind_cloudqa_task_group

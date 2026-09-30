@@ -133,7 +133,7 @@ class TestFreshStartExternalAppDB:
         # CR, per the design) and intentionally carries no OwnerReferences
         cnx_string = primary_om.read_appdb_connection_url()
         # the referenced CR has TLS enabled, so the operator-computed connection string must request TLS
-        assert "ssl=true" in cnx_string
+        assert "tls=true" in cnx_string
 
         expected_hosts = {f"{DB_NAME}-{i}.{DB_NAME}-svc.{namespace}.svc.cluster.local:27017" for i in range(3)}
 
@@ -194,7 +194,7 @@ class TestReverseMigrationAfterFreshStart:
         primary_om.load()
         primary_om["spec"]["externalApplicationDatabaseRef"] = None
         # the internal AppDB keeps TLS with the same CA/certs as the external CR, so the computed
-        # connection string (ssl=true + same hosts) is unchanged and the migration stays graceful.
+        # connection string (tls=true + same hosts) is unchanged and the migration stays graceful.
         primary_om["spec"]["applicationDatabase"] = {
             "members": 3,
             "version": custom_appdb_version,

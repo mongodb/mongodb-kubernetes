@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,7 +11,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -179,40 +180,40 @@ func TestMongoDB_ConnectionURL_NotSecure(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetMembers(3).Build()
 
 	var cnx string
-	cnx = rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017,test-mdb-2.test-mdb-svc.testNS.svc.cluster.local:27017/"+
-		"?connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"?connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Connection parameters. The default one is overridden
-	cnx = rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"})
+	cnx = buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"})
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017,test-mdb-2.test-mdb-svc.testNS.svc.cluster.local:27017/"+
-		"?connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"?connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// 2 members, custom cluster name
 	rs = NewReplicaSetBuilder().SetName("paymentsDb").SetMembers(2).SetClusterDomain("company.domain.net").Build()
-	cnx = rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://paymentsDb-0.paymentsDb-svc.testNS.svc.company.domain.net:27017,"+
 		"paymentsDb-1.paymentsDb-svc.testNS.svc.company.domain.net:27017/?connectTimeoutMS=20000&replicaSet=paymentsDb"+
-		"&serverSelectionTimeoutMS=20000&ssl=false",
+		"&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Sharded cluster
 	sc := NewClusterBuilder().SetName("contractsDb").SetNamespace("ns").Build()
-	cnx = sc.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(sc, "", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://contractsDb-mongos-0.contractsDb-svc.ns.svc.cluster.local:27017,"+
 		"contractsDb-mongos-1.contractsDb-svc.ns.svc.cluster.local:27017/"+
-		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Standalone
 	st := NewStandaloneBuilder().SetName("foo").Build()
-	cnx = st.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(st, "", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://foo-0.foo-svc.testNS.svc.cluster.local:27017/?"+
-		"connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 
@@ -221,90 +222,90 @@ func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
 
 	// Only tls enabled, no auth
 	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
-	cnx = rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017,test-mdb-2.test-mdb-svc.testNS.svc.cluster.local:27017/?"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=true",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=true",
 		cnx)
 
 	// New version of Mongodb -> SCRAM-SHA-256
 	rs = NewReplicaSetBuilder().SetMembers(2).SetSecurityTLSEnabled().EnableAuth([]AuthMode{util.SCRAM}).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=true",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=true",
 		cnx)
 
 	// Old version of Mongodb -> SCRAM-SHA-1. X509 is a second authentication method - user & password are still appended
 	rs = NewReplicaSetBuilder().SetMembers(2).SetVersion("3.6.1").EnableAuth([]AuthMode{util.SCRAM, util.X509}).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Explicit SCRAM-SHA-1 mode -> credentials embedded, authMechanism set by builder, authSource is caller's responsibility
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAMSHA1, util.MONGODBCR}).EnableAgentAuth(util.MONGODBCR).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Explicit SCRAM-SHA-1 mode with SRV scheme
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDBSRV, nil)
 	assert.Equal(t, "mongodb+srv://the_user:the_passwd@test-mdb-svc.testNS.svc.cluster.local/?authMechanism=SCRAM-SHA-1&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Caller-supplied authSource (as updateConnectionStringSecret always does) is added alongside authMechanism
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, map[string]string{"authSource": "testdb"})
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, map[string]string{"authSource": "testdb"})
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=testdb&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Special symbols in user/password must be encoded
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
-	cnx = rs.BuildConnectionString("user/@", "pwd#!@", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "user/@", "pwd#!@", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://user%2F%40:pwd%23%21%40@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Caller can override any connection parameters, e.g."authMechanism"
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-1"})
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-1"})
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-1&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// X509 -> no user/password in the url. It's possible to pass user/password in the params though
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.X509}).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?connectTimeoutMS=20000&replicaSet=test-mdb&"+
-		"serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"serverSelectionTimeoutMS=20000&tls=false", cnx)
 
 	// username + password must be provided if scram is enabled
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
-	cnx = rs.BuildConnectionString("the_user", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "the_user", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
-	cnx = rs.BuildConnectionString("", "the_password", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "", "the_password", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
-	cnx = rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 
@@ -312,10 +313,10 @@ func TestMongoDBConnectionURLExternalDomainWithAuth(t *testing.T) {
 	externalDomain := "example.com"
 
 	rs := NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).ExposedExternally(nil, nil, &externalDomain).Build()
-	cnx := rs.BuildConnectionString("the_user", "", "", connectionstring.SchemeMongoDB, nil)
+	cnx := buildConnectionString(rs, "the_user", "", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.example.com:27017,"+
 		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 
@@ -329,38 +330,34 @@ func TestMongoDBConnectionURLExternalDomainWithSCRAMSHA1Auth(t *testing.T) {
 		Build()
 
 	// Builder sets authMechanism only; authSource is the caller's responsibility
-	cnx := rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
+	cnx := buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.example.com:27017,"+
 		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-1&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// Caller-supplied authSource (as updateConnectionStringSecret does) is added alongside authMechanism
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "", connectionstring.SchemeMongoDB, map[string]string{"authSource": "testdb"})
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, map[string]string{"authSource": "testdb"})
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.example.com:27017,"+
 		"test-mdb-1.example.com:27017/?authMechanism=SCRAM-SHA-1&authSource=testdb&"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 
 func TestMongoDBConnectionURLMultiClusterSharded(t *testing.T) {
 	sc := NewDefaultMultiShardedClusterBuilder().SetName("sharDB").Build()
-	cb := &MongoDBConnectionStringBuilder{
-		MongoDB: *sc,
-		hostnames: []string{
-			"sharDB-mongos-0-0-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-0-1-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-1-0-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-1-1-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-1-2-svc.testNS.svc.cluster.local",
-		},
-	}
-
-	cs := cb.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
+	options := sc.ConnectionOptionsWithHostnames([]string{
+		"sharDB-mongos-0-0-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-0-1-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-1-0-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-1-1-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-1-2-svc.testNS.svc.cluster.local",
+	})
+	cs := options.Build(connectionstring.SchemeMongoDB)
 	assert.Equal(t, "mongodb://sharDB-mongos-0-0-svc.testNS.svc.cluster.local,"+
 		"sharDB-mongos-0-1-svc.testNS.svc.cluster.local,"+
 		"sharDB-mongos-1-0-svc.testNS.svc.cluster.local,sharDB-mongos-1-1-svc.testNS.svc.cluster.local,"+
-		"sharDB-mongos-1-2-svc.testNS.svc.cluster.local/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false", cs)
+		"sharDB-mongos-1-2-svc.testNS.svc.cluster.local/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&tls=false", cs)
 }
 
 func TestMongoDB_ConnectionURL_WithConnectionStringDatabase(t *testing.T) {
@@ -368,25 +365,25 @@ func TestMongoDB_ConnectionURL_WithConnectionStringDatabase(t *testing.T) {
 
 	// connectionStringDatabase appears in the URI path
 	rs := NewReplicaSetBuilder().SetMembers(2).Build()
-	cnx = rs.BuildConnectionString("", "", "myapp", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "", "", "myapp", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/myapp?"+
-		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// connectionStringDatabase with SCRAM: authSource still comes from builder fallback, path is connectionStringDatabase
 	rs = NewReplicaSetBuilder().SetMembers(2).EnableAuth([]AuthMode{util.SCRAM}).Build()
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "myapp", connectionstring.SchemeMongoDB, nil)
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "myapp", connectionstring.SchemeMongoDB, nil)
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/myapp?"+
-		"authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 
 	// authSource and connectionStringDatabase are independent when authSource is caller-supplied
-	cnx = rs.BuildConnectionString("the_user", "the_passwd", "myapp", connectionstring.SchemeMongoDB, map[string]string{"authSource": "authdb"})
+	cnx = buildConnectionString(rs, "the_user", "the_passwd", "myapp", connectionstring.SchemeMongoDB, map[string]string{"authSource": "authdb"})
 	assert.Equal(t, "mongodb://the_user:the_passwd@test-mdb-0.test-mdb-svc.testNS.svc.cluster.local:27017,"+
 		"test-mdb-1.test-mdb-svc.testNS.svc.cluster.local:27017/myapp?"+
-		"authMechanism=SCRAM-SHA-256&authSource=authdb&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false",
+		"authMechanism=SCRAM-SHA-256&authSource=authdb&connectTimeoutMS=20000&replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 
@@ -774,28 +771,28 @@ func TestBuildConnectionString_SRV_WithExternalDomain(t *testing.T) {
 	externalDomain := "example.com"
 	rs := NewReplicaSetBuilder().SetMembers(2).ExposedExternally(nil, nil, &externalDomain).Build()
 
-	cnx := rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx := buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	assert.Equal(t, "mongodb+srv://example.com/?connectTimeoutMS=20000&replicaSet=test-mdb&"+
-		"serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"serverSelectionTimeoutMS=20000&tls=false", cnx)
 }
 
 func TestBuildConnectionString_SRV_WithoutExternalDomain(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetMembers(2).Build()
 
-	cnx := rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx := buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	assert.Equal(t, "mongodb+srv://test-mdb-svc.testNS.svc.cluster.local/?connectTimeoutMS=20000&"+
-		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false", cnx)
 }
 
 func TestBuildConnectionString_SRV_WithCustomClusterDomain(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetMembers(2).SetClusterDomain("company.domain.net").Build()
 
-	cnx := rs.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil)
+	cnx := buildConnectionString(rs, "", "", "", connectionstring.SchemeMongoDBSRV, nil)
 
 	assert.Equal(t, "mongodb+srv://test-mdb-svc.testNS.svc.company.domain.net/?connectTimeoutMS=20000&"+
-		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"replicaSet=test-mdb&serverSelectionTimeoutMS=20000&tls=false", cnx)
 }
 
 func TestGetExternalMembersHostnames_ShardedCluster_NoExternalMembers(t *testing.T) {
@@ -1004,12 +1001,12 @@ func TestBuildConnectionString_ShardedClusterPerTierExternalDomain(t *testing.T)
 
 	assert.Equal(t, "mongodb://contractsDb-mongos-0.mongodb.example.com:27017,"+
 		"contractsDb-mongos-1.mongodb.example.com:27017/"+
-		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
-		sc.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil))
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&tls=false",
+		buildConnectionString(sc, "", "", "", connectionstring.SchemeMongoDB, nil))
 
 	assert.Equal(t, "mongodb+srv://mongodb.example.com/"+
-		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
-		sc.BuildConnectionString("", "", "", connectionstring.SchemeMongoDBSRV, nil))
+		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&tls=false",
+		buildConnectionString(sc, "", "", "", connectionstring.SchemeMongoDBSRV, nil))
 }
 
 func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
@@ -1075,4 +1072,15 @@ func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
 		require.NotNil(t, mdb.Spec.Security)
 		assert.Nil(t, mdb.Spec.Security.Authentication)
 	})
+}
+
+// buildConnectionString mirrors the positional API removed from the resource:
+// it fills the resource options with caller supplied user data and parameters.
+func buildConnectionString(resource connectionstring.ConnectionStringBuilder, username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+	options := resource.ConnectionOptions()
+	options.Username = username
+	options.Password = password
+	options.Database = connectionStringDatabase
+	maps.Copy(options.Params, connectionParams)
+	return options.Build(scheme)
 }

@@ -13,9 +13,9 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -633,36 +633,23 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 	return index
 }
 
-// BuildConnectionString for a MultiCluster user.
-//
-// Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
-// to complete.
-func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+// ConnectionOptions fills the resource level connection string settings.
+func (m *MongoDBMultiCluster) ConnectionOptions() connectionstring.Options {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
 		domain := m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName)
 		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), domain)...)
 	}
-	builder := connectionstring.Builder().
-		SetName(m.Name).
-		SetNamespace(m.Namespace).
-		SetUsername(username).
-		SetPassword(password).
-		SetReplicas(m.Spec.Replicas()).
-		SetService(m.Name + "-svc").
-		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetVersion(m.Spec.GetMongoDBVersion()).
-		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
-		SetClusterDomain(m.Spec.GetClusterDomain()).
-		SetExternalDomain(m.Spec.GetExternalDomain()).
-		SetIsReplicaSet(true).
-		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
-		SetHostnames(hostnames).
-		SetScheme(scheme).
-		SetConnectionParams(connectionParams).
-		SetConnectionStringDatabase(connectionStringDatabase)
 
-	return builder.Build()
+	return connectionstring.ForSpec(&m.Spec, connectionstring.Options{
+		Name:         m.Name,
+		Namespace:    m.Namespace,
+		Service:      m.Name + "-svc",
+		Port:         m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
+		IsReplicaSet: true,
+		Hostnames:    hostnames,
+		Params:       connectionstring.OperatorParams(),
+	})
 }
 
 func (m *MongoDBMultiCluster) GetAuthenticationModes() []string {

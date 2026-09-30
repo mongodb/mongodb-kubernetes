@@ -45,7 +45,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
@@ -60,6 +59,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -1055,7 +1055,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	connStringHostnames := r.GetAllMongosHostnamesAndPorts()
 	extHostnames := sc.GetExternalMembersHostnames()
 	connStringHostnames = append(connStringHostnames, extHostnames...)
-	if err := connectionstringsecret.PublishForMongoDB(ctx, r.commonController.client, sc, connStringHostnames); err != nil {
+	if err := connectionstringsecret.PublishForMongoDB(ctx, kubernetesClient.NewClient(r.commonController.client), sc, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
 	}
 

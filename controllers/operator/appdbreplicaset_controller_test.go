@@ -31,7 +31,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -41,6 +40,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/scramcredentials"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -93,19 +93,19 @@ func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
 	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, nil, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&tls=false", cnx)
 
 	// Special symbols in the url
 	cnx = appdb.BuildConnectionURL("special/user#", "@passw!", connectionstring.SchemeMongoDB, nil, nil)
 	assert.Equal(t, "mongodb://special%2Fuser%23:%40passw%21@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&tls=false", cnx)
 
 	// Connection parameters. The default one is overridden
 	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.cluster.local:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.cluster.local:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.cluster.local:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&ssl=false",
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 
@@ -117,13 +117,13 @@ func TestMongoDB_ConnectionURL_OtherCluster_AppDB(t *testing.T) {
 	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, nil, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.my-cluster:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.my-cluster:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.my-cluster:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&ssl=false", cnx)
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&tls=false", cnx)
 
 	// Connection parameters. The default one is overridden
 	cnx = appdb.BuildConnectionURL("user", "passwd", connectionstring.SchemeMongoDB, map[string]string{"connectTimeoutMS": "30000", "readPreference": "secondary"}, nil)
 	assert.Equal(t, "mongodb://user:passwd@test-om-db-0.test-om-db-svc.my-namespace.svc.my-cluster:27017,"+
 		"test-om-db-1.test-om-db-svc.my-namespace.svc.my-cluster:27017,test-om-db-2.test-om-db-svc.my-namespace.svc.my-cluster:27017/"+
-		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&ssl=false",
+		"?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=30000&readPreference=secondary&replicaSet=test-om-db&serverSelectionTimeoutMS=20000&tls=false",
 		cnx)
 }
 

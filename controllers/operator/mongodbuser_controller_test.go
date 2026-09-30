@@ -20,7 +20,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -28,6 +27,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -314,7 +314,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetDatabase(constants.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
@@ -335,7 +335,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 }
 
 func AssertAuthModeTest(ctx context.Context, t *testing.T, mode mdbv1.AuthMode) {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 
 	reconciler, client, _ := defaultUserReconciler(ctx, user)
 	err := client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
@@ -521,7 +521,7 @@ func TestConnectionStringSecret_PutsConnectionStringDatabase_InURIPath(t *testin
 
 func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableX509().SetName("my-rs").Build())
@@ -538,18 +538,18 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 		"mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
 			"my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017,"+
 			"my-rs-2.my-rs-svc.my-namespace.svc.cluster.local:27017"+
-			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&tls=false",
 		string(secret.Data["connectionString.standard"]))
 
 	assert.Equal(t,
 		"mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local"+
-			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&ssl=false",
+			"/?authSource=$external&connectTimeoutMS=20000&replicaSet=my-rs&serverSelectionTimeoutMS=20000&tls=false",
 		string(secret.Data["connectionString.standardSrv"]))
 }
 
 func TestConnectionStringSecret_ExternalUser_OnScramAndX509Resource_HasNoAuthMechanism(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().EnableX509().SetName("my-rs").Build())
@@ -654,9 +654,9 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 
 	// Validate connection string contains expected values
 	connectionString := string(secret.Data["connectionString.standard"])
-	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
-		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
-		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false"
+	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local:27017," +
+		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local:27017,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local:27017" +
+		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&tls=false"
 	assert.Equal(t, expectedConnectionString, connectionString)
 }
 
@@ -747,7 +747,7 @@ func TestConnectionStringSecret_NotExplicitlyDeleted_OnUserDeletion(t *testing.T
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
 func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 
 	reconciler, client, omConnectionFactory := defaultUserReconciler(ctx, user)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
@@ -983,6 +983,40 @@ func TestUserReconciler_ConnectionString_IncludesExternalMembers(t *testing.T) {
 	assert.Contains(t, connStr, "vm-0.example.com:27017")
 	assert.Contains(t, connStr, "vm-1.example.com:27017")
 	assert.Contains(t, connStr, "my-rs-0.my-rs-svc.")
+}
+
+func TestUserReconciler_ConnectionString_ShardedIncludesExternalMongos(t *testing.T) {
+	ctx := context.Background()
+
+	sc := test.DefaultClusterBuilder().
+		SetName("my-sc").
+		Build()
+	// For a sharded cluster only mongos typed external members belong in the
+	// user connection strings.
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "ext-mongos-0", Hostname: "ext-mongos-0.example.com:27017", Type: "mongos"},
+		{ProcessName: "ext-mongos-1", Hostname: "ext-mongos-1.example.com:27017", Type: "mongos"},
+	}
+
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-sc").Build()
+	reconciler, kubeClient, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	require.NoError(t, kubeClient.Create(ctx, sc))
+	createUserControllerConfigMap(ctx, kubeClient)
+	createPasswordSecret(ctx, kubeClient, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	connStr := string(secret.Data["connectionString.standard"])
+	// the external mongos members must appear next to the in-cluster mongos hosts
+	assert.Contains(t, connStr, "ext-mongos-0.example.com:27017")
+	assert.Contains(t, connStr, "ext-mongos-1.example.com:27017")
+	assert.Contains(t, connStr, "my-sc-mongos")
 }
 
 func TestMdbUserIndexBuilder(t *testing.T) {
