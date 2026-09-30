@@ -70,17 +70,6 @@ func StringParams(options map[string]interface{}) map[string]string {
 	return params
 }
 
-// ProtectedConnectionParams are connection string parameters that the operator
-// controls through other means, so any value supplied for them in user or
-// resource configuration is dropped. The tls parameter is the deprecated
-// alias of ssl: the operator always emits ssl itself and no tls value is
-// ever produced.
-var ProtectedConnectionParams = map[string]struct{}{
-	"replicaSet": {},
-	"ssl":        {},
-	"tls":        {},
-}
-
 // Options carries everything needed to build a MongoDB connection string.
 // It is resource agnostic: single cluster, multi cluster and community
 // resources all fill one of these and build through the same code path.
@@ -121,6 +110,12 @@ type Options struct {
 	UserParams map[string]string
 }
 
+// BuildStandardAndSRV builds the connection string with both schemes, the
+// standard mongodb one and the srv one, in that order.
+func (o Options) BuildStandardAndSRV() (standard, srv string) {
+	return o.Build(SchemeMongoDB), o.Build(SchemeMongoDBSRV)
+}
+
 // WithUser extends the options with the authentication data of the given
 // user. The user's database becomes the authSource and the URI path comes
 // from the user's connection string database.
@@ -155,16 +150,6 @@ func OperatorParams() map[string]string {
 }
 
 // normalizedParams drops protected keys from caller supplied parameters.
-func normalizedParams(input map[string]string) map[string]string {
-	normalized := make(map[string]string, len(input))
-	for key, value := range input {
-		if _, protected := ProtectedConnectionParams[key]; protected {
-			continue
-		}
-		normalized[key] = value
-	}
-	return normalized
-}
 
 // mergedParams combines the parameters derived from the resource with the
 // operator and user provided ones, in increasing order of priority. Keys in
@@ -185,7 +170,7 @@ func (o Options) mergedParams() map[string]string {
 		params["authSource"] = authSource
 	}
 
-	maps.Copy(params, normalizedParams(o.Params))
+	maps.Copy(params, o.Params)
 
 	// Omit authMechanism for $external users; the client supplies the
 	// mechanism at connect time.
@@ -195,7 +180,7 @@ func (o Options) mergedParams() map[string]string {
 		params["authMechanism"] = authMechanism
 	}
 
-	maps.Copy(params, normalizedParams(o.UserParams))
+	maps.Copy(params, o.UserParams)
 
 	return params
 }

@@ -150,23 +150,21 @@ func TestBuild_Parameters(t *testing.T) {
 		}
 	})
 
-	t.Run("protected parameters are dropped from caller input", func(t *testing.T) {
+	t.Run("caller supplied parameters override the derived ones", func(t *testing.T) {
 		options := base
 		options.Params["replicaSet"] = "other-rs"
 		options.Params["ssl"] = "false"
 		cs := options.Build(SchemeMongoDB)
-		assert.Contains(t, cs, "replicaSet=my-rs")
-		assert.Contains(t, cs, "ssl=true")
+		assert.Contains(t, cs, "replicaSet=other-rs")
+		assert.Contains(t, cs, "ssl=false")
 	})
 
-	// tls is the deprecated alias of ssl: the operator always emits ssl
-	// itself and a tls value is dropped, the name never reaches the output.
-	t.Run("caller supplied tls is dropped", func(t *testing.T) {
+	t.Run("caller supplied parameters are passed through as is", func(t *testing.T) {
 		options := base
-		options.Params["tls"] = "false"
+		options.Params = map[string]string{"tls": "false"}
 		cs := options.Build(SchemeMongoDB)
 		assert.Contains(t, cs, "ssl=true")
-		assert.NotContains(t, cs, "tls=")
+		assert.Contains(t, cs, "tls=false")
 	})
 
 	t.Run("user parameters override operator parameters", func(t *testing.T) {
@@ -213,12 +211,11 @@ func TestBuild_SRV_TLSParameter(t *testing.T) {
 		assert.Contains(t, options.Build(SchemeMongoDB), "ssl=false")
 	})
 
-	// tls is the deprecated alias of ssl and never reaches the output.
-	t.Run("a caller supplied tls parameter is dropped", func(t *testing.T) {
+	t.Run("a caller supplied tls parameter is passed through", func(t *testing.T) {
 		options := srvOptions(false)
 		options.Params = map[string]string{"tls": "true"}
 		cs := options.Build(SchemeMongoDBSRV)
 		assert.Contains(t, cs, "ssl=false")
-		assert.NotContains(t, cs, "tls=")
+		assert.Contains(t, cs, "tls=true")
 	})
 }

@@ -94,9 +94,10 @@ func Publish(ctx context.Context, c secret.GetUpdateCreator, s Secret) error {
 // left out for $external users since they authenticate without one.
 func PublishForUser(ctx context.Context, c secret.GetUpdateCreator, options connectionstring.Options, user authtypes.User, password string, s Secret) error {
 	options = options.WithUser(user, password)
+	standard, srv := options.BuildStandardAndSRV()
 	s.Fields = map[string]string{
-		StandardURIField:    options.Build(connectionstring.SchemeMongoDB),
-		StandardSrvURIField: options.Build(connectionstring.SchemeMongoDBSRV),
+		StandardURIField:    standard,
+		StandardSrvURIField: srv,
 		UsernameField:       user.Username,
 	}
 	if user.Database != constants.ExternalDB {
@@ -112,15 +113,15 @@ func PublishForUser(ctx context.Context, c secret.GetUpdateCreator, options conn
 // names plus any spec.externalMembers entries that should appear in
 // the URI.
 func PublishForMongoDB(ctx context.Context, c secret.GetUpdateCreator, mdb *mdbv1.MongoDB, hostnames []string) error {
-	options := mdb.ConnectionOptionsWithHostnames(hostnames)
+	standard, srv := mdb.ConnectionOptionsWithHostnames(hostnames).BuildStandardAndSRV()
 
 	return Publish(ctx, c, Secret{
 		Name:            SecretName(mdb),
 		Namespace:       mdb.Namespace,
 		OwnerReferences: kube.BaseOwnerReference(mdb),
 		Fields: map[string]string{
-			StandardURIField:    options.Build(connectionstring.SchemeMongoDB),
-			StandardSrvURIField: options.Build(connectionstring.SchemeMongoDBSRV),
+			StandardURIField:    standard,
+			StandardSrvURIField: srv,
 		},
 	})
 }
