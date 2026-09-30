@@ -654,8 +654,8 @@ func TestUserReconciler_SavesConnectionStringForMultiShardedCluster(t *testing.T
 
 	// Validate connection string contains expected values
 	connectionString := string(secret.Data["connectionString.standard"])
-	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local," +
-		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local" +
+	expectedConnectionString := "mongodb://slaney-mongos-0-0-svc.my-namespace.svc.cluster.local:27017," +
+		"slaney-mongos-0-1-svc.my-namespace.svc.cluster.local:27017,slaney-mongos-1-0-svc.my-namespace.svc.cluster.local:27017" +
 		"/?authSource=admin&connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false"
 	assert.Equal(t, expectedConnectionString, connectionString)
 }

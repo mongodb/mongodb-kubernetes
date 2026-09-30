@@ -151,10 +151,16 @@ func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user u
 	if err := r.client.Get(ctx, name, mdb); err == nil {
 		var hostnames []string
 		if mdb.IsShardedCluster() {
-			hostnames, err = r.getShardedClusterHostnames(ctx, mdb)
+			l := zap.S().With("MongoDBUser", mdb.Name)
+			clusterClientMap := map[string]client.Client{}
+			for k, v := range r.memberClusterClientsMap {
+				clusterClientMap[k] = v
+			}
+			rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
 			if err != nil {
 				return connectionstring.Options{}, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
+			hostnames = rh.GetAllMongosHostnamesAndPorts()
 		} else if mdb.IsReplicaSet() {
 			hostnames = mdb.GetConnectionHostnamesAndPorts()
 		}
@@ -169,27 +175,6 @@ func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user u
 		return connectionstring.Options{}, err
 	}
 	return mdbm.ConnectionOptions(), nil
-}
-
-func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB) ([]string, error) {
-	l := zap.S().With("MongoDBUser", mdb.Name)
-	clusterClientMap := r.getK8sClientMap()
-	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
-	if err != nil {
-		return nil, err
-	}
-
-	hostnames := rh.GetAllMongosHostnames()
-	return hostnames, nil
-}
-
-func (r *MongoDBUserReconciler) getK8sClientMap() map[string]client.Client {
-	result := make(map[string]client.Client)
-	for k, v := range r.memberClusterClientsMap {
-		result[k] = v
-	}
-
-	return result
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
