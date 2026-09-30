@@ -755,9 +755,10 @@ tasks:
           script: |
             source .generated/context.export.env
             # target_commit is the actual tagged commit; revision is the Evergreen merge commit.
-            release_commit="${target_commit:-${revision}}"
-            echo "TRACE: using commit=${release_commit}"
-            scripts/mckci release promote images --commit "${release_commit}" --latest-marker latest
+            release_commit="$target_commit"
+            if [ -z "$release_commit" ]; then release_commit="$revision"; fi
+            echo "TRACE: using commit=$release_commit"
+            scripts/mckci release promote images --commit "$release_commit" --latest-marker latest
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
@@ -1426,7 +1427,7 @@ task_groups:
       - e2e_om_ops_manager_backup_light
       - e2e_om_ops_manager_backup_tls
       - e2e_om_ops_manager_backup_s3_tls
-      - e2e_om_ops_manager_backup_restore_minio
+      - e2e_om_ops_manager_backup_restore_rustfs
       - e2e_om_ops_manager_backup_tls_custom_ca
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_backup_sharded_cluster
@@ -1466,7 +1467,7 @@ task_groups:
       - e2e_om_ops_manager_backup_light
       - e2e_om_ops_manager_backup_tls
       - e2e_om_ops_manager_backup_s3_tls
-      - e2e_om_ops_manager_backup_restore_minio
+      - e2e_om_ops_manager_backup_restore_rustfs
       - e2e_om_ops_manager_backup_tls_custom_ca
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_backup_sharded_cluster
