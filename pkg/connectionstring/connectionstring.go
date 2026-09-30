@@ -168,11 +168,10 @@ func (o Options) mergedParams() map[string]string {
 
 	maps.Copy(params, o.Params)
 
-	// Omit authMechanism for $external users; the client supplies the
-	// mechanism at connect time.
-	if params["authSource"] == constants.ExternalDB {
-		delete(params, "authMechanism")
-	} else if _, ok := params["authMechanism"]; !ok && authMechanism != "" {
+	// Omit the derived authMechanism for $external users, the client supplies
+	// the mechanism at connect time. A mechanism provided by the caller in
+	// Params is always kept.
+	if _, callerMechanism := o.Params["authMechanism"]; !callerMechanism && params["authSource"] != constants.ExternalDB && authMechanism != "" {
 		params["authMechanism"] = authMechanism
 	}
 

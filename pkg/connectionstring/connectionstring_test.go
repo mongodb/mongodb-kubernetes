@@ -182,6 +182,16 @@ func TestBuild_Parameters(t *testing.T) {
 		assert.Contains(t, cs, "authSource=admin")
 		assert.Contains(t, cs, "authMechanism=SCRAM-SHA-256")
 	})
+
+	t.Run("a caller supplied authMechanism is kept for $external users", func(t *testing.T) {
+		options := base
+		options.AuthenticationModes = []string{util.SCRAM}
+		options.Version = "4.2.0"
+		options.Params = map[string]string{"authSource": constants.ExternalDB, "authMechanism": "MONGODB-X509"}
+		cs := options.Build(SchemeMongoDB)
+		assert.Contains(t, cs, "authSource=$external")
+		assert.Contains(t, cs, "authMechanism=MONGODB-X509")
+	})
 }
 
 func TestBuild_SRV_TLSParameter(t *testing.T) {
