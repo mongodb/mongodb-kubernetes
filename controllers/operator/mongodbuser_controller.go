@@ -143,7 +143,7 @@ func (r *MongoDBUserReconciler) getMongoDB(ctx context.Context, user userv1.Mong
 
 // getConnectionOptions returns the connection string options for the
 // referenced MongoDB resource, single or multi cluster.
-func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user userv1.MongoDBUser) (connectionstring.Options, error) {
+func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user userv1.MongoDBUser, log *zap.SugaredLogger) (connectionstring.Options, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try single cluster, sharded single/multi-cluster resource
@@ -151,12 +151,11 @@ func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user u
 	if err := r.client.Get(ctx, name, mdb); err == nil {
 		var hostnames []string
 		if mdb.IsShardedCluster() {
-			l := zap.S().With("MongoDBUser", mdb.Name)
 			clusterClientMap := map[string]client.Client{}
 			for k, v := range r.memberClusterClientsMap {
 				clusterClientMap[k] = v
 			}
-			rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
+			rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, log, r.backupEnableDelay)
 			if err != nil {
 				return connectionstring.Options{}, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
@@ -288,7 +287,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	connectionOptions, err := r.getConnectionOptions(ctx, user)
+	connectionOptions, err := r.getConnectionOptions(ctx, user, log)
 	if err != nil {
 		return err
 	}
