@@ -47,7 +47,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -1846,11 +1845,7 @@ func (r *OpsManagerReconciler) buildMongoDbOMS3Config(ctx context.Context, opsMa
 
 	options := mongodb.ConnectionOptions()
 	if mongodbUser != nil {
-		options = options.WithUser(authtypes.User{
-			Username:                 mongodbUser.Spec.Username,
-			Database:                 mongodbUser.Spec.Database,
-			ConnectionStringDatabase: mongodbUser.Spec.ConnectionStringDatabase,
-		}, password)
+		options = options.WithUser(mongodbUser.AuthUser(), password)
 	}
 	uri := options.Build(connectionstring.SchemeMongoDB)
 
@@ -2016,11 +2011,7 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to read password for the user %s: %w", mongodbUserObjectKey, err))
 		}
-		mongoUri = mongodb.ConnectionOptions().WithUser(authtypes.User{
-			Username:                 mongodbUser.Spec.Username,
-			Database:                 mongodbUser.Spec.Database,
-			ConnectionStringDatabase: mongodbUser.Spec.ConnectionStringDatabase,
-		}, password).Build(connectionstring.SchemeMongoDB)
+		mongoUri = mongodb.ConnectionOptions().WithUser(mongodbUser.AuthUser(), password).Build(connectionstring.SchemeMongoDB)
 	} else {
 		mongoUri = mongodb.ConnectionOptions().Build(connectionstring.SchemeMongoDB)
 	}

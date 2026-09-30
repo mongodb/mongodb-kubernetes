@@ -11,6 +11,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -174,6 +175,16 @@ func (u *MongoDBUser) GetOwnerLabels() map[string]string {
 
 func (u MongoDBUser) GetConnectionStringSecretName() string {
 	return connectionstringsecret.UserSecretName(u.Spec.ConnectionStringSecretName, u.Spec.MongoDBResourceRef.Name, u.Name, u.Spec.Database)
+}
+
+// AuthUser returns the authentication user for this resource, carrying the
+// username, the database and the connection string database.
+func (u MongoDBUser) AuthUser() authtypes.User {
+	return authtypes.User{
+		Username:                 u.Spec.Username,
+		Database:                 u.Spec.Database,
+		ConnectionStringDatabase: u.Spec.ConnectionStringDatabase,
+	}
 }
 
 func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {

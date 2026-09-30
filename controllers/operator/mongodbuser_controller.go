@@ -32,7 +32,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
-	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -314,11 +313,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		return err
 	}
 
-	userOptions := authtypes.User{
-		Username:                 user.Spec.Username,
-		Database:                 user.Spec.Database,
-		ConnectionStringDatabase: user.Spec.ConnectionStringDatabase,
-	}
+	userOptions := user.AuthUser()
 
 	// The member cluster secrets carry no owner references, ownership is
 	// validated before overwriting since GC cannot reach across clusters.
