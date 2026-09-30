@@ -36,15 +36,17 @@ tasks:
     commands:
       - func: clone
       - func: setup_building_host
-      - func: quay_staging_login  # authenticate to quay.io (configure_container_auth only handles ECR)
-      # subprocess.exec + add_expansions_to_env instead of shell.exec: YAML expansion parser
-      # mangles ${...} inside inline heredocs, so script is extracted to a standalone file.
       - command: subprocess.exec
         type: test
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
           add_expansions_to_env: true
           binary: bash
+          env:
+            QUAY_PROD_USERNAME: ${quay_prod_username}
+            QUAY_PROD_PASSWORD: ${quay_prod_robot_token}
+            QUAY_STAGING_USERNAME: ${quay_staging_username}
+            QUAY_STAGING_PASSWORD: ${quay_staging_robot_token}
           args:
             - scripts/evergreen/publish_images.sh
       # CVE scan of the just-published production images (skipped automatically
