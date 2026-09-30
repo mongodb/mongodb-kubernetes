@@ -3,6 +3,7 @@ package v1
 import (
 	"fmt"
 	"maps"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -310,7 +311,11 @@ func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 		return m.ConnectionStringSecretName
 	}
 
-	return util.NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
+	// The $ prefix of the $external database is trimmed like the enterprise
+	// resource does, so it does not turn into a dash in the generated name.
+	database := strings.TrimPrefix(m.DB, "$")
+
+	return util.NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, database, m.Name))
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated

@@ -12,7 +12,6 @@ import (
 
 	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 
-	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -172,7 +171,7 @@ func buildUsersOptions(ctx context.Context, kubeClient kubernetesClient.Client, 
 func userKey(username, database string) string { return username + ":" + database }
 
 func suggestedUserSecretName(user *om.MongoDBUser) string {
-	return userv1.NormalizeName(user.Username) + "-password"
+	return util.NormalizeName(user.Username) + "-password"
 }
 
 func scramUsers(ac *om.AutomationConfig) []*om.MongoDBUser {

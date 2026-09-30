@@ -187,12 +187,7 @@ func (u MongoDBUser) GetConnectionStringSecretName() string {
 		database = strings.TrimPrefix(database, "$")
 	}
 
-	return NormalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
-}
-
-// NormalizeName returns a string that conforms to RFC-1123.
-func NormalizeName(name string) string {
-	return util.NormalizeName(name)
+	return util.NormalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
 }
 
 func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {
