@@ -475,33 +475,23 @@ func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.C
 }
 
 func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, multiClusterHostnames []string) string {
-	replicas := m.Replicas()
 	hostnames := []string(nil)
 	if m.IsMultiCluster() {
-		replicas = len(multiClusterHostnames)
 		hostnames = multiClusterHostnames
 	}
 
-	params := connectionstring.OperatorParams()
-	maps.Copy(params, connectionParams)
-
-	options := connectionstring.Options{
-		Name:                m.Name(),
-		Namespace:           m.Namespace,
-		Username:            username,
-		Password:            password,
-		Replicas:            replicas,
-		Service:             m.ServiceName(),
-		Port:                util.MongoDbDefaultPort,
-		Version:             m.GetMongoDBVersion(),
-		AuthenticationModes: m.GetSecurityAuthenticationModes(),
-		ClusterDomain:       m.GetClusterDomain(),
-		ExternalDomain:      m.GetExternalDomain(),
-		IsReplicaSet:        true,
-		IsTLSEnabled:        m.IsSecurityTLSConfigEnabled(),
-		Hostnames:           hostnames,
-		Params:              params,
-	}
+	options := connectionstring.ForSpec(m, connectionstring.Options{
+		Name:         m.Name(),
+		Namespace:    m.Namespace,
+		Service:      m.ServiceName(),
+		Port:         util.MongoDbDefaultPort,
+		IsReplicaSet: true,
+		Hostnames:    hostnames,
+		Params:       connectionstring.OperatorParams(),
+	})
+	options.Username = username
+	options.Password = password
+	maps.Copy(options.Params, connectionParams)
 
 	return options.Build(scheme)
 }

@@ -16,8 +16,6 @@ import (
 )
 
 const (
-	ExternalDB = "$external"
-
 	clientKeyInput = "Client Key" // specified in RFC 5802
 	serverKeyInput = "Server Key" // specified in RFC 5802
 

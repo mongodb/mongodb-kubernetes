@@ -20,7 +20,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -28,6 +27,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -314,7 +314,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 
 func TestX509User_DoesntRequirePassword(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetDatabase(constants.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	// initialize resources required for x590 tests
@@ -335,7 +335,7 @@ func TestX509User_DoesntRequirePassword(t *testing.T) {
 }
 
 func AssertAuthModeTest(ctx context.Context, t *testing.T, mode mdbv1.AuthMode) {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 
 	reconciler, client, _ := defaultUserReconciler(ctx, user)
 	err := client.Create(ctx, DefaultReplicaSetBuilder().EnableAuth().SetAuthModes([]mdbv1.AuthMode{mode}).SetName("my-rs0").Build())
@@ -521,7 +521,7 @@ func TestConnectionStringSecret_PutsConnectionStringDatabase_InURIPath(t *testin
 
 func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableX509().SetName("my-rs").Build())
@@ -549,7 +549,7 @@ func TestConnectionStringSecret_X509_UsesExternalDb_AsAuthSource(t *testing.T) {
 
 func TestConnectionStringSecret_ExternalUser_OnScramAndX509Resource_HasNoAuthMechanism(t *testing.T) {
 	ctx := context.Background()
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigX509Option)
 
 	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().EnableX509().SetName("my-rs").Build())
@@ -747,7 +747,7 @@ func TestConnectionStringSecret_NotExplicitlyDeleted_OnUserDeletion(t *testing.T
 // different Authentication values. It should be used to test different combination of authentication modes enabled
 // and agent authentication modes.
 func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, automationConfigOption string, numAgents int, agentAuthMode string, authModes []mdbv1.AuthMode) *om.AutomationConfig {
-	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(authentication.ExternalDB).Build()
+	user := DefaultMongoDBUserBuilder().SetMongoDBResourceName("my-rs").SetDatabase(constants.ExternalDB).Build()
 
 	reconciler, client, omConnectionFactory := defaultUserReconciler(ctx, user)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {

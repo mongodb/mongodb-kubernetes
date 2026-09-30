@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -733,17 +734,12 @@ func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password str
 }
 
 func (m *MongoDBCommunity) Hosts() []string {
-	hosts := make([]string, m.Spec.Members)
-
-	for i := 0; i < m.Spec.Members; i++ {
-		hosts[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
-			m.Name, i,
-			m.ServiceName(),
-			m.Namespace,
-			m.Spec.GetClusterDomain(),
-			m.GetMongodConfiguration().GetDBPort())
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Members, nil)
+	port := m.GetMongodConfiguration().GetDBPort()
+	for i, hostname := range hostnames {
+		hostnames[i] = fmt.Sprintf("%s:%d", hostname, port)
 	}
-	return hosts
+	return hostnames
 }
 
 // ServiceName returns the name of the Service that should be created for this resource.

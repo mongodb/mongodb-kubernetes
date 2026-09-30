@@ -40,6 +40,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -268,7 +269,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to add finalizer: %w", err)), log)
 	}
 
-	if user.Spec.Database == authentication.ExternalDB {
+	if user.Spec.Database == constants.ExternalDB {
 		return r.handleExternalAuthUser(ctx, user, conn, log)
 	} else {
 		return r.handleScramShaUser(ctx, user, conn, log)
@@ -303,7 +304,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	var err error
 	var password string
 
-	if user.Spec.Database != authentication.ExternalDB {
+	if user.Spec.Database != constants.ExternalDB {
 		password, err = user.GetPassword(ctx, r.SecretClient)
 		if err != nil {
 			log.Debug("User does not have a configured password.")
@@ -416,7 +417,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 	}
 
 	needsFollowUp := false
-	if spec.Database != authentication.ExternalDB {
+	if spec.Database != constants.ExternalDB {
 		followUp, err := authentication.ConfigureScramCredentials(&user, password, ac)
 		if err != nil {
 			return om.MongoDBUser{}, false, xerrors.Errorf("error generating SCRAM credentials: %w", err)
