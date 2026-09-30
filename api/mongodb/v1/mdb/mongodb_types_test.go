@@ -346,18 +346,14 @@ func TestMongoDBConnectionURLExternalDomainWithSCRAMSHA1Auth(t *testing.T) {
 
 func TestMongoDBConnectionURLMultiClusterSharded(t *testing.T) {
 	sc := NewDefaultMultiShardedClusterBuilder().SetName("sharDB").Build()
-	cb := &MongoDBConnectionStringBuilder{
-		MongoDB: *sc,
-		hostnames: []string{
-			"sharDB-mongos-0-0-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-0-1-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-1-0-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-1-1-svc.testNS.svc.cluster.local",
-			"sharDB-mongos-1-2-svc.testNS.svc.cluster.local",
-		},
-	}
-
-	cs := buildConnectionString(cb, "", "", "", connectionstring.SchemeMongoDB, nil)
+	options := sc.ConnectionOptionsWithHostnames([]string{
+		"sharDB-mongos-0-0-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-0-1-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-1-0-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-1-1-svc.testNS.svc.cluster.local",
+		"sharDB-mongos-1-2-svc.testNS.svc.cluster.local",
+	})
+	cs := options.Build(connectionstring.SchemeMongoDB)
 	assert.Equal(t, "mongodb://sharDB-mongos-0-0-svc.testNS.svc.cluster.local,"+
 		"sharDB-mongos-0-1-svc.testNS.svc.cluster.local,"+
 		"sharDB-mongos-1-0-svc.testNS.svc.cluster.local,sharDB-mongos-1-1-svc.testNS.svc.cluster.local,"+

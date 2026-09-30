@@ -411,9 +411,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
 	}
 
-	connStringHostnames := rs.GetRSHostnamesAndPorts()
-	extHostnames := rs.GetExternalMembersHostnames()
-	connStringHostnames = append(connStringHostnames, extHostnames...)
+	connStringHostnames := rs.GetConnectionHostnamesAndPorts()
 	if err := connectionstringsecret.PublishForMongoDB(ctx, kubernetesClient.NewClient(r.reconciler.client), rs, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
 	}

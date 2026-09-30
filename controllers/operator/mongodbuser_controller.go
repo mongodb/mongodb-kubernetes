@@ -142,8 +142,9 @@ func (r *MongoDBUserReconciler) getMongoDB(ctx context.Context, user userv1.Mong
 	return mdbm, err
 }
 
-// getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
-func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context, user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
+// getConnectionOptions returns the connection string options for the
+// referenced MongoDB resource, single or multi cluster.
+func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user userv1.MongoDBUser) (connectionstring.Options, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try single cluster, sharded single/multi-cluster resource
@@ -153,23 +154,22 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 		if mdb.IsShardedCluster() {
 			hostnames, err = r.getShardedClusterHostnames(ctx, mdb)
 			if err != nil {
-				return nil, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
+				return connectionstring.Options{}, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
 		} else if mdb.IsReplicaSet() {
-			hostnames = mdb.GetRSHostnamesAndPorts()
+			hostnames = mdb.GetConnectionHostnamesAndPorts()
 		}
 
-		extHostnames := mdb.GetExternalMembersHostnames()
-		hostnames = append(hostnames, extHostnames...)
-
-		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
-		return builder, nil
+		return mdb.ConnectionOptionsWithHostnames(hostnames), nil
 	}
 
 	// Try the multi-cluster next
 	mdbm := &mdbmulti.MongoDBMultiCluster{}
 	err := r.client.Get(ctx, name, mdbm)
-	return mdbm, err
+	if err != nil {
+		return connectionstring.Options{}, err
+	}
+	return mdbm.ConnectionOptions(), nil
 }
 
 func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB) ([]string, error) {
@@ -304,7 +304,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	connectionBuilder, err := r.getMongoDBConnectionBuilder(ctx, user)
+	connectionOptions, err := r.getConnectionOptions(ctx, user)
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	// validated before overwriting since GC cannot reach across clusters.
 	memberSecret := connectionstringsecret.Secret{Name: secretName, Namespace: user.Namespace}
 	for _, c := range r.memberClusterSecretClientsMap {
-		if err := connectionstringsecret.PublishForUser(ctx, c, connectionBuilder.ConnectionOptions(), userOptions, password, memberSecret); err != nil {
+		if err := connectionstringsecret.PublishForUser(ctx, c, connectionOptions, userOptions, password, memberSecret); err != nil {
 			return err
 		}
 	}
@@ -340,7 +340,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		Namespace:       user.Namespace,
 		OwnerReferences: kube.BaseOwnerReference(&user),
 	}
-	return connectionstringsecret.PublishForUser(ctx, r.SecretClient, connectionBuilder.ConnectionOptions(), userOptions, password, centralSecret)
+	return connectionstringsecret.PublishForUser(ctx, r.SecretClient, connectionOptions, userOptions, password, centralSecret)
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {

@@ -112,7 +112,7 @@ func PublishForUser(ctx context.Context, c secret.GetUpdateCreator, options conn
 // names plus any spec.externalMembers entries that should appear in
 // the URI.
 func PublishForMongoDB(ctx context.Context, c secret.GetUpdateCreator, mdb *mdbv1.MongoDB, hostnames []string) error {
-	options := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames).ConnectionOptions()
+	options := mdb.ConnectionOptionsWithHostnames(hostnames)
 
 	return Publish(ctx, c, Secret{
 		Name:            SecretName(mdb),

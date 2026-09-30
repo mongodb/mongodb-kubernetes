@@ -1023,6 +1023,14 @@ func (m *MongoDB) GetRSHostnamesAndPorts() []string {
 	return hostnamePorts
 }
 
+// GetConnectionHostnamesAndPorts returns the replica set hostnames and ports
+// together with the external members, the full host list for the connection
+// string secret.
+func (m *MongoDB) GetConnectionHostnamesAndPorts() []string {
+	hostnames := m.GetRSHostnamesAndPorts()
+	return append(hostnames, m.GetExternalMembersHostnames()...)
+}
+
 func (s *Security) GetTLSCAFilePath(defaultPath string) string {
 	if s == nil || s.TLSConfig == nil {
 		return defaultPath

@@ -43,27 +43,10 @@ func (m *MongoDB) ConnectionOptions() connectionstring.Options {
 	return m.connectionOptions(nil)
 }
 
-// MongoDBConnectionStringBuilder builds connection strings for the resource,
-// carrying hostnames computed by the caller for topologies that need it
-// (sharded clusters and external members).
-type MongoDBConnectionStringBuilder struct {
-	MongoDB
-	hostnames []string
-}
-
-// NewMongoDBConnectionStringBuilder creates a new instance of MongoDBConnectionStringBuilder.
-// Parameters:
-//   - mdb: The MongoDB resource object containing the configuration and metadata for the MongoDB instance.
-//   - hostnames: A slice of strings representing the hostnames to be included in the connection string,
-//     if this parameter is passed then no other hostnames will be generated or used.
-func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDBConnectionStringBuilder {
-	return &MongoDBConnectionStringBuilder{
-		MongoDB:   mdb,
-		hostnames: hostnames,
-	}
-}
-
-// ConnectionOptions fills the resource level connection string settings.
-func (b *MongoDBConnectionStringBuilder) ConnectionOptions() connectionstring.Options {
-	return b.connectionOptions(b.hostnames)
+// ConnectionOptionsWithHostnames fills the connection string settings with
+// hostnames computed by the caller for topologies that need it (sharded
+// clusters and external members). When non empty, the hostnames replace the
+// generated pod DNS names.
+func (m *MongoDB) ConnectionOptionsWithHostnames(hostnames []string) connectionstring.Options {
+	return m.connectionOptions(hostnames)
 }
