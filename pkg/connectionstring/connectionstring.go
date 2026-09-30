@@ -20,7 +20,7 @@ import (
 )
 
 // Scheme states the connection string format.
-// https://docs.mongodb.com/manual/reference/connection-string/#connection-string-formats
+// https://www.mongodb.com/docs/manual/reference/connection-string/#connection-string-formats
 type Scheme string
 
 const (
