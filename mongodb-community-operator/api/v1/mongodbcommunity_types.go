@@ -26,8 +26,7 @@ import (
 type Type string
 
 const (
-	ReplicaSet       Type   = "ReplicaSet"
-	defaultDBForUser string = "admin"
+	ReplicaSet Type = "ReplicaSet"
 )
 
 type Phase string
@@ -533,15 +532,6 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 		}
 
 		// When the MongoDB resource has been fetched from Kubernetes,
-		// the User's database will be set to "admin" because this is set
-		// by default on the CRD, but when running e2e tests, the resource
-		// we are working with is local -- it has not been posted to the
-		// Kubernetes API and the `u.DB` was not set to the default ("admin").
-		// This is why the "admin" value is being set here.
-		if u.DB == "" {
-			u.DB = defaultDBForUser
-		}
-
 		users[i] = authtypes.User{
 			Username:                          u.Name,
 			Database:                          u.DB,
