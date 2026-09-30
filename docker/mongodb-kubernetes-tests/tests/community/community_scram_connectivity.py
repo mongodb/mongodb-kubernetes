@@ -5,8 +5,8 @@ from kubernetes.client.exceptions import ApiException
 from kubetester import create_or_update_secret, read_secret, try_load, update_secret, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
-from kubetester.mongotester import assert_connection_string_with_mongosh
 from kubetester.mongodb_community import MongoDBCommunity
+from kubetester.mongotester import assert_connection_string_with_mongosh
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark

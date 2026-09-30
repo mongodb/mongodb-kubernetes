@@ -17,7 +17,7 @@ func (m *MongoDBCommunity) connectionOptions(hostnames []string) connectionstrin
 		Name:         m.Name,
 		Namespace:    m.Namespace,
 		Service:      m.ServiceName(),
-		Port:         int32(m.GetMongodConfiguration().GetDBPort()),
+		Port:         int32(m.GetMongodConfiguration().GetDBPort()), //nolint:gosec // a port value always fits in int32
 		IsReplicaSet: true,
 		Hostnames:    hostnames,
 		Params:       connectionstring.OperatorParams(),
