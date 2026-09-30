@@ -1184,6 +1184,10 @@ func (s *Security) GetInternalClusterAuthenticationMode() string {
 	return ""
 }
 
+func (s *Security) RequiresX509ClientCerts() bool {
+	return s.GetInternalClusterAuthenticationMode() == util.X509 || s.GetAgentMechanism("") == util.X509
+}
+
 // Authentication holds various authentication related settings that affect
 // this MongoDB resource.
 type Authentication struct {
