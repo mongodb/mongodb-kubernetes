@@ -2,7 +2,6 @@ package v1
 
 import (
 	"fmt"
-	"maps"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,7 +13,6 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -673,54 +671,6 @@ func (m *MongoDBCommunitySpec) GetExternalDomain() *string {
 // IsSecurityTLSConfigEnabled reports whether TLS is enabled for the deployment.
 func (m *MongoDBCommunitySpec) IsSecurityTLSConfigEnabled() bool {
 	return m.Security.TLS.Enabled
-}
-
-// connectionOptions fills the resource level connection string settings.
-func (m *MongoDBCommunity) connectionOptions() connectionstring.Options {
-	options := connectionstring.ForSpec(&m.Spec, connectionstring.Options{
-		Name:         m.Name,
-		Namespace:    m.Namespace,
-		Service:      m.ServiceName(),
-		Hostnames:    m.Hosts(),
-		Port:         int32(m.GetMongodConfiguration().GetDBPort()),
-		IsReplicaSet: true,
-		Params:       connectionstring.OperatorParams(),
-	})
-	maps.Copy(options.Params, connectionstring.StringParams(m.Spec.AdditionalConnectionStringConfig.Object))
-	return options
-}
-
-// ConnectionOptions fills the resource level connection string settings.
-func (m *MongoDBCommunity) ConnectionOptions() connectionstring.Options {
-	return m.connectionOptions()
-}
-
-// MongoURI returns a mongo uri which can be used to connect to this deployment
-func (m *MongoDBCommunity) MongoURI() string {
-	return m.connectionOptions().Build(connectionstring.SchemeMongoDB)
-}
-
-// MongoSRVURI returns a mongo srv uri which can be used to connect to this deployment
-func (m *MongoDBCommunity) MongoSRVURI() string {
-	return m.connectionOptions().Build(connectionstring.SchemeMongoDBSRV)
-}
-
-// authedOptions extends the resource level options with the authentication
-// data of the given user.
-func (m *MongoDBCommunity) authedOptions(user authtypes.User, password string) connectionstring.Options {
-	return m.connectionOptions().WithUser(user, password)
-}
-
-// MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
-// and includes the authentication data for the user
-func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string) string {
-	return m.authedOptions(user, password).Build(connectionstring.SchemeMongoDB)
-}
-
-// MongoAuthUserSRVURI returns a mongo srv uri which can be used to connect to this deployment
-// and includes the authentication data for the user
-func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password string) string {
-	return m.authedOptions(user, password).Build(connectionstring.SchemeMongoDBSRV)
 }
 
 func (m *MongoDBCommunity) Hosts() []string {
