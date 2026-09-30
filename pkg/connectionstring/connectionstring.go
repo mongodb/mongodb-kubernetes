@@ -1,9 +1,7 @@
 // Presents a builder to programmatically build a MongoDB connection string.
 //
-// We are waiting for a more consistent solution to this, based on a
-// ConnString structure.
-//
-// https://jira.mongodb.org/browse/GODRIVER-2226
+// The request for a driver provided ConnString structure was declined in
+// GODRIVER-2226, so the operator keeps its own resource agnostic builder.
 
 package connectionstring
 
@@ -101,12 +99,11 @@ type Options struct {
 	DefaultDatabase string
 
 	// Params are operator provided connection parameters. They override the
-	// parameters derived from the resource configuration. Protected keys are
-	// dropped.
+	// parameters derived from the resource configuration.
 	Params map[string]string
 
 	// UserParams come from user controlled configuration. They override
-	// Params and protected keys are dropped.
+	// Params.
 	UserParams map[string]string
 }
 
@@ -149,20 +146,19 @@ func OperatorParams() map[string]string {
 	}
 }
 
-// normalizedParams drops protected keys from caller supplied parameters.
-
 // mergedParams combines the parameters derived from the resource with the
-// operator and user provided ones, in increasing order of priority. Keys in
-// ProtectedConnectionParams never make it through from user input.
+// operator and user provided ones, in increasing order of priority. The tls
+// parameter carries the resource TLS setting unless a caller or user
+// parameter overrides it by the same name.
 func (o Options) mergedParams() map[string]string {
 	params := map[string]string{}
 	if o.IsReplicaSet {
 		params["replicaSet"] = o.Name
 	}
 	if o.IsTLSEnabled {
-		params["ssl"] = "true"
+		params["tls"] = "true"
 	} else {
-		params["ssl"] = "false"
+		params["tls"] = "false"
 	}
 
 	authSource, authMechanism := authSourceAndMechanism(o.AuthenticationModes, o.Version)

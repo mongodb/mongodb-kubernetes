@@ -138,7 +138,7 @@ func TestBuild_Parameters(t *testing.T) {
 		assert.Contains(t, cs, "connectTimeoutMS=20000")
 		assert.Contains(t, cs, "serverSelectionTimeoutMS=20000")
 		assert.Contains(t, cs, "replicaSet=my-rs")
-		assert.Contains(t, cs, "ssl=true")
+		assert.Contains(t, cs, "tls=true")
 	})
 
 	t.Run("parameters are sorted for a stable URI", func(t *testing.T) {
@@ -153,18 +153,18 @@ func TestBuild_Parameters(t *testing.T) {
 	t.Run("caller supplied parameters override the derived ones", func(t *testing.T) {
 		options := base
 		options.Params["replicaSet"] = "other-rs"
-		options.Params["ssl"] = "false"
+		options.Params["tls"] = "false"
 		cs := options.Build(SchemeMongoDB)
 		assert.Contains(t, cs, "replicaSet=other-rs")
-		assert.Contains(t, cs, "ssl=false")
+		assert.Contains(t, cs, "tls=false")
 	})
 
 	t.Run("caller supplied parameters are passed through as is", func(t *testing.T) {
 		options := base
 		options.Params = map[string]string{"tls": "false"}
 		cs := options.Build(SchemeMongoDB)
-		assert.Contains(t, cs, "ssl=true")
 		assert.Contains(t, cs, "tls=false")
+		assert.NotContains(t, cs, "ssl=")
 	})
 
 	t.Run("user parameters override operator parameters", func(t *testing.T) {
@@ -196,26 +196,27 @@ func TestBuild_SRV_TLSParameter(t *testing.T) {
 		}
 	}
 
-	t.Run("SRV without TLS includes ssl=false", func(t *testing.T) {
-		assert.Contains(t, srvOptions(false).Build(SchemeMongoDBSRV), "ssl=false")
+	t.Run("SRV without TLS includes tls=false", func(t *testing.T) {
+		assert.Contains(t, srvOptions(false).Build(SchemeMongoDBSRV), "tls=false")
 	})
 
-	t.Run("SRV with TLS includes ssl=true", func(t *testing.T) {
+	t.Run("SRV with TLS includes tls=true", func(t *testing.T) {
 		cs := srvOptions(true).Build(SchemeMongoDBSRV)
-		assert.Contains(t, cs, "ssl=true")
-		assert.NotContains(t, cs, "ssl=false")
+		assert.Contains(t, cs, "tls=true")
+		assert.NotContains(t, cs, "tls=false")
 	})
 
-	t.Run("standard connection without TLS includes ssl=false", func(t *testing.T) {
+	t.Run("standard connection without TLS includes tls=false", func(t *testing.T) {
 		options := Options{Hostnames: []string{"host:27017"}, IsReplicaSet: true, Name: "my-rs"}
-		assert.Contains(t, options.Build(SchemeMongoDB), "ssl=false")
+		assert.Contains(t, options.Build(SchemeMongoDB), "tls=false")
 	})
 
-	t.Run("a caller supplied tls parameter is passed through", func(t *testing.T) {
+	t.Run("a caller supplied tls parameter overrides the derived one", func(t *testing.T) {
 		options := srvOptions(false)
 		options.Params = map[string]string{"tls": "true"}
 		cs := options.Build(SchemeMongoDBSRV)
-		assert.Contains(t, cs, "ssl=false")
 		assert.Contains(t, cs, "tls=true")
+		assert.NotContains(t, cs, "tls=false")
+		assert.NotContains(t, cs, "ssl=")
 	})
 }
