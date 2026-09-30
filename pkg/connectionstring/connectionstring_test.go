@@ -117,6 +117,7 @@ func TestBuild_CredentialEncoding(t *testing.T) {
 			Hostnames:           []string{"host:27017"},
 			Username:            "user",
 			Password:            "password",
+			ExternalAuth:        true,
 			Params:              map[string]string{"authSource": constants.ExternalDB},
 		}
 		assert.NotContains(t, options.Build(SchemeMongoDB), "@")
@@ -187,6 +188,7 @@ func TestBuild_Parameters(t *testing.T) {
 		options := base
 		options.AuthenticationModes = []string{util.SCRAM}
 		options.Version = "4.2.0"
+		options.ExternalAuth = true
 		options.Params = map[string]string{"authSource": constants.ExternalDB, "authMechanism": "MONGODB-X509"}
 		cs := options.Build(SchemeMongoDB)
 		assert.Contains(t, cs, "authSource=$external")

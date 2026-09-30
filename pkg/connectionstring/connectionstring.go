@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
@@ -105,6 +106,11 @@ type Options struct {
 	// UserParams come from user controlled configuration. They override
 	// Params.
 	UserParams map[string]string
+
+	// ExternalAuth marks the connection as targeting the $external database:
+	// no authMechanism is derived since the client supplies the mechanism at
+	// connect time.
+	ExternalAuth bool
 }
 
 // BuildStandardAndSRV builds the connection string with both schemes, the
@@ -123,6 +129,9 @@ func (o Options) WithUser(user authtypes.User, password string) Options {
 	o.Username = user.Username
 	o.Password = password
 	o.Params["authSource"] = user.Database
+	// Overriding the authSource comes with the responsibility of dropping the
+	// derived authMechanism: $external users authenticate without one.
+	o.ExternalAuth = user.Database == constants.ExternalDB
 	o.Database = user.ConnectionStringDatabase
 	o.UserParams = StringParams(user.ConnectionStringOptions)
 	return o
@@ -147,34 +156,24 @@ func OperatorParams() map[string]string {
 }
 
 // mergedParams combines the parameters derived from the resource with the
-// operator and user provided ones, in increasing order of priority. The tls
-// parameter carries the resource TLS setting unless a caller or user
-// parameter overrides it by the same name.
+// operator and user provided ones, in increasing order of priority.
 func (o Options) mergedParams() map[string]string {
-	params := map[string]string{}
+	params := map[string]string{
+		"tls": strconv.FormatBool(o.IsTLSEnabled),
+	}
 	if o.IsReplicaSet {
 		params["replicaSet"] = o.Name
-	}
-	if o.IsTLSEnabled {
-		params["tls"] = "true"
-	} else {
-		params["tls"] = "false"
 	}
 
 	authSource, authMechanism := authSourceAndMechanism(o.AuthenticationModes, o.Version)
 	if authSource != "" {
 		params["authSource"] = authSource
 	}
-
-	maps.Copy(params, o.Params)
-
-	// Omit the derived authMechanism for $external users, the client supplies
-	// the mechanism at connect time. A mechanism provided by the caller in
-	// Params is always kept.
-	if _, callerMechanism := o.Params["authMechanism"]; !callerMechanism && params["authSource"] != constants.ExternalDB && authMechanism != "" {
+	if !o.ExternalAuth && authMechanism != "" {
 		params["authMechanism"] = authMechanism
 	}
 
+	maps.Copy(params, o.Params)
 	maps.Copy(params, o.UserParams)
 
 	return params
