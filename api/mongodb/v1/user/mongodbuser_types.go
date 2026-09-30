@@ -13,6 +13,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -152,6 +153,23 @@ func (u *MongoDBUser) UpdateStatus(phase status.Phase, statusOptions ...status.O
 		u.Status.Roles = u.Spec.Roles
 		u.Status.Database = u.Spec.Database
 		u.Status.Username = u.Spec.Username
+	}
+}
+
+// GetKind returns the Kind of the resource. This is needed because
+// when objects are retrieved from the Kubernetes API, the TypeMeta
+// (which contains Kind and APIVersion) is not populated.
+func (u *MongoDBUser) GetKind() string {
+	return "MongoDBUser"
+}
+
+func (u *MongoDBUser) ObjectKey() client.ObjectKey {
+	return kube.ObjectKey(u.Namespace, u.Name)
+}
+
+func (u *MongoDBUser) GetOwnerLabels() map[string]string {
+	return map[string]string{
+		util.OperatorLabelName: util.OperatorLabelValue,
 	}
 }
 

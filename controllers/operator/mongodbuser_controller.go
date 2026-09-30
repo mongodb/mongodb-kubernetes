@@ -20,10 +20,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -345,13 +342,9 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	}
 
 	centralSecret := connectionstringsecret.Secret{
-		Name:      secretName,
-		Namespace: user.Namespace,
-		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(&user, schema.GroupVersionKind{
-			Group:   apiv1.SchemeGroupVersion.Group,
-			Version: apiv1.SchemeGroupVersion.Version,
-			Kind:    "MongoDBUser",
-		})},
+		Name:            secretName,
+		Namespace:       user.Namespace,
+		OwnerReferences: kube.BaseOwnerReference(&user),
 	}
 	return connectionstringsecret.PublishForUser(ctx, r.SecretClient, connectionBuilder.ConnectionOptions(), userOptions, password, centralSecret)
 }

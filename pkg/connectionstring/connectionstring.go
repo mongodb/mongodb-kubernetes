@@ -72,9 +72,13 @@ func StringParams(options map[string]interface{}) map[string]string {
 
 // ProtectedConnectionParams are connection string parameters that the operator
 // controls through other means, so any value supplied for them in user or
-// resource configuration is dropped.
+// resource configuration is dropped. The tls parameter is the deprecated
+// alias of ssl: the operator always emits ssl itself and no tls value is
+// ever produced.
 var ProtectedConnectionParams = map[string]struct{}{
 	"replicaSet": {},
+	"ssl":        {},
+	"tls":        {},
 }
 
 // Options carries everything needed to build a MongoDB connection string.
@@ -150,21 +154,14 @@ func OperatorParams() map[string]string {
 	}
 }
 
-// normalizedParams drops protected keys and rewrites the deprecated tls
-// parameter to ssl, so the output only ever uses ssl. An explicit ssl value
-// wins over tls within the same input.
+// normalizedParams drops protected keys from caller supplied parameters.
 func normalizedParams(input map[string]string) map[string]string {
 	normalized := make(map[string]string, len(input))
 	for key, value := range input {
-		if _, protected := ProtectedConnectionParams[key]; protected || key == "tls" {
+		if _, protected := ProtectedConnectionParams[key]; protected {
 			continue
 		}
 		normalized[key] = value
-	}
-	if value, ok := input["tls"]; ok {
-		if _, hasSSL := input["ssl"]; !hasSSL {
-			normalized["ssl"] = value
-		}
 	}
 	return normalized
 }
