@@ -2,11 +2,15 @@ package connectionstringsecret
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"golang.org/x/xerrors"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
@@ -41,6 +45,21 @@ type Secret struct {
 	Annotations     map[string]string
 	OwnerReferences []v1.OwnerReference
 	Fields          map[string]string
+}
+
+// UserSecretName returns the name of the per user connection string secret:
+// the override when set, otherwise the generated
+// "<resource>-<username>-<database>" name, with the $ prefix of $external
+// databases trimmed.
+func UserSecretName(override, resourceName, username, database string) string {
+	if override != "" {
+		return override
+	}
+	database = strings.TrimPrefix(database, "$")
+	if resourceName != "" {
+		resourceName += "-"
+	}
+	return util.NormalizeName(fmt.Sprintf("%s%s-%s", resourceName, username, database))
 }
 
 // ValidateOwnership returns an error when an existing connection string

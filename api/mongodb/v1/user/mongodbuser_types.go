@@ -2,8 +2,6 @@ package user
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"golang.org/x/xerrors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,6 +11,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -174,20 +173,7 @@ func (u *MongoDBUser) GetOwnerLabels() map[string]string {
 }
 
 func (u MongoDBUser) GetConnectionStringSecretName() string {
-	if u.Spec.ConnectionStringSecretName != "" {
-		return u.Spec.ConnectionStringSecretName
-	}
-	var resourceRef string
-	if u.Spec.MongoDBResourceRef.Name != "" {
-		resourceRef = u.Spec.MongoDBResourceRef.Name + "-"
-	}
-
-	database := u.Spec.Database
-	if database == "$external" {
-		database = strings.TrimPrefix(database, "$")
-	}
-
-	return util.NormalizeName(fmt.Sprintf("%s%s-%s", resourceRef, u.Name, database))
+	return connectionstringsecret.UserSecretName(u.Spec.ConnectionStringSecretName, u.Spec.MongoDBResourceRef.Name, u.Name, u.Spec.Database)
 }
 
 func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option) {

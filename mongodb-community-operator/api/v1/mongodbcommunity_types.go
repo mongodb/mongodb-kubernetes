@@ -3,7 +3,6 @@ package v1
 import (
 	"fmt"
 	"maps"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -16,8 +15,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
@@ -307,15 +306,7 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 // GetConnectionStringSecretName gets the connection string secret name provided by the user or generated
 // from the SCRAM user configuration.
 func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
-	if m.ConnectionStringSecretName != "" {
-		return m.ConnectionStringSecretName
-	}
-
-	// The $ prefix of the $external database is trimmed like the enterprise
-	// resource does, so it does not turn into a dash in the generated name.
-	database := strings.TrimPrefix(m.DB, "$")
-
-	return util.NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, database, m.Name))
+	return connectionstringsecret.UserSecretName(m.ConnectionStringSecretName, resourceName, m.Name, m.DB)
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
