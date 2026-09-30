@@ -1076,3 +1076,22 @@ func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
 		assert.Nil(t, mdb.Spec.Security.Authentication)
 	})
 }
+
+func TestValidateAgentClientCertificateSecretName(t *testing.T) {
+	valid := Security{
+		Authentication: &Authentication{Enabled: true},
+	}
+	valid.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "my-agent-certs"
+	assert.NoError(t, valid.ValidateAgentClientCertificateSecretName("rs"))
+
+	invalid := Security{
+		Authentication: &Authentication{Enabled: true},
+	}
+	invalid.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = `x" }}{{ with secret "y" }}{{ end }}{{ "`
+	err := invalid.ValidateAgentClientCertificateSecretName("rs")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "clientCertificateSecretRef")
+
+	unused := Security{} // no client cert ref: default name is operator-generated, always valid
+	assert.NoError(t, unused.ValidateAgentClientCertificateSecretName("rs"))
+}
