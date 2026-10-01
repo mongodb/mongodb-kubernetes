@@ -21,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 const (
@@ -318,7 +319,7 @@ sed -i "s/%s/$HOSTNAME/" %s
 	return container.Apply(
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
-		container.WithImagePullPolicy(corev1.PullAlways),
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(mongotLivenessProbe(mdbSearch)),
 		container.WithReadinessProbe(mongotReadinessProbe(mdbSearch)),
 		container.WithResourceRequirements(resourceRequirements),
