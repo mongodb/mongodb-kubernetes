@@ -43,6 +43,7 @@ import (
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
+	mock.InitDefaultEnvVariables()
 }
 
 func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv1.MongoDBSearch)) *searchv1.MongoDBSearch {
