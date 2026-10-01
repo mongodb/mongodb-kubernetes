@@ -4,8 +4,9 @@ CVE scanning for freshly built and published container images.
 
 Scans images produced by the build-and-publish pipeline (scripts/release/pipeline.py)
 with trivy and notifies Slack (#k8s-enterprise-builds) when CRITICAL/HIGH
-vulnerabilities are detected, so the team can triage quickly and answer whether
-an issue is fixed (a patched package version exists) or not fixed upstream.
+vulnerabilities with an available fix are detected. Findings without a patched
+package version are not actionable, so they are omitted from the report; the full
+raw trivy JSON is still uploaded to S3 for investigation.
 
 The image repositories and platforms are resolved from 'build_info.json' for the
 given build scenario - exactly like the build pipeline does - so the scan always
@@ -31,7 +32,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
 
 import requests
 
@@ -64,14 +64,9 @@ class Vulnerability:
     severity: str
     pkg_name: str
     installed_version: str
-    fixed_version: str = ""
+    fixed_version: str
     title: str = ""
     primary_url: str = ""
-
-    @property
-    def is_fixed(self) -> bool:
-        """True when a patched package version exists (the CVE is fixed upstream)."""
-        return bool(self.fixed_version)
 
 
 @dataclass
@@ -79,9 +74,18 @@ class ScanResult:
     image_ref: str
     platform: str
     vulnerabilities: list[Vulnerability] = field(default_factory=list)
+    unfixable_count: int = 0
 
-    def count(self, severity: str, fixed: Optional[bool] = None) -> int:
-        return sum(1 for v in self.vulnerabilities if v.severity == severity and (fixed is None or v.is_fixed == fixed))
+    @property
+    def fixable_count(self) -> int:
+        return len(self.vulnerabilities)
+
+    @property
+    def total_count(self) -> int:
+        return self.fixable_count + self.unfixable_count
+
+    def count(self, severity: str) -> int:
+        return sum(1 for v in self.vulnerabilities if v.severity == severity)
 
     def severities(self) -> list[str]:
         seen = []
@@ -166,8 +170,16 @@ def run_trivy_scan(trivy_bin: str, image_ref: str, platform: str, severities: st
 
 
 def parse_trivy_report(report: dict, image_ref: str, platform: str) -> ScanResult:
-    """Convert a trivy JSON report into a ScanResult, deduplicating findings."""
+    """Convert a trivy JSON report into a ScanResult, keeping only fixable findings.
+
+    Only vulnerabilities with an available fix (a non-empty FixedVersion) are
+    kept in ``vulnerabilities``, because those are the only actionable ones for
+    the team. Findings without a fix are counted in ``unfixable_count`` so the
+    report can show how many were found in total. The full raw trivy JSON is
+    still written to disk and uploaded to S3 for investigation.
+    """
     vulnerabilities = []
+    unfixable_count = 0
     seen = set()
     for result in report.get("Results") or []:
         for vulnerability in result.get("Vulnerabilities") or []:
@@ -179,19 +191,29 @@ def parse_trivy_report(report: dict, image_ref: str, platform: str) -> ScanResul
             if key in seen:
                 continue
             seen.add(key)
+
+            fixed_version = (vulnerability.get("FixedVersion") or "").strip()
+            if not fixed_version:
+                unfixable_count += 1
+                continue
             vulnerabilities.append(
                 Vulnerability(
                     id=vulnerability.get("VulnerabilityID", "unknown"),
                     severity=vulnerability.get("Severity", "UNKNOWN"),
                     pkg_name=vulnerability.get("PkgName", "unknown"),
                     installed_version=vulnerability.get("InstalledVersion", ""),
-                    fixed_version=vulnerability.get("FixedVersion", ""),
+                    fixed_version=fixed_version,
                     title=vulnerability.get("Title", ""),
                     primary_url=vulnerability.get("PrimaryURL", ""),
                 )
             )
 
-    return ScanResult(image_ref=image_ref, platform=platform, vulnerabilities=vulnerabilities)
+    return ScanResult(
+        image_ref=image_ref,
+        platform=platform,
+        vulnerabilities=vulnerabilities,
+        unfixable_count=unfixable_count,
+    )
 
 
 def severity_order(severity: str) -> int:
@@ -200,16 +222,20 @@ def severity_order(severity: str) -> int:
 
 
 def summarize_result(result: ScanResult) -> str:
-    """One line summary such as 'CRITICAL: 2 (1 fixable), HIGH: 5 (4 fixable)'."""
-    if not result.vulnerabilities:
+    """One line summary showing how many findings are fixable and how many are not.
+
+    E.g. '57 fixable (HIGH: 57), 261 not fixable (318 total)'.
+    """
+    if result.total_count == 0:
         return "no vulnerabilities found"
 
-    parts = []
-    for severity in sorted(result.severities(), key=severity_order):
-        total = result.count(severity)
-        fixable = result.count(severity, fixed=True)
-        parts.append(f"{severity}: {total} ({fixable} fixable)")
-    return ", ".join(parts)
+    severities = ", ".join(
+        f"{severity}: {result.count(severity)}" for severity in sorted(result.severities(), key=severity_order)
+    )
+    fixable = f"{result.fixable_count} fixable"
+    if severities:
+        fixable += f" ({severities})"
+    return f"{fixable}, {result.unfixable_count} not fixable ({result.total_count} total)"
 
 
 def print_stdout_report(results: list[ScanResult]) -> None:
@@ -217,31 +243,33 @@ def print_stdout_report(results: list[ScanResult]) -> None:
         print(f"\n=== {result.image_ref} ({result.platform}): {summarize_result(result)} ===")
         if not result.vulnerabilities:
             continue
-        print(f"{'ID':<20} {'SEVERITY':<10} {'PACKAGE':<30} {'INSTALLED':<25} FIX STATUS")
+        print(f"{'ID':<20} {'SEVERITY':<10} {'PACKAGE':<30} {'INSTALLED':<25} FIXED IN")
         for v in sorted(result.vulnerabilities, key=lambda v: (severity_order(v.severity), v.id)):
-            fix_status = f"fixed in {v.fixed_version}" if v.is_fixed else "no fix available"
-            print(f"{v.id:<20} {v.severity:<10} {v.pkg_name:<30} {v.installed_version:<25} {fix_status}")
+            print(f"{v.id:<20} {v.severity:<10} {v.pkg_name:<30} {v.installed_version:<25} {v.fixed_version}")
 
 
 def format_slack_message(image: str, scenario: BuildScenario, results: list[ScanResult]) -> dict:
     """Format the scan findings as a Slack Block Kit message.
 
-    Every finding states whether a fix exists, so the team can quickly answer
-    whether an issue is fixed or not fixed.
+    Only fixable findings are listed, so every entry states the version the fix
+    is available in and the team can act on it directly. The totals make clear
+    how many findings are fixable and how many are not.
     """
-    total_vulnerabilities = sum(len(r.vulnerabilities) for r in results)
+    total_found = sum(r.total_count for r in results)
+    total_fixable = sum(r.fixable_count for r in results)
+    total_unfixable = total_found - total_fixable
 
     blocks = [
         {
             "type": "header",
-            "text": {"type": "plain_text", "text": f"CVE scan: vulnerabilities found in {image} image"},
+            "text": {"type": "plain_text", "text": f"CVE scan: fixable vulnerabilities found in {image} image"},
         },
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"Trivy detected *{total_vulnerabilities}* vulnerabilities in newly built `{image}` "
-                f"images (build scenario: `{scenario}`):",
+                "text": f"Trivy detected *{total_found}* CRITICAL/HIGH vulnerabilities in newly built `{image}` "
+                f"images (build scenario: `{scenario}`): *{total_fixable} fixable*, {total_unfixable} not fixable.",
             },
         },
         {"type": "divider"},
@@ -255,8 +283,7 @@ def format_slack_message(image: str, scenario: BuildScenario, results: list[Scan
         lines = []
         for v in top_findings[:SLACK_MAX_FINDINGS]:
             cve = f"<{v.primary_url}|{v.id}>" if v.primary_url else v.id
-            fix_status = f"fixed in `{v.fixed_version}`" if v.is_fixed else "*no fix available*"
-            lines.append(f"• {cve} [{v.severity}] `{v.pkg_name} {v.installed_version}` — {fix_status}")
+            lines.append(f"• {cve} [{v.severity}] `{v.pkg_name} {v.installed_version}` — fixed in `{v.fixed_version}`")
         if len(top_findings) > SLACK_MAX_FINDINGS:
             lines.append(f"… and {len(top_findings) - SLACK_MAX_FINDINGS} more (see task logs)")
 
@@ -340,7 +367,7 @@ def scan_image(args) -> list[ScanResult]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Scan container images built by the release pipeline for CVEs using trivy "
-        "and notify Slack when vulnerabilities are detected."
+        "and notify Slack when fixable vulnerabilities are detected."
     )
     parser.add_argument(
         "image",
@@ -386,7 +413,7 @@ def main() -> int:
     parser.add_argument(
         "--fail-on-findings",
         action="store_true",
-        help="Exit with a non-zero code when vulnerabilities are found. By default the scan "
+        help="Exit with a non-zero code when fixable vulnerabilities are found. By default the scan "
         "is notify-only and never blocks the build-and-publish pipeline.",
     )
     parser.add_argument(
@@ -400,12 +427,18 @@ def main() -> int:
 
     print_stdout_report(results)
 
-    total_vulnerabilities = sum(len(r.vulnerabilities) for r in results)
-    if total_vulnerabilities == 0:
-        logger.info(f"No vulnerabilities found in '{args.image}' images")
+    total_found = sum(r.total_count for r in results)
+    total_fixable = sum(r.fixable_count for r in results)
+    if total_fixable == 0:
+        logger.info(
+            f"No fixable vulnerabilities found in '{args.image}' images "
+            f"({total_found} CRITICAL/HIGH findings without a fix)"
+        )
         return 0
 
-    logger.warning(f"Found {total_vulnerabilities} vulnerabilities in '{args.image}' images")
+    logger.warning(
+        f"Found {total_fixable} fixable of {total_found} CRITICAL/HIGH vulnerabilities in '{args.image}' images"
+    )
 
     message = format_slack_message(args.image, get_scenario_from_arg(args.build_scenario), results)
     if args.dry_run:

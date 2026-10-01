@@ -72,28 +72,82 @@ class TestParseTrivyReport:
 
         assert result.image_ref == "quay.io/mongodb/mongodb-kubernetes:1.5.0"
         assert result.platform == "linux/amd64"
-        assert len(result.vulnerabilities) == 3
-        assert [v.id for v in result.vulnerabilities] == ["CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003"]
+        assert [v.id for v in result.vulnerabilities] == ["CVE-2026-0001", "CVE-2026-0003"]
+        # CVE-2026-0002 has no fix and is only counted, not listed
+        assert result.fixable_count == 2
+        assert result.unfixable_count == 1
+        assert result.total_count == 3
 
-    def test_fix_status(self):
+    def test_unfixed_vulnerabilities_are_excluded(self):
         result = parse_trivy_report(SAMPLE_TRIVY_REPORT, "image:tag", "linux/amd64")
 
-        fixed = {v.id: v.is_fixed for v in result.vulnerabilities}
-        assert fixed == {"CVE-2026-0001": True, "CVE-2026-0002": False, "CVE-2026-0003": True}
+        # CVE-2026-0002 has no FixedVersion and must not be listed
+        assert "CVE-2026-0002" not in [v.id for v in result.vulnerabilities]
+        assert all(v.fixed_version for v in result.vulnerabilities)
+        assert result.unfixable_count == 1
+
+    def test_empty_fixed_version_is_counted_as_unfixable(self):
+        report = {
+            "Results": [
+                {
+                    "Vulnerabilities": [
+                        {"VulnerabilityID": "CVE-1", "PkgName": "pkg", "InstalledVersion": "1.0", "FixedVersion": ""},
+                        {"VulnerabilityID": "CVE-2", "PkgName": "pkg", "InstalledVersion": "1.0", "FixedVersion": None},
+                        {
+                            "VulnerabilityID": "CVE-3",
+                            "PkgName": "pkg",
+                            "InstalledVersion": "1.0",
+                            "FixedVersion": "   ",
+                        },
+                    ]
+                }
+            ]
+        }
+        result = parse_trivy_report(report, "image:tag", "linux/amd64")
+
+        assert result.vulnerabilities == []
+        assert result.fixable_count == 0
+        assert result.unfixable_count == 3
+        assert result.total_count == 3
+
+    def test_unfixable_findings_are_deduplicated(self):
+        report = {
+            "Results": [
+                {
+                    "Vulnerabilities": [
+                        {"VulnerabilityID": "CVE-1", "PkgName": "pkg", "InstalledVersion": "1.0", "FixedVersion": ""},
+                    ]
+                },
+                {
+                    "Vulnerabilities": [
+                        {"VulnerabilityID": "CVE-1", "PkgName": "pkg", "InstalledVersion": "1.0", "FixedVersion": ""},
+                    ]
+                },
+            ]
+        }
+        result = parse_trivy_report(report, "image:tag", "linux/amd64")
+
+        assert result.unfixable_count == 1
 
     def test_empty_report(self):
         result = parse_trivy_report({}, "image:tag", "linux/amd64")
         assert result.vulnerabilities == []
+        assert result.total_count == 0
 
     def test_report_with_null_results(self):
         result = parse_trivy_report({"Results": None}, "image:tag", "linux/amd64")
         assert result.vulnerabilities == []
+        assert result.total_count == 0
 
 
 class TestSummarizeResult:
-    def test_counts_by_severity_with_fixable(self):
+    def test_shows_fixable_and_unfixable_totals(self):
         result = parse_trivy_report(SAMPLE_TRIVY_REPORT, "image:tag", "linux/amd64")
-        assert summarize_result(result) == "CRITICAL: 1 (1 fixable), HIGH: 2 (1 fixable)"
+        assert summarize_result(result) == "2 fixable (CRITICAL: 1, HIGH: 1), 1 not fixable (3 total)"
+
+    def test_only_unfixable_findings(self):
+        result = ScanResult(image_ref="image:tag", platform="linux/amd64", unfixable_count=12)
+        assert summarize_result(result) == "0 fixable, 12 not fixable (12 total)"
 
     def test_no_vulnerabilities(self):
         result = ScanResult(image_ref="image:tag", platform="linux/amd64")
@@ -149,17 +203,22 @@ class TestResolveScanTargets:
 
 
 class TestFormatSlackMessage:
-    def test_message_contains_findings_and_fix_status(self):
+    def test_message_contains_findings_and_fix_version(self):
         result = parse_trivy_report(SAMPLE_TRIVY_REPORT, "quay.io/mongodb/mongodb-kubernetes:1.5.0", "linux/amd64")
 
         message = format_slack_message("operator", BuildScenario.RELEASE, [result])
 
         text = str(message)
-        assert "CVE scan: vulnerabilities found in operator image" in text
+        assert "CVE scan: fixable vulnerabilities found in operator image" in text
         assert "quay.io/mongodb/mongodb-kubernetes:1.5.0" in text
         assert "CVE-2026-0001" in text
         assert "fixed in `3.0.7-2`" in text
-        assert "*no fix available*" in text
+        # totals show fixable vs not fixable
+        assert "3* CRITICAL/HIGH vulnerabilities" in text
+        assert "*2 fixable*, 1 not fixable" in text
+        # findings without a fix are not listed
+        assert "CVE-2026-0002" not in text
+        assert "no fix available" not in text
 
     def test_results_without_findings_are_omitted(self):
         clean = ScanResult(image_ref="quay.io/mongodb/clean-image:1.0.0", platform="linux/arm64")
@@ -173,7 +232,13 @@ class TestFormatSlackMessage:
 
     def test_long_finding_lists_are_truncated(self):
         vulnerabilities = [
-            Vulnerability(id=f"CVE-2026-{i:04d}", severity="HIGH", pkg_name="pkg", installed_version="1.0")
+            Vulnerability(
+                id=f"CVE-2026-{i:04d}",
+                severity="HIGH",
+                pkg_name="pkg",
+                installed_version="1.0",
+                fixed_version="1.1",
+            )
             for i in range(25)
         ]
         result = ScanResult(image_ref="image:tag", platform="linux/amd64", vulnerabilities=vulnerabilities)
