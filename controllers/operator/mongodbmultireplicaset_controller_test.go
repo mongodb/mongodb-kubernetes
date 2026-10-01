@@ -687,6 +687,74 @@ func TestResourceDeletion(t *testing.T) {
 	}
 }
 
+func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
+	ctx := context.Background()
+	testCases := []struct {
+		name          string
+		role          string
+		expectCleanup bool
+	}{
+		{
+			name: "AppDB role keeps Ops Manager state",
+			role: mdb.RoleAppDB,
+		},
+		{
+			name:          "non-AppDB role cleans Ops Manager state",
+			role:          "",
+			expectCleanup: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mrs, reconciler, _, omConnectionFactory := newMultiClusterGateFixture(tc.role)
+			checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, reconciler.client, false)
+
+			mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+			beforeProcesses := mockedConn.GetProcesses()
+			require.NotEmpty(t, beforeProcesses)
+
+			beforeHosts, err := mockedConn.GetHosts()
+			require.NoError(t, err)
+			require.NotNil(t, beforeHosts)
+			require.NotEmpty(t, beforeHosts.Results)
+
+			beforeAC, err := mockedConn.ReadAutomationConfig()
+			require.NoError(t, err)
+			require.NotNil(t, beforeAC.Auth)
+
+			beforeAuthEnabled := beforeAC.Auth.IsEnabled()
+			beforeAutoAuthMechanisms := append([]string(nil), beforeAC.Auth.AutoAuthMechanisms...)
+			beforeDeploymentAuthMechanisms := append([]string(nil), beforeAC.Auth.DeploymentAuthMechanisms...)
+
+			err = reconciler.deleteManagedResources(ctx, *mrs, zap.S())
+			require.NoError(t, err)
+
+			afterProcesses := mockedConn.GetProcesses()
+			afterHosts, err := mockedConn.GetHosts()
+			require.NoError(t, err)
+			require.NotNil(t, afterHosts)
+			afterAC, err := mockedConn.ReadAutomationConfig()
+			require.NoError(t, err)
+			require.NotNil(t, afterAC.Auth)
+
+			if tc.expectCleanup {
+				assert.Empty(t, afterProcesses)
+				assert.Empty(t, afterHosts.Results)
+				assert.Empty(t, afterAC.Auth.AutoAuthMechanisms)
+				assert.Empty(t, afterAC.Auth.DeploymentAuthMechanisms)
+				assert.False(t, afterAC.Auth.IsEnabled())
+			} else {
+				assert.Len(t, afterProcesses, len(beforeProcesses))
+				assert.Len(t, afterHosts.Results, len(beforeHosts.Results))
+				assert.Equal(t, beforeAuthEnabled, afterAC.Auth.IsEnabled())
+				assert.Equal(t, beforeAutoAuthMechanisms, afterAC.Auth.AutoAuthMechanisms)
+				assert.Equal(t, beforeDeploymentAuthMechanisms, afterAC.Auth.DeploymentAuthMechanisms)
+			}
+		})
+	}
+}
+
 func TestGroupSecret_IsCopied_ToEveryMemberCluster(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
