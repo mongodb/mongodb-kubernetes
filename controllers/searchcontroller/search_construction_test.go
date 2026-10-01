@@ -278,6 +278,18 @@ func TestCreateSearchStatefulSetFunc_DefaultAntiAffinity(t *testing.T) {
 	assert.Equal(t, map[string]string{appLabelKey: "test-search-svc"}, terms[0].PodAffinityTerm.LabelSelector.MatchLabels)
 }
 
+func TestCreateSearchStatefulSetFunc_ImagePullPolicy(t *testing.T) {
+	t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+
+	search := newTestMongoDBSearch("test-search", "default")
+	stsMod := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "test-search-db", "default", "test-search-svc", "cm", nil, "mongot:latest", false)
+	sts := statefulset.New(stsMod)
+
+	require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+	assert.Equal(t, MongotContainerName, sts.Spec.Template.Spec.Containers[0].Name)
+	assert.Equal(t, corev1.PullIfNotPresent, sts.Spec.Template.Spec.Containers[0].ImagePullPolicy)
+}
+
 func TestCreateSearchStatefulSetFunc_StatefulSetOverrideReplacesAntiAffinity(t *testing.T) {
 	customAntiAffinity := &corev1.PodAntiAffinity{
 		RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
