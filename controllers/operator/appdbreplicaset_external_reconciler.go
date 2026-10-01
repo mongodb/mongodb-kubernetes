@@ -57,7 +57,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, o
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error validating externalApplicationDatabaseRef: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
-	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, externalAppDB.GetClusterList(), externalAppDB.IsMultiCluster()); err != nil {
+	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, externalAppDB); err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error detaching internal AppDB StatefulSet: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
@@ -116,7 +116,9 @@ func (e *ReconcileExternalAppDBReplicaSet) getExternalAppDBReference(ctx context
 // Ownership is decided by the resource-owner label rather than by an ownerReference: a StatefulSet
 // deployed to a member cluster must never carry a cross-cluster ownerReference. A legacy StatefulSet
 // that predates the ownership labels is recognised by its ownerReference and backfilled in memory.
-func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, clusterList []appDBClusterItem, isMulticluster bool) error {
+func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, externalAppDB ExternalAppDB) error {
+	clusterList := externalAppDB.GetClusterList()
+
 	existingStatefulSets := make(map[string]appsv1.StatefulSet, len(clusterList))
 	for _, clusterItem := range clusterList {
 		if clusterItem.client == nil {
@@ -140,7 +142,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 	// owns: one left in an undeclared cluster would keep its Ops Manager ownership after the
 	// handover. A single-cluster reference always carries the internal AppDB's name, so it cannot
 	// leave one behind.
-	if isMulticluster {
+	if externalAppDB.IsMultiCluster() {
 		for clusterName, memberClient := range e.memberClustersMap {
 			if memberClient == nil {
 				continue
