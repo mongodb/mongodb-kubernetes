@@ -47,6 +47,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/memberwatch"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -1778,6 +1779,119 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 				tt.setup(t, mrs, reconciler, clusterMap)
 			}
 			tt.verify(t, mrs, reconciler, clusterMap)
+		})
+	}
+}
+
+func TestMDBMultiValidateAppDBForwardMigration(t *testing.T) {
+	ctx := context.Background()
+	const certSecretName = "my-om-db-cert-pem"
+	const appDBCAConfigMap = "my-om-db-ca"
+
+	tests := []struct {
+		name          string
+		tlsEnabled    bool
+		tlsCA         string
+		members       int
+		stsReplicas   int32
+		annotated     bool
+		certSecret    bool
+		expectedOK    bool
+		expectedError string
+	}{
+		{
+			name:        "missing migration annotation closes the window",
+			members:     5,
+			stsReplicas: 3,
+			certSecret:  true,
+			expectedOK:  true,
+		},
+		{
+			name:          "forward annotation with TLS disabled is blocked",
+			tlsEnabled:    false,
+			members:       3,
+			stsReplicas:   3,
+			annotated:     true,
+			certSecret:    true,
+			expectedError: "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
+		},
+		{
+			name:          "forward annotation with CA mismatch is blocked",
+			tlsEnabled:    true,
+			tlsCA:         "other-ca",
+			members:       3,
+			stsReplicas:   3,
+			annotated:     true,
+			certSecret:    true,
+			expectedError: `cannot change AppDB configuration during forward migration: spec.security.tls.ca must reference ConfigMap "my-om-db-ca"`,
+		},
+		{
+			name:          "forward annotation with members mismatch is blocked",
+			tlsEnabled:    true,
+			tlsCA:         appDBCAConfigMap,
+			members:       5,
+			stsReplicas:   3,
+			annotated:     true,
+			certSecret:    true,
+			expectedError: "cannot change AppDB configuration during forward migration: spec.members must remain 3",
+		},
+		{
+			name:        "matching forward migration spec passes",
+			tlsEnabled:  true,
+			tlsCA:       appDBCAConfigMap,
+			members:     3,
+			stsReplicas: 3,
+			annotated:   true,
+			certSecret:  true,
+			expectedOK:  true,
+		},
+		{
+			name:          "tls violation wins over members mismatch",
+			tlsEnabled:    false,
+			members:       5,
+			stsReplicas:   3,
+			annotated:     true,
+			certSecret:    true,
+			expectedError: "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs, reconciler, clusterMap, _ := newMultiClusterGateFixture(mdb.RoleAppDB)
+			clusterName := clusters[0]
+			item := mdb.ClusterSpecItem{ClusterName: clusterName, Members: tt.members}
+
+			if tt.tlsEnabled || tt.tlsCA != "" {
+				mrs.Spec.Security = &mdb.Security{TLSConfig: &mdb.TLSConfig{Enabled: tt.tlsEnabled, CA: tt.tlsCA}}
+			}
+
+			annotations := map[string]string{}
+			if tt.annotated {
+				annotations[util.AppDBMigrationReadyAnnotation] = trueString
+			}
+
+			volumes := []corev1.Volume{}
+			if tt.certSecret {
+				volumes = append(volumes,
+					corev1.Volume{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: certSecretName}}},
+					corev1.Volume{Name: tls.ConfigMapVolumeCAName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: appDBCAConfigMap}}}},
+				)
+				require.NoError(t, reconciler.memberClusterSecretClientsMap[clusterName].CreateSecret(ctx, corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: certSecretName, Namespace: mrs.Namespace},
+					Data:       map[string][]byte{"tls.crt": []byte("cert")},
+				}))
+			}
+
+			sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(clusterName), nil, annotations, tt.stsReplicas, volumes...)
+			require.NoError(t, clusterMap[clusterName].Create(ctx, &sts))
+
+			gateStatus := reconciler.validateAppDBForwardMigration(ctx, mrs, item, sts, reconciler.memberClusterSecretClientsMap[clusterName], zap.S())
+			assert.Equal(t, tt.expectedOK, gateStatus.IsOK())
+			if tt.expectedError != "" {
+				assert.Equal(t, status.PhaseFailed, gateStatus.Phase())
+				assert.Equal(t, tt.expectedError, statusMessage(gateStatus))
+			}
 		})
 	}
 }
