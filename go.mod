@@ -39,10 +39,10 @@ require (
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	k8s.io/api v0.34.11
-	k8s.io/apimachinery v0.34.11
-	k8s.io/client-go v0.34.11
-	k8s.io/code-generator v0.34.11
+	k8s.io/api v0.34.12
+	k8s.io/apimachinery v0.34.12
+	k8s.io/client-go v0.34.12
+	k8s.io/code-generator v0.34.12
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	sigs.k8s.io/controller-runtime v0.21.0
