@@ -52,12 +52,12 @@ type appDBClusterItem struct {
 // detach-and-adopt migration of any pre-existing internal AppDB (idempotent, no-op once
 // complete), and establishes a watch on the referenced CR.
 func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (reconcile.Result, error) {
-	externalAppDB, err := e.getExternalAppDBReference(ctx, opsManager)
+	appDB, err := e.getExternalAppDBReference(ctx, opsManager)
 	if err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error validating externalApplicationDatabaseRef: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
-	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, externalAppDB); err != nil {
+	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, appDB); err != nil {
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error detaching internal AppDB StatefulSet: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
@@ -87,7 +87,7 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 }
 
 // getExternalAppDBReference retrieves the opsManager's spec.externalApplicationDatabaseRef resource
-func (e *ReconcileExternalAppDBReplicaSet) getExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (ExternalAppDB, error) {
+func (e *ReconcileExternalAppDBReplicaSet) getExternalAppDBReference(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (externalAppDB, error) {
 	ref := opsManager.Spec.ExternalAppDBRef
 	if ref == nil {
 		return nil, xerrors.Errorf("externalApplicationDatabaseRef is nil, must be set to a valid MongoDB reference")
@@ -116,8 +116,8 @@ func (e *ReconcileExternalAppDBReplicaSet) getExternalAppDBReference(ctx context
 // Ownership is decided by the resource-owner label rather than by an ownerReference: a StatefulSet
 // deployed to a member cluster must never carry a cross-cluster ownerReference. A legacy StatefulSet
 // that predates the ownership labels is recognised by its ownerReference and backfilled in memory.
-func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, externalAppDB ExternalAppDB) error {
-	clusterList := externalAppDB.GetClusterList()
+func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDB externalAppDB) error {
+	clusterList := appDB.getClusterList()
 
 	existingStatefulSets := make(map[string]appsv1.StatefulSet, len(clusterList))
 	for _, clusterItem := range clusterList {
@@ -142,7 +142,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 	// owns: one left in an undeclared cluster would keep its Ops Manager ownership after the
 	// handover. A single-cluster reference always carries the internal AppDB's name, so it cannot
 	// leave one behind.
-	if externalAppDB.IsMultiCluster() {
+	if appDB.IsMultiCluster() {
 		for clusterName, memberClient := range e.memberClustersMap {
 			if memberClient == nil {
 				continue
@@ -241,7 +241,7 @@ func (o *externalAppDBRefObject) IsTLSEnabled() bool {
 	return o.IsSecurityTLSConfigEnabled()
 }
 
-func (o *externalAppDBRefObject) GetClusterList() []appDBClusterItem {
+func (o *externalAppDBRefObject) getClusterList() []appDBClusterItem {
 	return o.clusterList
 }
 
@@ -249,16 +249,16 @@ func (o *externalAppDBRefObject) IsMultiCluster() bool {
 	return o.isMulticluster
 }
 
-type ExternalAppDB interface {
+type externalAppDB interface {
 	connectionstring.ConnectionStringBuilder
 	GetRole() string
 	GetCAConfigMapName() string
 	IsTLSEnabled() bool
-	GetClusterList() []appDBClusterItem
+	getClusterList() []appDBClusterItem
 	IsMultiCluster() bool
 }
 
-func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (ExternalAppDB, error) {
+func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (externalAppDB, error) {
 	objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
 
 	switch ref.Kind {

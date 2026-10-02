@@ -325,7 +325,7 @@ func TestExternalAppDBReference_SingleClusterUsesCentralClusterName(t *testing.T
 
 	externalAppDB, err := reconciler.createNewExternalAppDBReconciler(zap.S()).getExternalAppDBReference(ctx, testOm)
 	require.NoError(t, err)
-	clusterList := externalAppDB.GetClusterList()
+	clusterList := externalAppDB.getClusterList()
 	require.Len(t, clusterList, 1)
 	assert.Equal(t, multicluster.LegacyCentralClusterName, clusterList[0].clusterName)
 	assert.Equal(t, "test-om-db", clusterList[0].stsName)
@@ -631,7 +631,7 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 				require.NoError(t, reconciler.client.Create(ctx, ref))
 				externalAppDB, err := reconciler.createNewExternalAppDBReconciler(zap.S()).getExternalAppDBReference(ctx, testOm)
 				require.NoError(t, err)
-				clusterList = externalAppDB.GetClusterList()
+				clusterList = externalAppDB.getClusterList()
 				statefulSetFor = ref.StatefulSetNameForCluster
 				isMulticluster = true
 			case omv1.ExternalAppDBRefKindMongoDB:
@@ -641,7 +641,7 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 				require.NoError(t, reconciler.client.Create(ctx, ref))
 				externalAppDB, err := reconciler.createNewExternalAppDBReconciler(zap.S()).getExternalAppDBReference(ctx, testOm)
 				require.NoError(t, err)
-				clusterList = externalAppDB.GetClusterList()
+				clusterList = externalAppDB.getClusterList()
 				statefulSetFor = func(string) string { return ref.Name }
 			default:
 				t.Fatalf("unsupported ref kind %q", tt.refKind)
