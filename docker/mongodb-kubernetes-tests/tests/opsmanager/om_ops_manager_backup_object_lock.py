@@ -29,6 +29,8 @@ OBJECT_RETENTION_MIN_OM_VERSION = "8.0.27"
 
 
 def om_supports_object_retention(custom_version: Optional[str]) -> bool:
+    if custom_version is None:
+        return False
     return semver.VersionInfo.parse(custom_version) >= semver.VersionInfo.parse(OBJECT_RETENTION_MIN_OM_VERSION)
 
 
@@ -171,7 +173,9 @@ class TestOpsManagerCreation:
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
-    def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
+    def test_add_oplog_config(
+        self, ops_manager: MongoDBOpsManager, s3_buckets: Dict[str, str], custom_version: Optional[str]
+    ):
         # Keeping this assertion here speeds up the test by deploying the oplog MDB earlier
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -182,6 +186,21 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["opLogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
+        # The S3 oplog store sets the retention fields (when the OM version supports
+        # them), so it shares the retention bucket with s3Store2: OM validates that the
+        # bucket default retention rule and the store settings agree.
+        s3_oplog_store = {
+            "name": "oplogS3Store1",
+            "s3SecretRef": {"name": S3_SECRET_NAME},
+            "pathStyleAccessEnabled": True,  # required by the CRD schema
+            "s3BucketEndpoint": s3_endpoint(AWS_REGION),
+            "s3BucketName": s3_buckets["retention"],
+            "objectLockEnabled": True,
+        }
+        if om_supports_object_retention(custom_version):
+            s3_oplog_store["objectRetentionDays"] = OBJECT_RETENTION_DAYS
+            s3_oplog_store["objectRetentionMode"] = OBJECT_RETENTION_MODE
+        ops_manager["spec"]["backup"]["s3OpLogStores"] = [s3_oplog_store]
         ops_manager.update()
 
     def test_s3_bucket_validation_fails(self, ops_manager: MongoDBOpsManager):
@@ -301,3 +320,16 @@ class TestOpsManagerCreation:
         ]
 
         om_tester.assert_s3_stores(expected_stores)
+
+        oplog_store = new_om_s3_store(
+            appdb_replica_set,
+            "oplogS3Store1",
+            s3_buckets["retention"],
+            user_name=DEFAULT_APPDB_USER_NAME,
+            password=appdb_password,
+            object_lock_enabled=True,
+        )
+        oplog_store = feature_detect_retention(
+            oplog_store, om_tester.get_oplog_s3_stores()["results"][0]
+        )
+        om_tester.assert_oplog_s3_stores([oplog_store])
