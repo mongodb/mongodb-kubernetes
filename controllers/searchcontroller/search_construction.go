@@ -68,6 +68,10 @@ const (
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
+
+	// Prometheus metrics mTLS material.
+	MetricsServerCertOperatorMountPath = "/var/lib/tls/metrics-server/"
+	MetricsClientCAConfigMapMountPath  = "/var/lib/tls/metrics-client-ca/"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object

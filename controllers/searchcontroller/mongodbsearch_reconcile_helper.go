@@ -76,6 +76,25 @@ const (
 
 	// autoEmbeddingDetailsAnnKey has the annotation key that would be added to search pod with emebdding API Key secret hash
 	autoEmbeddingDetailsAnnKey = "autoEmbeddingDetailsHash"
+
+	// minMetricsTLSMongotVersion is the first mongot version known to support the
+	// optional metrics.tls block for the Prometheus /metrics endpoint.
+	//
+	// The code landed on mongot master via PR #8060 (CLOUDP-451659) on 2026-09-30
+	// (merge commit b436a9e). Git ancestry confirms it is NOT in v1.70.x (last tag
+	// 1.70.5), v1.75, or v1.76 (1.76.0 branch cut was 2026-09-24, before the merge),
+	// and there is no backport. The next branch cut is 1.77.0 (2026-10-08), so
+	// 1.77.0 is the first release containing it. This is the only precise,
+	// verifiable threshold.
+	//
+	// Do NOT gate on the self-managed "Mongot vNext" version: the release process
+	// deliberately picks it near the cut ("closer to the date we will pick the
+	// version"), and it is projected as "the community version most recently at
+	// 100%" (1.79.0 under the current schedule; 1.80.0/1.81.0 if the Dec 3 date
+	// slips). Any such base is >= 1.77.0, so this floor remains correct. If MCK
+	// needs the gate to track the exact shipped vehicle, make this configurable
+	// and set it in the MCK release that bumps MDB_SEARCH_VERSION.
+	minMetricsTLSMongotVersion = "1.77.0"
 )
 
 type OperatorSearchConfig struct {
@@ -747,6 +766,12 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
+	// Prometheus metrics mTLS material for this unit's mongot pods.
+	metricsTLSMongotModification, metricsTLSStsModification, err := r.ensureMetricsTlsConfig(ctx, unitClient, tlsSecretLabels, unit.ownerReferences)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	configHash, err := r.ensureMongotConfig(ctx,
 		log,
 		unitClient,
@@ -759,22 +784,29 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		ingressTlsMongotModification,
 		egressTlsMongotModification,
 		x509MongotModification,
+		metricsTLSMongotModification,
 		mods.embeddingConfigMongot,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Fold the dedicated keyFilePassword secrets' content into the config hash so that changing a
-	// password secret (without a cert/key change) still rolls the mongot pods to re-read it. The
-	// password is mounted directly (not part of the mongot config content), so it would not otherwise
-	// affect mongotConfigHash.
-	keyPasswordHash, err := r.keyFilePasswordContentHash(ctx, unitClient)
+	// Fold content that is mounted into the pod but not embedded in the rendered
+	// mongot config (dedicated keyFilePassword secrets, the metrics client CA)
+	// into the config hash, so rotating it still rolls the mongot pods.
+	mountedHash, err := HashMountedContent(ctx, unitClient, MountedContent{
+		Secrets: []types.NamespacedName{
+			r.mdbSearch.GrpcKeyFilePasswordSecret(),
+			r.mdbSearch.X509KeyFilePasswordSecret(),
+			r.mdbSearch.ScramKeyFilePasswordSecret(),
+		},
+		ConfigMaps: []types.NamespacedName{r.mdbSearch.MetricsClientCAConfigMap()},
+	})
 	if err != nil {
 		return nil, nil, err
 	}
-	if keyPasswordHash != "" {
-		configHash = hashBytes([]byte(configHash + keyPasswordHash))
+	if mountedHash != "" {
+		configHash = hashBytes([]byte(configHash + mountedHash))
 	}
 
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
@@ -797,6 +829,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		ingressTlsStsModification,
 		egressTlsStsModification,
 		x509StsModification,
+		metricsTLSStsModification,
 		mods.embeddingConfigSts,
 		stsOverride,
 		withSearchOwnerLabels(r.mdbSearch),
@@ -2117,32 +2150,97 @@ func (s *scramClientCertResource) TLSOperatorSecretNamespacedName() types.Namesp
 	return s.ScramClientCertOperatorManagedSecret()
 }
 
+// metricsServerCertResource adapts MongoDBSearch to provide the metrics server
+// certificate secret names. It implements the tls.TLSConfigurableResource
+// interface for use with tls.EnsureTLSSecret.
+type metricsServerCertResource struct {
+	*searchv1.MongoDBSearch
+}
+
+func (m *metricsServerCertResource) TLSSecretNamespacedName() types.NamespacedName {
+	return m.MetricsServerCertificateSecret()
+}
+
+func (m *metricsServerCertResource) TLSOperatorSecretNamespacedName() types.NamespacedName {
+	return m.MetricsServerOperatorSecret()
+}
+
+// supportsMetricsTLS reports whether the resolved mongot version is new enough to
+// accept the metrics.tls block. An unknown or unparseable version is treated as
+// unsupported so the operator never emits config an older image cannot parse.
+func (r *MongoDBSearchReconcileHelper) supportsMetricsTLS() (bool, error) {
+	version := r.getMongotVersion()
+	if version == "" {
+		return false, xerrors.New("cannot determine the mongot version to validate Prometheus metrics TLS support")
+	}
+	parsed, err := semver.NewVersion(version)
+	if err != nil {
+		return false, xerrors.Errorf("cannot parse mongot version %q to validate Prometheus metrics TLS support: %w", version, err)
+	}
+	minVersion := semver.MustParse(minMetricsTLSMongotVersion)
+	return !parsed.LessThan(minVersion), nil
+}
+
+// ensureMetricsTlsConfig configures mTLS for the mongot Prometheus /metrics
+// endpoint. When disabled or unconfigured it removes any previously mounted
+// metrics TLS material so an opt-out restores the plain HTTP scrape.
+func (r *MongoDBSearchReconcileHelper) ensureMetricsTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
+	removeVolumes := removeMongotVolumesAndMounts("metrics-server-cert", "metrics-client-ca")
+
+	prometheus := r.mdbSearch.Spec.Observability.Prometheus
+	if !prometheus.MetricsTLSConfigured() {
+		return mongot.NOOP(), removeVolumes, nil
+	}
+	if !prometheus.IsEnabled() {
+		return nil, nil, xerrors.New("spec.observability.prometheus.tls requires spec.observability.prometheus.mode: enabled")
+	}
+
+	supported, err := r.supportsMetricsTLS()
+	if err != nil {
+		return nil, nil, err
+	}
+	if !supported {
+		return nil, nil, xerrors.Errorf("mongot version %q does not support Prometheus metrics TLS (minimum: %s); upgrade mongot or remove spec.observability.prometheus.tls", r.getMongotVersion(), minMetricsTLSMongotVersion)
+	}
+
+	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, &metricsServerCertResource{MongoDBSearch: r.mdbSearch}, labels, ownerReferences)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	caConfigMap := r.mdbSearch.MetricsClientCAConfigMap()
+	mongotModification := func(config *mongot.Config) {
+		config.Metrics.TLS = &mongot.ConfigMetricsTLS{
+			CertificateKeyFile: ptr.To(MetricsServerCertOperatorMountPath + certFileName),
+			CAFile:             ptr.To(MetricsClientCAConfigMapMountPath + tlsCACertName),
+		}
+	}
+
+	serverCertVolume := statefulset.CreateVolumeFromSecret("metrics-server-cert", r.mdbSearch.MetricsServerOperatorSecret().Name)
+	serverCertVolumeMount := statefulset.CreateVolumeMount("metrics-server-cert", MetricsServerCertOperatorMountPath, statefulset.WithReadOnly(true))
+
+	clientCAVolume := statefulset.CreateVolumeFromConfigMap("metrics-client-ca", caConfigMap.Name)
+	clientCAVolumeMount := statefulset.CreateVolumeMount("metrics-client-ca", MetricsClientCAConfigMapMountPath, statefulset.WithReadOnly(true))
+
+	volumeMounts := []corev1.VolumeMount{serverCertVolumeMount, clientCAVolumeMount}
+	volumes := []podtemplatespec.Modification{
+		podtemplatespec.WithVolume(serverCertVolume),
+		podtemplatespec.WithVolume(clientCAVolume),
+	}
+	containerMods := []container.Modification{container.WithVolumeMounts(volumeMounts)}
+
+	statefulsetModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		append(volumes, podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			containerMods...,
+		)))...,
+	))
+
+	return mongotModification, statefulset.Apply(removeVolumes, statefulsetModification), nil
+}
+
 func hashBytes(bytes []byte) string {
 	hashBytes := sha256.Sum256(bytes)
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
-}
-
-// keyFilePasswordContentHash returns a hash of every configured keyFilePassword secret's content
-func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
-	var combined []byte
-	for _, nn := range []types.NamespacedName{
-		r.mdbSearch.GrpcKeyFilePasswordSecret(),
-		r.mdbSearch.X509KeyFilePasswordSecret(),
-		r.mdbSearch.ScramKeyFilePasswordSecret(),
-	} {
-		if nn.Name == "" {
-			continue
-		}
-		pw, err := secret.ReadKey(ctx, kubeClient, KeyFilePasswordSecretKey, nn)
-		if err != nil {
-			return "", xerrors.Errorf("reading keyFilePassword secret %s: %w", nn.Name, err)
-		}
-		combined = append(combined, []byte(nn.Name+":"+pw+";")...)
-	}
-	if len(combined) == 0 {
-		return "", nil
-	}
-	return hashBytes(combined), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:
