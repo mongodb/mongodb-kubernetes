@@ -80,8 +80,8 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
 
 	return &AppDBConfig{
-		IsTLSEnabled:     refObject.IsTLSEnabled(),
-		CAConfigMapName:  refObject.GetCAConfigMapName(),
+		IsTLSEnabled:     refObject.isTLSEnabled(),
+		CAConfigMapName:  refObject.getCAConfigMapName(),
 		ConnectionString: connectionString,
 	}, nil
 }
@@ -142,7 +142,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 	// owns: one left in an undeclared cluster would keep its Ops Manager ownership after the
 	// handover. A single-cluster reference always carries the internal AppDB's name, so it cannot
 	// leave one behind.
-	if appDB.IsMultiCluster() {
+	if appDB.isMultiCluster() {
 		for clusterName, memberClient := range e.memberClustersMap {
 			if memberClient == nil {
 				continue
@@ -226,9 +226,9 @@ type externalAppDBRefObject struct {
 	isMulticluster bool
 }
 
-// GetCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
+// getCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
 // should trust when connecting to the external AppDB over TLS ("" if TLS is off).
-func (o *externalAppDBRefObject) GetCAConfigMapName() string {
+func (o *externalAppDBRefObject) getCAConfigMapName() string {
 	security := o.GetSecurity()
 	if security.TLSConfig != nil {
 		return security.TLSConfig.CA
@@ -236,8 +236,8 @@ func (o *externalAppDBRefObject) GetCAConfigMapName() string {
 	return ""
 }
 
-// IsTLSEnabled reports whether the referenced CR has TLS enabled.
-func (o *externalAppDBRefObject) IsTLSEnabled() bool {
+// isTLSEnabled reports whether the referenced CR has TLS enabled.
+func (o *externalAppDBRefObject) isTLSEnabled() bool {
 	return o.IsSecurityTLSConfigEnabled()
 }
 
@@ -245,17 +245,17 @@ func (o *externalAppDBRefObject) getClusterList() []appDBClusterItem {
 	return o.clusterList
 }
 
-func (o *externalAppDBRefObject) IsMultiCluster() bool {
+func (o *externalAppDBRefObject) isMultiCluster() bool {
 	return o.isMulticluster
 }
 
 type externalAppDB interface {
 	connectionstring.ConnectionStringBuilder
 	GetRole() string
-	GetCAConfigMapName() string
-	IsTLSEnabled() bool
+	getCAConfigMapName() string
+	isTLSEnabled() bool
 	getClusterList() []appDBClusterItem
-	IsMultiCluster() bool
+	isMultiCluster() bool
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx context.Context, ref *omv1.ExternalAppDBRef) (externalAppDB, error) {
