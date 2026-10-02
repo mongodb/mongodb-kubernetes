@@ -1,19 +1,12 @@
 import os
-import time
 from typing import Optional
 
 import kubernetes
 import kubernetes.client
-from kubetester import delete_statefulset, get_statefulset, read_configmap, try_load, update_configmap
+from kubetester import delete_statefulset, get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_env_var_or_fail,
-    is_default_architecture_static,
-    is_multi_cluster,
-    run_periodically,
-    skip_if_local,
-)
+from kubetester.kubetester import get_env_var_or_fail, is_multi_cluster, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -21,7 +14,6 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.conftest import get_central_cluster_client, get_member_cluster_api_client
-from tests.constants import MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
 from tests.multicluster.conftest import cluster_spec_list
 from tests.shardedcluster.conftest import enable_multi_cluster_deployment, get_all_sharded_cluster_process_names
 
@@ -139,39 +131,23 @@ class TestDeployShardedClusterWithFailedCluster:
         config_version_store.version = sc.get_automation_config_tester().automation_config["version"]
         logger.debug(f"Automation Config Version after initial deployment: {config_version_store.version}")
 
-    def test_remove_cluster_from_operator_member_list_to_simulate_it_is_unhealthy(
-        self, namespace, central_cluster_client: kubernetes.client.ApiClient, multi_cluster_operator: Operator
+    def test_remove_member_cluster_to_simulate_it_is_unhealthy(
+        self, namespace, central_cluster_client: kubernetes.client.ApiClient
     ):
-        operator_cm_name = MULTI_CLUSTER_MEMBER_LIST_CONFIGMAP
-        logger.debug(f"Deleting cluster {FAILED_MEMBER_CLUSTER_NAME} from configmap {operator_cm_name}")
-        member_list_cm = read_configmap(
-            namespace,
-            operator_cm_name,
-            api_client=central_cluster_client,
+        # Simulate the failed cluster becoming unavailable by deleting its MemberCluster CR and
+        # credential Secret.
+        logger.debug(f"Removing MemberCluster {FAILED_MEMBER_CLUSTER_NAME} to simulate it being unhealthy")
+        kubernetes.client.CustomObjectsApi(central_cluster_client).delete_namespaced_custom_object(
+            group="operator.mongodb.com",
+            version="v1",
+            namespace=namespace,
+            plural="memberclusters",
+            name=FAILED_MEMBER_CLUSTER_NAME,
         )
-        # this if is only for allowing re-running the test locally, without it the test function could be executed
-        # only once until the map is populated again by running prepare-local-e2e run again
-        if FAILED_MEMBER_CLUSTER_NAME in member_list_cm:
-            member_list_cm.pop(FAILED_MEMBER_CLUSTER_NAME)
-
-        # this will trigger operators restart as it panics on changing the configmap
-        update_configmap(
-            namespace,
-            operator_cm_name,
-            member_list_cm,
-            api_client=central_cluster_client,
+        kubernetes.client.CoreV1Api(api_client=central_cluster_client).delete_namespaced_secret(
+            name=f"mck-credential-{FAILED_MEMBER_CLUSTER_NAME}",
+            namespace=namespace,
         )
-
-        # sleeping to ensure the operator will suicide after config map is changed
-        # TODO: as part of https://jira.mongodb.org/browse/CLOUDP-288588, and when we re-activate this test, ensure
-        #  this sleep is really nededed or if the subsquent call to multi_cluster_operator.wait_for_operator_ready() is enough
-        time.sleep(30)
-
-    @skip_if_local
-    # Modifying the configmap triggers an (intentional) panic, the pod should restart.
-    # Operator process restart has to be done manually when running locally.
-    def test_operator_has_restarted(self, multi_cluster_operator: Operator):
-        multi_cluster_operator.wait_for_operator_ready()
 
     def test_delete_all_statefulsets_in_failed_cluster(
         self, sc: MongoDB, central_cluster_client: kubernetes.client.ApiClient
@@ -225,9 +201,6 @@ class TestDeployShardedClusterWithFailedCluster:
         sc.assert_reaches_phase(Phase.Running)
         # Automation Config shouldn't change when we lose a cluster
         expected_version = config_version_store.version
-        # in non-static, every restart of the operator increases version of ac due to agent upgrades
-        if not is_default_architecture_static():
-            expected_version += 1
 
         assert expected_version == sc.get_automation_config_tester().automation_config["version"]
 

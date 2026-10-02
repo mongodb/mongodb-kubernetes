@@ -2,18 +2,20 @@ package memberwatch
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
+	"os"
 	"slices"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+
+	restclient "k8s.io/client-go/rest"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -27,7 +29,10 @@ type MemberClusterHealthChecker struct {
 	Cache                 map[string]ClusterHealthChecker
 	HealthyStreak         map[string]int
 	RequiredHealthyStreak int
-	mu                    sync.RWMutex
+	// ClientTimeout is the timeout for the per-cluster health-check HTTP client.
+	// When zero, DefaultClientTimeout is used.
+	ClientTimeout time.Duration
+	mu            sync.RWMutex
 }
 
 func (m *MemberClusterHealthChecker) HealthyStreakFor(cluster string) int {
@@ -42,72 +47,80 @@ type ClusterCredentials struct {
 	Token                string
 }
 
-func getClusterCredentials(clustersMap map[string]cluster.Cluster,
-	kubeConfig multicluster.KubeConfigFile,
-	kubeContext multicluster.KubeConfigContextItem,
-) (*ClusterCredentials, error) {
-	clusterName := kubeContext.Context.Cluster
-	if _, ok := clustersMap[clusterName]; !ok {
-		return nil, fmt.Errorf("cluster %s not found in clustersMap", clusterName)
+// credentialsFromRestConfig extracts the API server URL, CA, and bearer token used by the
+// health checker from a member cluster's rest.Config. Falling back to CAFile/BearerTokenFile
+// covers configs that reference on-disk material rather than inline data.
+func credentialsFromRestConfig(restConfig *restclient.Config) (*ClusterCredentials, error) {
+	ca := restConfig.CAData
+	if len(ca) == 0 && restConfig.CAFile != "" {
+		data, err := os.ReadFile(restConfig.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading CA file %s: %w", restConfig.CAFile, err)
+		}
+		ca = data
 	}
 
-	kubeCluster := getClusterFromContext(clusterName, kubeConfig.Clusters)
-	if kubeCluster == nil {
-		return nil, fmt.Errorf("failed to get cluster with clustername: %s, doesn't exists in Kubeconfig clusters", clusterName)
-	}
-
-	certificateAuthority, err := base64.StdEncoding.DecodeString(kubeCluster.CertificateAuthority)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode certificate for cluster: %s, err: %s", clusterName, err)
-	}
-
-	user := getUserFromContext(kubeContext.Context.User, kubeConfig.Users)
-	if user == nil {
-		return nil, fmt.Errorf("failed to get user with name: %s, doesn't exists in Kubeconfig users", kubeContext.Context.User)
+	token := restConfig.BearerToken
+	if token == "" && restConfig.BearerTokenFile != "" {
+		data, err := os.ReadFile(restConfig.BearerTokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading token file %s: %w", restConfig.BearerTokenFile, err)
+		}
+		token = string(data)
 	}
 
 	return &ClusterCredentials{
-		Server:               kubeCluster.Server,
-		CertificateAuthority: certificateAuthority,
-		Token:                user.Token,
+		Server:               restConfig.Host,
+		CertificateAuthority: ca,
+		Token:                token,
 	}, nil
 }
 
-func (m *MemberClusterHealthChecker) populateCache(clustersMap map[string]cluster.Cluster, log *zap.SugaredLogger) {
-	kubeConfigFile, err := multicluster.NewKubeConfigFile(multicluster.GetKubeConfigPath())
-	if err != nil {
-		log.Errorf("Failed to read KubeConfig file err: %s", err)
-		// we can't populate the client so just bail out here
-		return
+// AddCluster registers a health checker for a member cluster, sourcing the server URL, CA,
+// and token from the cluster's rest.Config. Called when the cluster is engaged.
+func (m *MemberClusterHealthChecker) AddCluster(clusterName string, restConfig *restclient.Config, log *zap.SugaredLogger) {
+	timeout := m.ClientTimeout
+	if timeout <= 0 {
+		timeout = DefaultClientTimeout
 	}
 
-	kubeConfig, err := kubeConfigFile.LoadKubeConfigFile()
-	if err != nil {
-		log.Errorf("Failed to load the kubeconfig file content err: %s", err)
+	if restConfig == nil {
+		log.Errorf("Skipping cluster %s: no REST config available", clusterName)
 		return
 	}
-
-	for n := range kubeConfig.Contexts {
-		kubeContext := kubeConfig.Contexts[n]
-		clusterName := kubeContext.Context.Cluster
-		credentials, err := getClusterCredentials(clustersMap, kubeConfig, kubeContext)
-		if err != nil {
-			log.Errorf("Skipping cluster %s: %v", clusterName, err)
-			continue
-		}
-		m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log)
-		m.HealthyStreak[clusterName] = 0
+	credentials, err := credentialsFromRestConfig(restConfig)
+	if err != nil {
+		log.Errorf("Skipping cluster %s: %v", clusterName, err)
+		return
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Cache[clusterName] = NewMemberHealthCheck(credentials.Server, credentials.CertificateAuthority, credentials.Token, log, WithTimeout(timeout))
+	m.HealthyStreak[clusterName] = 0
+}
+
+// RemoveCluster drops a member cluster's health checker. Called when the cluster is
+// disengaged.
+func (m *MemberClusterHealthChecker) RemoveCluster(clusterName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.Cache, clusterName)
+	delete(m.HealthyStreak, clusterName)
+}
+
+// checkers returns a snapshot of the per-cluster health checkers; hooks may mutate the
+// registry while the health-check loop is iterating.
+func (m *MemberClusterHealthChecker) checkers() map[string]ClusterHealthChecker {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	checkers := make(map[string]ClusterHealthChecker, len(m.Cache))
+	maps.Copy(checkers, m.Cache)
+	return checkers
 }
 
 // WatchMemberClusterHealth watches member clusters healthcheck. If a cluster fails healthcheck it re-enqueues the
 // MongoDBMultiCluster resources. It is spun up in the mongodb multi reconciler as a go-routine, and is executed every 10 seconds.
-func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client, clustersMap map[string]cluster.Cluster) {
-	// check if the local cache is populated if not let's do that
-	if len(m.Cache) == 0 {
-		m.populateCache(clustersMap, log)
-	}
-
+func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Context, log *zap.SugaredLogger, watchChannel chan event.GenericEvent, centralClient kubernetesClient.Client) {
 	for {
 		log.Info("Running member cluster healthcheck")
 		mdbmList := &mdbmulti.MongoDBMultiClusterList{}
@@ -118,7 +131,7 @@ func (m *MemberClusterHealthChecker) WatchMemberClusterHealth(ctx context.Contex
 		}
 
 		// check the cluster health status corresponding to each member cluster
-		for k, v := range m.Cache {
+		for k, v := range m.checkers() {
 			if v.IsClusterHealthy(log) {
 				log.Infof("Cluster %s reported healthy", k)
 				if multicluster.ShouldPerformFailover() {
@@ -313,22 +326,4 @@ func getClusterMembers(clusterSpecList mdb.ClusterSpecList, clusterName string) 
 		}
 	}
 	return 0
-}
-
-func getClusterFromContext(clusterName string, clusters []multicluster.KubeConfigClusterItem) *multicluster.KubeConfigCluster {
-	for _, e := range clusters {
-		if e.Name == clusterName {
-			return &e.Cluster
-		}
-	}
-	return nil
-}
-
-func getUserFromContext(userName string, users []multicluster.KubeConfigUserItem) *multicluster.KubeConfigUser {
-	for _, e := range users {
-		if e.Name == userName {
-			return &e.User
-		}
-	}
-	return nil
 }

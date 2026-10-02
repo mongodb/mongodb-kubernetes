@@ -1,7 +1,9 @@
-# * MDB_MAX_CONCURRENT_RECONCILES is set in context
-# * prepare_operator_deployment sets helm flag with it in operator-installation-config cm before the test is run
-# * default_operator fixture is using it, therefore passing that var into helm chart installing the operator
-# In the future we should move MDB_MAX_CONCURRENT_RECONCILES into a env var as well and set the operator accordingly
+# Reconcile concurrency for this perf test is driven by MDB_MAX_CONCURRENT_RECONCILES:
+# * the perf contexts (scripts/dev/contexts/e2e_operator_perf*) set it to 10 or 30; the one-thread
+#   variants leave it unset, so the operator keeps its default of 1
+# * single_e2e.sh passes it to the test pod as the MDB_MAX_CONCURRENT_RECONCILES env var (when set)
+# * build_operator_config_spec_from_test_env reads it and puts it into the OperatorConfig CR spec, which
+#   the default_operator fixture applies (the operator reads maxConcurrentReconciles from that CR at startup)
 import os
 from typing import Optional
 

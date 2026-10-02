@@ -2,8 +2,9 @@ package memberwatch
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,15 +12,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	restclient "k8s.io/client-go/rest"
 
 	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	mc "github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
 )
 
@@ -161,193 +161,64 @@ func TestShouldAddFailedClusterAnnotation(t *testing.T) {
 	}
 }
 
-func TestGetClusterCredentials(t *testing.T) {
-	validCertContent := "valid-cert"
-	validCert := base64.StdEncoding.EncodeToString([]byte(validCertContent))
-	invalidCert := "invalid-base64!!!"
-	clusterName := "cluster1"
-	userToken := "abc123"
-	mockUserItemList := []mc.KubeConfigUserItem{
-		{Name: "user1", User: mc.KubeConfigUser{Token: userToken}},
-	}
-	mockKubeContext := mc.KubeConfigContextItem{
-		Name: "context1",
-		Context: mc.KubeConfigContext{
-			Cluster: clusterName,
-			User:    "user1",
-		},
-	}
-	kubeconfigServerURL := "https://example.com"
-	mockKubeConfig := mc.KubeConfigFile{
-		Clusters: []mc.KubeConfigClusterItem{
-			{
-				Name: clusterName,
-				Cluster: mc.KubeConfigCluster{
-					Server:               kubeconfigServerURL,
-					CertificateAuthority: validCert,
-				},
+func TestCredentialsFromRestConfig(t *testing.T) {
+	t.Run("inline CA data and bearer token", func(t *testing.T) {
+		restConfig := &restclient.Config{
+			Host:        "https://cluster-east.example.com:6443",
+			BearerToken: "inline-token",
+			TLSClientConfig: restclient.TLSClientConfig{
+				CAData: []byte("inline-ca"),
 			},
-		},
-		Users: mockUserItemList,
-	}
+		}
 
-	tests := []struct {
-		name           string
-		clustersMap    map[string]cluster.Cluster // Using as a set; the value is not used.
-		kubeConfig     mc.KubeConfigFile
-		kubeContext    mc.KubeConfigContextItem
-		wantErr        bool
-		errContains    string
-		expectedServer string
-		expectedToken  string
-		expectedCA     []byte
-	}{
-		{
-			name:        "Cluster not in clustersMap",
-			clustersMap: map[string]cluster.Cluster{}, // Empty map; cluster1 is missing.
-			kubeConfig:  mockKubeConfig,
-			kubeContext: mockKubeContext,
-			wantErr:     true,
-			errContains: "cluster cluster1 not found in clustersMap",
-		},
-		{
-			name: "Cluster missing in kubeConfig.Clusters",
-			clustersMap: map[string]cluster.Cluster{
-				clusterName: nil,
-			},
-			kubeConfig: mc.KubeConfigFile{
-				Clusters: []mc.KubeConfigClusterItem{}, // No cluster defined.
-				Users:    mockUserItemList,
-			},
-			kubeContext: mockKubeContext,
-			wantErr:     true,
-			errContains: "failed to get cluster with clustername: cluster1",
-		},
-		{
-			name: "Invalid certificate authority",
-			clustersMap: map[string]cluster.Cluster{
-				clusterName: nil,
-			},
-			kubeConfig: mc.KubeConfigFile{
-				Clusters: []mc.KubeConfigClusterItem{
-					{
-						Name: clusterName,
-						Cluster: mc.KubeConfigCluster{
-							Server:               kubeconfigServerURL,
-							CertificateAuthority: invalidCert, // The kubeConfig has an invalid CA
-						},
-					},
-				},
-				Users: mockUserItemList,
-			},
-			kubeContext: mockKubeContext,
-			wantErr:     true,
-			errContains: "failed to decode certificate for cluster: cluster1",
-		},
-		{
-			name: "User not found",
-			clustersMap: map[string]cluster.Cluster{
-				clusterName: nil,
-			},
-			kubeConfig: mc.KubeConfigFile{
-				Clusters: []mc.KubeConfigClusterItem{
-					{
-						Name: clusterName,
-						Cluster: mc.KubeConfigCluster{
-							Server:               kubeconfigServerURL,
-							CertificateAuthority: validCert,
-						},
-					},
-				},
-				Users: []mc.KubeConfigUserItem{}, // No users defined.
-			},
-			kubeContext: mc.KubeConfigContextItem{
-				Name: "context1",
-				Context: mc.KubeConfigContext{
-					Cluster: clusterName,
-					User:    "user1", // User is not present.
-				},
-			},
-			wantErr:     true,
-			errContains: "failed to get user with name: user1",
-		},
-		{
-			name: "Successful extraction",
-			clustersMap: map[string]cluster.Cluster{
-				clusterName: nil,
-			},
-			kubeConfig:     mockKubeConfig,
-			kubeContext:    mockKubeContext,
-			wantErr:        false,
-			expectedServer: kubeconfigServerURL,
-			expectedToken:  userToken,
-			expectedCA:     []byte(validCertContent),
-		},
-	}
+		creds, err := credentialsFromRestConfig(restConfig)
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			creds, err := getClusterCredentials(tc.clustersMap, tc.kubeConfig, tc.kubeContext)
-			if tc.wantErr {
-				assert.ErrorContains(t, err, tc.errContains)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tc.expectedServer, creds.Server)
-				assert.Equal(t, tc.expectedToken, creds.Token)
-				assert.Equal(t, tc.expectedCA, creds.CertificateAuthority)
-			}
-		})
-	}
-}
+		require.NoError(t, err)
+		assert.Equal(t, "https://cluster-east.example.com:6443", creds.Server)
+		assert.Equal(t, "inline-token", creds.Token)
+		assert.Equal(t, []byte("inline-ca"), creds.CertificateAuthority)
+	})
 
-func TestGetUserFromContext(t *testing.T) {
-	tests := []struct {
-		name         string
-		userName     string
-		users        []mc.KubeConfigUserItem
-		expectedUser *mc.KubeConfigUser
-	}{
-		{
-			name:     "User exists",
-			userName: "alice",
-			users: []mc.KubeConfigUserItem{
-				{Name: "alice", User: mc.KubeConfigUser{Token: "alice-token"}},
-				{Name: "bob", User: mc.KubeConfigUser{Token: "bob-token"}},
-			},
-			expectedUser: &mc.KubeConfigUser{Token: "alice-token"},
-		},
-		{
-			name:     "User does not exist",
-			userName: "charlie",
-			users: []mc.KubeConfigUserItem{
-				{Name: "alice", User: mc.KubeConfigUser{Token: "alice-token"}},
-				{Name: "bob", User: mc.KubeConfigUser{Token: "bob-token"}},
-			},
-			expectedUser: nil,
-		},
-		{
-			name:         "Empty users slice",
-			userName:     "alice",
-			users:        []mc.KubeConfigUserItem{},
-			expectedUser: nil,
-		},
-		{
-			name:     "Multiple users with same name, returns first match",
-			userName: "duplicated",
-			users: []mc.KubeConfigUserItem{
-				{Name: "duplicated", User: mc.KubeConfigUser{Token: "first-token"}},
-				{Name: "duplicated", User: mc.KubeConfigUser{Token: "second-token"}},
-			},
-			expectedUser: &mc.KubeConfigUser{Token: "first-token"},
-		},
-	}
+	t.Run("falls back to CA and token files", func(t *testing.T) {
+		dir := t.TempDir()
+		caFile := filepath.Join(dir, "ca.crt")
+		tokenFile := filepath.Join(dir, "token")
+		require.NoError(t, os.WriteFile(caFile, []byte("file-ca"), 0o600))
+		require.NoError(t, os.WriteFile(tokenFile, []byte("file-token"), 0o600))
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			user := getUserFromContext(tc.userName, tc.users)
-			assert.Equal(t, tc.expectedUser, user)
-		})
-	}
+		restConfig := &restclient.Config{
+			Host:            "https://cluster-west.example.com:6443",
+			BearerTokenFile: tokenFile,
+			TLSClientConfig: restclient.TLSClientConfig{
+				CAFile: caFile,
+			},
+		}
+
+		creds, err := credentialsFromRestConfig(restConfig)
+
+		require.NoError(t, err)
+		assert.Equal(t, "https://cluster-west.example.com:6443", creds.Server)
+		assert.Equal(t, "file-token", creds.Token)
+		assert.Equal(t, []byte("file-ca"), creds.CertificateAuthority)
+	})
+
+	t.Run("inline data takes precedence over files", func(t *testing.T) {
+		restConfig := &restclient.Config{
+			Host:            "https://cluster.example.com:6443",
+			BearerToken:     "inline-token",
+			BearerTokenFile: "/does/not/exist/token",
+			TLSClientConfig: restclient.TLSClientConfig{
+				CAData: []byte("inline-ca"),
+				CAFile: "/does/not/exist/ca",
+			},
+		}
+
+		creds, err := credentialsFromRestConfig(restConfig)
+
+		require.NoError(t, err)
+		assert.Equal(t, "inline-token", creds.Token)
+		assert.Equal(t, []byte("inline-ca"), creds.CertificateAuthority)
+	})
 }
 
 func TestAddAndRemoveFailedClusterAnnotation(t *testing.T) {

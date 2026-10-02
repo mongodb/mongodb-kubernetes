@@ -36,13 +36,25 @@ import (
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
+}
+
+// memberClusterEntries converts a per-cluster client map into the provider
+// entry snapshot the reconcile helper consumes.
+func memberClusterEntries(memberClients map[string]kubernetesClient.Client) map[string]multicluster.Entry {
+	entries := make(map[string]multicluster.Entry, len(memberClients))
+	for name, c := range memberClients {
+		entries[name] = multicluster.Entry{Client: c, ResourceName: name}
+	}
+	return entries
 }
 
 func newTestMongoDBSearch(name, namespace string, modifications ...func(*searchv1.MongoDBSearch)) *searchv1.MongoDBSearch {
@@ -1374,13 +1386,13 @@ func TestCreateSearchStatefulSetFunc_ConfigMounting(t *testing.T) {
 
 	// Single config mode
 	sts := &appsv1.StatefulSet{}
-	stsFunc := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", false)
+	stsFunc := CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", util.MongoDBServiceAccount, labels, "img:v1", false)
 	stsFunc(sts)
 	assert.Contains(t, sts.Spec.Template.Spec.Containers[0].Args[1], MongotConfigPath)
 
 	// Per-pod config mode
 	sts = &appsv1.StatefulSet{}
-	stsFunc = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", labels, "img:v1", true)
+	stsFunc = CreateSearchStatefulSetFunc(search, resolvedSizing(t, search, "", ""), "sts", "ns", "svc", "cm", util.MongoDBServiceAccount, labels, "img:v1", true)
 	stsFunc(sts)
 	startupCmd := sts.Spec.Template.Spec.Containers[0].Args[1]
 	assert.Contains(t, startupCmd, MongotPerPodConfigDirPath)
@@ -2730,7 +2742,7 @@ func TestValidatePerShardTLSSecretsAggregatesAllClusterFailures(t *testing.T) {
 		search,
 		&mockShardedSource{shardNames: []string{"shard-0"}},
 		newTestOperatorSearchConfig(),
-		map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}, "",
+		memberClusterEntries(map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}), "",
 		nil,
 	)
 
@@ -2826,7 +2838,7 @@ func TestEnsureIngressTLSSecretIdentityAndOwnershipByLocality(t *testing.T) {
 				Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
 			}
 			fakeClient := newTestFakeClient(sourceSecret)
-			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), tc.memberClients, "", nil)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), memberClusterEntries(tc.memberClients), "", nil)
 
 			work := clusterWork{ClusterName: tc.clusterName, Local: tc.clusterName == ""}
 			_, _, err := helper.ensureIngressTlsConfig(
@@ -3871,7 +3883,7 @@ func TestReconcilePlan_UsesPerClusterClient(t *testing.T) {
 	r := &MongoDBSearchReconcileHelper{
 		mdbSearch:            mdb,
 		client:               centralClient,
-		memberClients:        memberClients,
+		memberClusters:       memberClusterEntries(memberClients),
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 		db:                   source,
@@ -4063,10 +4075,10 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		mdbSearch: search,
 		db:        shardedSource,
 		client:    centralClient,
-		memberClients: map[string]kubernetesClient.Client{
+		memberClusters: memberClusterEntries(map[string]kubernetesClient.Client{
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
-		},
+		}),
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -4222,10 +4234,10 @@ func TestReconcileShardedMC_AllUnitsAppliedBeforeReadinessCheck(t *testing.T) {
 		mdbSearch: search,
 		db:        shardedSource,
 		client:    centralClient,
-		memberClients: map[string]kubernetesClient.Client{
+		memberClusters: memberClusterEntries(map[string]kubernetesClient.Client{
 			"cluster-a": clusterAClient,
 			"cluster-b": clusterBClient,
-		},
+		}),
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -4357,7 +4369,7 @@ func (f *mcShardedFixture) newHelper() *MongoDBSearchReconcileHelper {
 		mdbSearch:            f.search,
 		db:                   f.source,
 		client:               f.central,
-		memberClients:        f.members,
+		memberClusters:       memberClusterEntries(f.members),
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -4787,10 +4799,10 @@ func TestCleanupStaleShardResources_MCFanOut(t *testing.T) {
 	central := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().Build())
 
 	r := &MongoDBSearchReconcileHelper{
-		mdbSearch:     search,
-		client:        central,
-		memberClients: map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB},
-		state:         NewSearchDeploymentState(),
+		mdbSearch:      search,
+		client:         central,
+		memberClusters: memberClusterEntries(map[string]kubernetesClient.Client{"cluster-a": clusterA, "cluster-b": clusterB}),
+		state:          NewSearchDeploymentState(),
 	}
 
 	activeUnits := []reconcileUnit{
@@ -5258,7 +5270,7 @@ func newMCReplicaSetHelper(members map[string]kubernetesClient.Client, central k
 		mdbSearch:            mdb,
 		db:                   source,
 		client:               central,
-		memberClients:        members,
+		memberClusters:       memberClusterEntries(members),
 		state:                NewSearchDeploymentState(),
 		operatorSearchConfig: newTestOperatorSearchConfig(),
 	}
@@ -5310,4 +5322,46 @@ func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
 	// cluster-b's unit was still applied despite cluster-a failing first.
 	require.NoError(t, clusterB.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+}
+
+func TestBuildReplicaSetPlan_ServiceAccount(t *testing.T) {
+	newSearch := func(clusters []searchv1.ClusterSpec) *searchv1.MongoDBSearch {
+		mdb := newTestMongoDBSearch("mdb-search", "ns")
+		mdb.Spec.Clusters = clusters
+		mdb.Spec.Source = &searchv1.MongoDBSource{
+			ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"a.example:27017"}},
+		}
+		return mdb
+	}
+
+	t.Run("single-cluster unnamed entry uses the fixed service account", func(t *testing.T) {
+		mdb := newSearch([]searchv1.ClusterSpec{{}})
+		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState()}
+		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
+		require.NoError(t, err)
+		require.Len(t, plan.units, 1)
+		assert.Equal(t, util.MongoDBServiceAccount, plan.units[0].serviceAccountName)
+	})
+
+	t.Run("named member clusters use the fixed member-scoped service account", func(t *testing.T) {
+		mdb := newSearch([]searchv1.ClusterSpec{{Name: "cluster-a"}, {Name: "cluster-b"}})
+		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState(), memberClusters: memberClusterEntries(map[string]kubernetesClient.Client{
+			"cluster-a": newTestFakeClient(),
+			"cluster-b": newTestFakeClient(),
+		})}
+		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
+		require.NoError(t, err)
+		require.Len(t, plan.units, 2)
+		assert.Equal(t, "mck-member-database-pods", plan.units[0].serviceAccountName)
+		assert.Equal(t, "mck-member-database-pods", plan.units[1].serviceAccountName)
+	})
+
+	t.Run("the operator's own cluster uses the fixed service account in per-cluster operator mode", func(t *testing.T) {
+		mdb := newSearch([]searchv1.ClusterSpec{{Name: "cluster-a"}})
+		r := &MongoDBSearchReconcileHelper{mdbSearch: mdb, state: NewSearchDeploymentState(), operatorClusterName: "cluster-a"}
+		plan, err := r.buildReplicaSetPlan(&fakeExternalSource{hosts: mdb.Spec.Source.ExternalMongoDBSource.HostAndPorts})
+		require.NoError(t, err)
+		require.Len(t, plan.units, 1)
+		assert.Equal(t, util.MongoDBServiceAccount, plan.units[0].serviceAccountName)
+	})
 }

@@ -29,6 +29,7 @@ import (
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	operatorv1 "github.com/mongodb/mongodb-kubernetes/api/operator/v1"
 )
 
 // TestEnv is a running envtest control plane together with the means to talk to it.
@@ -38,7 +39,8 @@ type TestEnv struct {
 	// Config is the rest.Config for the local API server; use it to build
 	// managers or additional clients (e.g. in controller tests).
 	Config *rest.Config
-	// Client is a controller-runtime client with the mongodb.com/v1 scheme registered.
+	// Client is a controller-runtime client with the mongodb.com/v1 and
+	// operator.mongodb.com/v1 schemes registered.
 	Client client.Client
 }
 
@@ -116,6 +118,9 @@ func start(opts ...Option) (*TestEnv, error) {
 
 	scheme := kruntime.NewScheme()
 	if err := mdbv1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := operatorv1.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 

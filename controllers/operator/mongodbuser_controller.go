@@ -10,9 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -40,7 +40,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
@@ -81,30 +80,32 @@ func enqueueUsersForMongoDBRef(ctx context.Context, c client.Client, ns, name st
 
 type MongoDBUserReconciler struct {
 	*ReconcileCommonController
-	omConnectionFactory           om.ConnectionFactory
-	memberClusterClientsMap       map[string]kubernetesClient.Client
-	memberClusterSecretClientsMap map[string]secrets.SecretClient
-	backupEnableDelay             time.Duration
+	omConnectionFactory    om.ConnectionFactory
+	memberClustersProvider *multicluster.Provider
+	backupEnableDelay      time.Duration
 }
 
-func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, backupEnableDelay time.Duration) *MongoDBUserReconciler {
-	clientsMap := make(map[string]kubernetesClient.Client)
-	secretClientsMap := make(map[string]secrets.SecretClient)
+func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omFunc om.ConnectionFactory, memberClustersProvider *multicluster.Provider, backupEnableDelay time.Duration) *MongoDBUserReconciler {
+	return &MongoDBUserReconciler{
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
+		omConnectionFactory:       omFunc,
+		memberClustersProvider:    memberClustersProvider,
+		backupEnableDelay:         backupEnableDelay,
+	}
+}
 
-	for k, v := range memberClustersMap {
-		clientsMap[k] = kubernetesClient.NewClient(v)
+// memberClusterSecretClients derives the per-cluster secret clients from a
+// reconcile-scoped snapshot of the provider's entries. Never stored on the
+// reconciler: the shared instance must not be mutated per reconcile.
+func (r *MongoDBUserReconciler) memberClusterSecretClients(memberClusterEntries map[string]multicluster.Entry) map[string]secrets.SecretClient {
+	secretClientsMap := make(map[string]secrets.SecretClient, len(memberClusterEntries))
+	for k, v := range memberClusterEntries {
 		secretClientsMap[k] = secrets.SecretClient{
 			VaultClient: nil,
-			KubeClient:  clientsMap[k],
+			KubeClient:  kubernetesClient.NewClient(v.Client),
 		}
 	}
-	return &MongoDBUserReconciler{
-		ReconcileCommonController:     NewReconcileCommonController(ctx, kubeClient),
-		omConnectionFactory:           omFunc,
-		memberClusterClientsMap:       clientsMap,
-		memberClusterSecretClientsMap: secretClientsMap,
-		backupEnableDelay:             backupEnableDelay,
-	}
+	return secretClientsMap
 }
 
 func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.Request, log *zap.SugaredLogger) (*userv1.MongoDBUser, error) {
@@ -148,7 +149,7 @@ func (r *MongoDBUserReconciler) getMongoDB(ctx context.Context, user userv1.Mong
 }
 
 // getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
-func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context, user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
+func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context, user userv1.MongoDBUser, memberClusterEntries map[string]multicluster.Entry) (connectionstring.ConnectionStringBuilder, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try single cluster, sharded single/multi-cluster resource
@@ -156,7 +157,7 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 	if err := r.client.Get(ctx, name, mdb); err == nil {
 		var hostnames []string
 		if mdb.IsShardedCluster() {
-			hostnames, err = r.getShardedClusterHostnames(ctx, mdb)
+			hostnames, err = r.getShardedClusterHostnames(ctx, mdb, memberClusterEntries)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
 			}
@@ -177,25 +178,15 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 	return mdbm, err
 }
 
-func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB) ([]string, error) {
+func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB, memberClusterEntries map[string]multicluster.Entry) ([]string, error) {
 	l := zap.S().With("MongoDBUser", mdb.Name)
-	clusterClientMap := r.getK8sClientMap()
-	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
+	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, memberClusterEntries, l, r.backupEnableDelay)
 	if err != nil {
 		return nil, err
 	}
 
 	hostnames := rh.GetAllMongosHostnames()
 	return hostnames, nil
-}
-
-func (r *MongoDBUserReconciler) getK8sClientMap() map[string]client.Client {
-	result := make(map[string]client.Client)
-	for k, v := range r.memberClusterClientsMap {
-		result[k] = v
-	}
-
-	return result
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
@@ -210,6 +201,10 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		log.Warnf("error getting user %s", err)
 		return reconcile.Result{RequeueAfter: time.Second * util.RetryTimeSec}, nil
 	}
+
+	// Snapshot the member-cluster registry once: this whole reconcile works on a single
+	// membership view.
+	memberClusterEntries := r.memberClustersProvider.Entries()
 
 	log.Infow("MongoDBUser.Spec", "spec", user.Spec)
 	var mdb project.Reader
@@ -251,7 +246,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
-	if err = r.updateConnectionStringSecret(ctx, *user, log); err != nil {
+	if err = r.updateConnectionStringSecret(ctx, *user, memberClusterEntries, log); err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}
 
@@ -259,7 +254,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		log.Info("MongoDBUser is being deleted")
 
 		if controllerutil.ContainsFinalizer(user, util.UserFinalizer) {
-			return r.preDeletionCleanup(ctx, user, conn, log)
+			return r.preDeletionCleanup(ctx, user, conn, memberClusterEntries, log)
 		}
 	}
 
@@ -298,7 +293,7 @@ func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log
 	return nil
 }
 
-func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context, user userv1.MongoDBUser, log *zap.SugaredLogger) error {
+func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context, user userv1.MongoDBUser, memberClusterEntries map[string]multicluster.Entry, log *zap.SugaredLogger) error {
 	var err error
 	var password string
 
@@ -309,7 +304,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 		}
 	}
 
-	connectionBuilder, err := r.getMongoDBConnectionBuilder(ctx, user)
+	connectionBuilder, err := r.getMongoDBConnectionBuilder(ctx, user, memberClusterEntries)
 	if err != nil {
 		return err
 	}
@@ -343,7 +338,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 
 	memberClusterSecret := secretBuilder.Build()
 
-	for _, c := range r.memberClusterSecretClientsMap {
+	for _, c := range r.memberClusterSecretClients(memberClusterEntries) {
 		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
 		if err != nil {
 			return err
@@ -357,14 +352,14 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
 }
 
-func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
-	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), backupEnableDelay)
+func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersProvider *multicluster.Provider, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
+	reconciler := newMongoDBUserReconciler(ctx, mgr.GetClient(), om.NewOpsManagerConnection, memberClustersProvider, backupEnableDelay)
 
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &userv1.MongoDBUser{}, MongoDBUserMongoDBResourceRefIndex, mdbUserIndexBuilder); err != nil {
 		return err
 	}
 
-	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
+	c, err := controller.New(util.MongoDbUserController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err
 	}
@@ -406,6 +401,20 @@ func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberCl
 	if err != nil {
 		return err
 	}
+
+	// The user controller holds no per-cluster watches, but expanding to a new member cluster
+	// must reconcile existing users whose MongoDB resource spans that cluster.
+	clusterAddedEvents := make(chan event.GenericEvent)
+	if err = c.Watch(source.Channel[client.Object](clusterAddedEvents, &handler.EnqueueRequestForObject{})); err != nil {
+		return err
+	}
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, _ multicluster.Entry) {
+			if err := multicluster.EnqueueAll(ctx, reconciler.client, &userv1.MongoDBUserList{}, clusterAddedEvents); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDBUser resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+	})
 
 	zap.S().Infof("Registered controller %s", util.MongoDbUserController)
 	return nil
@@ -590,7 +599,7 @@ func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string,
 	return finalAnnotations, nil
 }
 
-func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
+func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, memberClusterEntries map[string]multicluster.Entry, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Info("Performing pre deletion cleanup before deleting MongoDBUser")
 
 	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
@@ -602,7 +611,7 @@ func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *us
 	}
 
 	secretKey := kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName())
-	for clusterName, c := range r.memberClusterSecretClientsMap {
+	for clusterName, c := range r.memberClusterSecretClients(memberClusterEntries) {
 		if err := c.DeleteSecret(ctx, secretKey); err != nil && !apiErrors.IsNotFound(err) {
 			return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to delete connection string secret from member cluster %s: %w", clusterName, err)), log)
 		}

@@ -24,9 +24,10 @@ in `kubernetes-versions.json`; override with `make envtest-assets ENVTEST_K8S_VE
 ## Writing a new envtest test
 
 Use the shared helper in `test/envtest/env` — it starts the control plane, installs the
-CRDs from `config/crd/bases` and returns a client with the `mongodb.com/v1` scheme
-registered. It works from any package — co-locate CEL tests next to the API types that
-define the rules (see below), or use it from controller tests:
+CRDs from `config/crd/bases` and returns a client with the `mongodb.com/v1` and
+`operator.mongodb.com/v1` schemes registered. It works from any package — co-locate
+CEL tests next to the API types that define the rules (see below), or use it from
+controller tests:
 
 ```go
 func TestMain(m *testing.M) {
@@ -59,3 +60,5 @@ Guidelines:
 
 See `api/mongodb/v1/search/mongodbsearch_cel_envtest_test.go` for a complete example:
 it verifies the CEL rules declared on the `MongoDBSearch` type in the very same package.
+`api/operator/v1` shows the multi-file variant: `main_test.go` boots the shared
+environment and each `*_envtest_test.go` covers one API type's validation rules.
