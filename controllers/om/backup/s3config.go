@@ -74,6 +74,14 @@ type S3Config struct {
 	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
 	// This should be enabled for Immutable Backups.
 	ObjectLockEnabled *bool `json:"objectLockEnabled,omitempty"`
+
+	// ObjectRetentionDays is the number of days backup objects must be retained in S3
+	// before deletion is allowed. Only meaningful when ObjectLockEnabled is true.
+	ObjectRetentionDays *int `json:"objectRetentionDays,omitempty"`
+
+	// ObjectRetentionMode is the S3 Object Lock retention mode (GOVERNANCE or COMPLIANCE).
+	// Only meaningful when ObjectLockEnabled is true.
+	ObjectRetentionMode *string `json:"objectRetentionMode,omitempty"`
 }
 
 // S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
@@ -126,6 +134,13 @@ func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri
 		ObjectLockEnabled:      s3Config.ObjectLockEnabled,
 	}
 
+	// OM versions older than 8.0.27 reject the retention attributes with
+	// INVALID_ATTRIBUTE, so they must not be sent there.
+	if objectLockRetentionSupported(opsManager) {
+		config.ObjectRetentionDays = s3Config.ObjectRetentionDays
+		config.ObjectRetentionMode = s3Config.ObjectRetentionMode
+	}
+
 	if _, err := versionutil.StringToSemverVersion(opsManager.Spec.Version); err == nil {
 		config.DisableProxyS3 = util.BooleanRef(false)
 
@@ -157,6 +172,18 @@ func (s S3Config) Identifier() interface{} {
 	return s.Id
 }
 
+// objectLockRetentionSupported reports whether this Ops Manager version accepts the
+// S3 object lock retention attributes (introduced in 8.0.27; older versions reject
+// them with INVALID_ATTRIBUTE). Unparseable versions are treated as unsupported.
+func objectLockRetentionSupported(opsManager *omv1.MongoDBOpsManager) bool {
+	v, err := versionutil.StringToSemverVersion(opsManager.Spec.Version)
+	if err != nil {
+		return false
+	}
+	minVersion, _ := versionutil.StringToSemverVersion(util.MinimumVersionS3ObjectLockRetention)
+	return !v.LT(minVersion)
+}
+
 // MergeIntoOpsManagerConfig performs the merge operation of the Operator config view ('s') into the OM owned one
 // ('opsManagerS3Config')
 func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Config {
@@ -169,5 +196,7 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.Labels = s.Labels
 	opsManagerS3Config.CustomCertificates = s.CustomCertificates
 	opsManagerS3Config.ObjectLockEnabled = s.ObjectLockEnabled
+	opsManagerS3Config.ObjectRetentionDays = s.ObjectRetentionDays
+	opsManagerS3Config.ObjectRetentionMode = s.ObjectRetentionMode
 	return opsManagerS3Config
 }

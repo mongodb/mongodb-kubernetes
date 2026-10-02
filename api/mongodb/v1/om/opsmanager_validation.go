@@ -230,6 +230,7 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	// We can ignore errors since they are already caught in validOmVersion validation
 	v, _ := versionutil.StringToSemverVersion(os.Version)
 	immutableBackupVersion := semver.MustParse(util.MinimumVersionImmutableBackup)
+	objectLockRetentionVersion := semver.MustParse(util.MinimumVersionS3ObjectLockRetention)
 
 	if len(backup.S3Configs) > 0 {
 		for _, config := range backup.S3Configs {
@@ -241,6 +242,12 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
 			} else if config.ObjectLockEnabled != nil && v.LT(immutableBackupVersion) {
 				return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionImmutableBackup, config.Name)
+			} else if hasObjectLockRetention(config) && v.LT(objectLockRetentionVersion) {
+				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionS3ObjectLockRetention, config.Name)
+			} else if hasObjectLockRetention(config) && (config.ObjectLockEnabled == nil || !*config.ObjectLockEnabled) {
+				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (S3 Store: %s)", status.OpsManager, config.Name)
+			} else if hasPartialObjectLockRetention(config) {
+				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' must be specified together (S3 Store: %s)", status.OpsManager, config.Name)
 			}
 		}
 	}
@@ -255,11 +262,24 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
 			} else if oplogStoreConfig.ObjectLockEnabled != nil {
 				return v1.OpsManagerResourceValidationError("'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
+			} else if hasObjectLockRetention(oplogStoreConfig) {
+				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' cannot be configured for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
 			}
 		}
 	}
 
 	return v1.ValidationSuccess()
+}
+
+func hasObjectLockRetention(config S3Config) bool {
+	return config.ObjectRetentionDays != nil || config.ObjectRetentionMode != nil
+}
+
+// hasPartialObjectLockRetention reports whether exactly one of the retention fields is
+// set. S3 default retention requires a mode and a period as a pair, so OM rejects a
+// store carrying only one of them.
+func hasPartialObjectLockRetention(config S3Config) bool {
+	return (config.ObjectRetentionDays == nil) != (config.ObjectRetentionMode == nil)
 }
 
 func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
