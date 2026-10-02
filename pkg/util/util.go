@@ -91,8 +91,7 @@ func GetOwnershipLabels(stsLabels map[string]string) map[string]string {
 	return labels
 }
 
-// StripOwnerLabels removes every AppDB participant resource-owner label so user-supplied labels
-// cannot claim ownership on behalf of another participant.
+// StripOwnerLabels removes all resource-owner labels from user-supplied labels
 func StripOwnerLabels(labels map[string]string) map[string]string {
 	if len(labels) == 0 {
 		return nil
