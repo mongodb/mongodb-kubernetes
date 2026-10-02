@@ -19,6 +19,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -250,8 +251,8 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnershipAndAnnotates(t *testing.
 	ext := reconciler.createNewExternalAppDBReconciler(zap.S())
 	externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 	require.NoError(t, err)
-	err = ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
-	assert.NoError(t, err)
+	st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+	require.True(t, st.IsOK())
 
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
@@ -274,8 +275,8 @@ func TestEnsureAppDBStatefulSetOwnership_NoOpWhenNoStatefulSetExists(t *testing.
 	ext := reconciler.createNewExternalAppDBReconciler(zap.S())
 	externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 	require.NoError(t, err)
-	err = ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
-	assert.NoError(t, err, "Fresh Start: no internal AppDB StatefulSet ever existed, detach must be a no-op")
+	st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+	require.True(t, st.IsOK(), "Fresh Start: no internal AppDB StatefulSet ever existed, detach must be a no-op")
 }
 
 func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
@@ -304,8 +305,10 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 	ext := reconciler.createNewExternalAppDBReconciler(zap.S())
 	externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 	require.NoError(t, err)
-	require.NoError(t, ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB))
-	require.NoError(t, ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB))
+	st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+	require.True(t, st.IsOK())
+	st = ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+	require.True(t, st.IsOK())
 
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
@@ -381,8 +384,8 @@ func TestEnsureAppDBStatefulSetOwnership_DetachesByLabel(t *testing.T) {
 			ext := reconciler.createNewExternalAppDBReconciler(zap.S())
 			externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 			require.NoError(t, err)
-			err = ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
-			assert.NoError(t, err)
+			st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+			require.True(t, st.IsOK())
 
 			resultSts := appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
@@ -416,12 +419,13 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 	}}
 
 	rows := []struct {
-		name                  string
-		createStates          map[string]appDBStatefulSetState
-		missingClients        []string
-		expectedStates        map[string]appDBStatefulSetState
-		expectedErrorContains string
-		runTwice              bool
+		name            string
+		createStates    map[string]appDBStatefulSetState
+		missingClients  []string
+		expectedStates  map[string]appDBStatefulSetState
+		expectedPhase   status.Phase
+		expectedMessage string
+		runTwice        bool
 	}{
 		{
 			name:           "fresh start skips missing StatefulSets in every cluster",
@@ -466,7 +470,8 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 				"cluster-1": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}, labels: mergeAppDBStatefulSetLabels(map[string]string{"app": "demo"}, omOwnerLabels)},
 				"cluster-3": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}, labels: mergeAppDBStatefulSetLabels(map[string]string{"app": "demo"}, omOwnerLabels)},
 			},
-			expectedErrorContains: "cluster-2",
+			expectedPhase:   status.PhaseFailed,
+			expectedMessage: "member cluster cluster-2 client is not available",
 		},
 		{
 			name: "partially existing StatefulSets are rejected",
@@ -478,7 +483,21 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 				"cluster-1": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}, labels: mergeAppDBStatefulSetLabels(map[string]string{"app": "demo"}, omOwnerLabels)},
 				"cluster-3": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}, labels: mergeAppDBStatefulSetLabels(map[string]string{"app": "demo"}, omOwnerLabels)},
 			},
-			expectedErrorContains: "cluster-2",
+			expectedPhase:   status.PhaseFailed,
+			expectedMessage: "StatefulSet test-om-db-1 for cluster cluster-2 does not exist: the external AppDB cluster numbers do not match the internal AppDB",
+		},
+		{
+			name: "partially existing StatefulSets wait for the external AppDB when none are OM-owned",
+			createStates: map[string]appDBStatefulSetState{
+				"cluster-1": {ownerReferences: foreignOwner, labels: map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: "test-mdbm", "app": "demo"}},
+				"cluster-3": {ownerReferences: foreignOwner, labels: map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: "test-mdbm", "app": "demo"}},
+			},
+			expectedStates: map[string]appDBStatefulSetState{
+				"cluster-1": {ownerReferences: foreignOwner, labels: map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: "test-mdbm", "app": "demo"}},
+				"cluster-3": {ownerReferences: foreignOwner, labels: map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: "test-mdbm", "app": "demo"}},
+			},
+			expectedPhase:   status.PhasePending,
+			expectedMessage: "waiting for the external AppDB to create StatefulSet test-om-db-1 for cluster cluster-2",
 		},
 		{
 			name: "already detached StatefulSets are idempotent on a second run",
@@ -523,15 +542,17 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 			externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 			require.NoError(t, err)
 
-			err = ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
-			if tt.expectedErrorContains != "" {
-				require.ErrorContains(t, err, tt.expectedErrorContains)
+			st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+			if tt.expectedMessage != "" {
+				require.Equal(t, tt.expectedPhase, st.Phase())
+				assert.Equal(t, tt.expectedMessage, statusMessage(st))
 			} else {
-				require.NoError(t, err)
+				require.True(t, st.IsOK())
 			}
 
 			if tt.runTwice {
-				require.NoError(t, ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB))
+				st = ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+				require.True(t, st.IsOK())
 			}
 
 			for _, clusterName := range []string{"cluster-1", "cluster-2", "cluster-3"} {
@@ -559,19 +580,21 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 	const omUID = "om-uid-1111"
 
 	rows := []struct {
-		name                  string
-		refKind               string
-		declaredClusters      []string
-		createdClusters       []string
-		wantDetached          bool
-		expectedErrorContains string
+		name             string
+		refKind          string
+		declaredClusters []string
+		createdClusters  []string
+		wantDetached     bool
+		expectedPhase    status.Phase
+		expectedMessage  string
 	}{
 		{
-			name:                  "rejects an undeclared internal StatefulSet when it exists",
-			refKind:               omv1.ExternalAppDBRefKindMongoDBMultiCluster,
-			declaredClusters:      []string{"cluster-1", "cluster-2"},
-			createdClusters:       []string{"cluster-1", "cluster-2", "cluster-3"},
-			expectedErrorContains: "StatefulSet test-om-db-2 in cluster cluster-3 is not declared by the external AppDB reference: the external AppDB cluster numbers do not match the internal AppDB",
+			name:             "rejects an undeclared internal StatefulSet when it exists",
+			refKind:          omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			declaredClusters: []string{"cluster-1", "cluster-2"},
+			createdClusters:  []string{"cluster-1", "cluster-2", "cluster-3"},
+			expectedPhase:    status.PhaseFailed,
+			expectedMessage:  "StatefulSet test-om-db-2 in cluster cluster-3 is not declared by the external AppDB reference: the external AppDB cluster numbers do not match the internal AppDB",
 		},
 		{
 			name:             "accepts a declared internal StatefulSet",
@@ -660,11 +683,12 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 
 			externalAppDB, err := reconciler.createNewExternalAppDBReconciler(zap.S()).getExternalAppDBReference(ctx, testOm)
 			require.NoError(t, err)
-			err = reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
-			if tt.expectedErrorContains == "" {
-				require.NoError(t, err)
+			st := reconciler.createNewExternalAppDBReconciler(zap.S()).ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+			if tt.expectedMessage == "" {
+				require.True(t, st.IsOK())
 			} else {
-				require.ErrorContains(t, err, tt.expectedErrorContains)
+				require.Equal(t, tt.expectedPhase, st.Phase())
+				assert.Equal(t, tt.expectedMessage, statusMessage(st))
 			}
 
 			expectedState := legacyState
@@ -734,7 +758,8 @@ func TestEnsureAppDBStatefulSetOwnership_MongoDBRegression(t *testing.T) {
 			ext := reconciler.createNewExternalAppDBReconciler(zap.S())
 			externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 			require.NoError(t, err)
-			require.NoError(t, ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB))
+			st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+			require.True(t, st.IsOK())
 
 			result := getAppDBStatefulSetState(t, ctx, kubeClient, mock.TestNamespace, "test-om-db")
 			assert.Equal(t, tt.expectedState.ownerReferences, result.ownerReferences)
@@ -958,7 +983,8 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testi
 			ext := reconciler.createNewExternalAppDBReconciler(zap.S())
 			externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 			require.NoError(t, err)
-			require.NoError(t, ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB))
+			st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
+			require.True(t, st.IsOK())
 
 			resultSts := appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))

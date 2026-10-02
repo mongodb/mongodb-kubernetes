@@ -57,8 +57,8 @@ func (e *ReconcileExternalAppDBReplicaSet) ReconcileAppDB(ctx context.Context, o
 		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error validating externalApplicationDatabaseRef: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
-	if err := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, appDB); err != nil {
-		return e.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error detaching internal AppDB StatefulSet: %w", err)), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
+	if status := e.ensureAppDBStatefulSetOwnership(ctx, opsManager, appDB); !status.IsOK() {
+		return e.updateStatus(ctx, opsManager, status.OnErrorPrepend("Error detaching internal AppDB StatefulSet"), e.log, mdbstatus.NewOMPartOption(mdbstatus.OpsManager))
 	}
 
 	return e.updateStatus(ctx, opsManager, workflow.Disabled(), e.log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
@@ -116,13 +116,13 @@ func (e *ReconcileExternalAppDBReplicaSet) getExternalAppDBReference(ctx context
 // Ownership is decided by the resource-owner label rather than by an ownerReference: a StatefulSet
 // deployed to a member cluster must never carry a cross-cluster ownerReference. A legacy StatefulSet
 // that predates the ownership labels is recognised by its ownerReference and backfilled in memory.
-func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDB externalAppDB) error {
+func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDB externalAppDB) workflow.Status {
 	clusterList := appDB.getClusterList()
 
 	existingStatefulSets := make(map[string]appsv1.StatefulSet, len(clusterList))
 	for _, clusterItem := range clusterList {
 		if clusterItem.client == nil {
-			return xerrors.Errorf("member cluster %s client is not available", clusterItem.clusterName)
+			return workflow.Failed(xerrors.Errorf("member cluster %s client is not available", clusterItem.clusterName))
 		}
 
 		sts := appsv1.StatefulSet{}
@@ -132,7 +132,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 				continue
 			}
 
-			return xerrors.Errorf("failed to fetch StatefulSet %s for cluster %s: %w", stsKey.Name, clusterItem.clusterName, err)
+			return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet %s for cluster %s: %w", stsKey.Name, clusterItem.clusterName, err))
 		}
 
 		existingStatefulSets[clusterItem.stsName] = sts
@@ -153,7 +153,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 				client.InNamespace(opsManager.Namespace),
 				client.MatchingLabels{util.MongoDBOpsManagerResourceOwnerLabel: opsManager.GetName()},
 			); err != nil {
-				return xerrors.Errorf("failed to list AppDB StatefulSets in cluster %s: %w", clusterName, err)
+				return workflow.Failed(xerrors.Errorf("failed to list AppDB StatefulSets in cluster %s: %w", clusterName, err))
 			}
 
 			for _, sts := range ownedStatefulSets.Items {
@@ -161,7 +161,7 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 					continue
 				}
 
-				return xerrors.Errorf("StatefulSet %s in cluster %s is not declared by the external AppDB reference: the external AppDB cluster numbers do not match the internal AppDB", sts.Name, clusterName)
+				return workflow.Failed(xerrors.Errorf("StatefulSet %s in cluster %s is not declared by the external AppDB reference: the external AppDB cluster numbers do not match the internal AppDB", sts.Name, clusterName))
 			}
 		}
 	}
@@ -169,38 +169,51 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 	// If none of the expected AppDB StatefulSets exists, this is a fresh adoption of an external
 	// AppDB and there is no internal AppDB to detach.
 	if len(existingStatefulSets) == 0 {
-		return nil
+		return workflow.OK()
 	}
 
-	// Otherwise every expected AppDB StatefulSet must exist; a missing one means its cluster number
-	// does not match the external reference's topology.
+	// Every expected AppDB StatefulSet must exist. While the referenced CR is still creating them
+	// the ones that exist are not owned by this Ops Manager yet, so wait for the rollout instead of
+	// reporting a topology mismatch.
 	for _, clusterItem := range clusterList {
-		if _, exists := existingStatefulSets[clusterItem.stsName]; !exists {
-			return xerrors.Errorf("StatefulSet %s for cluster %s does not exist: the external AppDB cluster numbers do not match the internal AppDB", clusterItem.stsName, clusterItem.clusterName)
+		if _, exists := existingStatefulSets[clusterItem.stsName]; exists {
+			continue
 		}
+
+		for _, sts := range existingStatefulSets {
+			if appDBStatefulSetOwnedByOpsManager(sts, opsManager) {
+				return workflow.Failed(xerrors.Errorf("StatefulSet %s for cluster %s does not exist: the external AppDB cluster numbers do not match the internal AppDB", clusterItem.stsName, clusterItem.clusterName))
+			}
+		}
+
+		return workflow.Pending("waiting for the external AppDB to create StatefulSet %s for cluster %s", clusterItem.stsName, clusterItem.clusterName)
 	}
 
 	for _, clusterItem := range clusterList {
 		sts := existingStatefulSets[clusterItem.stsName]
-
-		ownershipLabels := util.GetOwnershipLabels(sts.Labels)
-		// backfills label for legacy StatefulSets that used the OwnerReference for handover
-		if slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
-			return ref.UID == opsManager.UID
-		}) && len(ownershipLabels) == 0 {
-			ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] = opsManager.GetName()
-		}
-
-		if ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] != opsManager.GetName() {
+		if !appDBStatefulSetOwnedByOpsManager(sts, opsManager) {
 			continue
 		}
 
 		if err := requestAppDBForwardMigration(ctx, clusterItem.client, sts); err != nil {
-			return xerrors.Errorf("failed to detach StatefulSet %s for cluster %s: %w", sts.Name, clusterItem.clusterName, err)
+			return workflow.Failed(xerrors.Errorf("failed to detach StatefulSet %s for cluster %s: %w", sts.Name, clusterItem.clusterName, err))
 		}
 	}
 
-	return nil
+	return workflow.OK()
+}
+
+// appDBStatefulSetOwnedByOpsManager reports whether the AppDB StatefulSet belongs to this Ops
+// Manager, backfilling the ownership label for legacy StatefulSets that used the ownerReference.
+func appDBStatefulSetOwnedByOpsManager(sts appsv1.StatefulSet, opsManager *omv1.MongoDBOpsManager) bool {
+	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
+	if slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == opsManager.UID
+	}) && len(ownershipLabels) == 0 {
+		ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] = opsManager.GetName()
+	}
+
+	return ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] == opsManager.GetName()
 }
 
 func requestAppDBForwardMigration(ctx context.Context, c client.Client, sts appsv1.StatefulSet) error {
