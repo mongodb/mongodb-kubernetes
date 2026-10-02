@@ -5,6 +5,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -12,6 +14,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -19,6 +23,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
@@ -41,6 +47,8 @@ rules:
       - patch
       - delete
       - get
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding
@@ -56,3 +64,4 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-appdb
     namespace: mongodb
+
