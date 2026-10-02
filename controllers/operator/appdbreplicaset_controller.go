@@ -730,7 +730,8 @@ func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Cont
 	return nil
 }
 
-// reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears migration annotations
+// reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears the
+// stale forward migration annotation, leaving the reverse marker in place.
 func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, memberClient client.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
 	sts.Labels = merge.StringToStringMap(sts.Labels, opsManager.GetOwnerLabels())
 	sts.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
