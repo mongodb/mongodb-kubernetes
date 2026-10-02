@@ -70,7 +70,7 @@ func testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx context.Context, mdb backu
 
 		checkReconcile(ctx, t, reconciler, mdb)
 
-		snapshotSchedule, err := omConnectionFactory.GetConnection().ReadSnapshotSchedule(clusterID)
+		snapshotSchedule, err := omConnectionFactory.GetConnection().ReadSnapshotSchedule(ctx, clusterID)
 		require.NoError(t, err)
 		assertSnapshotScheduleEqual(t, mdb.GetBackupSpec().SnapshotSchedule, snapshotSchedule)
 	}
@@ -102,7 +102,7 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 		checkReconcile(ctx, t, reconciler, mdb)
 		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
 
-		omSnapshotSchedule, err := omConnectionFactory.GetConnection().ReadSnapshotSchedule(clusterID)
+		omSnapshotSchedule, err := omConnectionFactory.GetConnection().ReadSnapshotSchedule(ctx, clusterID)
 		require.NoError(t, err)
 
 		assertSnapshotScheduleEqual(t, mdb.GetBackupSpec().SnapshotSchedule, omSnapshotSchedule)
@@ -120,7 +120,7 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 		checkReconcile(ctx, t, reconciler, mdb)
 		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(mdb), mdb))
 
-		omSnapshotSchedule, err = omConnectionFactory.GetConnection().ReadSnapshotSchedule(clusterID)
+		omSnapshotSchedule, err = omConnectionFactory.GetConnection().ReadSnapshotSchedule(ctx, clusterID)
 		assert.NoError(t, err)
 		require.NotNil(t, omSnapshotSchedule)
 		require.NotNil(t, omSnapshotSchedule.FullIncrementalDayOfWeek)
@@ -129,11 +129,13 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 }
 
 func insertDefaultBackupSchedule(t *testing.T, omConnectionFactory *om.CachedOMConnectionFactory, clusterID string) {
+	ctx := t.Context()
 	// insert default backup schedule
-	err := omConnectionFactory.GetConnection().UpdateSnapshotSchedule(clusterID, &backup.SnapshotSchedule{
+	err := omConnectionFactory.GetConnection().UpdateSnapshotSchedule(ctx, clusterID, &backup.SnapshotSchedule{
 		GroupID:   om.TestGroupID,
 		ClusterID: clusterID,
 	})
+
 	assert.NoError(t, err)
 }
 

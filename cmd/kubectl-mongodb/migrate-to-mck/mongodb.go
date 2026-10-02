@@ -124,7 +124,7 @@ func runGenerateMongodb(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	ac, projectConfigs, sourceProcess, err := fetchAndValidate(conn)
+	ac, projectConfigs, sourceProcess, err := fetchAndValidate(ctx, conn)
 	if err != nil {
 		return err
 	}

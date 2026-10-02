@@ -1,17 +1,19 @@
 package backup
 
+import "context"
+
 // GroupConfigReader reads the Group Backup Config
 type GroupConfigReader interface {
 	// ReadGroupBackupConfig reads project level backup configuration
 	// See: https://www.mongodb.com/docs/ops-manager/v6.0/reference/api/admin/backup/groups/get-one-backup-group-configuration-by-id/
-	ReadGroupBackupConfig() (GroupBackupConfig, error)
+	ReadGroupBackupConfig(ctx context.Context) (GroupBackupConfig, error)
 }
 
 // GroupConfigUpdater updates the existing Group Backup Config
 type GroupConfigUpdater interface {
 	// UpdateGroupBackupConfig updates project level backup configuration
 	// See: https://www.mongodb.com/docs/ops-manager/v6.0/reference/api/admin/backup/groups/update-one-backup-group-configuration/
-	UpdateGroupBackupConfig(config GroupBackupConfig) ([]byte, error)
+	UpdateGroupBackupConfig(ctx context.Context, config GroupBackupConfig) ([]byte, error)
 }
 
 // DaemonFilter corresponds to the "daemonFilter" from the "Project Backup Jobs Configuration" from Ops Manager

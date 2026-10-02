@@ -1,6 +1,7 @@
 package agentVersionManagement
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strconv"
@@ -135,7 +136,7 @@ Unlike OM, there is no full guarantee that minor versions support each other for
 
 // GetAgentVersion returns the agent version to use with the Ops Manager
 // readFromMapping is true in the case of AppDB, because they are started before OM, so we cannot rely on the endpoint
-func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
+func (m *AgentVersionManager) GetAgentVersion(ctx context.Context, conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
 	isCM := versionutil.OpsManagerVersion{VersionString: omVersion}.IsCloudManager()
 	if isCM {
 		return m.getAgentVersionForCloudManagerFromMapping()
@@ -154,15 +155,15 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 		return "", xerrors.Errorf("Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s", omVersion, om6StaticContainersSupport, om7StaticContainersSupport)
 	}
 
-	version, err := GetAgentVersionFromOpsManager(conn)
+	version, err := GetAgentVersionFromOpsManager(ctx, conn)
 	if err != nil {
 		return "", err
 	}
 	return addVersionSuffixIfAbsent(version), nil
 }
 
-func GetAgentVersionFromOpsManager(conn om.Connection) (string, error) {
-	agentResponse, err := conn.ReadAgentVersion()
+func GetAgentVersionFromOpsManager(ctx context.Context, conn om.Connection) (string, error) {
+	agentResponse, err := conn.ReadAgentVersion(ctx)
 	if err != nil {
 		return "", err
 	}

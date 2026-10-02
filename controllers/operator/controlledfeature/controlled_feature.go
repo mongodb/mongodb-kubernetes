@@ -1,6 +1,8 @@
 package controlledfeature
 
 import (
+	"context"
+
 	"go.uber.org/zap"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -67,16 +69,16 @@ func OptionDisableMongodbVersion(cf *ControlledFeature) {
 }
 
 type Updater interface {
-	UpdateControlledFeature(cf *ControlledFeature) error
+	UpdateControlledFeature(ctx context.Context, cf *ControlledFeature) error
 }
 
 type Getter interface {
-	GetControlledFeature() (*ControlledFeature, error)
+	GetControlledFeature(ctx context.Context) (*ControlledFeature, error)
 }
 
 // EnsureFeatureControls updates the controlled feature based on the provided MongoDB
 // resource if the version of Ops Manager supports it
-func EnsureFeatureControls(mdb mdbv1.MongoDB, updater Updater, omVersion versionutil.OpsManagerVersion, log *zap.SugaredLogger) workflow.Status {
+func EnsureFeatureControls(ctx context.Context, mdb mdbv1.MongoDB, updater Updater, omVersion versionutil.OpsManagerVersion, log *zap.SugaredLogger) workflow.Status {
 	if !ShouldUseFeatureControls(omVersion) {
 		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", omVersion)
 		return workflow.OK()
@@ -84,14 +86,14 @@ func EnsureFeatureControls(mdb mdbv1.MongoDB, updater Updater, omVersion version
 
 	cf := buildFeatureControlsByMdb(mdb)
 	log.Debug("Configuring feature controls")
-	if err := updater.UpdateControlledFeature(cf); err != nil {
+	if err := updater.UpdateControlledFeature(ctx, cf); err != nil {
 		return workflow.Failed(err)
 	}
 	return workflow.OK()
 }
 
 // ClearFeatureControls cleares the controlled feature if the version of OpsManager supports it
-func ClearFeatureControls(updater Updater, omVersion versionutil.OpsManagerVersion, log *zap.SugaredLogger) workflow.Status {
+func ClearFeatureControls(ctx context.Context, updater Updater, omVersion versionutil.OpsManagerVersion, log *zap.SugaredLogger) workflow.Status {
 	if !ShouldUseFeatureControls(omVersion) {
 		log.Debugf("Ops Manager version is %s, which does not support Feature Controls API", omVersion)
 		return workflow.OK()
@@ -99,7 +101,7 @@ func ClearFeatureControls(updater Updater, omVersion versionutil.OpsManagerVersi
 	cf := newControlledFeature()
 	// cf.Policies needs to be an empty list, instead of a nil pointer, for a valid API call.
 	cf.Policies = make([]Policy, 0)
-	if err := updater.UpdateControlledFeature(cf); err != nil {
+	if err := updater.UpdateControlledFeature(ctx, cf); err != nil {
 		return workflow.Failed(err)
 	}
 	return workflow.OK()

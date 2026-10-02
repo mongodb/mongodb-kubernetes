@@ -175,7 +175,7 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 		return workflow.Failed(err)
 	}
 
-	d, err := conn.ReadDeployment()
+	d, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -207,13 +207,12 @@ func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.Db
 	}
 
 	log.Infof("Roles have been changed. Updating deployment in Ops Manager.")
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			d.SetRoles(roles)
 			return nil
 		},
-		log,
-	)
+		log)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -392,8 +391,8 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // the user may need to clean the resources from OM UI if they move the
 // resource to another project (as recommended by the migration instructions).
 // If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
-func checkIfHasExcessProcesses(conn om.Connection, resourceName string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
-	deployment, err := conn.ReadDeployment()
+func checkIfHasExcessProcesses(ctx context.Context, conn om.Connection, resourceName string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
+	deployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -409,7 +408,7 @@ func checkIfHasExcessProcesses(conn om.Connection, resourceName string, external
 		ID:    conn.GroupID(),
 		Tags:  []string{},
 	}
-	_, err = conn.UpdateProject(groupWithTags)
+	_, err = conn.UpdateProject(ctx, groupWithTags)
 	if err != nil {
 		log.Warnw("could not remove externally managed tag from Ops Manager group", "error", err)
 	}
@@ -419,12 +418,12 @@ func checkIfHasExcessProcesses(conn om.Connection, resourceName string, external
 
 // checkExternalMembersDrift checks if the external members specified in the CR are present in Ops Manager and if their fields match the ones specified in the CR.
 // If there is a drift, it returns an error with the details of the drift.
-func checkExternalMembersDrift(conn om.Connection, externalMembers []mdbv1.ExternalMember) workflow.Status {
+func checkExternalMembersDrift(ctx context.Context, conn om.Connection, externalMembers []mdbv1.ExternalMember) workflow.Status {
 	if len(externalMembers) == 0 {
 		return workflow.OK()
 	}
 
-	deployment, err := conn.ReadDeployment()
+	deployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -458,11 +457,11 @@ const MaxVotingMembers = 7
 //
 // The checks run on a snapshot read here while the merge reads the AC again later. An out of band
 // edit between the two reads is accepted risk, the merge layer deliberately has no duplicate guard.
-func validateACForMigration(conn om.Connection, mdb *mdbv1.MongoDB) workflow.Status {
+func validateACForMigration(ctx context.Context, conn om.Connection, mdb *mdbv1.MongoDB) workflow.Status {
 	if len(mdb.Spec.GetExternalMembers()) == 0 {
 		return workflow.OK()
 	}
-	deployment, err := conn.ReadDeployment()
+	deployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -791,8 +790,8 @@ func (r *ReconcileCommonController) ensureBackupConfigurationAndUpdateStatus(ctx
 }
 
 // validateMongoDBResource performs validation on the MongoDBResource
-func validateMongoDBResource(mdb *mdbv1.MongoDB, conn om.Connection) workflow.Status {
-	ac, err := conn.ReadAutomationConfig()
+func validateMongoDBResource(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Connection) workflow.Status {
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -876,20 +875,20 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		return workflow.OK(), false
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return workflow.Failed(err), false
 	}
 
 	// if we have changed the internal cluster auth, we need to update the ac first
 	authenticationMode := ar.GetSecurity().GetInternalClusterAuthenticationMode()
-	err = r.setupInternalClusterAuthIfItHasChanged(conn, processNames, authenticationMode, clusterFilePath, isRecovering)
+	err = r.setupInternalClusterAuthIfItHasChanged(ctx, conn, processNames, authenticationMode, clusterFilePath, isRecovering)
 	if err != nil {
 		return workflow.Failed(err), false
 	}
 
 	// we need to wait for all agents to be ready before configuring any authentication settings
-	if err := om.WaitForReadyState(conn, processNames, isRecovering, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, processNames, isRecovering, log); err != nil {
 		return workflow.Failed(err), false
 	}
 
@@ -1101,21 +1100,22 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
-func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(conn om.Connection, names []string, clusterAuth string, filePath string, isRecovering bool) error {
+func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(ctx context.Context, conn om.Connection, names []string, clusterAuth string, filePath string, isRecovering bool) error {
 	if filePath == "" {
 		return nil
 	}
-	err := conn.ReadUpdateDeployment(func(deployment om.Deployment) error {
+	err := conn.ReadUpdateDeployment(ctx, func(deployment om.Deployment) error {
 		deployment.SetInternalClusterFilePathOnlyIfItThePathHasChanged(names, filePath, clusterAuth, isRecovering)
 		return nil
 	}, zap.S())
+
 	return err
 }
 
 // getAgentVersion resolves the agent version to use. When customAgentURL is set,
 // the version is extracted from the URL filename, overriding the Ops Manager API,
 // mapping file, and Cloud Manager paths.
-func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
+func (r *ReconcileCommonController) getAgentVersion(ctx context.Context, conn om.Connection, omVersion string, isAppDB bool, log *zap.SugaredLogger) (string, error) {
 	// When a custom agent URL is set, derive the version from the URL filename.
 	// This overrides all other version resolution (Ops Manager API, mapping, Cloud Manager).
 	if r.customAgentURL != "" {
@@ -1127,7 +1127,7 @@ func (r *ReconcileCommonController) getAgentVersion(conn om.Connection, omVersio
 		return "", xerrors.Errorf("not able to init agentVersionManager: %w", err)
 	}
 
-	if agentVersion, err := m.GetAgentVersion(conn, omVersion, isAppDB); err != nil {
+	if agentVersion, err := m.GetAgentVersion(ctx, conn, omVersion, isAppDB); err != nil {
 		log.Errorf("Failed to get the agent version from the Agent Version manager: %s", err)
 		return "", err
 	} else {
@@ -1511,8 +1511,8 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	return nil
 }
 
-func ReconcileLogRotateSetting(conn om.Connection, agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) (workflow.Status, error) {
-	if err := conn.ReadUpdateAgentsLogRotation(agentConfig, log); err != nil {
+func ReconcileLogRotateSetting(ctx context.Context, conn om.Connection, agentConfig mdbv1.AgentConfig, log *zap.SugaredLogger) (workflow.Status, error) {
+	if err := conn.ReadUpdateAgentsLogRotation(ctx, agentConfig, log); err != nil {
 		return workflow.Failed(err), err
 	}
 	return workflow.OK(), nil

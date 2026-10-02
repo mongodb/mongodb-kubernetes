@@ -458,7 +458,7 @@ func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
 
 	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 
-	hostsBefore, err := mockedOmConn.GetHosts()
+	hostsBefore, err := mockedOmConn.GetHosts(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, hostsBefore.Results, "precondition: the replica set is monitored in OM")
 
@@ -467,13 +467,13 @@ func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
 	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 
 	// The replica set and its processes must still be in the automation config.
-	d, err := mockedOmConn.ReadDeployment()
+	d, err := mockedOmConn.ReadDeployment(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, d.GetReplicaSets(), "replica set must stay in the automation config")
 	assert.NotEmpty(t, d.GetProcessNames(om.ReplicaSet{}, rs.Name), "processes must stay in the automation config")
 
 	// Monitoring must be untouched.
-	hostsAfter, err := mockedOmConn.GetHosts()
+	hostsAfter, err := mockedOmConn.GetHosts(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
 
@@ -483,7 +483,7 @@ func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
 		reflect.ValueOf(mockedOmConn.RemoveHost))
 
 	// Feature controls must have been cleared.
-	cf, err := mockedOmConn.GetControlledFeature()
+	cf, err := mockedOmConn.GetControlledFeature(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
 	assert.NotNil(t, cf.Policies)
@@ -498,7 +498,7 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
 
 	// downgrade to version that will not use SCRAM-SHA-256
@@ -615,7 +615,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -639,7 +639,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -783,10 +783,11 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	uuidStr := uuid.New().String()
 	// configure backup for this project in Ops Manager in the mocked connection
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		_, err := connection.UpdateBackupConfig(&backup.Config{
+		_, err := connection.UpdateBackupConfig(ctx, &backup.Config{
 			ClusterId: uuidStr,
 			Status:    backup.Inactive,
 		})
+
 		assert.NoError(t, err)
 
 		// add corresponding host cluster.
@@ -800,7 +801,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -819,7 +820,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -836,7 +837,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -1247,7 +1248,7 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 	err := client.Get(ctx, mdb.ObjectKey(), mdb)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, mdb.Status.Members, msg)
-	dep, err := omConnection.ReadDeployment()
+	dep, err := omConnection.ReadDeployment(ctx)
 	assert.NoError(t, err)
 	assert.Len(t, dep.ProcessesCopy(), expected)
 }
@@ -1766,7 +1767,7 @@ func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 		)
 		d := om.NewDeployment()
 		d.MergeReplicaSet(buildRsByProcessesHelper("conn-str-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
-		_, _ = mocked.UpdateDeployment(d)
+		_, _ = mocked.UpdateDeployment(ctx, d)
 	})
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -1832,7 +1833,7 @@ func TestReplicaSetMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) 
 
 	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
-		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(vmProcessWithSearchSetParameters(t, true))
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmProcessWithSearchSetParameters(t, true))
 	})
 
 	// Search setParameters on the external (VM) process do not hold the migration back: the
@@ -1863,7 +1864,7 @@ func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 			conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
 
 			if tt.projectKey != "" {
-				require.NoError(t, conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+				require.NoError(t, conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 					ac.Auth.Key = tt.projectKey
 					return nil
 				}, zap.S()))
@@ -1882,7 +1883,7 @@ func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 			// second call must be stable: same key in the AC and the secret (determinism)
 			require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
 
-			ac, err := conn.ReadAutomationConfig()
+			ac, err := conn.ReadAutomationConfig(ctx)
 			require.NoError(t, err)
 			sec := corev1.Secret{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, keyfileSecretName), &sec))
@@ -1916,7 +1917,7 @@ func TestEnsureAppDBRoleUser_CreatesSharedPasswordSecret(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, sec.Data[util.OpsManagerPasswordKey])
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
 	require.NotNil(t, createdUser)
@@ -1945,7 +1946,7 @@ func TestEnsureAppDBRoleUser_ReusesExistingPassword(t *testing.T) {
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName("my-om-db")), &result))
 	assert.Equal(t, "pre-existing-password", string(result.Data[util.OpsManagerPasswordKey]))
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
 	require.NotNil(t, createdUser)

@@ -288,7 +288,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	}
 
 	if !cleaningRemovedOperator {
-		if supported, st := r.checkOMVersionForMetricsEndpoint(mdbSearch, projectConfig, log); !supported {
+		if supported, st := r.checkOMVersionForMetricsEndpoint(ctx, mdbSearch, projectConfig, log); !supported {
 			r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
 			return st
 		}
@@ -753,7 +753,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) resolveGroupFromAgentKey(ctx c
 	// that's why it breaks from the convention of other agent endpoints which user the groupId as a username, it's by design.
 	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte("apiKey:"+agentKey))
 
-	body, err := r.omRequester.RequestWithAgentAuth(projectConfig, "GET", "/agents/api/group/v1", authHeader, nil)
+	body, err := r.omRequester.RequestWithAgentAuth(ctx, projectConfig, "GET", "/agents/api/group/v1", authHeader, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to call agents group API: %w", err)
 	}
@@ -792,21 +792,21 @@ func (r *MongoDBSearchMetricsForwarderReconciler) readAgentApiKey(ctx context.Co
 // dependency so tests can stub the network without a live Ops Manager. The default implementation,
 // omHTTPAgentRequester, wraps the real Ops Manager HTTP client.
 type omAgentRequester interface {
-	RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error)
+	RequestWithAgentAuth(ctx context.Context, projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error)
 	// GetOMVersion fetches the Ops Manager version by calling the unauthenticated /unauth/versionManifest
 	// endpoint and extracting the version string from the X-MongoDB-Service-Version response header.
-	GetOMVersion(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
+	GetOMVersion(ctx context.Context, projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
 }
 
 type omHTTPAgentRequester struct{}
 
-func (r omHTTPAgentRequester) RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
-	respBody, _, err := newOMHTTPClient(projectConfig).RequestWithAgentAuth(method, projectConfig.BaseURL, path, authHeader, body)
+func (r omHTTPAgentRequester) RequestWithAgentAuth(ctx context.Context, projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+	respBody, _, err := newOMHTTPClient(projectConfig).RequestWithAgentAuth(ctx, method, projectConfig.BaseURL, path, authHeader, body)
 	return respBody, err
 }
 
-func (r omHTTPAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
-	_, headers, err := newOMHTTPClient(projectConfig).Request("GET", projectConfig.BaseURL, "/api/public/v1.0/unauth/versionManifest", nil)
+func (r omHTTPAgentRequester) GetOMVersion(ctx context.Context, projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
+	_, headers, err := newOMHTTPClient(projectConfig).Request(ctx, "GET", projectConfig.BaseURL, "/api/public/v1.0/unauth/versionManifest", nil)
 	if err != nil {
 		return versionutil.OpsManagerVersion{}, fmt.Errorf("failed to fetch Ops Manager version manifest: %w", err)
 	}
@@ -827,12 +827,12 @@ func (r omHTTPAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (v
 //   - Unknown version or unparseable semver: Implicit → Unsupported; Explicit → Failed.
 //   - Cloud Manager connection:              Implicit → Unsupported; Explicit → Failed.
 //   - Self-hosted OM version < 8.0.25:      Implicit → Unsupported; Explicit → Failed.
-func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoint(mdbSearch *searchv1.MongoDBSearch, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
+func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoint(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
 	explicit := mdbSearch.MetricsForwarderHasExplicitProjectConfig()
 
 	const disableHint = " Set '.spec.observability.metricsForwarder.mode: disabled' to silence this message"
 
-	omVersion, err := r.omRequester.GetOMVersion(projectConfig)
+	omVersion, err := r.omRequester.GetOMVersion(ctx, projectConfig)
 	if err != nil {
 		log.Warnf("Failed to fetch Ops Manager version for metrics endpoint check: %v", err)
 		return false, workflow.Pending("Checking Ops Manager version compatibility.")
@@ -1157,7 +1157,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedMongotPods(ctx c
 	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(groupID+":"+agentKey))
 	path := fmt.Sprintf("/agents/api/hosts/%s/v1/delete", groupID)
 
-	body, err := r.omRequester.RequestWithAgentAuth(projectConfig, "POST", path, authHeader, deleteHostsRequest{HostIds: hostIDs})
+	body, err := r.omRequester.RequestWithAgentAuth(ctx, projectConfig, "POST", path, authHeader, deleteHostsRequest{HostIds: hostIDs})
 	if err != nil {
 		return fmt.Errorf("failed to call delete hosts API: %w", err)
 	}

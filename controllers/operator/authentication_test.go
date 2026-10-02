@@ -94,7 +94,7 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
 	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
-	ac, _ := conn.ReadAutomationConfig()
+	ac, _ := conn.ReadAutomationConfig(ctx)
 
 	assert.True(t, ac.Auth.Disabled, "authentication was not specified to enabled, so it should remain disabled in Ops Manager")
 	assert.Len(t, ac.Auth.Users, 0)
@@ -144,7 +144,7 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 	assert.True(t, status.IsOK(), "no authentication should have been configured")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	// authentication has not been touched
 	assert.True(t, ac.Auth.Disabled)
@@ -168,7 +168,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	// x509 auth has been enabled
 	assert.True(t, ac.Auth.IsEnabled())
 	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
@@ -179,7 +179,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ = omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.True(t, ac.Auth.IsEnabled())
 	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
 }
@@ -242,7 +242,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
 }
 
@@ -278,7 +278,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 }
 
@@ -287,7 +287,7 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		err := connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		err := connection.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 			ac.Auth.AutoUser = "my-custom-agent-name"
 			return nil
 		}, nil)
@@ -300,7 +300,7 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	assert.Equal(t, "my-custom-agent-name", ac.Auth.AutoUser)
 }
@@ -320,7 +320,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	dep, _ := omConnectionFactory.GetConnection().ReadDeployment()
+	dep, _ := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
@@ -338,7 +338,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 
-	dep, _ := omConnectionFactory.GetConnection().ReadDeployment()
+	dep, _ := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
@@ -381,7 +381,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "LITZTOd6YiCV8j", ac.Ldap.BindQueryPassword)
 	assert.Equal(t, "bindQueryUser", ac.Ldap.BindQueryUser)
@@ -438,7 +438,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:1234", ac.Ldap.Servers)
 
@@ -492,7 +492,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:0000,server1:1111,server2:2222", ac.Ldap.Servers)
 
@@ -886,7 +886,7 @@ func TestUpdateOmAuthentication_KeyFileFollowsDownloadBase(t *testing.T) {
 		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", "/custom/download/base", false, zap.S())
 		assert.True(t, status.IsOK())
 
-		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, "/custom/download/base/keyfile", ac.Auth.KeyFile)
 	})
@@ -900,7 +900,7 @@ func TestUpdateOmAuthentication_KeyFileFollowsDownloadBase(t *testing.T) {
 		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 		assert.True(t, status.IsOK())
 
-		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, util.AutomationAgentKeyFilePathInContainer, ac.Auth.KeyFile)
 	})

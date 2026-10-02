@@ -26,43 +26,47 @@ func init() {
 }
 
 func TestReadProjectsInOrganizationByName(t *testing.T) {
+	ctx := t.Context()
 	projects := []*Project{{ID: "111", Name: "The Project"}}
 	srv := serverMock(projectsInOrganizationByName("testOrgId", projects))
 	defer srv.Close()
 
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL})
 
-	data, err := connection.ReadProjectsInOrganizationByName("testOrgId", "The Project")
+	data, err := connection.ReadProjectsInOrganizationByName(ctx, "testOrgId", "The Project")
 	assert.NoError(t, err)
 	assert.Equal(t, projects, data)
 }
 
 func TestReadOrganizationsByName(t *testing.T) {
+	ctx := t.Context()
 	organizations := []*Organization{{ID: "111", Name: "The Organization"}}
 	srv := serverMock(organizationsByName(organizations))
 	defer srv.Close()
 
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL})
 
-	data, err := connection.ReadOrganizationsByName("The Organization")
+	data, err := connection.ReadOrganizationsByName(ctx, "The Organization")
 	assert.NoError(t, err)
 	assert.Equal(t, organizations, data)
 }
 
 func TestGettingAutomationConfig(t *testing.T) {
+	ctx := t.Context()
 	testAutomationConfig := getTestAutomationConfig()
 	handleFunc, _ := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
 	srv := serverMock(handleFunc)
 	defer srv.Close()
 
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
-	data, err := connection.ReadAutomationConfig()
+	data, err := connection.ReadAutomationConfig(ctx)
 
 	assert.NoError(t, err)
 	assert.Equal(t, testAutomationConfig.Deployment, data.Deployment)
 }
 
 func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
+	ctx := t.Context()
 	logger := zap.NewNop().Sugar()
 	testAutomationConfig := getTestAutomationConfig()
 	handleFunc, counters := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
@@ -70,7 +74,7 @@ func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
 	defer srv.Close()
 
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
-	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+	err := connection.ReadUpdateAutomationConfig(ctx, func(ac *AutomationConfig) error {
 		return nil
 	}, logger)
 
@@ -81,6 +85,7 @@ func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
 
 // TestNotSendingRequestOnNonModifiedAutomationConfigWithMergoDelete verifies that util.MergoDelete will be ignored during equality comparisons
 func TestNotSendingRequestOnNonModifiedAutomationConfigWithMergoDelete(t *testing.T) {
+	ctx := t.Context()
 	logger := zap.NewNop().Sugar()
 	testAutomationConfig := getTestAutomationConfig()
 	handleFunc, counters := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
@@ -88,7 +93,7 @@ func TestNotSendingRequestOnNonModifiedAutomationConfigWithMergoDelete(t *testin
 	defer srv.Close()
 
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
-	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+	err := connection.ReadUpdateAutomationConfig(ctx, func(ac *AutomationConfig) error {
 		ac.AgentSSL = &AgentSSL{
 			AutoPEMKeyFilePath: util.MergoDelete,
 		}
@@ -110,6 +115,7 @@ func OptionRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) f
 }
 
 func TestRetriesOnWritingAutomationConfig(t *testing.T) {
+	ctx := t.Context()
 	logger := zap.NewNop().Sugar()
 	testAutomationConfig := getTestAutomationConfig()
 	successfulResponse := automationConfigResponse{config: testAutomationConfig}
@@ -122,7 +128,7 @@ func TestRetriesOnWritingAutomationConfig(t *testing.T) {
 		&OMContext{BaseURL: srv.URL, GroupID: "1"},
 		OptionRetryConfig(0, 0, 3), // No delay between retries, still retry 3 times
 	)
-	err := connection.ReadUpdateAutomationConfig(func(ac *AutomationConfig) error {
+	err := connection.ReadUpdateAutomationConfig(ctx, func(ac *AutomationConfig) error {
 		return nil
 	}, logger)
 
@@ -247,6 +253,7 @@ func automationConfig(groupId string, responses ...automationConfigResponse) (ha
 }
 
 func TestReadOrganization_OrgIDIsPathEscaped(t *testing.T) {
+	ctx := t.Context()
 	orgJSON, err := json.Marshal(&Organization{ID: "real-org", Name: "real-org"})
 	require.NoError(t, err)
 
@@ -266,7 +273,7 @@ func TestReadOrganization_OrgIDIsPathEscaped(t *testing.T) {
 
 			conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL}, OptionRetryConfig(0, 0, 1))
 
-			_, err := conn.ReadOrganization(payload)
+			_, err := conn.ReadOrganization(ctx, payload)
 			require.NoError(t, err)
 
 			got := rec.Last()
@@ -284,6 +291,7 @@ func TestReadOrganization_OrgIDIsPathEscaped(t *testing.T) {
 }
 
 func TestReadProjectsInOrganization_OrgIDIsPathEscaped(t *testing.T) {
+	ctx := t.Context()
 	projectsJSON, err := json.Marshal(&ProjectsResponse{Groups: []*Project{{ID: "111", Name: "The Project"}}})
 	require.NoError(t, err)
 
@@ -297,7 +305,7 @@ func TestReadProjectsInOrganization_OrgIDIsPathEscaped(t *testing.T) {
 
 		conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL}, OptionRetryConfig(0, 0, 1))
 
-		_, err := conn.ReadProjectsInOrganizationByName(orgID, "The Project")
+		_, err := conn.ReadProjectsInOrganizationByName(ctx, orgID, "The Project")
 		require.NoError(t, err)
 
 		got := rec.Last()
