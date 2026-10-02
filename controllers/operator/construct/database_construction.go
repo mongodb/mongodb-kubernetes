@@ -78,7 +78,6 @@ const (
 	Mongos
 	Config
 	Shard
-	Standalone
 	MultiReplicaSet
 )
 
@@ -191,43 +190,6 @@ type databaseStatefulSetSource interface {
 	GetAnnotations() map[string]string
 
 	GetDownloadBase() string
-}
-
-// StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
-func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOptions)) func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-	return func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions {
-		var stsSpec *appsv1.StatefulSetSpec = nil
-		if mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
-			stsSpec = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate}
-		}
-
-		opts := DatabaseStatefulSetOptions{
-			Replicas:                1,
-			Name:                    mdb.Name,
-			ServiceName:             mdb.ServiceName(),
-			PodSpec:                 NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
-			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
-			Persistent:              mdb.Spec.Persistent,
-			OwnerReference:          kube.BaseOwnerReference(&mdb),
-			AgentConfig:             &mdb.Spec.Agent,
-			StatefulSetSpecOverride: stsSpec,
-			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
-			StsType:                 Standalone,
-			// create.DatabaseInKubernetes creates or deletes the per-pod external services based on
-			// opts.ExternalAccessConfiguration, so leaving it unset would delete the external
-			// service of a standalone that configures spec.externalAccess. A standalone has no
-			// tiers, so the top-level field is the only source, as it is for a replica set.
-			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
-			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
-			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
-		}
-
-		for _, opt := range additionalOpts {
-			opt(&opts)
-		}
-
-		return opts
-	}
 }
 
 // ReplicaSetOptions returns a set of options which will configure a ReplicaSet StatefulSet

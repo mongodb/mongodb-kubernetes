@@ -515,26 +515,6 @@ class MongoTester:
             time.sleep(10)
 
 
-class StandaloneTester(MongoTester):
-    def __init__(
-        self,
-        mdb_resource_name: str,
-        ssl: bool = False,
-        ca_path: Optional[str] = None,
-        namespace: Optional[str] = None,
-        port="27017",
-        external_domain: Optional[str] = None,
-        cluster_domain: str = "cluster.local",
-    ):
-        if namespace is None:
-            namespace = KubernetesTester.get_namespace()
-
-        self.cnx_string = build_mongodb_connection_uri(
-            mdb_resource_name, namespace, 1, port, external_domain=external_domain, cluster_domain=cluster_domain
-        )
-        super().__init__(self.cnx_string, ssl, ca_path)
-
-
 class ReplicaSetTester(MongoTester):
     def __init__(
         self,

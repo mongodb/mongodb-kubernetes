@@ -344,9 +344,18 @@ func additionalMongodConfig(ms MongoDbSpec) v1.ValidationResult {
 		}
 		return v1.ValidationSuccess()
 	}
-	// Standalone or ReplicaSet
+	// ReplicaSet
 	if ms.ShardSpec != nil || ms.ConfigSrvSpec != nil || ms.MongosSpec != nil {
 		return v1.ValidationError("'spec.mongos', 'spec.configSrv', 'spec.shard' cannot be specified if type of MongoDB is %s", ms.ResourceType)
+	}
+	return v1.ValidationSuccess()
+}
+
+// standaloneIsNoLongerSupported rejects Standalone resources. They are no longer deployed
+// by the operator, migrate to a one member replica set instead.
+func standaloneIsNoLongerSupported(ms MongoDbSpec) v1.ValidationResult {
+	if ms.ResourceType == Standalone {
+		return v1.ValidationError("Standalone deployments are no longer supported, please migrate to a one member replica set")
 	}
 	return v1.ValidationSuccess()
 }
@@ -408,7 +417,7 @@ func resourceTypeImmutable(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
-// This validation blocks topology migrations for any MongoDB resource (Standalone, ReplicaSet, ShardedCluster)
+// This validation blocks topology migrations for any MongoDB resource (ReplicaSet, ShardedCluster)
 func noTopologyMigration(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if oldObj.GetTopology() != newObj.GetTopology() {
 		return v1.ValidationError("Automatic Topology Migration (Single/Multi Cluster) is not supported for MongoDB resource")
@@ -528,7 +537,7 @@ func noReplicaSetNameOverrideChanges(newObj, oldObj MongoDbSpec) v1.ValidationRe
 }
 
 // externalDomainLocation identifies one place where an external domain resolves: a tier of a
-// sharded cluster (empty for replica sets and standalones) inside one member cluster (empty in
+// sharded cluster (empty for replica sets) inside one member cluster (empty in
 // single cluster topology).
 type externalDomainLocation struct {
 	tier    ShardedClusterTier
@@ -573,7 +582,7 @@ func externalDomainsByLocation(spec MongoDbSpec) map[externalDomainLocation]*str
 	domains := map[externalDomainLocation]*string{}
 
 	if spec.ResourceType != ShardedCluster {
-		// Replica sets and standalones only ever read the top level field, see MongoDbSpec.GetExternalDomain.
+		// Replica sets only ever read the top level field, see MongoDbSpec.GetExternalDomain.
 		domains[externalDomainLocation{}] = spec.GetExternalDomain()
 		return domains
 	}
@@ -811,6 +820,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 	}
 
 	mongoDBValidators := []func(m MongoDbSpec) v1.ValidationResult{
+		standaloneIsNoLongerSupported,
 		horizonsMustEqualMembers,
 		horizonDomainNamesMustBeValid,
 		additionalMongodConfig,

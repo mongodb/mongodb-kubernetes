@@ -207,13 +207,6 @@ func TestMongoDB_ConnectionURL_NotSecure(t *testing.T) {
 		"contractsDb-mongos-1.contractsDb-svc.ns.svc.cluster.local:27017/"+
 		"?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
 		cnx)
-
-	// Standalone
-	st := NewStandaloneBuilder().SetName("foo").Build()
-	cnx = st.BuildConnectionString("", "", "", connectionstring.SchemeMongoDB, nil)
-	assert.Equal(t, "mongodb://foo-0.foo-svc.testNS.svc.cluster.local:27017/?"+
-		"connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&ssl=false",
-		cnx)
 }
 
 func TestMongoDB_ConnectionURL_Secure(t *testing.T) {
@@ -565,7 +558,7 @@ func TestGetReplicaSetName_WithOverride(t *testing.T) {
 }
 
 func TestGetReplicaSetName_PanicsForNonReplicaSet(t *testing.T) {
-	mdb := NewStandaloneBuilder().SetName("my-standalone").Build()
+	mdb := NewClusterBuilder().SetName("my-sc").Build()
 	assert.Panics(t, func() { mdb.GetReplicaSetName() })
 }
 

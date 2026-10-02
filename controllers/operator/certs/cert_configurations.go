@@ -74,29 +74,6 @@ func (sc ShardedSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 	return &sc.Spec.DbCommonSpec
 }
 
-type StandaloneX509CertConfigurator struct {
-	*mdbv1.MongoDB
-	SecretClient secrets.SecretClient
-}
-
-var _ X509CertConfigurator = StandaloneX509CertConfigurator{}
-
-func (s StandaloneX509CertConfigurator) GetCertOptions() []Options {
-	return []Options{StandaloneConfig(*s.MongoDB)}
-}
-
-func (s StandaloneX509CertConfigurator) GetSecretReadClient() secrets.SecretClient {
-	return s.SecretClient
-}
-
-func (s StandaloneX509CertConfigurator) GetSecretWriteClient() secrets.SecretClient {
-	return s.SecretClient
-}
-
-func (s StandaloneX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
-	return &s.Spec.DbCommonSpec
-}
-
 type MongoDBMultiX509CertConfigurator struct {
 	*mdbmulti.MongoDBMultiCluster
 	ClusterNum        int
@@ -151,21 +128,6 @@ type Options struct {
 	Topology string
 
 	OwnerReference []metav1.OwnerReference
-}
-
-// StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
-func StandaloneConfig(mdb mdbv1.MongoDB) Options {
-	return Options{
-		ResourceName:                 mdb.Name,
-		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
-		Namespace:                    mdb.Namespace,
-		ServiceName:                  mdb.ServiceName(),
-		Replicas:                     1,
-		ClusterDomain:                mdb.Spec.GetClusterDomain(),
-		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               mdb.GetOwnerReferences(),
-		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
-	}
 }
 
 // ReplicaSetConfig returns a struct which provides all of the configuration options required for the given Replica Set.
