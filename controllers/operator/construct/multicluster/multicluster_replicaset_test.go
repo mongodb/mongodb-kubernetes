@@ -169,6 +169,57 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	})
 }
 
+func TestMultiClusterStatefulSet_Labels(t *testing.T) {
+	const userLabelKey = "user-label"
+
+	mdbm := getMultiClusterMongoDB()
+	mdbm.Labels = map[string]string{userLabelKey: "user-value"}
+	ownerLabels := mdbm.GetOwnerLabels()
+
+	opts := MultiClusterReplicaSetOptions(
+		WithClusterNum(0),
+		WithMemberCount(3),
+		construct.GetPodEnvOptions(),
+	)
+	sts := MultiClusterStatefulSet(mdbm, opts)
+
+	assert.Equal(t, "user-value", sts.Labels[userLabelKey])
+	require.NotEmpty(t, sts.Spec.VolumeClaimTemplates)
+	for _, claim := range sts.Spec.VolumeClaimTemplates {
+		assert.Equal(t, "user-value", claim.Labels[userLabelKey], "user labels must reach the PVC %s", claim.Name)
+	}
+
+	// Owner labels stay on the StatefulSet only: they flip during the AppDB handover and
+	// spec.volumeClaimTemplates is immutable (CLOUDP-208587).
+	for _, key := range []string{util.MongoDBMultiClusterResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBResourceOwnerLabel} {
+		assert.Equal(t, ownerLabels[key], sts.Labels[key], "owner label %s must be on the StatefulSet", key)
+		for _, claim := range sts.Spec.VolumeClaimTemplates {
+			assert.NotContains(t, claim.Labels, key, "owner label %s must not reach the PVC %s", key, claim.Name)
+		}
+	}
+}
+
+func TestMultiClusterStatefulSet_StripsOwnerLabels(t *testing.T) {
+	mdbm := getMultiClusterMongoDB()
+	mdbm.Labels = map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "spoofed-om"}
+
+	opts := MultiClusterReplicaSetOptions(
+		WithClusterNum(0),
+		WithMemberCount(3),
+		construct.GetPodEnvOptions(),
+	)
+	sts := MultiClusterStatefulSet(mdbm, opts)
+
+	assert.Equal(t, "demo", sts.Labels["app"], "non-reserved user label must survive")
+	assert.NotContains(t, sts.Labels, util.MongoDBOpsManagerResourceOwnerLabel, "spoofed participant key must be stripped")
+
+	ownerLabels := mdbm.GetOwnerLabels()
+	require.NotEmpty(t, ownerLabels)
+	for k, v := range ownerLabels {
+		assert.Equal(t, v, sts.Labels[k], "owner label %s applied via StsLabels must be present", k)
+	}
+}
+
 func TestPVCOverride(t *testing.T) {
 	tests := []struct {
 		inp appsv1.StatefulSetSpec
