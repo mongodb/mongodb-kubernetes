@@ -989,9 +989,14 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def download_mongodb_binaries(self, version: str):
         """Downloads mongodb binary in each OM pod, optional downloads MongoDB Tools"""
+        # rhel90/rhel93 are needed because the database image is UBI9 based: the agent asks Ops
+        # Manager for the build matching its own platform. Which of the two exists depends on the
+        # MongoDB major version, and neither exists below 6.0.4; a miss just leaves an unused file.
         distros = [
             f"mongodb-linux-x86_64-rhel80-{version}.tgz",
             f"mongodb-linux-x86_64-rhel8-{version}.tgz",
+            f"mongodb-linux-x86_64-rhel90-{version}.tgz",
+            f"mongodb-linux-x86_64-rhel93-{version}.tgz",
             f"mongodb-linux-x86_64-ubuntu1604-{version}.tgz",
             f"mongodb-linux-x86_64-ubuntu1804-{version}.tgz",
         ]

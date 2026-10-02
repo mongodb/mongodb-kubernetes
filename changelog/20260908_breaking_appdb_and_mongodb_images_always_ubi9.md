@@ -1,0 +1,6 @@
+---
+kind: breaking
+date: 2026-09-08
+---
+
+* **MongoDB and AppDB images always resolve to UBI9**: Official enterprise images (`mongodb-enterprise-server`) are now always resolved to their `-ubi9` variant, for the Ops Manager `applicationDatabase` as well as for `MongoDB`, `MongoDBMultiCluster`, and sharded deployments, and regardless of whether the resource runs the static or non-static architecture. Previously only static-architecture deployments received UBI9 images while AppDB and non-static deployments were pinned to `-ubi8`, so setting `MDB_IMAGE_TYPE=ubi9` appeared to have no effect on AppDB. A `spec.version` carrying an explicit `-ubi8` suffix is now rewritten to `-ubi9`; versions with any other suffix (for example `-ubuntu2204`) are still left untouched. This drops support for MongoDB versions below 6.0.4 on these images, as no UBI9 binaries were ever published for them — MongoDB 6 and earlier are end-of-life. The `mongodb.appdbAssumeOldFormat` Helm value and the `MDB_APPDB_ASSUME_OLD_FORMAT` environment variable, which existed only to opt out of this suffix rewriting, are removed; if you set either of them, remove them from your Helm values or Operator Deployment before upgrading.

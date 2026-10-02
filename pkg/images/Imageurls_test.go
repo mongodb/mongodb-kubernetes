@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
 const deprecatedImageAppdbUbiName = "mongodb-enterprise-appdb-database-ubi"
@@ -54,18 +53,17 @@ func TestContainerImage(t *testing.T) {
 }
 
 func TestGetAppDBImage(t *testing.T) {
-	// Note: if no DefaultImageType is given, we will default to ubi8
+	// Note: official enterprise images always resolve to the ubi9 variant.
 	tests := []struct {
-		name        string
-		input       string
-		annotations map[string]string
-		want        string
-		setupEnvs   func(t *testing.T)
+		name      string
+		input     string
+		want      string
+		setupEnvs func(t *testing.T)
 	}{
 		{
-			name:  "Getting official image",
+			name:  "Getting official image, rewriting the ubi8 suffix to ubi9",
 			input: "4.2.11-ubi8",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
@@ -74,7 +72,7 @@ func TestGetAppDBImage(t *testing.T) {
 		{
 			name:  "Getting official image without suffix",
 			input: "4.2.11",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
@@ -92,7 +90,7 @@ func TestGetAppDBImage(t *testing.T) {
 		{
 			name:  "Getting official image with legacy suffix",
 			input: "4.2.11-ent",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
@@ -109,10 +107,10 @@ func TestGetAppDBImage(t *testing.T) {
 		},
 		{
 			name:  "Getting official image with related image from deprecated URL",
-			input: "4.2.11-ubi8",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			input: "4.2.11-ubi9",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
-				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi9", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9")
 				t.Setenv(util.MongodbImageEnv, deprecatedImageAppdbUbiName)
 				t.Setenv(util.MongodbRepoUrlEnv, util.OfficialMongodbRepoUrls[1])
 			},
@@ -120,9 +118,9 @@ func TestGetAppDBImage(t *testing.T) {
 		{
 			name:  "Getting official image with related image with ent suffix even if old related image exists",
 			input: "4.2.11-ent",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
 			setupEnvs: func(t *testing.T) {
-				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi9", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9")
 				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ent", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
 				t.Setenv(util.MongodbRepoUrlEnv, util.OfficialMongodbRepoUrls[1])
@@ -133,40 +131,15 @@ func TestGetAppDBImage(t *testing.T) {
 			input: "4.2.11-ent",
 			want:  "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi:4.2.11-ent",
 			setupEnvs: func(t *testing.T) {
-				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi8", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi8")
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_4_2_11_ubi9", "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9")
 				t.Setenv(util.MongodbImageEnv, deprecatedImageAppdbUbiName)
 				t.Setenv(util.MongodbRepoUrlEnv, util.OfficialMongodbRepoUrls[1])
 			},
 		},
 		{
-			name:  "Getting official image with legacy suffix but stopping migration",
-			input: "4.2.11-ent",
-			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ent",
-			setupEnvs: func(t *testing.T) {
-				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
-				t.Setenv(util.MdbAppdbAssumeOldFormat, "true")
-			},
-		},
-		{
-			name:  "Getting official image with legacy suffix on static architecture",
-			input: "4.2.11-ent",
-			annotations: map[string]string{
-				"mongodb.com/v1.architecture": string(architectures.Static),
-			},
-			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
-			setupEnvs: func(t *testing.T) {
-				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
-				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
-			},
-		},
-		{
-			name:  "Getting official ubi9 image with ubi8 suffix on static architecture",
-			input: "4.2.11-ubi8",
-			annotations: map[string]string{
-				"mongodb.com/v1.architecture": string(architectures.Static),
-			},
-			want: "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubi9",
+			name:  "Getting official image with a non-image-type suffix, which is left untouched",
+			input: "4.2.11-ubuntu2204",
+			want:  "quay.io/mongodb/mongodb-enterprise-server:4.2.11-ubuntu2204",
 			setupEnvs: func(t *testing.T) {
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
@@ -177,7 +150,7 @@ func TestGetAppDBImage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupEnvs(t)
 			imageUrlsMock := LoadImageUrlsFromEnv()
-			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations, architectures.NonStatic), "getOfficialImage(%v)", tt.input)
+			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input), "getOfficialImage(%v)", tt.input)
 		})
 	}
 }
