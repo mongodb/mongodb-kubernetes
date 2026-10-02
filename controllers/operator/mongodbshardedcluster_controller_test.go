@@ -1924,6 +1924,102 @@ func TestShardedMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
 }
 
+// vmDeploymentWithExternalConfigAndShard seeds the mock OM with a sharded cluster whose config
+// server and single shard consist of one external (VM) member each, plus one VM mongos.
+func vmDeploymentWithExternalConfigAndShard(t *testing.T, sc *mdbv1.MongoDB) om.Deployment {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: sc.Spec.Version}}
+	additional := &mdbv1.AdditionalMongodConfig{}
+
+	vmConfigProcess := om.NewMongodProcess("vm-config-0", "vm-config-0.example.com", "fake-image", false, additional, spec, "", nil, "", architectures.NonStatic)
+	configRs, err := buildReplicaSetFromProcesses(sc.ConfigACRsName(), []om.Process{vmConfigProcess}, sc, nil, om.NewDeployment())
+	require.NoError(t, err)
+
+	vmShardProcess := om.NewMongodProcess("vm-shard-0", "vm-shard-0.example.com", "fake-image", false, additional, spec, "", nil, "", architectures.NonStatic)
+	shardRs, err := buildReplicaSetFromProcesses(sc.ShardACRsName(0), []om.Process{vmShardProcess}, sc, nil, om.NewDeployment())
+	require.NoError(t, err)
+
+	vmMongosProcess := om.NewMongosProcess("vm-mongos-0", "vm-mongos-0.example.com", "fake-image", false, additional, spec, "", sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+
+	d := om.NewDeployment()
+	_, err = d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sc.Name,
+		MongosProcesses: []om.Process{vmMongosProcess},
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{shardRs},
+		Finalizing:      false,
+	})
+	require.NoError(t, err)
+	d.ConfigureMonitoringAndBackup(zap.S(), sc.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	return d
+}
+
+// TestShardedMigration_ScalesUpOneMemberAtATime_FromZero verifies that scaling a component from
+// zero Kubernetes members while external members are present grows the replica set by one member
+// per reconciliation instead of jumping straight to the target count. Adding all members at once
+// makes Ops Manager reject the automation config with "Cannot add/remove multiple voting members
+// of a replica set at once" (HELP-100454), because the replica set already exists on the external
+// members and is not being created.
+func TestShardedMigration_ScalesUpOneMemberAtATime_FromZero(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		SetName("sc-migration").
+		SetVersion("8.2.0").
+		SetShardCountSpec(1).
+		SetShardCountStatus(1).
+		SetMongodsPerShardCountSpec(0).
+		SetMongodsPerShardCountStatus(0).
+		SetConfigServerCountSpec(0).
+		SetConfigServerCountStatus(0).
+		SetMongosCountSpec(1).
+		SetMongosCountStatus(1).
+		Build()
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-config-0", Hostname: "vm-config-0.example.com:27017", Type: "mongod", ReplicaSetName: sc.ConfigACRsName()},
+		{ProcessName: "vm-shard-0", Hostname: "vm-shard-0.example.com:27017", Type: "mongod", ReplicaSetName: sc.ShardACRsName(0)},
+	}
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		_, err := conn.(*om.MockedOmConnection).UpdateDeployment(vmDeploymentWithExternalConfigAndShard(t, sc))
+		require.NoError(t, err)
+	})
+
+	// The VM-only import (all Kubernetes counts at 0) reconciles to Running.
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	// The customer edit from HELP-100454: configServerCount 0 -> 3 with all members voting.
+	votes, priority := 1, "1"
+	sc.Spec.ConfigServerCount = 3
+	sc.Spec.MemberConfig = []automationconfig.MemberOptions{
+		{Votes: &votes, Priority: &priority},
+		{Votes: &votes, Priority: &priority},
+		{Votes: &votes, Priority: &priority},
+	}
+	require.NoError(t, kubeClient.Update(ctx, sc))
+
+	configRsName := sc.ConfigACRsName()
+	for expectedK8sMembers := 1; expectedK8sMembers <= 3; expectedK8sMembers++ {
+		res, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		if expectedK8sMembers < 3 {
+			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter, "expected requeue while scaling to member %d", expectedK8sMembers)
+		} else {
+			ok, _ := workflow.OK().ReconcileResult()
+			assert.Equal(t, ok, res)
+		}
+
+		// The config server replica set must gain exactly one member per reconciliation: the single
+		// external VM member plus expectedK8sMembers Kubernetes ones, never more.
+		deployment, err := omConnectionFactory.GetConnection().ReadDeployment()
+		require.NoError(t, err)
+		assert.Len(t, deployment.GetReplicaSetByName(configRsName).Members(), 1+expectedK8sMembers)
+
+		require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+	}
+}
+
 func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistribution map[string]int) []mdbv1.ShardOverride {
 	var shardOverrides []mdbv1.ShardOverride
 

@@ -2804,15 +2804,15 @@ func (r *ShardedClusterReconcileHelper) GetMongosStsName(memberCluster multiclus
 }
 
 func (r *ShardedClusterReconcileHelper) GetConfigSrvScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters, len(r.sc.Spec.GetExternalMembers()) > 0)
 }
 
 func (r *ShardedClusterReconcileHelper) GetMongosScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters, len(r.sc.Spec.GetExternalMembers()) > 0)
 }
 
 func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
+	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx], len(r.sc.Spec.GetExternalMembers()) > 0)
 }
 
 func (r *ShardedClusterReconcileHelper) getAllScalers() []interfaces.MultiClusterReplicaSetScaler {
