@@ -98,8 +98,6 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
-
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -115,7 +113,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
@@ -129,7 +126,6 @@ rules:
       - '*'
     resources:
       - clustermongodbroles
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRoleBinding
@@ -144,7 +140,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: Role
@@ -164,8 +159,6 @@ rules:
       - watch
       - patch
       - update
-
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: RoleBinding
@@ -181,7 +174,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
@@ -210,7 +202,6 @@ rules:
       - nodes
     verbs:
       - list
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
@@ -226,7 +217,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
 kind: ClusterRole
@@ -254,7 +244,6 @@ rules:
       - create
       - update
       - delete
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
 kind: ClusterRoleBinding
@@ -269,7 +258,6 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -277,8 +265,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
-
-
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -286,8 +272,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
-
-
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -295,8 +279,6 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
-
-
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
@@ -319,8 +301,6 @@ rules:
       - patch
       - delete
       - get
-
-
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding
@@ -336,15 +316,13 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-appdb
     namespace: mongodb
-
 ---
 # Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb 
-
+  namespace: mongodb
 ---
 # Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
@@ -754,4 +732,3 @@ spec:
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
-
