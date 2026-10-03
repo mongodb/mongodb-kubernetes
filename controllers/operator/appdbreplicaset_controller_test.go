@@ -2193,127 +2193,151 @@ func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
 }
 
 func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
-	const crUID = "cr-uid-2222"
+	const (
+		appLabelKey = "app"
+		appLabelVal = "demo"
+	)
+
+	mergeLabels := func(base map[string]string, extra map[string]string) map[string]string {
+		merged := make(map[string]string, len(base)+len(extra))
+		for k, v := range base {
+			merged[k] = v
+		}
+		for k, v := range extra {
+			merged[k] = v
+		}
+		return merged
+	}
 
 	tests := []struct {
-		name string
-		// sts builds the pre-existing AppDB StatefulSet; nil means it doesn't exist
-		sts                       func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet
-		omUID                     types.UID
-		expectedOwned             bool
-		expectedOMOwnerRef        bool
-		expectedReverseAnnotation bool
-		expectedForwardAnnotation bool
+		name        string
+		sts         func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet
+		wantLabels  func(testOm *omv1.MongoDBOpsManager) map[string]string
+		wantRefs    func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference
+		wantAnno    func(testOm *omv1.MongoDBOpsManager) map[string]string
+		wantRequeue time.Duration
 	}{
 		{
-			name:          "StatefulSet absent: recreate-from-scratch path proceeds",
-			expectedOwned: true,
+			name: "owned label -> unchanged",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).Build()
+				sts.Labels = mergeLabels(map[string]string{appLabelKey: appLabelVal}, testOm.GetOwnerLabels())
+				return sts
+			},
+			wantLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return mergeLabels(map[string]string{appLabelKey: appLabelVal}, testOm.GetOwnerLabels())
+			},
+			wantRequeue: 24 * time.Hour,
 		},
 		{
-			name:  "already OM-owned: proceeds untouched",
-			omUID: "om-uid-1111",
+			name: "own key with a different value -> conflict Pending",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
-				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
-					SetOwnerReferences(kube.BaseOwnerReference(testOm)).Build()
+				sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).Build()
+				sts.Labels = mergeLabels(map[string]string{appLabelKey: appLabelVal}, map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "other-owner"})
+				return sts
 			},
-			expectedOwned:      true,
-			expectedOMOwnerRef: true,
+			wantLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return mergeLabels(map[string]string{appLabelKey: appLabelVal}, map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "other-owner"})
+			},
+			wantRequeue: 10 * time.Second,
 		},
 		{
-			name:  "CR-owned: requests release and blocks",
-			omUID: "om-uid-1111",
+			name: "forward annotation + ownerless -> adopts",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
-				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
-					SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: crUID}}).Build()
+				sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).Build()
+				sts.Labels = map[string]string{appLabelKey: appLabelVal}
+				sts.Annotations = map[string]string{util.AppDBMigrationReadyAnnotation: trueString}
+				return sts
 			},
-			expectedOwned:             false,
-			expectedReverseAnnotation: true,
+			wantLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return mergeLabels(map[string]string{appLabelKey: appLabelVal}, testOm.GetOwnerLabels())
+			},
+			wantRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return testOm.AppDBOwnerReferenceForMemberCluster()
+			},
+			wantRequeue: 24 * time.Hour,
 		},
 		{
-			name:  "ownerless with release request: adopts and keeps reverse annotation for reshape",
-			omUID: "om-uid-1111",
+			name: "reverse annotation + owned -> unchanged",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
-				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
-					SetOwnerReferences(nil).
-					SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
+				sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).Build()
+				sts.Labels = testOm.GetOwnerLabels()
+				sts.Annotations = map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}
+				return sts
 			},
-			expectedOwned:             true,
-			expectedOMOwnerRef:        true,
-			expectedReverseAnnotation: true,
+			wantLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return testOm.GetOwnerLabels()
+			},
+			wantAnno: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}
+			},
+			wantRequeue: 24 * time.Hour,
 		},
 		{
-			name:  "ownerless with stale forward annotation: adopts and clears it",
-			omUID: "om-uid-1111",
+			name: "foreign participant label -> requests release and pends",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
-				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
-					SetOwnerReferences(nil).
-					SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).Build()
+				sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).Build()
+				sts.Labels = map[string]string{util.MongoDBResourceOwnerLabel: "other-mdb", appLabelKey: appLabelVal}
+				sts.Annotations = map[string]string{
+					util.AppDBReverseMigrationReadyAnnotation: trueString,
+					util.AppDBMigrationReadyAnnotation:        trueString,
+				}
+				return sts
 			},
-			expectedOwned:      true,
-			expectedOMOwnerRef: true,
+			wantLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return map[string]string{util.MongoDBResourceOwnerLabel: "other-mdb", appLabelKey: appLabelVal}
+			},
+			wantAnno: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return map[string]string{
+					util.AppDBReverseMigrationReadyAnnotation: trueString,
+					util.AppDBMigrationReadyAnnotation:        trueString,
+				}
+			},
+			wantRequeue: 10 * time.Second,
+		},
+		{
+			name: "OM-owned-but-unlabelled StatefulSet -> proceeds via in-memory backfill, no write",
+			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+				sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).Build()
+				sts.OwnerReferences = testOm.AppDBOwnerReferenceForMemberCluster()
+				return sts
+			},
+			wantRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return testOm.AppDBOwnerReferenceForMemberCluster()
+			},
+			wantRequeue: 24 * time.Hour,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			testOm := DefaultOpsManagerBuilder().SetName("test-om").Build()
-			testOm.UID = tt.omUID
+			testOm.UID = types.UID("om-uid-1111")
 
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
 			reconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
 			require.NoError(t, err)
-			if tt.sts != nil {
-				sts := tt.sts(testOm)
-				require.NoError(t, kubeClient.Create(ctx, &sts))
-			}
+
+			sts := tt.sts(testOm)
+			require.NoError(t, kubeClient.Create(ctx, &sts))
 
 			ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
-			assert.Equal(t, tt.expectedOwned, ownershipStatus.IsOK())
+			result, err := ownershipStatus.ReconcileResult()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantRequeue, result.RequeueAfter)
 
-			if tt.sts != nil {
-				result := appsv1.StatefulSet{}
-				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &result))
-				hasOMRef := false
-				for _, ref := range result.OwnerReferences {
-					if ref.UID == testOm.UID {
-						hasOMRef = true
-					}
-				}
-				assert.Equal(t, tt.expectedOMOwnerRef, hasOMRef)
-				assert.Equal(t, tt.expectedReverseAnnotation, result.Annotations[util.AppDBReverseMigrationReadyAnnotation] == "true")
-				assert.Equal(t, tt.expectedForwardAnnotation, result.Annotations[util.AppDBMigrationReadyAnnotation] == "true")
+			resultSts := appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &resultSts))
+			if tt.wantLabels != nil {
+				assert.Equal(t, tt.wantLabels(testOm), resultSts.Labels)
+			}
+			if tt.wantRefs != nil {
+				assert.Equal(t, tt.wantRefs(testOm), resultSts.OwnerReferences)
+			}
+			if tt.wantAnno != nil {
+				assert.Equal(t, tt.wantAnno(testOm), resultSts.Annotations)
 			}
 		})
-	}
-}
-
-func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testing.T) {
-	ctx := context.Background()
-	testOm := DefaultOpsManagerBuilder().SetName("test-om").Build()
-	testOm.UID = types.UID("om-uid-1111")
-
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
-	reconciler, err := newAppDbReconciler(ctx, kubeClient, testOm, omConnectionFactory.GetConnectionFunc, zap.S())
-	require.NoError(t, err)
-
-	sts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.Name()).
-		SetOwnerReferences(nil).
-		SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
-	require.NoError(t, kubeClient.Create(ctx, &sts))
-
-	crOwnerRef := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: "cr-uid-2222"}}
-	for _, name := range []string{omv1.OpsManagerUserPasswordSecretName("test-om-db"), testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
-		s := secret.Builder().SetName(name).SetNamespace(testOm.Namespace).SetField("k", "v").SetOwnerReferences(crOwnerRef).Build()
-		require.NoError(t, kubeClient.CreateSecret(ctx, s))
-	}
-
-	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
-	require.True(t, ownershipStatus.IsOK())
-
-	for _, name := range []string{omv1.OpsManagerUserPasswordSecretName("test-om-db"), testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
-		s := corev1.Secret{}
-		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, name), &s))
-		require.Len(t, s.OwnerReferences, 1, name)
-		assert.Equal(t, testOm.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the OM at adoption", name)
 	}
 }

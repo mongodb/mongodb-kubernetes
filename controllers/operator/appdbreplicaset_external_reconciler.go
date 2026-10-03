@@ -97,9 +97,13 @@ func (e *ReconcileExternalAppDBReplicaSet) validateExternalAppDBReference(ctx co
 
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
 //   - absent: nothing to detach - Fresh Start, the referenced CR creates its own StatefulSet
-//   - owned by this OM: strip OM's OwnerReference and set util.AppDBMigrationReadyAnnotation
-//     so the referenced MongoDB CR can adopt
-//   - foreign-owned (a MongoDB CR) or already detached: no-op - the CR owns the StatefulSet
+//   - owned by this OM (resource-owner label): strip the OM's owner label and OwnerReference and set
+//     util.AppDBMigrationReadyAnnotation, so the referenced MongoDB CR can adopt
+//   - not owned by this OM (a MongoDB CR holds the label, or the StatefulSet is already detached): no-op
+//
+// Ownership is decided by the resource-owner label rather than by an ownerReference: a StatefulSet
+// deployed to a member cluster must never carry a cross-cluster ownerReference. A legacy StatefulSet
+// that predates the ownership labels is recognised by its ownerReference and backfilled in memory.
 func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, opsManager *omv1.MongoDBOpsManager) error {
 	sts := appsv1.StatefulSet{}
 	stsKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.ExternalAppDBRef.Name)
@@ -110,30 +114,32 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 		return xerrors.Errorf("failed to fetch StatefulSet %s: %w", stsKey.Name, err)
 	}
 
-	ownedByThisOM := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
+	// backfills label for legacy StatefulSets that used the OwnerReference for handover
+	if slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
 		return ref.UID == opsManager.UID
-	})
+	}) && len(ownershipLabels) == 0 {
+		ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] = opsManager.GetName()
+	}
 
-	// If not owned by this Ops Manager, no-op
-	if !ownedByThisOM {
+	if ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] != opsManager.GetName() {
 		return nil
 	}
 
-	// Request forward migration if owned by this Ops Manager
 	return e.requestAppDBForwardMigration(ctx, sts)
 }
 
 func (e *ReconcileExternalAppDBReplicaSet) requestAppDBForwardMigration(ctx context.Context, sts appsv1.StatefulSet) error {
 	sts.OwnerReferences = nil
-
 	if sts.Annotations == nil {
 		sts.Annotations = map[string]string{}
 	}
 	sts.Annotations[util.AppDBMigrationReadyAnnotation] = trueString
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	delete(sts.Labels, util.MongoDBOpsManagerResourceOwnerLabel)
 
 	if err := e.client.Update(ctx, &sts); err != nil {
-		return xerrors.Errorf("failed to strip OwnerReferences and annotate StatefulSet %s: %w", sts.GetName(), err)
+		return xerrors.Errorf("failed to strip ownership and annotate StatefulSet %s: %w", sts.GetName(), err)
 	}
 
 	return nil
