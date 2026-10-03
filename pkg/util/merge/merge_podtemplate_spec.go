@@ -64,6 +64,10 @@ func PodTemplateSpecs(original, override corev1.PodTemplateSpec) corev1.PodTempl
 		merged.Spec.HostPID = override.Spec.HostPID
 	}
 
+	if override.Spec.HostUsers != nil {
+		merged.Spec.HostUsers = override.Spec.HostUsers
+	}
+
 	if override.Spec.ShareProcessNamespace != nil {
 		merged.Spec.ShareProcessNamespace = override.Spec.ShareProcessNamespace
 	}
