@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -161,6 +162,10 @@ func (e *ReconcileExternalAppDBReplicaSet) ensureAppDBStatefulSetOwnership(ctx c
 					continue
 				}
 
+				if !isInternalAppDBStatefulSetName(sts.Name, opsManager.GetName()) {
+					continue
+				}
+
 				return workflow.Failed(xerrors.Errorf("StatefulSet %s in cluster %s is not declared by the external AppDB reference: the external AppDB cluster numbers do not match the internal AppDB", sts.Name, clusterName))
 			}
 		}
@@ -214,6 +219,13 @@ func appDBStatefulSetOwnedByOpsManager(sts appsv1.StatefulSet, opsManager *omv1.
 	}
 
 	return ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] == opsManager.GetName()
+}
+
+// isInternalAppDBStatefulSetName reports whether name is one of this Ops Manager's internal AppDB
+// StatefulSet names (<om>-db or <om>-db-<clusterNum>). The resource-owner label is shared with the
+// Ops Manager application and backup-daemon StatefulSets, so the name is the discriminator.
+func isInternalAppDBStatefulSetName(name, opsManagerName string) bool {
+	return name == opsManagerName+"-db" || strings.HasPrefix(name, opsManagerName+"-db-")
 }
 
 func requestAppDBForwardMigration(ctx context.Context, c client.Client, sts appsv1.StatefulSet) error {

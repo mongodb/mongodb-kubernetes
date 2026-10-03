@@ -584,6 +584,7 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 		refKind          string
 		declaredClusters []string
 		createdClusters  []string
+		extraOMOwned     map[string][]string
 		wantDetached     bool
 		expectedPhase    status.Phase
 		expectedMessage  string
@@ -602,6 +603,16 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 			declaredClusters: []string{"cluster-1", "cluster-2", "cluster-3"},
 			createdClusters:  []string{"cluster-1", "cluster-2", "cluster-3"},
 			wantDetached:     true,
+		},
+		{
+			name:             "ignores Ops Manager application and backup-daemon StatefulSets",
+			refKind:          omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+			declaredClusters: []string{"cluster-1", "cluster-2"},
+			createdClusters:  []string{"cluster-1", "cluster-2"},
+			extraOMOwned: map[string][]string{
+				"cluster-3": {"test-om-0", "test-om-backup-daemon"},
+			},
+			wantDetached: true,
 		},
 		{
 			name:            "skips the undeclared StatefulSet check for single-cluster references",
@@ -679,6 +690,11 @@ func TestEnsureAppDBStatefulSetOwnership_RejectsUndeclaredInternalAppDBStatefulS
 
 			for _, clusterName := range tt.createdClusters {
 				require.NoError(t, clientForCluster(clusterName).Create(ctx, newAppDBStatefulSetStatefulSet(statefulSetFor(clusterName), legacyState)))
+			}
+			for clusterName, names := range tt.extraOMOwned {
+				for _, name := range names {
+					require.NoError(t, clientForCluster(clusterName).Create(ctx, newAppDBStatefulSetStatefulSet(name, legacyState)))
+				}
 			}
 
 			externalAppDB, err := reconciler.createNewExternalAppDBReconciler(zap.S()).getExternalAppDBReference(ctx, testOm)
