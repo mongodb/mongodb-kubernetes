@@ -25,7 +25,8 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			Persistent:                    mdbm.Spec.Persistent,
 			AgentConfig:                   &mdbm.Spec.Agent,
 			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
-			Labels:                        mdbm.GetOwnerLabels(),
+			Labels:                        mdbm.Labels,
+			StsLabels:                     mdbm.GetOwnerLabels(),
 			OwnerReference:                nil,
 			MultiClusterMode:              true,
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
@@ -86,7 +87,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 	}
 
 	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.Labels)
+		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
 	}
 
 	if len(stsOptions.StsLabels) > 0 {
