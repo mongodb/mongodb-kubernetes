@@ -707,7 +707,7 @@ func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mrs, reconciler, _, omConnectionFactory := newMultiClusterGateFixture(tc.role)
+			mrs, reconciler, memberClients, omConnectionFactory := newMultiClusterGateFixture(tc.role)
 			checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, reconciler.client, false)
 
 			mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
@@ -729,6 +729,36 @@ func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
 
 			err = reconciler.deleteManagedResources(ctx, *mrs, zap.S())
 			require.NoError(t, err)
+
+			clusterSpecs, err := mrs.GetClusterSpecItems()
+			require.NoError(t, err)
+			for _, item := range clusterSpecs {
+				memberClient := memberClients[item.ClusterName]
+
+				statefulSet := appsv1.StatefulSet{}
+				err := memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &statefulSet)
+				if tc.expectCleanup {
+					assert.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+
+				serviceList := corev1.ServiceList{}
+				require.NoError(t, memberClient.List(ctx, &serviceList))
+				configMapList := corev1.ConfigMapList{}
+				require.NoError(t, memberClient.List(ctx, &configMapList))
+				secretList := corev1.SecretList{}
+				require.NoError(t, memberClient.List(ctx, &secretList))
+				if tc.expectCleanup {
+					assert.Empty(t, serviceList.Items)
+					assert.Empty(t, configMapList.Items)
+					assert.Empty(t, secretList.Items)
+				} else {
+					assert.Len(t, serviceList.Items, item.Members+2)
+					assert.Len(t, configMapList.Items, 1)
+					assert.Len(t, secretList.Items, 1)
+				}
+			}
 
 			afterProcesses := mockedConn.GetProcesses()
 			afterHosts, err := mockedConn.GetHosts()

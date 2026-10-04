@@ -1573,26 +1573,28 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	var errs error
 
-	// AppDB-role CR deletion is a reverse-migration handover, not a deprovision: the project
-	// is left stale and the user is responsible for cleaning it up after migration.
+	// AppDB-role CR deletion is a reverse-migration handover, not a deprovision:
+	// the project and member-cluster resources are handed back to Ops Manager.
 	if !mrs.IsRoleAppDB() {
 		if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
 			errs = multierror.Append(errs, err)
 		}
-	}
 
-	clusterSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		for _, item := range clusterSpecList {
-			clusterName := item.ClusterName
-			clusterClient := r.memberClusterClientsMap[clusterName]
-			if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
-				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+		clusterSpecList, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			errs = multierror.Append(errs, err)
+		} else {
+			for _, item := range clusterSpecList {
+				clusterName := item.ClusterName
+				clusterClient := r.memberClusterClientsMap[clusterName]
+				if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
+					errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+				}
 			}
 		}
 	}
+
+	r.resourceWatcher.RemoveDependentWatchedResources(mrs.ObjectKey())
 
 	return errs
 }
