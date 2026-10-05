@@ -185,6 +185,17 @@ func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?connectTimeoutMS=20000&readPreference=primary&replicaSet=differentName&serverSelectionTimeoutMS=20000&tls=true")
 }
 
+func TestMongoDB_ResourceURIs_HaveNoAuthParameters(t *testing.T) {
+	// The resource URIs carry no credentials, so they must not state an
+	// authMechanism: MongoDB drivers reject one without a username.
+	mdb := newModesArray([]AuthMode{Scram256AuthMode}, "my-rs", "my-namespace")
+	mdb.Spec.Members = 2
+	for _, uri := range []string{mdb.MongoURI(), mdb.MongoSRVURI()} {
+		assert.NotContains(t, uri, "authMechanism")
+		assert.NotContains(t, uri, "authSource")
+	}
+}
+
 func TestMongodConfiguration(t *testing.T) {
 	mc := rootv1.NewMongodConfiguration()
 	assert.Equal(t, mc.Object, map[string]interface{}{})

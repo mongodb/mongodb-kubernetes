@@ -165,12 +165,16 @@ func (o Options) mergedParams() map[string]string {
 		params["replicaSet"] = o.Name
 	}
 
-	authSource, authMechanism := authSourceAndMechanism(o.AuthenticationModes, o.Version)
-	if authSource != "" {
-		params["authSource"] = authSource
-	}
-	if !o.ExternalAuth && authMechanism != "" {
-		params["authMechanism"] = authMechanism
+	// The authentication parameters only apply to connection strings that carry
+	// credentials. A driver rejects an authMechanism without a username.
+	if o.authenticated() {
+		authSource, authMechanism := authSourceAndMechanism(o.AuthenticationModes, o.Version)
+		if authSource != "" {
+			params["authSource"] = authSource
+		}
+		if authMechanism != "" {
+			params["authMechanism"] = authMechanism
+		}
 	}
 
 	maps.Copy(params, o.Params)
@@ -179,14 +183,21 @@ func (o Options) mergedParams() map[string]string {
 	return params
 }
 
+// authenticated reports whether the connection string carries credentials:
+// SCRAM is enabled and the request provides a username and a password without
+// targeting the $external database.
+func (o Options) authenticated() bool {
+	scramEnabled := stringutil.Contains(o.AuthenticationModes, util.SCRAM) ||
+		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA1) ||
+		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA256)
+	return scramEnabled && !o.ExternalAuth && o.Username != "" && o.Password != ""
+}
+
 // userinfo returns the "user:password@" prefix to use in the connection
 // string, or the empty string when the request is unauthenticated or targets
 // the $external database.
 func (o Options) userinfo() string {
-	scramEnabled := stringutil.Contains(o.AuthenticationModes, util.SCRAM) ||
-		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA1) ||
-		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA256)
-	if !scramEnabled || o.ExternalAuth || o.Username == "" || o.Password == "" {
+	if !o.authenticated() {
 		return ""
 	}
 	return fmt.Sprintf("%s:%s@", stringutil.EncodeUserinfoComponent(o.Username), stringutil.EncodeUserinfoComponent(o.Password))

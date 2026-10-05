@@ -179,9 +179,20 @@ func TestBuild_Parameters(t *testing.T) {
 		options := base
 		options.AuthenticationModes = []string{util.SCRAM}
 		options.Version = "4.2.0"
+		options.Username = "user"
+		options.Password = "password"
 		cs := options.Build(SchemeMongoDB)
 		assert.Contains(t, cs, "authSource=admin")
 		assert.Contains(t, cs, "authMechanism=SCRAM-SHA-256")
+	})
+
+	t.Run("no auth parameters without credentials", func(t *testing.T) {
+		options := base
+		options.AuthenticationModes = []string{util.SCRAM}
+		options.Version = "4.2.0"
+		cs := options.Build(SchemeMongoDB)
+		assert.NotContains(t, cs, "authSource")
+		assert.NotContains(t, cs, "authMechanism")
 	})
 
 	t.Run("a caller supplied authMechanism is kept for $external users", func(t *testing.T) {

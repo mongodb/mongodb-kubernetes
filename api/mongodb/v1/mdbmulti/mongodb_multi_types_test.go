@@ -186,27 +186,21 @@ func TestMongoDBMultiCluster_ConnectionURL_Secure(t *testing.T) {
 		"temple-0-1-svc.my-namespace.svc.cluster.local/?connectTimeoutMS=20000&replicaSet=temple&"+
 		"serverSelectionTimeoutMS=20000&tls=false", cnx)
 
-	// username + password must both be provided if scram is enabled
+	// credentials and auth parameters require both a username and a password
 	mrs = DefaultMultiReplicaSetBuilder().Build()
 	mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{{ClusterName: "cluster-1", Members: 2}}
 	mrs.Spec.Security.Authentication = &mdb.Authentication{Modes: []mdb.AuthMode{util.SCRAM}}
+	unauthenticated := "mongodb://temple-0-0-svc.my-namespace.svc.cluster.local," +
+		"temple-0-1-svc.my-namespace.svc.cluster.local/?connectTimeoutMS=20000&replicaSet=temple&" +
+		"serverSelectionTimeoutMS=20000&tls=false"
 	cnx = buildConnectionString(mrs, "the_user", "", "", connectionstring.SchemeMongoDB, nil)
-	assert.Equal(t, "mongodb://temple-0-0-svc.my-namespace.svc.cluster.local,"+
-		"temple-0-1-svc.my-namespace.svc.cluster.local/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&tls=false",
-		cnx)
+	assert.Equal(t, unauthenticated, cnx)
 
 	cnx = buildConnectionString(mrs, "", "the_password", "", connectionstring.SchemeMongoDB, nil)
-	assert.Equal(t, "mongodb://temple-0-0-svc.my-namespace.svc.cluster.local,"+
-		"temple-0-1-svc.my-namespace.svc.cluster.local/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&tls=false",
-		cnx)
+	assert.Equal(t, unauthenticated, cnx)
 
 	cnx = buildConnectionString(mrs, "", "", "", connectionstring.SchemeMongoDB, nil)
-	assert.Equal(t, "mongodb://temple-0-0-svc.my-namespace.svc.cluster.local,"+
-		"temple-0-1-svc.my-namespace.svc.cluster.local/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
-		"connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&tls=false",
-		cnx)
+	assert.Equal(t, unauthenticated, cnx)
 }
 
 // TestMongoDBMultiCluster_ConnectionURL_ExternalDomain mirrors TestMongoDBConnectionURLExternalDomainWithAuth:
@@ -222,8 +216,8 @@ func TestMongoDBMultiCluster_ConnectionURL_ExternalDomain(t *testing.T) {
 	}
 	mrs.Spec.Security.Authentication = &mdb.Authentication{Modes: []mdb.AuthMode{util.SCRAM}}
 
-	cnx := buildConnectionString(mrs, "the_user", "", "", connectionstring.SchemeMongoDB, nil)
-	assert.Equal(t, "mongodb://temple-0-0.az1.example.com,"+
+	cnx := buildConnectionString(mrs, "the_user", "the_passwd", "", connectionstring.SchemeMongoDB, nil)
+	assert.Equal(t, "mongodb://the_user:the_passwd@temple-0-0.az1.example.com,"+
 		"temple-0-1.az1.example.com,temple-1-0.az2.example.com,temple-1-1.az2.example.com"+
 		"/?authMechanism=SCRAM-SHA-256&authSource=admin&"+
 		"connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&tls=false",
