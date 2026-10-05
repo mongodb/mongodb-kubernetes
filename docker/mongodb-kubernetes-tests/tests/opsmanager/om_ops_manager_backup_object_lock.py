@@ -29,6 +29,10 @@ OBJECT_RETENTION_MIN_OM_VERSION = "8.0.27"
 
 
 def om_supports_object_retention(custom_version: Optional[str]) -> bool:
+    # None means the test deploys the default OM version, which is always >= the
+    # minimum version supporting the retention fields.
+    if custom_version is None:
+        return True
     return semver.VersionInfo.parse(custom_version) >= semver.VersionInfo.parse(OBJECT_RETENTION_MIN_OM_VERSION)
 
 
