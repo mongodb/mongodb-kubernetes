@@ -1079,3 +1079,81 @@ func TestValidateShardOverrides(t *testing.T) {
 		assert.Equal(t, v1.SuccessLevel, validateShardOverrides(s).Level)
 	})
 }
+
+func TestValidatePrometheusTLSConfig(t *testing.T) {
+	newSpec := func() *MongoDBSearch {
+		return &MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
+			Spec: MongoDBSearchSpec{
+				Clusters: []ClusterSpec{{}},
+				Observability: ObservabilityConfig{
+					Prometheus: Prometheus{Mode: PrometheusModeEnabled},
+				},
+			},
+		}
+	}
+	completeTLS := func() *PrometheusTLS {
+		return &PrometheusTLS{
+			ServerCertificateSecretRef: corev1.LocalObjectReference{Name: "server"},
+			ClientCAConfigMapRef:       corev1.LocalObjectReference{Name: "client-ca"},
+			Scraper: &PrometheusScraperTLS{
+				ClientCertificateSecretRef: corev1.LocalObjectReference{Name: "forwarder-client"},
+				ServerCAConfigMapRef:       corev1.LocalObjectReference{Name: "server-ca"},
+			},
+		}
+	}
+
+	t.Run("no TLS is valid", func(t *testing.T) {
+		assert.Equal(t, v1.SuccessLevel, validatePrometheusTLSConfig(newSpec()).Level)
+	})
+
+	t.Run("complete TLS with scraper is valid", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		assert.Equal(t, v1.SuccessLevel, validatePrometheusTLSConfig(s).Level)
+	})
+
+	t.Run("TLS without scraper is valid (external scraping)", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		s.Spec.Observability.Prometheus.TLS.Scraper = nil
+		assert.Equal(t, v1.SuccessLevel, validatePrometheusTLSConfig(s).Level)
+	})
+
+	t.Run("TLS with Prometheus disabled is rejected", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.Mode = PrometheusModeDisabled
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		res := validatePrometheusTLSConfig(s)
+		assert.Equal(t, v1.ErrorLevel, res.Level)
+		assert.Contains(t, res.Msg, "mode: enabled")
+	})
+
+	t.Run("empty server certificate ref is rejected", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		s.Spec.Observability.Prometheus.TLS.ServerCertificateSecretRef.Name = ""
+		assert.Equal(t, v1.ErrorLevel, validatePrometheusTLSConfig(s).Level)
+	})
+
+	t.Run("empty client CA ref is rejected", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		s.Spec.Observability.Prometheus.TLS.ClientCAConfigMapRef.Name = ""
+		assert.Equal(t, v1.ErrorLevel, validatePrometheusTLSConfig(s).Level)
+	})
+
+	t.Run("empty scraper client cert ref is rejected", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		s.Spec.Observability.Prometheus.TLS.Scraper.ClientCertificateSecretRef.Name = ""
+		assert.Equal(t, v1.ErrorLevel, validatePrometheusTLSConfig(s).Level)
+	})
+
+	t.Run("empty scraper server CA ref is rejected", func(t *testing.T) {
+		s := newSpec()
+		s.Spec.Observability.Prometheus.TLS = completeTLS()
+		s.Spec.Observability.Prometheus.TLS.Scraper.ServerCAConfigMapRef.Name = ""
+		assert.Equal(t, v1.ErrorLevel, validatePrometheusTLSConfig(s).Level)
+	})
+}

@@ -86,6 +86,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateLBConfig,
 		validateMultipleReplicasRequireLB,
 		validateShardOverrides,
+		validatePrometheusTLSConfig,
 	}
 }
 
@@ -584,6 +585,34 @@ func validateClustersEnvoyResourceNames(s *MongoDBSearch) v1.ValidationResult {
 			if err := validateResourceName(resource, s.Name, c.Name); err != nil {
 				return v1.ValidationError("%s", err.Error())
 			}
+		}
+	}
+	return v1.ValidationSuccess()
+}
+
+// validatePrometheusTLSConfig enforces the atomicity of the Prometheus metrics
+// mTLS block: TLS requires the endpoint to be enabled and every configured
+// reference to be non-empty. The scraper block is optional (external scrapers).
+func validatePrometheusTLSConfig(s *MongoDBSearch) v1.ValidationResult {
+	prom := s.Spec.Observability.Prometheus
+	if prom.TLS == nil {
+		return v1.ValidationSuccess()
+	}
+	if !prom.IsEnabled() {
+		return v1.ValidationError("spec.observability.prometheus.tls requires spec.observability.prometheus.mode: enabled")
+	}
+	if prom.TLS.ServerCertificateSecretRef.Name == "" {
+		return v1.ValidationError("spec.observability.prometheus.tls.serverCertificateSecretRef.name must not be empty")
+	}
+	if prom.TLS.ClientCAConfigMapRef.Name == "" {
+		return v1.ValidationError("spec.observability.prometheus.tls.clientCAConfigMapRef.name must not be empty")
+	}
+	if scraper := prom.TLS.Scraper; scraper != nil {
+		if scraper.ClientCertificateSecretRef.Name == "" {
+			return v1.ValidationError("spec.observability.prometheus.tls.scraper.clientCertificateSecretRef.name must not be empty")
+		}
+		if scraper.ServerCAConfigMapRef.Name == "" {
+			return v1.ValidationError("spec.observability.prometheus.tls.scraper.serverCAConfigMapRef.name must not be empty")
 		}
 	}
 	return v1.ValidationSuccess()
