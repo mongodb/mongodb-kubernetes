@@ -2555,3 +2555,69 @@ func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
 	assert.NotContains(t, cluster1Result.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	assert.NotContains(t, cluster1Result.Annotations, util.AppDBMigrationReadyAnnotation)
 }
+
+func TestAllStatefulSetsExistsInValidState(t *testing.T) {
+	ctx := context.Background()
+
+	const appDBClusterName = "cluster-1"
+
+	rows := []struct {
+		name              string
+		createStatefulSet bool
+		reverseAnnotation bool
+		createACSecret    bool
+		createACConfigMap bool
+		expected          bool
+	}{
+		{name: "missing StatefulSet is invalid", expected: false},
+		{name: "reverse migration annotation is invalid", createStatefulSet: true, reverseAnnotation: true, createACSecret: true, createACConfigMap: true, expected: false},
+		{name: "missing automation config Secret is invalid", createStatefulSet: true, createACConfigMap: true, expected: false},
+		{name: "missing automation config version ConfigMap is invalid", createStatefulSet: true, createACSecret: true, expected: false},
+		{name: "existing StatefulSet with automation config is valid", createStatefulSet: true, createACSecret: true, createACConfigMap: true, expected: true},
+	}
+
+	for _, tt := range rows {
+		t.Run(tt.name, func(t *testing.T) {
+			opsManager := DefaultOpsManagerBuilder().
+				SetName("test-om").
+				SetAppDbMembers(0).
+				SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetAppDBClusterSpecList(mdbv1.ClusterSpecList{{ClusterName: appDBClusterName, Members: 3}}).
+				Build()
+			opsManager.UID = types.UID("om-uid-1111")
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+			memberClustersMap := getAppDBFakeMultiClusterMapWithClusters([]string{appDBClusterName}, omConnectionFactory)
+			memberClient := memberClustersMap[appDBClusterName]
+
+			if tt.createStatefulSet {
+				sts := DefaultStatefulSetBuilder().SetName(opsManager.Spec.AppDB.NameForCluster(0)).Build()
+				if tt.reverseAnnotation {
+					sts.Annotations = map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}
+				}
+				require.NoError(t, memberClient.Create(ctx, &sts))
+			}
+
+			if tt.createACSecret {
+				require.NoError(t, memberClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+					Name:      opsManager.Spec.AppDB.AutomationConfigSecretName(),
+					Namespace: opsManager.Namespace,
+				}}))
+			}
+
+			if tt.createACConfigMap {
+				require.NoError(t, memberClient.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+					Name:      opsManager.Spec.AppDB.AutomationConfigConfigMapName(),
+					Namespace: opsManager.Namespace,
+				}}))
+			}
+
+			reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClustersMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+			require.NoError(t, err)
+
+			valid, err := reconciler.allStatefulSetsExistsInValidState(ctx, opsManager, zap.S())
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, valid)
+		})
+	}
+}

@@ -2504,6 +2504,28 @@ func (r *ReconcileAppDbReplicaSet) allStatefulSetsExistsInValidState(ctx context
 			log.Debugf("Statefulset %s/%s has the reverse migration ready annotation set to true.", memberCluster.Name, stsName)
 			return false, nil
 		}
+
+		// A StatefulSet reclaimed from an external AppDB exists without an Ops Manager automation config,
+		// so treat a missing config as invalid to force the config to be published before the StatefulSet is rolled.
+		secretKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigSecretName())
+		if err := memberCluster.Client.Get(ctx, secretKey, &corev1.Secret{}); err != nil {
+			if apiErrors.IsNotFound(err) {
+				log.Debugf("Automation config Secret %s does not exist in cluster %s.", secretKey.Name, memberCluster.Name)
+				return false, nil
+			}
+
+			return false, err
+		}
+
+		configMapKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.AutomationConfigConfigMapName())
+		if err := memberCluster.Client.Get(ctx, configMapKey, &corev1.ConfigMap{}); err != nil {
+			if apiErrors.IsNotFound(err) {
+				log.Debugf("Automation config version ConfigMap %s does not exist in cluster %s.", configMapKey.Name, memberCluster.Name)
+				return false, nil
+			}
+
+			return false, err
+		}
 	}
 
 	return true, nil
