@@ -335,7 +335,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         return KubernetesTester.read_configmap(self.namespace, self.config_map_name)
 
     def mongo_uri(self, user_name: Optional[str] = None, password: Optional[str] = None) -> str:
-        """Returns the mongo uri for the MongoDB resource. The logic matches the one in 'types.go'"""
+        """Returns the mongo uri for the MongoDB resource. The logic matches the shared Go builder in pkg/connectionstring"""
         proto = "mongodb://"
         auth = ""
         params = {"connectTimeoutMS": "20000", "serverSelectionTimeoutMS": "20000"}
@@ -357,9 +357,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             params["replicaSet"] = self.name
 
         if self.is_tls_enabled():
-            params["ssl"] = "true"
+            params["tls"] = "true"
         else:
-            params["ssl"] = "false"
+            params["tls"] = "false"
 
         query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)
