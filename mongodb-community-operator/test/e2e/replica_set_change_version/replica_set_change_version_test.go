@@ -30,9 +30,9 @@ func TestReplicaSetUpgradeVersion(t *testing.T) {
 	testCtx := setup.Setup(ctx, t)
 	defer testCtx.Teardown()
 
-	const initialMDBVersion = "4.4.18"
-	const upgradedMDBVersion = "5.0.12"
-	const upgradedWithIncreasedPatchMDBVersion = "5.0.15"
+	const initialMDBVersion = "7.0.14"
+	const upgradedMDBVersion = "8.0.0"
+	const upgradedWithIncreasedPatchMDBVersion = "8.0.5"
 
 	mdb, user := e2eutil.NewTestMongoDB(testCtx, "mdb0", "")
 	mdb.Spec.Version = initialMDBVersion
