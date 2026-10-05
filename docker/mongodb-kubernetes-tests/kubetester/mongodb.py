@@ -30,6 +30,34 @@ from .phase import Phase
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
 
+# Status messages of transient Failed phases the operator recovers from on a later reconcile.
+# in_desired_state skips a Failed whose message contains one of these instead of failing fast.
+INTERMEDIATE_EVENTS = (
+    "haven't reached READY",
+    "Some agents failed to register",
+    # Sometimes Cloud-QA timeouts so we anticipate to this
+    "Error sending GET request to",
+    # "Get https://cloud-qa.mongodb.com/api/public/v1.0/groups/5f186b406c835e37e6160aef/automationConfig:
+    # read tcp 10.244.0.6:33672->75.2.105.99:443: read: connection reset by peer"
+    "read: connection reset by peer",
+    # Ops Manager must be recovering from an Upgrade, and it is
+    # currently DOWN.
+    "connect: connection refused",
+    # tests that restart OM might cause the operator to hit "no such host" due to NXDOMAIN from headless fqdn
+    "no such host",
+    "MongoDB version information is not yet available",
+    # Enabling authentication is a lengthy process where the agents might not reach READY in time.
+    # That can cause a failure and a restart of the reconcile.
+    "Failed to enable Authentication",
+    # Sometimes agents need longer to register with OM.
+    "some agents failed to register or the Operator",
+    # Kubernetes API server may timeout during high load, but the request may still complete.
+    # This is particularly common when deploying many resources simultaneously.
+    "but may still be processing the request",
+    "Client.Timeout exceeded while awaiting headers",
+    "context deadline exceeded",
+)
+
 
 class MongoDB(CustomObject, MongoDBCommon):
     def __init__(self, *args, **kwargs):
@@ -69,32 +97,6 @@ class MongoDB(CustomObject, MongoDBCommon):
 
     @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
-        intermediate_events = (
-            "haven't reached READY",
-            "Some agents failed to register",
-            # Sometimes Cloud-QA timeouts so we anticipate to this
-            "Error sending GET request to",
-            # "Get https://cloud-qa.mongodb.com/api/public/v1.0/groups/5f186b406c835e37e6160aef/automationConfig:
-            # read tcp 10.244.0.6:33672->75.2.105.99:443: read: connection reset by peer"
-            "read: connection reset by peer",
-            # Ops Manager must be recovering from an Upgrade, and it is
-            # currently DOWN.
-            "connect: connection refused",
-            # tests that restart OM might cause the operator to hit "no such host" due to NXDOMAIN from headless fqdn
-            "no such host",
-            "MongoDB version information is not yet available",
-            # Enabling authentication is a lengthy process where the agents might not reach READY in time.
-            # That can cause a failure and a restart of the reconcile.
-            "Failed to enable Authentication",
-            # Sometimes agents need longer to register with OM.
-            "some agents failed to register or the Operator",
-            # Kubernetes API server may timeout during high load, but the request may still complete.
-            # This is particularly common when deploying many resources simultaneously.
-            "but may still be processing the request",
-            "Client.Timeout exceeded while awaiting headers",
-            "context deadline exceeded",
-        )
-
         start_time = time.time()
 
         self.wait_for(
@@ -106,7 +108,7 @@ class MongoDB(CustomObject, MongoDBCommon):
                 current_message=self.get_status_message(),
                 msg_regexp=msg_regexp,
                 ignore_errors=ignore_errors,
-                intermediate_events=intermediate_events,
+                intermediate_events=INTERMEDIATE_EVENTS,
             ),
             timeout,
             should_raise=True,

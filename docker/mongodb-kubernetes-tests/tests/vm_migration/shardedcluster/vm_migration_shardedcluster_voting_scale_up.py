@@ -19,7 +19,8 @@ Failed.
 
 from kubetester import get_statefulset, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
-from kubetester.mongodb import MongoDB
+from kubetester.mongodb import INTERMEDIATE_EVENTS, MongoDB
+from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -144,35 +145,40 @@ def assert_voting_k8s_members(om_tester: OMTester, rs_name: str, k8s_sts_name: s
 def assert_reaches_running_adding_one_member_at_a_time(
     om_tester: OMTester, mdb: MongoDB, rs_name: str, vm_count: int, timeout: int = 1800
 ) -> None:
-    """Wait for Running while asserting the replica set grows by exactly one member per AC push.
+    """Wait for Running while recording the replica set size after each automation config push.
 
-    The replica set already exists on the VM members, and MongoDB forbids changing more than one
-    voting member per reconfiguration. Every intermediate automation config must therefore add a
-    single member; a larger jump reproduces HELP-100454. Each +1 step takes a full pod-and-agent
-    rollout, far longer than the poll interval, so no intermediate state can be missed.
+    The replica set already exists on the VM members, so a push adding more than one voting member
+    is rejected by Ops Manager (HELP-100454) and the resource goes to Failed. Each +1 step takes a
+    full pod-and-agent rollout, far longer than the poll interval, so no step can be missed.
     """
     observed_counts = [vm_count]
 
-    def running_with_one_member_steps(_: MongoDB) -> bool:
-        count = len(om_tester.get_automation_config_tester().get_replica_set_members(rs_name))
+    def record_member_count(_: MongoDB) -> bool:
+        try:
+            count = len(om_tester.get_automation_config_tester().get_replica_set_members(rs_name))
+        except Exception as e:
+            # A transient OM API error (reset, timeout) must not abort the wait.
+            print(f"error reading automation config for {rs_name}, retrying: {e}")
+            return False
         if count != observed_counts[-1]:
-            assert count == observed_counts[-1] + 1, (
-                f"{rs_name} went from {observed_counts[-1]} to {count} members in one automation config "
-                "update; during migration Kubernetes members must be added one at a time (HELP-100454)"
-            )
             observed_counts.append(count)
+        # Transient Failed phases (INTERMEDIATE_EVENTS) are skipped; a terminal one raises here.
+        return in_desired_state(
+            current_state=mdb.get_status_phase(),
+            desired_state=Phase.Running,
+            current_generation=mdb.get_generation(),
+            observed_generation=mdb.get_status_observed_generation(),
+            current_message=mdb.get_status_message(),
+            intermediate_events=INTERMEDIATE_EVENTS,
+        )
 
-        phase = mdb.get_status_phase()
-        assert phase != Phase.Failed, f"resource went to Failed: {mdb.get_status_message()}"
-        return phase == Phase.Running and mdb.get_status_observed_generation() == mdb.get_generation()
-
-    mdb.wait_for(running_with_one_member_steps, timeout=timeout)
-    assert (
-        observed_counts[-1] == vm_count + K8S_VOTING_MEMBERS
-    ), f"expected {rs_name} to end at {vm_count + K8S_VOTING_MEMBERS} members, observed progression: {observed_counts}"
-    assert (
-        len(observed_counts) == K8S_VOTING_MEMBERS + 1
-    ), f"expected to observe every +1 step of the {rs_name} scale-up, observed: {observed_counts}"
+    # should_raise=False: a timeout is reported by the asserts below with the observed progression.
+    reached_running = mdb.wait_for(record_member_count, timeout=timeout, should_raise=False)
+    assert reached_running, f"timed out waiting for Running; observed {rs_name} progression: {observed_counts}"
+    assert observed_counts == list(range(vm_count, vm_count + K8S_VOTING_MEMBERS + 1)), (
+        f"expected {rs_name} to grow one member at a time from {vm_count} to "
+        f"{vm_count + K8S_VOTING_MEMBERS} members, observed: {observed_counts}"
+    )
 
 
 @mark.e2e_vm_migration_shardedcluster_voting_scale_up
@@ -207,27 +213,28 @@ def test_configure_ac(
     custom_mdb_version: str,
 ):
     ac = om_tester.api_get_automation_config()
-    if len(ac.get("processes", [])) > 0:
-        return
+    if len(ac.get("processes", [])) == 0:
+        ac = build_sharded_cluster_ac(
+            om_tester,
+            configsrv_sts_name=CONFIGSRV_STS_NAME,
+            shard_sts_name=SHARD_STS_NAME,
+            mongos_sts_name=MONGOS_STS_NAME,
+            configsrv_service_name=CONFIGSRV_SVC_NAME,
+            shard_service_name=SHARD_SVC_NAME,
+            mongos_service_name=MONGOS_SVC_NAME,
+            namespace=namespace,
+            mongodb_version=ensure_ent_version(custom_mdb_version),
+            config_rs_name=VM_CONFIG_RS_NAME,
+            shard_rs_name=VM_SHARD_RS_NAME,
+            config_server_count=MIN_VM_CONFIGSRV,
+            shard_count=MIN_VM_SHARD,
+            mongos_count=MIN_VM_MONGOS,
+            cluster_name=VM_MONGOS_NAME,
+        )
+        om_tester.api_put_automation_config(ac)
 
-    ac = build_sharded_cluster_ac(
-        om_tester,
-        configsrv_sts_name=CONFIGSRV_STS_NAME,
-        shard_sts_name=SHARD_STS_NAME,
-        mongos_sts_name=MONGOS_STS_NAME,
-        configsrv_service_name=CONFIGSRV_SVC_NAME,
-        shard_service_name=SHARD_SVC_NAME,
-        mongos_service_name=MONGOS_SVC_NAME,
-        namespace=namespace,
-        mongodb_version=ensure_ent_version(custom_mdb_version),
-        config_rs_name=VM_CONFIG_RS_NAME,
-        shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=MIN_VM_CONFIGSRV,
-        shard_count=MIN_VM_SHARD,
-        mongos_count=MIN_VM_MONGOS,
-        cluster_name=VM_MONGOS_NAME,
-    )
-    om_tester.api_put_automation_config(ac)
+    # Runs even when a previous run already pushed the config: that run may have died before the
+    # agents converged, and the migration tests below assume goal state.
     om_tester.wait_agents_ready(timeout=600)
 
 

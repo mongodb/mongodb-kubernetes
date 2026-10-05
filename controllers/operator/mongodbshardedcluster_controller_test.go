@@ -1837,12 +1837,43 @@ func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls imag
 	return r, reconcileHelper, nil
 }
 
+// vmShardReplicaSet builds the single-shard replica set shared by the migration fixtures: one
+// external VM process named "vm-shard-0", optionally carrying additional mongod config (e.g. the
+// search setParameters the operator writes when search is attached).
+func vmShardReplicaSet(t *testing.T, sc *mdbv1.MongoDB, additional *mdbv1.AdditionalMongodConfig) om.ReplicaSetWithProcesses {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: sc.Spec.Version}}
+	vmProcess := om.NewMongodProcess(
+		"vm-shard-0", "vm-shard-0.example.com", "fake-image", false,
+		additional, spec, "", nil, "", architectures.NonStatic,
+	)
+	shardRs, err := buildReplicaSetFromProcesses(sc.ShardACRsName(0), []om.Process{vmProcess}, sc, nil, om.NewDeployment())
+	require.NoError(t, err)
+	return shardRs
+}
+
+// mergeShardedDeployment assembles the deployment parts the way the migration fixtures seed the
+// mock OM, keeping MergeShardedCluster options and monitoring/backup configuration in one place.
+func mergeShardedDeployment(t *testing.T, sc *mdbv1.MongoDB, mongosProcesses []om.Process, configRs om.ReplicaSetWithProcesses, shardRs om.ReplicaSetWithProcesses) om.Deployment {
+	t.Helper()
+	d := om.NewDeployment()
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sc.Name,
+		MongosProcesses: mongosProcesses,
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{shardRs},
+		Finalizing:      false,
+	})
+	require.NoError(t, err)
+	d.ConfigureMonitoringAndBackup(zap.S(), sc.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	return d
+}
+
 // vmShardProcessWithSearchSetParameters returns a full sharded-cluster deployment (mongos, config
 // server and a single shard) whose only shard member is an external VM process, optionally
 // carrying the mongod setParameters the operator writes when search is attached.
 func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, withSearch bool) om.Deployment {
 	t.Helper()
-	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
 	additional := &mdbv1.AdditionalMongodConfig{}
 	if withSearch {
 		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
@@ -1850,11 +1881,7 @@ func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, with
 			"searchIndexManagementHostAndPort": "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
 		})
 	}
-	vmProcess := om.NewMongodProcess(
-		"vm-shard-0", "vm-shard-0.example.com", "fake-image", false,
-		additional, spec, "", nil, "", architectures.NonStatic,
-	)
-	shardRs, _ := buildReplicaSetFromProcesses(sc.ShardACRsName(0), []om.Process{vmProcess}, sc, nil, om.NewDeployment())
+	shardRs := vmShardReplicaSet(t, sc, additional)
 
 	desiredMongosConfig := createMongosSpec(sc)
 	mongosOptions := construct.MongosOptions(desiredMongosConfig, multicluster.LegacyCentralClusterName, Replicas(sc.Spec.MongosCount), construct.GetPodEnvOptions())
@@ -1873,19 +1900,10 @@ func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, with
 	for idx, hostname := range hostnames {
 		configProcesses[idx] = om.NewMongodProcess(names[idx], hostname, "fake-mongoDBImage", false, sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), &sc.Spec, "", sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
 	}
-	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, configProcesses, sc, sc.Spec.GetMemberOptions(), om.NewDeployment())
-
-	d := om.NewDeployment()
-	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
-		Name:            sc.Name,
-		MongosProcesses: mongosProcesses,
-		ConfigServerRs:  configRs,
-		Shards:          []om.ReplicaSetWithProcesses{shardRs},
-		Finalizing:      false,
-	})
+	configRs, err := buildReplicaSetFromProcesses(configSvrSts.Name, configProcesses, sc, sc.Spec.GetMemberOptions(), om.NewDeployment())
 	require.NoError(t, err)
-	d.ConfigureMonitoringAndBackup(zap.S(), sc.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
-	return d
+
+	return mergeShardedDeployment(t, sc, mongosProcesses, configRs, shardRs)
 }
 
 // newShardedClusterWithExternalMember builds a sharded MongoDB with a single shard whose AC
@@ -1935,23 +1953,9 @@ func vmDeploymentWithExternalConfigAndShard(t *testing.T, sc *mdbv1.MongoDB) om.
 	configRs, err := buildReplicaSetFromProcesses(sc.ConfigACRsName(), []om.Process{vmConfigProcess}, sc, nil, om.NewDeployment())
 	require.NoError(t, err)
 
-	vmShardProcess := om.NewMongodProcess("vm-shard-0", "vm-shard-0.example.com", "fake-image", false, additional, spec, "", nil, "", architectures.NonStatic)
-	shardRs, err := buildReplicaSetFromProcesses(sc.ShardACRsName(0), []om.Process{vmShardProcess}, sc, nil, om.NewDeployment())
-	require.NoError(t, err)
-
 	vmMongosProcess := om.NewMongosProcess("vm-mongos-0", "vm-mongos-0.example.com", "fake-image", false, additional, spec, "", sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
 
-	d := om.NewDeployment()
-	_, err = d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
-		Name:            sc.Name,
-		MongosProcesses: []om.Process{vmMongosProcess},
-		ConfigServerRs:  configRs,
-		Shards:          []om.ReplicaSetWithProcesses{shardRs},
-		Finalizing:      false,
-	})
-	require.NoError(t, err)
-	d.ConfigureMonitoringAndBackup(zap.S(), sc.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
-	return d
+	return mergeShardedDeployment(t, sc, []om.Process{vmMongosProcess}, configRs, vmShardReplicaSet(t, sc, additional))
 }
 
 // TestShardedMigration_ScalesUpOneMemberAtATime_FromZero verifies that scaling a component from
