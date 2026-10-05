@@ -23,6 +23,16 @@ type MetricsForwarderConfigParams struct {
 	MongotVersion                     string
 	MongotName                        string
 	MongotGRPCPort                    int
+	// MongotTLSEnabled selects an HTTPS scrape with client-certificate
+	// authentication for the mongot /metrics endpoint.
+	MongotTLSEnabled bool
+	// MongotTLSCAFile is the path to the CA bundle used to verify the mongot
+	// server certificate. Only used when MongotTLSEnabled is true.
+	MongotTLSCAFile string
+	// MongotTLSCertFile / MongotTLSKeyFile are the paths to the forwarder client
+	// certificate and key presented to mongot. Only used when MongotTLSEnabled is true.
+	MongotTLSCertFile string
+	MongotTLSKeyFile  string
 	// ScrapeInterval is the global scrape_interval for the Prometheus receiver.
 	// It must match prometheusDefaultScrapeInterval in the controller so the
 	// hostDeletionDeferralWindow calculation stays correct.

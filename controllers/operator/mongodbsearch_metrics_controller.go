@@ -69,6 +69,16 @@ const (
 	metricsForwarderConfigHashAnnotation = "mongodb.com/metrics-forwarder-config-hash"
 	metricsForwarderLabelName            = "search-metrics-forwarder"
 
+	// mTLS scrape material mounted into the forwarder pod. The client cert Secret
+	// and server trust CA ConfigMap are replicated into forwarder-owned copies.
+	metricsForwarderClientCertVolumeName = "metrics-client-cert"
+	metricsForwarderClientCertMountPath  = "/mongodb-automation/metrics-client-cert"
+	metricsForwarderClientCertFileName   = "tls.crt"
+	metricsForwarderClientKeyFileName    = "tls.key"
+	metricsForwarderServerCAVolumeName   = "metrics-server-ca"
+	metricsForwarderServerCAMountPath    = "/mongodb-automation/metrics-server-ca"
+	metricsForwarderServerCAFileName     = "ca.crt"
+
 	// metricsForwarderMinOpsManagerVersion is the minimum supported self-hosted Ops Manager version.
 	// 8.0.24 exposes the ingest endpoint too, but registering mongot hosts on it triggers a bug
 	// that prevents Ops Manager from restarting; 8.0.25 fixes it.
@@ -187,6 +197,9 @@ func (r *MongoDBSearchMetricsForwarderReconciler) Reconcile(ctx context.Context,
 		if !mdbSearch.Spec.Observability.Prometheus.IsEnabled() {
 			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Invalid("metrics forwarder requires Prometheus; set spec.observability.prometheus.mode: enabled to enable it, or set spec.observability.metricsForwarder.mode: disabled to silence this message"), log)
 		}
+		if mdbSearch.Spec.Observability.Prometheus.MetricsTLSConfigured() && !mdbSearch.MetricsForwarderHasScraperTLS() {
+			return r.updateMetricsForwarderStatus(ctx, mdbSearch, workflow.Invalid("spec.observability.prometheus.tls requires spec.observability.prometheus.tls.scraper when the built-in metrics forwarder is enabled; set the scraper client certificate and server CA references, or set spec.observability.metricsForwarder.mode: disabled to scrape externally"), log)
+		}
 		return r.updateMetricsForwarderStatus(ctx, mdbSearch, r.reconcileCore(ctx, mdbSearch, log), log)
 	case searchv1.MetricsForwarderModeDisabled:
 		r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
@@ -285,6 +298,12 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	r.watch.AddWatchedResourceIfNotAdded(fwdCtx.agentApiKeySecret.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	if projectConfig.SSLMMSCAConfigMap != "" {
 		r.watch.AddWatchedResourceIfNotAdded(projectConfig.SSLMMSCAConfigMap, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
+	}
+	if mdbSearch.MetricsForwarderHasScraperTLS() {
+		clientCert := mdbSearch.MetricsForwarderClientCertSecret()
+		serverCA := mdbSearch.MetricsForwarderServerCAConfigMap()
+		r.watch.AddWatchedResourceIfNotAdded(clientCert.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(serverCA.Name, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
 	}
 
 	if !cleaningRemovedOperator {
@@ -607,6 +626,29 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		caConfigMapName = search.MetricsForwarderCACertConfigMapNameForCluster(w.ClusterIndex)
 	}
 
+	scraperTLS := false
+	if search.MetricsForwarderHasScraperTLS() {
+		supported, err := searchcontroller.MongotSupportsMetricsTLS(search.Status.Version)
+		if err != nil {
+			return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		}
+		if supported {
+			scraperTLS = true
+		} else {
+			// The mongot image predates metrics.tls; the search controller surfaces that
+			// error and keeps the endpoint on HTTP, so the forwarder must stay HTTP too
+			// (flipping to HTTPS here would break the scrape).
+			log.Infof("cluster=%q: mongot version %q does not support metrics TLS; keeping the scrape on HTTP", w.ClusterName, search.Status.Version)
+		}
+	}
+	tlsContentHash, err := searchcontroller.HashMountedContent(ctx, r.kubeClient, searchcontroller.MountedContent{
+		Secrets:    []types.NamespacedName{search.MetricsForwarderClientCertSecret()},
+		ConfigMaps: []types.NamespacedName{search.MetricsForwarderServerCAConfigMap()},
+	})
+	if err != nil {
+		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+	}
+
 	configYAML, err := r.otelConfigTemplate.Execute(searchcontroller.MetricsForwarderConfigParams{
 		OMBaseURL:                         projectConfig.BaseURL,
 		HasOMCaCert:                       caConfigMapName != "",
@@ -619,6 +661,10 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		MongotName:                        search.Name,
 		MongotGRPCPort:                    int(search.GetMongotGrpcPort()),
 		ScrapeInterval:                    prometheusDefaultScrapeInterval,
+		MongotTLSEnabled:                  scraperTLS,
+		MongotTLSCAFile:                   metricsForwarderServerCAMountPath + "/" + metricsForwarderServerCAFileName,
+		MongotTLSCertFile:                 metricsForwarderClientCertMountPath + "/" + metricsForwarderClientCertFileName,
+		MongotTLSKeyFile:                  metricsForwarderClientCertMountPath + "/" + metricsForwarderClientKeyFileName,
 	})
 	if err != nil {
 		return false, workflow.Failed(fmt.Errorf("cluster=%q: failed to generate metrics forwarder config: %w", w.ClusterName, err))
@@ -628,7 +674,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
 	}
 
-	if err := r.ensureMetricsForwarderDeployment(ctx, search, configYAML, groupID, agentKeySecretName, caConfigMapName, w, log); err != nil {
+	if err := r.ensureMetricsForwarderDeployment(ctx, search, configYAML, tlsContentHash, scraperTLS, groupID, agentKeySecretName, caConfigMapName, w, log); err != nil {
 		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
 	}
 
@@ -647,47 +693,92 @@ func (r *MongoDBSearchMetricsForwarderReconciler) replicateForwarderDependencies
 	ns := search.Namespace
 	labels := metricsForwarderLabelsForCluster(search, w.ClusterIndex)
 
-	// Replicate agent-key Secret.
-	srcSecret, err := r.kubeClient.GetSecret(ctx, kube.ObjectKey(ns, agentSecretName))
-	if err != nil {
-		return fmt.Errorf("failed to read agent-key Secret %s: %w", agentSecretName, err)
-	}
-	destSecret := kubeSecret.Builder().
-		SetName(search.MetricsForwarderAgentKeySecretNameForCluster(w.ClusterIndex)).
-		SetNamespace(ns).
-		SetByteData(srcSecret.Data).
-		SetDataType(srcSecret.Type).
-		SetLabels(labels).
-		SetOwnerReferences(w.OwnerReferences).
-		Build()
-	if err := kubeSecret.CreateOrUpdate(ctx, w.Client, destSecret); err != nil {
+	if err := replicateSecret(ctx, r.kubeClient, w.Client,
+		kube.ObjectKey(ns, agentSecretName),
+		kube.ObjectKey(ns, search.MetricsForwarderAgentKeySecretNameForCluster(w.ClusterIndex)),
+		labels, w.OwnerReferences); err != nil {
 		return fmt.Errorf("failed to replicate agent-key Secret to cluster %q: %w", w.ClusterName, err)
 	}
 	log.Debugf("Replicated agent-key Secret to cluster=%q", w.ClusterName)
 
-	if caConfigMapName == "" {
+	if caConfigMapName != "" {
+		if err := replicateConfigMap(ctx, r.kubeClient, w.Client,
+			kube.ObjectKey(ns, caConfigMapName),
+			kube.ObjectKey(ns, search.MetricsForwarderCACertConfigMapNameForCluster(w.ClusterIndex)),
+			labels, w.OwnerReferences); err != nil {
+			return fmt.Errorf("failed to replicate OM CA ConfigMap to cluster %q: %w", w.ClusterName, err)
+		}
+		log.Debugf("Replicated OM CA ConfigMap to cluster=%q", w.ClusterName)
+	}
+
+	if !search.MetricsForwarderHasScraperTLS() {
+		// Removing prometheus.tls.scraper (switching to an external scraper, or the
+		// endpoint going back to HTTP) must not leave the forwarder's replicated
+		// client-cert/server-CA copies behind in member clusters.
+		if _, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "client-cert Secret", metricsForwarderLabelName,
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderClientCertSecretNameForCluster(w.ClusterIndex), Namespace: ns}}, log); err != nil {
+			return fmt.Errorf("failed to delete metrics forwarder client cert Secret in cluster %q: %w", w.ClusterName, err)
+		}
+		if _, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, "server-ca ConfigMap", metricsForwarderLabelName,
+			&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderServerCAConfigMapNameForCluster(w.ClusterIndex), Namespace: ns}}, log); err != nil {
+			return fmt.Errorf("failed to delete metrics forwarder server CA ConfigMap in cluster %q: %w", w.ClusterName, err)
+		}
 		return nil
 	}
 
-	// Replicate OM CA ConfigMap.
-	caData, err := configmap.ReadData(ctx, r.kubeClient, kube.ObjectKey(ns, caConfigMapName))
-	if err != nil {
-		return fmt.Errorf("failed to read OM CA ConfigMap %s: %w", caConfigMapName, err)
+	if err := replicateSecret(ctx, r.kubeClient, w.Client,
+		search.MetricsForwarderClientCertSecret(),
+		kube.ObjectKey(ns, search.MetricsForwarderClientCertSecretNameForCluster(w.ClusterIndex)),
+		labels, w.OwnerReferences); err != nil {
+		return fmt.Errorf("failed to replicate metrics forwarder client cert Secret to cluster %q: %w", w.ClusterName, err)
 	}
-	destCM := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            search.MetricsForwarderCACertConfigMapNameForCluster(w.ClusterIndex),
-			Namespace:       ns,
-			Labels:          labels,
-			OwnerReferences: w.OwnerReferences,
-		},
-		Data: caData,
+	log.Debugf("Replicated metrics forwarder client cert Secret to cluster=%q", w.ClusterName)
+
+	if err := replicateConfigMap(ctx, r.kubeClient, w.Client,
+		search.MetricsForwarderServerCAConfigMap(),
+		kube.ObjectKey(ns, search.MetricsForwarderServerCAConfigMapNameForCluster(w.ClusterIndex)),
+		labels, w.OwnerReferences); err != nil {
+		return fmt.Errorf("failed to replicate metrics forwarder server CA ConfigMap to cluster %q: %w", w.ClusterName, err)
 	}
-	if err := configmap.CreateOrUpdate(ctx, w.Client, destCM); err != nil {
-		return fmt.Errorf("failed to replicate OM CA ConfigMap to cluster %q: %w", w.ClusterName, err)
-	}
-	log.Debugf("Replicated OM CA ConfigMap to cluster=%q", w.ClusterName)
+	log.Debugf("Replicated metrics forwarder server CA ConfigMap to cluster=%q", w.ClusterName)
 	return nil
+}
+
+// replicateSecret copies the content of a source Secret (read from srcClient) into
+// a forwarder-owned copy named dest on destClient.
+func replicateSecret(ctx context.Context, srcClient, destClient kubernetesClient.Client, src, dest types.NamespacedName, labels map[string]string, owners []metav1.OwnerReference) error {
+	s, err := srcClient.GetSecret(ctx, src)
+	if err != nil {
+		return fmt.Errorf("failed to read Secret %s: %w", src.Name, err)
+	}
+	out := kubeSecret.Builder().
+		SetName(dest.Name).
+		SetNamespace(dest.Namespace).
+		SetByteData(s.Data).
+		SetDataType(s.Type).
+		SetLabels(labels).
+		SetOwnerReferences(owners).
+		Build()
+	return kubeSecret.CreateOrUpdate(ctx, destClient, out)
+}
+
+// replicateConfigMap copies the data of a source ConfigMap (read from srcClient)
+// into a forwarder-owned copy named dest on destClient.
+func replicateConfigMap(ctx context.Context, srcClient, destClient kubernetesClient.Client, src, dest types.NamespacedName, labels map[string]string, owners []metav1.OwnerReference) error {
+	srcCM := &corev1.ConfigMap{}
+	if err := srcClient.Get(ctx, src, srcCM); err != nil {
+		return fmt.Errorf("failed to read ConfigMap %s: %w", src.Name, err)
+	}
+	out := corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            dest.Name,
+			Namespace:       dest.Namespace,
+			Labels:          labels,
+			OwnerReferences: owners,
+		},
+		Data: srcCM.Data,
+	}
+	return configmap.CreateOrUpdate(ctx, destClient, out)
 }
 
 type forwarderContext struct {
@@ -1220,8 +1311,8 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderConfigMa
 }
 
 // ensureMetricsForwarderDeployment creates or updates the metrics forwarder Deployment for one cluster.
-func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployment(ctx context.Context, search *searchv1.MongoDBSearch, configYAML []byte, groupID, agentKeySecretName, caConfigMapName string, w clusterWorkItem, log *zap.SugaredLogger) error {
-	configHash := fmt.Sprintf("%x", sha256.Sum256(configYAML))
+func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployment(ctx context.Context, search *searchv1.MongoDBSearch, configYAML []byte, tlsContentHash string, scraperTLS bool, groupID, agentKeySecretName, caConfigMapName string, w clusterWorkItem, log *zap.SugaredLogger) error {
+	configHash := fmt.Sprintf("%x", sha256.Sum256(append(append([]byte{}, configYAML...), []byte(tlsContentHash)...)))
 	labels := metricsForwarderLabelsForCluster(search, w.ClusterIndex)
 	podLabels := metricsForwarderPodLabelsForCluster(search, w.ClusterIndex)
 	resources := metricsForwarderResourceRequirements(search)
@@ -1250,7 +1341,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 						metricsForwarderConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildMetricsForwarderPodSpec(search, agentKeySecretName, caConfigMapName, w.ClusterIndex, r.defaultImage, resources, managedSecurityContext),
+				Spec: buildMetricsForwarderPodSpec(search, agentKeySecretName, caConfigMapName, scraperTLS, w.ClusterIndex, r.defaultImage, resources, managedSecurityContext),
 			},
 		}
 
@@ -1272,7 +1363,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 	return nil
 }
 
-func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, clusterIndex int, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, scraperTLS bool, clusterIndex int, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "metrics-forwarder-config",
@@ -1310,6 +1401,33 @@ func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecret
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name: metricsForwarderCACertVolumeName, MountPath: metricsForwarderCACertMountPath, ReadOnly: true,
 		})
+	}
+
+	// Mount mTLS scrape material: the forwarder's client certificate/key and the
+	// mongot server trust CA. These are forwarder-owned replicated copies.
+	if scraperTLS {
+		volumes = append(volumes,
+			corev1.Volume{
+				Name: metricsForwarderClientCertVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: search.MetricsForwarderClientCertSecretNameForCluster(clusterIndex),
+					},
+				},
+			},
+			corev1.Volume{
+				Name: metricsForwarderServerCAVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: search.MetricsForwarderServerCAConfigMapNameForCluster(clusterIndex)},
+					},
+				},
+			},
+		)
+		volumeMounts = append(volumeMounts,
+			corev1.VolumeMount{Name: metricsForwarderClientCertVolumeName, MountPath: metricsForwarderClientCertMountPath, ReadOnly: true},
+			corev1.VolumeMount{Name: metricsForwarderServerCAVolumeName, MountPath: metricsForwarderServerCAMountPath, ReadOnly: true},
+		)
 	}
 
 	envVars := []corev1.EnvVar{
@@ -1475,8 +1593,8 @@ func (r *MongoDBSearchMetricsForwarderReconciler) preDeletionCleanup(ctx context
 	return workflow.OK()
 }
 
-// deleteMetricsForwarderResources removes each cluster's four name-keyed
-// metrics forwarder resources. Clusters not registered with the operator
+// deleteMetricsForwarderResources removes each cluster's name-keyed metrics
+// forwarder resources. Clusters not registered with the operator
 // (Client==nil) are skipped. Only objects still carrying this Search identity's
 // forwarder labels are deleted; customer objects and other identities are never
 // touched.
@@ -1495,6 +1613,8 @@ func (r *MongoDBSearchMetricsForwarderReconciler) deleteMetricsForwarderResource
 			{"ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
 			{"agent-key Secret", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderAgentKeySecretNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
 			{"CA ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderCACertConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+			{"client-cert Secret", &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderClientCertSecretNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
+			{"server-ca ConfigMap", &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: search.MetricsForwarderServerCAConfigMapNameForCluster(w.ClusterIndex), Namespace: search.Namespace}}},
 		} {
 			_, err := searchcontroller.DeleteOwnedResource(ctx, w.Client, search, w.ClusterName, singleton.kind, metricsForwarderLabelName, singleton.obj, log)
 			deleteErr = errors.Join(deleteErr, err)

@@ -507,7 +507,7 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 			assert.Equal(t, tc.wantIdx, work.ClusterIndex)
 
 			require.NoError(t, r.ensureMetricsForwarderConfigMap(t.Context(), search, []byte("receivers: {}"), work, zap.S()))
-			require.NoError(t, r.ensureMetricsForwarderDeployment(t.Context(), search, []byte("receivers: {}"), testGroupID, "agent-key-secret", "", work, zap.S()))
+			require.NoError(t, r.ensureMetricsForwarderDeployment(t.Context(), search, []byte("receivers: {}"), "", false, testGroupID, "agent-key-secret", "", work, zap.S()))
 			require.NoError(t, r.replicateForwarderDependencies(t.Context(), search, sourceSecret.Name, sourceCA.Name, work, zap.S()))
 
 			for name, obj := range map[types.NamespacedName]client.Object{
@@ -537,6 +537,74 @@ func envMap(env []corev1.EnvVar) map[string]corev1.EnvVar {
 	return m
 }
 
+// TestReplicateForwarderDependencies_ScraperTLS covers the mTLS scrape material:
+// the forwarder client-cert Secret and mongot server-trust CA ConfigMap are
+// replicated into member clusters with owner-ref locality, and are removed again
+// when the scraper reference is dropped (no orphaned key material).
+func TestReplicateForwarderDependencies_ScraperTLS(t *testing.T) {
+	sourceSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "agent-key", Namespace: testNamespace}, Data: map[string][]byte{"key": []byte("value")}}
+	sourceCA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "om-ca", Namespace: testNamespace}, Data: map[string]string{"ca-pem": "certificate"}}
+	clientCertSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "forwarder-client", Namespace: testNamespace}, Data: map[string][]byte{"tls.crt": []byte("CERT"), "tls.key": []byte("KEY")}}
+	serverCACM := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "metrics-server-ca", Namespace: testNamespace}, Data: map[string]string{"ca.crt": "CA"}}
+
+	newSearchWithScraper := func() *searchv1.MongoDBSearch {
+		search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+		search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}
+		search.Spec.Observability.Prometheus.TLS = &searchv1.PrometheusTLS{
+			ServerCertificateSecretRef: corev1.LocalObjectReference{Name: "metrics-server"},
+			ClientCAConfigMapRef:       corev1.LocalObjectReference{Name: "metrics-client-ca"},
+			Scraper: &searchv1.PrometheusScraperTLS{
+				ClientCertificateSecretRef: corev1.LocalObjectReference{Name: clientCertSecret.Name},
+				ServerCAConfigMapRef:       corev1.LocalObjectReference{Name: serverCACM.Name},
+			},
+		}
+		return search
+	}
+
+	newReconciler := func(search *searchv1.MongoDBSearch) (*MongoDBSearchMetricsForwarderReconciler, client.Client) {
+		central := mock.NewEmptyFakeClientBuilder().WithObjects(sourceSecret.DeepCopy(), sourceCA.DeepCopy(), clientCertSecret.DeepCopy(), serverCACM.DeepCopy()).Build()
+		member := mock.NewEmptyFakeClientBuilder().Build()
+		r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, map[string]client.Client{"member-a": member}, "")
+		return r, member
+	}
+
+	scraperNames := func(search *searchv1.MongoDBSearch, clusterIndex int) map[types.NamespacedName]client.Object {
+		return map[types.NamespacedName]client.Object{
+			{Name: search.MetricsForwarderClientCertSecretNameForCluster(clusterIndex), Namespace: testNamespace}:  &corev1.Secret{},
+			{Name: search.MetricsForwarderServerCAConfigMapNameForCluster(clusterIndex), Namespace: testNamespace}: &corev1.ConfigMap{},
+		}
+	}
+
+	t.Run("replicates scraper material cross-cluster with no owner refs", func(t *testing.T) {
+		search := newSearchWithScraper()
+		r, member := newReconciler(search)
+		wl := r.buildClusterWorkList(search)
+		require.Len(t, wl, 1)
+		require.NoError(t, r.replicateForwarderDependencies(t.Context(), search, sourceSecret.Name, sourceCA.Name, wl[0], zap.S()))
+
+		for name, obj := range scraperNames(search, 0) {
+			require.NoError(t, member.Get(t.Context(), name, obj), "%s must be replicated into the member cluster", name.Name)
+			assert.Empty(t, obj.GetOwnerReferences(), "%s: no owner ref across cluster boundaries", name.Name)
+		}
+	})
+
+	t.Run("removes scraper copies when the scraper reference is dropped", func(t *testing.T) {
+		search := newSearchWithScraper()
+		r, member := newReconciler(search)
+		wl := r.buildClusterWorkList(search)
+		require.Len(t, wl, 1)
+		require.NoError(t, r.replicateForwarderDependencies(t.Context(), search, sourceSecret.Name, sourceCA.Name, wl[0], zap.S()))
+
+		search.Spec.Observability.Prometheus.TLS.Scraper = nil
+		require.NoError(t, r.replicateForwarderDependencies(t.Context(), search, sourceSecret.Name, sourceCA.Name, wl[0], zap.S()))
+
+		for name, obj := range scraperNames(search, 0) {
+			err := member.Get(t.Context(), name, obj)
+			assert.True(t, apierrors.IsNotFound(err), "%s must be deleted once the scraper reference is removed, got %v", name.Name, err)
+		}
+	})
+}
+
 func TestBuildMetricsForwarderPodSpec_CustomResources(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
@@ -558,7 +626,7 @@ func TestBuildMetricsForwarderPodSpec_CustomResources(t *testing.T) {
 		},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 
 	assert.Equal(t, resource.MustParse("200m"), podSpec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("256Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
@@ -573,7 +641,7 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	resources := metricsForwarderResourceRequirements(search)
 
 	t.Run("without CA cert", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 2)
 		assert.Equal(t, "metrics-forwarder-config", podSpec.Volumes[0].Name)
@@ -588,7 +656,7 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	})
 
 	t.Run("with CA cert", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", false, 0, testDefaultImage, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 3)
 		assert.Equal(t, metricsForwarderCACertVolumeName, podSpec.Volumes[2].Name)
@@ -600,6 +668,59 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	})
 }
 
+func TestBuildMetricsForwarderPodSpec_MetricsTLS(t *testing.T) {
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "ns"},
+	}
+	resources := metricsForwarderResourceRequirements(search)
+
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", true, 0, testDefaultImage, resources, false)
+
+	require.Len(t, podSpec.Volumes, 4)
+	assert.Equal(t, metricsForwarderClientCertVolumeName, podSpec.Volumes[2].Name)
+	assert.Equal(t, search.MetricsForwarderClientCertSecretNameForCluster(0), podSpec.Volumes[2].Secret.SecretName)
+	assert.Equal(t, metricsForwarderServerCAVolumeName, podSpec.Volumes[3].Name)
+	assert.Equal(t, search.MetricsForwarderServerCAConfigMapNameForCluster(0), podSpec.Volumes[3].ConfigMap.Name)
+
+	require.Len(t, podSpec.Containers[0].VolumeMounts, 4)
+	assert.Equal(t, metricsForwarderClientCertVolumeName, podSpec.Containers[0].VolumeMounts[2].Name)
+	assert.Equal(t, metricsForwarderClientCertMountPath, podSpec.Containers[0].VolumeMounts[2].MountPath)
+	assert.Equal(t, metricsForwarderServerCAVolumeName, podSpec.Containers[0].VolumeMounts[3].Name)
+	assert.Equal(t, metricsForwarderServerCAMountPath, podSpec.Containers[0].VolumeMounts[3].MountPath)
+}
+
+func TestMetricsForwarderTLSContentHash_ChangesOnClientCertRotation(t *testing.T) {
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Observability.Prometheus.TLS = &searchv1.PrometheusTLS{
+		ServerCertificateSecretRef: corev1.LocalObjectReference{Name: "metrics-server"},
+		ClientCAConfigMapRef:       corev1.LocalObjectReference{Name: "metrics-client-ca"},
+		Scraper: &searchv1.PrometheusScraperTLS{
+			ClientCertificateSecretRef: corev1.LocalObjectReference{Name: "forwarder-client"},
+			ServerCAConfigMapRef:       corev1.LocalObjectReference{Name: "metrics-server-ca"},
+		},
+	}
+	clientCert := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "forwarder-client", Namespace: testNamespace}, Data: map[string][]byte{"tls.crt": []byte("C1"), "tls.key": []byte("K1")}}
+	serverCA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "metrics-server-ca", Namespace: testNamespace}, Data: map[string]string{"ca.crt": "CA"}}
+	_, fakeClient := newMetricsForwarderReconciler(testDefaultImage, search, clientCert, serverCA)
+	content := searchcontroller.MountedContent{
+		Secrets:    []types.NamespacedName{search.MetricsForwarderClientCertSecret()},
+		ConfigMaps: []types.NamespacedName{search.MetricsForwarderServerCAConfigMap()},
+	}
+
+	hash1, err := searchcontroller.HashMountedContent(context.Background(), kubernetesClient.NewClient(fakeClient), content)
+	require.NoError(t, err)
+	require.NotEmpty(t, hash1)
+
+	updated := &corev1.Secret{}
+	require.NoError(t, fakeClient.Get(context.Background(), types.NamespacedName{Name: "forwarder-client", Namespace: testNamespace}, updated))
+	updated.Data = map[string][]byte{"tls.crt": []byte("C2"), "tls.key": []byte("K2")}
+	require.NoError(t, fakeClient.Update(context.Background(), updated))
+
+	hash2, err := searchcontroller.HashMountedContent(context.Background(), kubernetesClient.NewClient(fakeClient), content)
+	require.NoError(t, err)
+	assert.NotEqual(t, hash1, hash2)
+}
+
 func TestBuildMetricsForwarderPodSpec_EnvVars(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "ns"},
@@ -608,7 +729,7 @@ func TestBuildMetricsForwarderPodSpec_EnvVars(t *testing.T) {
 		},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 
 	env := envMap(podSpec.Containers[0].Env)
 
@@ -626,13 +747,13 @@ func TestBuildMetricsForwarderPodSpec_SecurityContext(t *testing.T) {
 	resources := metricsForwarderResourceRequirements(search)
 
 	t.Run("managed security context disabled", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 		assert.NotNil(t, podSpec.SecurityContext)
 		assert.NotNil(t, podSpec.Containers[0].SecurityContext)
 	})
 
 	t.Run("managed security context enabled", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, true)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, true)
 		assert.Nil(t, podSpec.SecurityContext)
 		assert.Nil(t, podSpec.Containers[0].SecurityContext)
 	})
@@ -643,7 +764,7 @@ func TestBuildMetricsForwarderPodSpec_ContainerArgs(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 
 	assert.Equal(t, []string{"--config", "/etc/otelcol/config.yaml"}, podSpec.Containers[0].Args)
 }
@@ -728,7 +849,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 	}
 
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 
 	// Base spec: no tolerations
 	assert.Empty(t, podSpec.Tolerations)
@@ -799,7 +920,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) 
 	}
 
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", false, 0, testDefaultImage, resources, false)
 
 	// Base spec uses the default BATCH_SIZE and has no custom env.
 	baseEnv := envMap(podSpec.Containers[0].Env)
@@ -1094,6 +1215,34 @@ func TestReconcile_PrometheusDisabled_MetricsForwarderEnabled_Invalid(t *testing
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
 	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "Prometheus")
+}
+
+func TestReconcile_PrometheusTLSWithoutScraper_MetricsForwarderEnabled_Invalid(t *testing.T) {
+	// When mongot /metrics is mTLS-protected and the built-in forwarder is enabled,
+	// the forwarder needs scraper credentials; without them the reconcile must
+	// report Invalid rather than attempting an unauthenticated HTTPS scrape.
+	mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
+	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
+	search.Spec.Observability = searchv1.ObservabilityConfig{
+		Prometheus: searchv1.Prometheus{
+			Mode: searchv1.PrometheusModeEnabled,
+			TLS: &searchv1.PrometheusTLS{
+				ServerCertificateSecretRef: corev1.LocalObjectReference{Name: "metrics-server"},
+				ClientCAConfigMapRef:       corev1.LocalObjectReference{Name: "metrics-client-ca"},
+			},
+		},
+		MetricsForwarder: searchv1.MetricsForwarderConfig{
+			Mode: searchv1.MetricsForwarderModeEnabled,
+		},
+	}
+
+	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search)
+	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
+
+	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
+	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
+	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, "scraper")
 }
 
 func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
