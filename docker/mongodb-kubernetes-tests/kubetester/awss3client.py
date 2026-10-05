@@ -1,5 +1,5 @@
-from typing import Dict, Optional
 from time import sleep
+from typing import Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError
