@@ -233,26 +233,6 @@ func PredicatesForMultiClusterSearchResource() predicate.Funcs {
 	}
 }
 
-// appDBOwnershipChanged reports whether the AppDB handover signal changed. The Ops Manager
-// and the referenced CR exchange ownership through the migration annotations and the
-// resource-owner labels, so those metadata changes must reconcile even when the
-// StatefulSet status is untouched.
-func appDBOwnershipChanged(oldSts, newSts *appsv1.StatefulSet) bool {
-	for _, annotation := range []string{util.AppDBMigrationReadyAnnotation, util.AppDBReverseMigrationReadyAnnotation} {
-		if oldSts.Annotations[annotation] != newSts.Annotations[annotation] {
-			return true
-		}
-	}
-
-	for _, label := range []string{util.MongoDBMultiClusterResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBResourceOwnerLabel} {
-		if oldSts.Labels[label] != newSts.Labels[label] {
-			return true
-		}
-	}
-
-	return false
-}
-
 // PredicatesForMultiStatefulSet is the predicate functions for the custom Statefulset Event
 // handler used for Multicluster reconciler
 func PredicatesForMultiStatefulSet() predicate.Funcs {
@@ -266,8 +246,16 @@ func PredicatesForMultiStatefulSet() predicate.Funcs {
 				return false
 			}
 
-			if appDBOwnershipChanged(oldSts, newSts) {
-				return true
+			for _, annotation := range []string{util.AppDBMigrationReadyAnnotation, util.AppDBReverseMigrationReadyAnnotation} {
+				if oldSts.Annotations[annotation] != newSts.Annotations[annotation] {
+					return true
+				}
+			}
+
+			for _, label := range []string{util.MongoDBMultiClusterResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBResourceOwnerLabel} {
+				if oldSts.Labels[label] != newSts.Labels[label] {
+					return true
+				}
 			}
 
 			return !reflect.DeepEqual(oldSts.Status, newSts.Status)
