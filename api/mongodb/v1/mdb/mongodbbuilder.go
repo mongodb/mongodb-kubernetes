@@ -8,7 +8,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
-// TODO must replace all [Standalone|Replicaset|Cluster]Builder classes in 'operator' package
+// TODO must replace all [Replicaset|Cluster]Builder classes in 'operator' package
 // TODO 2 move this to a separate package 'mongodb' together with 'types.go' and 'podspecbuilder.go'
 // Convenience builder for Mongodb object
 type MongoDBBuilder struct {
@@ -49,10 +49,6 @@ func NewDefaultMultiShardedClusterBuilder() *MongoDBBuilder {
 				},
 			},
 		)
-}
-
-func NewStandaloneBuilder() *MongoDBBuilder {
-	return defaultMongoDB(Standalone)
 }
 
 func NewClusterBuilder() *MongoDBBuilder {
@@ -232,9 +228,6 @@ func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *Mo
 }
 
 func (b *MongoDBBuilder) SetBackup(backupSpec Backup) *MongoDBBuilder {
-	if b.mdb.Spec.ResourceType == Standalone {
-		panic("Backup is only supported for ReplicaSets and ShardedClusters")
-	}
 	b.mdb.Spec.Backup = &backupSpec
 	return b
 }

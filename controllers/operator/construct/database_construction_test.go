@@ -614,24 +614,3 @@ func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
 	// hostname override ConfigMap mounted into the pods.
 	assert.Equal(t, rs.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
 }
-
-// TestStandaloneOptionsCarryTopLevelExternalAccess guards against the external service of a standalone
-// being deleted on the next reconciliation: create.DatabaseInKubernetes creates or deletes it based on
-// DatabaseStatefulSetOptions.ExternalAccessConfiguration, so StandaloneOptions has to populate it.
-func TestStandaloneOptionsCarryTopLevelExternalAccess(t *testing.T) {
-	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
-	st.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("st.example.com")}
-
-	opts := StandaloneOptions()(*st)
-
-	require.NotNil(t, opts.ExternalAccessConfiguration)
-	assert.Equal(t, "st.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
-}
-
-func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
-	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
-
-	opts := StandaloneOptions()(*st)
-
-	assert.Nil(t, opts.ExternalAccessConfiguration)
-}

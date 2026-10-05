@@ -8,18 +8,18 @@ from kubetester.phase import Phase
 MDB_RESOURCE = "test-no-tls-no-status"
 
 
-@pytest.mark.e2e_standalone_no_tls_no_status_is_set
+@pytest.mark.e2e_replica_set_no_tls_no_status_is_set
 def test_install_operator(operator: Operator):
     operator.wait_for_operator_ready()
 
 
-@pytest.mark.e2e_standalone_no_tls_no_status_is_set
-class TestStandaloneWithNoTLS(KubernetesTester):
+@pytest.mark.e2e_replica_set_no_tls_no_status_is_set
+class TestReplicaSetWithNoTLS(KubernetesTester):
     """
-    name: Standalone with no TLS should not have empty "additionalMongodConfig" attribute set.
+    name: Replica set with no TLS should not have empty "additionalMongodConfig" attribute set.
     """
 
-    def test_create_standalone(self, custom_mdb_version: str):
+    def test_create_replica_set(self, custom_mdb_version: str):
         resource = MongoDB.from_yaml(load_fixture("test-no-tls-no-status.yaml"), namespace=self.namespace)
         resource.set_version(custom_mdb_version)
         resource.update()
@@ -33,10 +33,10 @@ class TestStandaloneWithNoTLS(KubernetesTester):
         assert "security" not in mdb
 
 
-@pytest.mark.e2e_standalone_no_tls_no_status_is_set
-class TestStandaloneWithNoTLSDeletion(KubernetesTester):
+@pytest.mark.e2e_replica_set_no_tls_no_status_is_set
+class TestReplicaSetWithNoTLSDeletion(KubernetesTester):
     """
-    name: Standalone with no TLS Status should be removed
+    name: Replica set with no TLS Status should be removed
     delete:
       file: test-no-tls-no-status.yaml
       wait_until: mongo_resource_deleted

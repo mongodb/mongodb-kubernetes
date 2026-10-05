@@ -715,7 +715,7 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 	}
 
 	// Watch for MongoDBSearch resources that reference ReplicaSet MongoDB resources
-	// Only enqueue reconciliation requests for ReplicaSet resources, not Standalone or ShardedCluster
+	// Only enqueue reconciliation requests for ReplicaSet resources, not ShardedCluster
 	kubeClient := mgr.GetClient()
 	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
 		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {

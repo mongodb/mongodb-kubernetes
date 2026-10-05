@@ -69,7 +69,7 @@ const (
 	LabelResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
 )
 
-// MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
+// MongoDB resources allow you to deploy ReplicaSets or SharedClusters
 // to your Kubernetes cluster
 
 // +kubebuilder:object:root=true
@@ -263,8 +263,7 @@ func (m *MongoDB) IsRoleAppDB() bool {
 type AdditionalMongodConfigType int
 
 const (
-	StandaloneConfig = iota
-	ReplicaSetConfig
+	ReplicaSetConfig = iota
 	MongosConfig
 	ConfigServerConfig
 	ShardConfig
@@ -276,7 +275,7 @@ func GetLastAdditionalMongodConfigByType(lastSpec *MongoDbSpec, configType Addit
 	}
 
 	switch configType {
-	case ReplicaSetConfig, StandaloneConfig:
+	case ReplicaSetConfig:
 		return lastSpec.GetAdditionalMongodConfig(), nil
 	case MongosConfig:
 		return lastSpec.MongosSpec.GetAdditionalMongodConfig(), nil
@@ -1236,13 +1235,13 @@ type AgentAuthentication struct {
 	// Mode is the desired Authentication mode that the agents will use
 	Mode string `json:"mode"`
 	// AutoPEMKeyFilePath is the absolute path to the automation agent’s combined PEM (cert+key) inside
-	// database pods (replica set, sharded cluster, standalone, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
+	// database pods (replica set, sharded cluster, and multi-cluster). When set, the operator configures Ops Manager tls.autoPEMKeyFilePath to this value
 	// and mounts the clientCertificateSecretRef PEM at this path (for example when migrating from VMs
 	// that already use a non-default path). When empty, the operator uses AgentCertMountPath with the
 	// hash derived from the TLS secret. Requires clientCertificateSecretRef when non-empty.
 	// This field is meant to be used only in the context of a migration into MCK where the existing project is already configured with a non-default path for the PEM file.
 	// In all other cases, this field should be left empty and the operator will use the default path.
-	// This field will not be used for MongoDBMultiCluster, AppDB or MongoDB standalone resource.
+	// This field will not be used for MongoDBMultiCluster or AppDB resources.
 	// +optional
 	AutoPEMKeyFilePath string `json:"autoPEMKeyFilePath,omitempty"`
 	// +optional
@@ -2123,8 +2122,6 @@ func NewMongoDbPodSpec() *MongoDbPodSpec {
 func (m *MongoDbSpec) Replicas() int {
 	var replicasCount int
 	switch m.ResourceType {
-	case Standalone:
-		replicasCount = 1
 	case ReplicaSet:
 		replicasCount = m.Members
 	case ShardedCluster:

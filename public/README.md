@@ -1,7 +1,7 @@
 # MongoDB Enterprise Kubernetes Operator #
 
 Welcome to the MongoDB Enterprise Kubernetes Operator. The Operator enables easy deploy of the following applications into Kubernetes clusters:
-* MongoDB - Replica Sets, Sharded Clusters and Standalones - with authentication, TLS and many more options.
+* MongoDB - Replica Sets and Sharded Clusters - with authentication, TLS and many more options.
 * Ops Manager - our enterprise management, monitoring and backup platform for MongoDB. The Operator can install and manage Ops Manager in Kubernetes for you. Ops Manager can manage MongoDB instances both inside and outside Kubernetes.
 
 The Operator requires access to one of our database management tools - Ops Manager or Cloud Manager - to deploy MongoDB instances. You may run Ops Manager either inside or outside Kubernetes, or may use Cloud Manager (cloud.mongodb.com) instead.

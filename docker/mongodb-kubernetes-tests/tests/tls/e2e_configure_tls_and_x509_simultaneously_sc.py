@@ -66,7 +66,7 @@ def test_install_operator(operator: Operator):
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_sc
-def test_standalone_running(sc: MongoDB):
+def test_sharded_cluster_running(sc: MongoDB):
     sc.update()
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
 

@@ -1911,7 +1911,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	}
 
 	// Watch for MongoDBSearch resources that reference ShardedCluster MongoDB resources
-	// Only enqueue reconciliation requests for ShardedCluster resources, not ReplicaSet or Standalone
+	// Only enqueue reconciliation requests for ShardedCluster resources, not ReplicaSet
 	shardedKubeClient := mgr.GetClient()
 	err = c.Watch(source.Kind(mgr.GetCache(), &searchv1.MongoDBSearch{},
 		handler.TypedEnqueueRequestsFromMapFunc(func(ctx context.Context, search *searchv1.MongoDBSearch) []reconcile.Request {

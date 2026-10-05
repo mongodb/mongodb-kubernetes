@@ -23,7 +23,7 @@ from tests import test_logger
 
 from .mongodb_common import MongoDBCommon
 from .mongodb_utils_state import in_desired_state
-from .mongotester import MongoTester, ReplicaSetTester, ShardedClusterTester, StandaloneTester
+from .mongotester import MongoTester, ReplicaSetTester, ShardedClusterTester
 from .opsmanager import MongoDBOpsManager
 from .phase import Phase
 
@@ -203,15 +203,6 @@ class MongoDB(CustomObject, MongoDBCommon):
                 multi_cluster=self.is_multicluster(),
                 service_names=service_names,
                 external_domain=self.get_external_domain(),
-            )
-        elif self.type == "Standalone":
-            return StandaloneTester(
-                mdb_resource_name=self.name,
-                ssl=self.is_tls_enabled() if use_ssl is None else use_ssl,
-                ca_path=ca_path,
-                namespace=self.namespace,
-                external_domain=self.get_external_domain(),
-                cluster_domain=self.get_cluster_domain(),
             )
 
     def assert_connectivity(self, ca_path: Optional[str] = None, cluster_domain: str = "cluster.local"):
@@ -616,4 +607,3 @@ class MongoDB(CustomObject, MongoDBCommon):
     class Types:
         REPLICA_SET = "ReplicaSet"
         SHARDED_CLUSTER = "ShardedCluster"
-        STANDALONE = "Standalone"

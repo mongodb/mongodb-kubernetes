@@ -54,10 +54,23 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
 type ReplicaSetBuilder struct {
 	*mdbv1.MongoDB
+}
+
+// omConnectionFactoryFuncSettingVersion returns a connection factory which mocks an Ops Manager
+// recent enough to support controlled features.
+func omConnectionFactoryFuncSettingVersion() func(context *om.OMContext) om.Connection {
+	return func(context *om.OMContext) om.Connection {
+		context.Version = versionutil.OpsManagerVersion{
+			VersionString: "5.0.0",
+		}
+		conn := om.NewEmptyMockedOmConnection(context)
+		return conn
+	}
 }
 
 func TestCreateReplicaSet(t *testing.T) {

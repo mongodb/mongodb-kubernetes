@@ -164,11 +164,11 @@ func TestConfigureX509_Process(t *testing.T) {
 func TestCreateMongodProcess_SSL(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(tls.Prefer))
 
-	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
+	mdb := mdbv1.NewDefaultReplicaSetBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, additionalConfig, mdb.GetSpec(), "", nil, "", architectures.NonStatic)
 	assert.Equal(t, map[string]interface{}{"mode": string(tls.Disabled)}, process.TLSConfig())
 
-	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
+	mdb = mdbv1.NewDefaultReplicaSetBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, additionalConfig, mdb.GetSpec(), "", nil, "", architectures.NonStatic)
@@ -181,7 +181,7 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 
 func TestCreateMongosProcess_SSL(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(tls.Allow))
-	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
+	mdb := mdbv1.NewDefaultReplicaSetBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, additionalConfig, mdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
@@ -206,7 +206,7 @@ func TestCreateMongodMongosProcess_TLSModeForDifferentSpecs(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.tls.mode", string(tls.Allow))
 
 	// standalone spec
-	assertTLSConfig(NewMongodProcess(name, host, "fake-mongoDBImage", false, additionalConfig, getSpec(mdbv1.NewStandaloneBuilder()), "", nil, "", architectures.NonStatic))
+	assertTLSConfig(NewMongodProcess(name, host, "fake-mongoDBImage", false, additionalConfig, getSpec(mdbv1.NewDefaultReplicaSetBuilder()), "", nil, "", architectures.NonStatic))
 
 	// replica set spec
 	assertTLSConfig(NewMongodProcess(name, host, "fake-mongoDBImage", false, additionalConfig, getSpec(mdbv1.NewReplicaSetBuilder()), "", nil, "", architectures.NonStatic))
@@ -220,10 +220,10 @@ func TestCreateMongodMongosProcess_TLSModeForDifferentSpecs(t *testing.T) {
 // and doesn't overwrite the other Ops Manager initiated configuration
 func TestMergeMongodProcess_SSL(t *testing.T) {
 	additionalConfig := mdbv1.NewAdditionalMongodConfig("net.ssl.mode", string(tls.Require))
-	operatorMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
+	operatorMdb := mdbv1.NewDefaultReplicaSetBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
 		SetAdditionalConfig(additionalConfig).SetSecurityTLSEnabled().Build()
 
-	omMdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
+	omMdb := mdbv1.NewDefaultReplicaSetBuilder().SetVersion("3.6.4").SetFCVersion("3.6").
 		SetAdditionalConfig(mdbv1.NewEmptyAdditionalMongodConfig()).Build()
 
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, operatorMdb.GetSpec(), "", nil, "", architectures.NonStatic)
@@ -245,11 +245,11 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 }
 
 func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
-	omMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(
+	omMdb := mdbv1.NewDefaultReplicaSetBuilder().SetAdditionalConfig(
 		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.cacheSizeGB", 3)).Build()
 	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, omMdb.Spec.AdditionalMongodConfig, omMdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
-	operatorMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(
+	operatorMdb := mdbv1.NewDefaultReplicaSetBuilder().SetAdditionalConfig(
 		mdbv1.NewAdditionalMongodConfig("storage.wiredTiger.engineConfig.directoryForIndexes", "/some/dir")).Build()
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, operatorMdb.Spec.AdditionalMongodConfig, operatorMdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
@@ -286,7 +286,7 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 	prevAdditionalConfig.AddOption("some.other.option", "value")
 	prevAdditionalConfig.AddOption("some.other.option2", "value2")
 
-	omMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(prevAdditionalConfig).Build()
+	omMdb := mdbv1.NewDefaultReplicaSetBuilder().SetAdditionalConfig(prevAdditionalConfig).Build()
 	omProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, omMdb.Spec.AdditionalMongodConfig, omMdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
 	specAdditionalConfig := mdbv1.NewEmptyAdditionalMongodConfig()
@@ -295,7 +295,7 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 	// here we are simulating removing "some.other.option2" by not specifying it.
 	specAdditionalConfig.AddOption("some.other.option", "value")
 
-	operatorMdb := mdbv1.NewStandaloneBuilder().SetAdditionalConfig(specAdditionalConfig).Build()
+	operatorMdb := mdbv1.NewDefaultReplicaSetBuilder().SetAdditionalConfig(specAdditionalConfig).Build()
 	operatorProcess := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, operatorMdb.Spec.AdditionalMongodConfig, operatorMdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
 	omProcess.mergeFrom(operatorProcess, specAdditionalConfig.ToMap(), prevAdditionalConfig.ToMap())
