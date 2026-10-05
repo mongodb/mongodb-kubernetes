@@ -281,6 +281,12 @@ const (
 	// and for omitting the fields from the OM API payload on older versions.
 	MinimumVersionS3ObjectLockRetention = "8.0.27"
 
+	// S3 Object Lock for OpLog stores (objectLockEnabled and the retention fields on
+	// spec.backup.s3OpLogStores) was introduced in 8.0.28 — later than for snapshot
+	// stores (8.0.19/8.0.27). Older versions reject objectLockEnabled on the OpLog S3
+	// config endpoint with INVALID_ATTRIBUTE.
+	MinimumVersionS3OpLogObjectLock = "8.0.28"
+
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"
 	OpsManagerPvcNameConf       = "conf"

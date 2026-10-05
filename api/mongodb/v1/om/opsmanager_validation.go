@@ -230,16 +230,17 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	// We can ignore errors since they are already caught in validOmVersion validation
 	v, _ := versionutil.StringToSemverVersion(os.Version)
 
-	// Snapshot and OpLog S3 stores enforce the same rules and differ only in the label
-	// used for error messages.
+	// Snapshot and OpLog S3 stores enforce the same rules and differ only in the
+	// version floors and the label used for error messages: OpLog stores support
+	// object lock (and therefore retention) only since 8.0.28.
 	for _, config := range backup.S3Configs {
-		if res := validateS3StoreConfig(config, v, "S3 Store"); res.Level != v1.SuccessLevel {
+		if res := validateS3StoreConfig(config, v, "S3 Store", util.MinimumVersionImmutableBackup, util.MinimumVersionS3ObjectLockRetention); res.Level != v1.SuccessLevel {
 			return res
 		}
 	}
 
 	for _, oplogStoreConfig := range backup.S3OplogStoreConfigs {
-		if res := validateS3StoreConfig(oplogStoreConfig, v, "S3 OpLog Store"); res.Level != v1.SuccessLevel {
+		if res := validateS3StoreConfig(oplogStoreConfig, v, "S3 OpLog Store", util.MinimumVersionS3OpLogObjectLock, util.MinimumVersionS3OpLogObjectLock); res.Level != v1.SuccessLevel {
 			return res
 		}
 	}
@@ -248,11 +249,11 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 }
 
 // validateS3StoreConfig validates a single S3 store config (snapshot or OpLog — both
-// enforce identical rules). storeLabel is used in error messages, e.g. "S3 Store"
-// or "S3 OpLog Store".
-func validateS3StoreConfig(config S3Config, v semver.Version, storeLabel string) v1.ValidationResult {
-	immutableBackupVersion := semver.MustParse(util.MinimumVersionImmutableBackup)
-	objectLockRetentionVersion := semver.MustParse(util.MinimumVersionS3ObjectLockRetention)
+// enforce identical rules under different Ops Manager version floors). storeLabel is
+// used in error messages, e.g. "S3 Store" or "S3 OpLog Store".
+func validateS3StoreConfig(config S3Config, v semver.Version, storeLabel string, objectLockMinVersion string, retentionMinVersion string) v1.ValidationResult {
+	objectLockVersion := semver.MustParse(objectLockMinVersion)
+	objectLockRetentionVersion := semver.MustParse(retentionMinVersion)
 
 	if config.IRSAEnabled {
 		if config.S3SecretRef != nil {
@@ -260,10 +261,10 @@ func validateS3StoreConfig(config S3Config, v semver.Version, storeLabel string)
 		}
 	} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
 		return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (%s: %s)", status.OpsManager, storeLabel, config.Name)
-	} else if config.ObjectLockEnabled != nil && v.LT(immutableBackupVersion) {
-		return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, util.MinimumVersionImmutableBackup, storeLabel, config.Name)
+	} else if config.ObjectLockEnabled != nil && v.LT(objectLockVersion) {
+		return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, objectLockMinVersion, storeLabel, config.Name)
 	} else if hasObjectLockRetention(config) && v.LT(objectLockRetentionVersion) {
-		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, util.MinimumVersionS3ObjectLockRetention, storeLabel, config.Name)
+		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, retentionMinVersion, storeLabel, config.Name)
 	} else if hasObjectLockRetention(config) && (config.ObjectLockEnabled == nil || !*config.ObjectLockEnabled) {
 		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (%s: %s)", status.OpsManager, storeLabel, config.Name)
 	} else if hasPartialObjectLockRetention(config) {
