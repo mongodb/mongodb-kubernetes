@@ -25,6 +25,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -678,15 +679,23 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.C
 		mongoDBOwner := ownershipLabels[util.MongoDBResourceOwnerLabel]
 		mongoDBMultiClusterOwner := ownershipLabels[util.MongoDBMultiClusterResourceOwnerLabel]
 		if mongoDBOwner != "" || mongoDBMultiClusterOwner != "" {
-			if err := r.requestAppDBReverseMigration(ctx, memberCluster.Client, sts); err != nil {
+			ownerExists, err := r.appDBStatefulSetOwnerExists(ctx, opsManager.Namespace, mongoDBOwner, mongoDBMultiClusterOwner)
+			if err != nil {
 				errList = multierror.Append(errList, err)
+				continue
 			}
 
-			blocked = true
-			if pendingMessage == "" {
-				pendingMessage = fmt.Sprintf("waiting for MongoDB controller to release AppDB StatefulSet %s", sts.GetName())
+			if ownerExists {
+				if err := r.requestAppDBReverseMigration(ctx, memberCluster.Client, sts); err != nil {
+					errList = multierror.Append(errList, err)
+				}
+
+				blocked = true
+				if pendingMessage == "" {
+					pendingMessage = fmt.Sprintf("waiting for MongoDB controller to release AppDB StatefulSet %s", sts.GetName())
+				}
+				continue
 			}
-			continue
 		}
 
 		if err := r.reclaimAppDBStatefulset(ctx, memberCluster.Client, opsManager, sts); err != nil {
@@ -713,6 +722,36 @@ func (r *ReconcileAppDbReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.C
 	return workflow.OK()
 }
 
+func (r *ReconcileAppDbReplicaSet) appDBStatefulSetOwnerExists(ctx context.Context, namespace, mongoDBOwner, mongoDBMultiClusterOwner string) (bool, error) {
+	if mongoDBOwner != "" {
+		mongoDBs := mdbv1.MongoDBList{}
+		if err := r.client.List(ctx, &mongoDBs, client.InNamespace(namespace)); err != nil {
+			return false, xerrors.Errorf("failed to list MongoDB resources while checking StatefulSet ownership: %w", err)
+		}
+
+		if slices.ContainsFunc(mongoDBs.Items, func(mongoDB mdbv1.MongoDB) bool {
+			return mongoDB.GetOwnerLabels()[util.MongoDBResourceOwnerLabel] == mongoDBOwner
+		}) {
+			return true, nil
+		}
+	}
+
+	if mongoDBMultiClusterOwner != "" {
+		mongoDBMultiClusters := mdbmultiv1.MongoDBMultiClusterList{}
+		if err := r.client.List(ctx, &mongoDBMultiClusters, client.InNamespace(namespace)); err != nil {
+			return false, xerrors.Errorf("failed to list MongoDBMultiCluster resources while checking StatefulSet ownership: %w", err)
+		}
+
+		if slices.ContainsFunc(mongoDBMultiClusters.Items, func(mongoDBMultiCluster mdbmultiv1.MongoDBMultiCluster) bool {
+			return mongoDBMultiCluster.GetOwnerLabels()[util.MongoDBMultiClusterResourceOwnerLabel] == mongoDBMultiClusterOwner
+		}) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Context, memberClient client.Client, sts appsv1.StatefulSet) error {
 	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString && sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
 		return nil
@@ -730,12 +769,13 @@ func (r *ReconcileAppDbReplicaSet) requestAppDBReverseMigration(ctx context.Cont
 	return nil
 }
 
-// reclaimAppDBStatefulset transfers the ownership of the AppDB StatefulSet to this OM and clears the
-// stale forward migration annotation, leaving the reverse marker in place.
 func (r *ReconcileAppDbReplicaSet) reclaimAppDBStatefulset(ctx context.Context, memberClient client.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet) error {
 	sts.Labels = merge.StringToStringMap(sts.Labels, opsManager.GetOwnerLabels())
 	sts.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 	delete(sts.Annotations, util.AppDBMigrationReadyAnnotation)
+	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	delete(sts.Labels, util.MongoDBResourceOwnerLabel)
+	delete(sts.Labels, util.MongoDBMultiClusterResourceOwnerLabel)
 	if err := memberClient.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
 	}
