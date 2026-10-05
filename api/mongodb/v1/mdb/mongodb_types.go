@@ -54,6 +54,10 @@ const (
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
 
+	// StandaloneDeprecationMessage must stay in sync with the e2e migration test, it is the
+	// string docs/migration/standalone-to-replica-set.md tells customers to look for.
+	StandaloneDeprecationMessage = "Standalone is deprecated and will not be supported in the next major version, migrate to a one member ReplicaSet"
+
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 

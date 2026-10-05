@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -171,6 +172,26 @@ func TestMongoDB_ValidateCreate_Error(t *testing.T) {
 	rs.Spec.Connectivity.ReplicaSetHorizons = replicaSetHorizons
 	_, err := validator.ValidateCreate(ctx, rs)
 	assert.Equal(t, "TLS must be enabled in order to use replica set horizons", err.Error())
+}
+
+func TestMongoDB_StandaloneDeprecationWarning(t *testing.T) {
+	t.Run("Create returns the deprecation warning for a Standalone", func(t *testing.T) {
+		warnings, err := validator.ValidateCreate(ctx, NewStandaloneBuilder().AddDummyOpsManagerConfig().Build())
+		assert.NoError(t, err)
+		assert.Equal(t, admission.Warnings{StandaloneDeprecationMessage}, warnings)
+	})
+
+	t.Run("Update returns the deprecation warning for a Standalone", func(t *testing.T) {
+		warnings, err := validator.ValidateUpdate(ctx, NewStandaloneBuilder().AddDummyOpsManagerConfig().Build(), NewStandaloneBuilder().AddDummyOpsManagerConfig().Build())
+		assert.NoError(t, err)
+		assert.Equal(t, admission.Warnings{StandaloneDeprecationMessage}, warnings)
+	})
+
+	t.Run("ReplicaSet gets no warnings", func(t *testing.T) {
+		warnings, err := validator.ValidateCreate(ctx, NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build())
+		assert.NoError(t, err)
+		assert.Empty(t, warnings)
+	})
 }
 
 func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
