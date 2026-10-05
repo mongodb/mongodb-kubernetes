@@ -215,6 +215,24 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_external_appdb_mc_fresh_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_mc_forward_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_mc_reverse_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
   - name: update_docs_snippets
     commands:
       - func: clone
@@ -266,6 +284,9 @@ task_groups:
     tasks:
       - test_kind_search_rs_multi_cluster_snippets.sh
       - test_kind_search_sharded_multi_cluster_snippets.sh
+      - test_kind_external_appdb_mc_fresh_snippets.sh
+      - test_kind_external_appdb_mc_forward_snippets.sh
+      - test_kind_external_appdb_mc_reverse_snippets.sh
 
 buildvariants:
   # NOTE: public_gke|kind_code_snippets are docs-publishing jobs, not release-gating tests - they run
