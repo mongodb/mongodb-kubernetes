@@ -89,8 +89,8 @@ def test_credentials_secret_is_created(standard_secret: Dict[str, str]):
     # authSource must match the user's spec.db
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standard"]
     assert f"authSource={USER_DATABASE}" in standard_secret["connectionString.standardSrv"]
-    assert "tls=false" in standard_secret["connectionString.standard"]
-    assert "tls=false" in standard_secret["connectionString.standardSrv"]
+    assert "ssl=false" in standard_secret["connectionString.standard"]
+    assert "ssl=false" in standard_secret["connectionString.standardSrv"]
 
 
 @mark.e2e_community_scram_connectivity

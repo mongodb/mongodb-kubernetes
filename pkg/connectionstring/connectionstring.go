@@ -159,7 +159,7 @@ func OperatorParams() map[string]string {
 // operator and user provided ones, in increasing order of priority.
 func (o Options) mergedParams() map[string]string {
 	params := map[string]string{
-		"tls": strconv.FormatBool(o.IsTLSEnabled),
+		"ssl": strconv.FormatBool(o.IsTLSEnabled),
 	}
 	if o.IsReplicaSet {
 		params["replicaSet"] = o.Name

@@ -102,7 +102,7 @@ func TestReplicaSetArbiter(t *testing.T) {
 						t.Fatal(err)
 					}
 					scramUser := mdb.GetAuthUsers()[0]
-					expectedCnxStr := fmt.Sprintf("mongodb+srv://%s-user:%s@%s-svc.%s.svc.cluster.local/?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=%s&serverSelectionTimeoutMS=20000&tls=false", mdb.Name, pwd, mdb.Name, mdb.Namespace, mdb.Name)
+					expectedCnxStr := fmt.Sprintf("mongodb+srv://%s-user:%s@%s-svc.%s.svc.cluster.local/?authMechanism=SCRAM-SHA-256&authSource=admin&connectTimeoutMS=20000&replicaSet=%s&serverSelectionTimeoutMS=20000&ssl=false", mdb.Name, pwd, mdb.Name, mdb.Namespace, mdb.Name)
 					cnxStrSrv := mongodbtests.GetSrvConnectionStringForUser(ctx, mdb, scramUser)
 					assert.Equal(t, expectedCnxStr, cnxStrSrv)
 					tester.ConnectivitySucceeds(mongotester.WithURI(cnxStrSrv))

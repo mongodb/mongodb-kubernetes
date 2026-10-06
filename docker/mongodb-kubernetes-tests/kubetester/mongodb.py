@@ -357,9 +357,9 @@ class MongoDB(CustomObject, MongoDBCommon):
             params["replicaSet"] = self.name
 
         if self.is_tls_enabled():
-            params["tls"] = "true"
+            params["ssl"] = "true"
         else:
-            params["tls"] = "false"
+            params["ssl"] = "false"
 
         query_params = ["{}={}".format(key, params[key]) for key in sorted(params.keys())]
         joined_params = "&".join(query_params)

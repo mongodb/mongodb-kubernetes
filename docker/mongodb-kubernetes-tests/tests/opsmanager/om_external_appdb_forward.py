@@ -78,7 +78,7 @@ def primary_om(
     resource.set_version(custom_version)
     resource.set_appdb_version(custom_appdb_version)
     # start with a TLS-enabled internal AppDB so that after forward migration to the (also TLS)
-    # external CR the connection string (tls=true, same hosts) is unchanged.
+    # external CR the connection string (ssl=true, same hosts) is unchanged.
     resource["spec"]["applicationDatabase"]["security"] = appdb_tls_security(appdb_ca_configmap, appdb_cert_prefix)
     try_load(resource)
     return resource
@@ -118,7 +118,7 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_write_sentinel_doc(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
         cnx_string = primary_om.read_appdb_connection_url()
         # the internal AppDB is TLS-enabled, so its connection string must request TLS
-        assert "tls=true" in cnx_string
+        assert "ssl=true" in cnx_string
         write_sentinel_doc(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_capture_state_before_migration(self, primary_om: MongoDBOpsManager, namespace: str):
@@ -156,7 +156,7 @@ class TestSentinelDocSurvivesForwardMigration:
     def test_sentinel_doc_survives(self, primary_om: MongoDBOpsManager, issuer_ca_filepath: str):
         cnx_string = primary_om.read_appdb_connection_url()
         # after forward migration the external CR is also TLS, so the string still requests TLS
-        assert "tls=true" in cnx_string
+        assert "ssl=true" in cnx_string
         assert_sentinel_doc_present(cnx_string, tls_ca_file=issuer_ca_filepath)
 
     def test_connection_string_unchanged_after_forward_migration(self, primary_om: MongoDBOpsManager):

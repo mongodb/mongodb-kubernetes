@@ -87,7 +87,7 @@ def configure_appdb_role_mongodb(mdb: MongoDB, meta_om: MongoDBOpsManager, names
 
 
 def _sentinel_client(cnx_string: str, tls_ca_file: Optional[str]) -> pymongo.MongoClient:
-    # a TLS AppDB connection string contains tls=true, so pymongo needs the CA to verify the server.
+    # a TLS AppDB connection string contains ssl=true, so pymongo needs the CA to verify the server.
     if tls_ca_file is not None:
         return pymongo.MongoClient(cnx_string, tlsCAFile=tls_ca_file, serverSelectionTimeoutMS=30000)
     return pymongo.MongoClient(cnx_string)
