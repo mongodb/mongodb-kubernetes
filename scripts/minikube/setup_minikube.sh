@@ -102,6 +102,9 @@ else
     exit 1
 fi
 
+# Clean stale resources now that Minikube is installed, before starting it.
+scripts/evergreen/teardown_kubernetes_environment.sh
+
 # Start the minikube cluster
 start_minikube_cluster
 
