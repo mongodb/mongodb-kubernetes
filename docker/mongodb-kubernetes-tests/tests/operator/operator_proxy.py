@@ -1,4 +1,7 @@
+import json
+import logging
 import os
+import subprocess
 
 from kubernetes import client
 from kubetester import create_or_update_configmap, create_or_update_namespace, try_load
@@ -16,6 +19,8 @@ PROXY_SVC_NAME = "squid-service"
 PROXY_SVC_PORT = 3128
 SQUID_NAMESPACE = "squid"
 
+logger = logging.getLogger("operator_proxy")
+
 
 @fixture(scope="module")
 def squid_proxy(namespace: str) -> str:
@@ -27,13 +32,46 @@ def squid_proxy(namespace: str) -> str:
 
     apply_yaml(client.api_client.ApiClient(), _fixture("squid-proxy.yaml"), namespace=SQUID_NAMESPACE)
 
+    def run_kubectl(args: list[str]):
+        cmd = ["kubectl", "--request-timeout=5s"] + args
+        try:
+            result = subprocess.run(cmd, timeout=8, capture_output=True, text=True)
+            logger.info(
+                "kubectl %s: rc=%s\nstdout:\n%s\nstderr:\n%s",
+                " ".join(args),
+                result.returncode,
+                result.stdout,
+                result.stderr,
+            )
+            return result
+        except subprocess.TimeoutExpired as e:
+            logger.info("kubectl %s: timed out after 8s\nstdout:\n%s\nstderr:\n%s", " ".join(args), e.stdout, e.stderr)
+        except Exception as e:
+            logger.info("kubectl %s: error: %s", " ".join(args), e)
+        return None
+
     def check_svc_endpoints():
         try:
-            endpoint = client.CoreV1Api().read_namespaced_endpoints("squid-service", SQUID_NAMESPACE)
-            assert len(endpoint.subsets[0].addresses) == 1
+            get_result = run_kubectl(["-n", SQUID_NAMESPACE, "get", "pods,services,endpoints", "-o", "json"])
+            if get_result is None or get_result.returncode != 0:
+                return False
+            items = json.loads(get_result.stdout).get("items", [])
+            ready_addresses = [
+                addr
+                for item in items
+                if item.get("kind") == "Endpoints" and item.get("metadata", {}).get("name") == PROXY_SVC_NAME
+                for subset in item.get("subsets", [])
+                for addr in subset.get("addresses", [])
+            ]
+            if len(ready_addresses) != 1:
+                return False
             return True
-        except:
+        except Exception as e:
+            logger.info("check_svc_endpoints not ready: %s", e)
             return False
+        finally:
+            run_kubectl(["-n", SQUID_NAMESPACE, "describe", "pod", "-l", "app=squid"])
+            run_kubectl(["-n", SQUID_NAMESPACE, "logs", "-l", "app=squid", "-c", "squid", "--tail=50", "--prefix=true"])
 
     KubernetesTester.wait_until(check_svc_endpoints, timeout=30)
     return f"http://{PROXY_SVC_NAME}.{SQUID_NAMESPACE}.svc.cluster.local:{PROXY_SVC_PORT}"
