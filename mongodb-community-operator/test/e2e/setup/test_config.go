@@ -34,6 +34,13 @@ type TestConfig struct {
 	OperatorImageRepoUrl    string
 	OperatorVersion         string
 	OperatorImage           string
+
+	// MongoDB versions exercised by the replica_set_change_version e2e test:
+	// deployed at ChangeVersionInitialVersion, then upgraded to
+	// ChangeVersionUpgradedVersion and finally to ChangeVersionUpgradedPatchVersion.
+	ChangeVersionInitialVersion       string
+	ChangeVersionUpgradedVersion      string
+	ChangeVersionUpgradedPatchVersion string
 }
 
 func LoadTestConfigFromEnv() TestConfig {
@@ -57,5 +64,11 @@ func LoadTestConfigFromEnv() TestConfig {
 		HelmChartPath:       "../../../../helm_chart",                                                                                       // TODO: MCK update this later once we change folder or choose a different solution, alternatives, copy helm chart to test folder/search for helm_chart folder
 		TestPKIChartPath:    "../../test-pki",
 		LocalOperator:       env.ReadBoolOrDefault(LocalOperatorEnvName, false), // nolint:forbidigo // TODO MCK: combine with meko one
+
+		// Defaults match the values exported by scripts/dev/contexts/e2e_mco_tests; that context
+		// script is the place to bump them for CI runs.
+		ChangeVersionInitialVersion:       env.ReadOrDefault("MDB_COMMUNITY_CHANGE_VERSION_INITIAL_VERSION", "7.0.14"),       // nolint:forbidigo
+		ChangeVersionUpgradedVersion:      env.ReadOrDefault("MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_VERSION", "8.0.0"),       // nolint:forbidigo
+		ChangeVersionUpgradedPatchVersion: env.ReadOrDefault("MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_PATCH_VERSION", "8.0.5"), // nolint:forbidigo
 	}
 }
