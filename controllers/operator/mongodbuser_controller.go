@@ -20,7 +20,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -29,17 +28,18 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -141,8 +141,9 @@ func (r *MongoDBUserReconciler) getMongoDB(ctx context.Context, user userv1.Mong
 	return mdbm, err
 }
 
-// getMongoDBConnectionBuilder returns an object that can construct a MongoDB Connection String on itself.
-func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context, user userv1.MongoDBUser) (connectionstring.ConnectionStringBuilder, error) {
+// getConnectionOptions returns the connection string options for the
+// referenced MongoDB resource, single or multi cluster.
+func (r *MongoDBUserReconciler) getConnectionOptions(ctx context.Context, user userv1.MongoDBUser, log *zap.SugaredLogger) (connectionstring.Options, error) {
 	name := getMongoDBObjectKey(user)
 
 	// Try single cluster, sharded single/multi-cluster resource
@@ -150,46 +151,29 @@ func (r *MongoDBUserReconciler) getMongoDBConnectionBuilder(ctx context.Context,
 	if err := r.client.Get(ctx, name, mdb); err == nil {
 		var hostnames []string
 		if mdb.IsShardedCluster() {
-			hostnames, err = r.getShardedClusterHostnames(ctx, mdb)
-			if err != nil {
-				return nil, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
+			clusterClientMap := map[string]client.Client{}
+			for k, v := range r.memberClusterClientsMap {
+				clusterClientMap[k] = v
 			}
+			rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, log, r.backupEnableDelay)
+			if err != nil {
+				return connectionstring.Options{}, xerrors.Errorf("failed to get hostnames for sharded cluster: %w", err)
+			}
+			hostnames = append(rh.GetAllMongosHostnamesAndPorts(), mdb.GetExternalMembersHostnames()...)
 		} else if mdb.IsReplicaSet() {
-			hostnames = mdb.GetRSHostnamesAndPorts()
+			hostnames = mdb.GetConnectionHostnamesAndPorts()
 		}
 
-		extHostnames := mdb.GetExternalMembersHostnames()
-		hostnames = append(hostnames, extHostnames...)
-
-		builder := mdbv1.NewMongoDBConnectionStringBuilder(*mdb, hostnames)
-		return builder, nil
+		return mdb.ConnectionOptionsWithHostnames(hostnames), nil
 	}
 
 	// Try the multi-cluster next
 	mdbm := &mdbmulti.MongoDBMultiCluster{}
 	err := r.client.Get(ctx, name, mdbm)
-	return mdbm, err
-}
-
-func (r *MongoDBUserReconciler) getShardedClusterHostnames(ctx context.Context, mdb *mdbv1.MongoDB) ([]string, error) {
-	l := zap.S().With("MongoDBUser", mdb.Name)
-	clusterClientMap := r.getK8sClientMap()
-	rh, err := NewReadOnlyClusterReconcilerHelper(ctx, r.ReconcileCommonController, mdb, clusterClientMap, l, r.backupEnableDelay)
 	if err != nil {
-		return nil, err
+		return connectionstring.Options{}, err
 	}
-
-	hostnames := rh.GetAllMongosHostnames()
-	return hostnames, nil
-}
-
-func (r *MongoDBUserReconciler) getK8sClientMap() map[string]client.Client {
-	result := make(map[string]client.Client)
-	for k, v := range r.memberClusterClientsMap {
-		result[k] = v
-	}
-
-	return result
+	return mdbm.ConnectionOptions(), nil
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbusers,mongodbusers/status,mongodbusers/finalizers},verbs=*,namespace=placeholder
@@ -261,7 +245,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to add finalizer: %w", err)), log)
 	}
 
-	if user.Spec.Database == authentication.ExternalDB {
+	if user.Spec.Database == constants.ExternalDB {
 		return r.handleExternalAuthUser(ctx, user, conn, log)
 	} else {
 		return r.handleScramShaUser(ctx, user, conn, log)
@@ -296,59 +280,40 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	var err error
 	var password string
 
-	if user.Spec.Database != authentication.ExternalDB {
+	if user.Spec.Database != constants.ExternalDB {
 		password, err = user.GetPassword(ctx, r.SecretClient)
 		if err != nil {
-			log.Debug("User does not have a configured password.")
+			return xerrors.Errorf("failed to read the user password: %w", err)
 		}
 	}
 
-	connectionBuilder, err := r.getMongoDBConnectionBuilder(ctx, user)
+	connectionOptions, err := r.getConnectionOptions(ctx, user, log)
 	if err != nil {
 		return err
 	}
 
 	secretName := user.GetConnectionStringSecretName()
-	existingSecret, err := r.client.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: user.Namespace})
-	if err != nil && !apiErrors.IsNotFound(err) {
+	if err := connectionstringsecret.ValidateExistingOwnership(ctx, r.client, secretName, user.Namespace, &user); err != nil {
 		return err
 	}
-	if err == nil {
-		existingController := metav1.GetControllerOf(&existingSecret)
-		if existingController == nil || existingController.UID != user.UID {
-			return xerrors.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
-		}
-	}
 
-	mongoAuthUserURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDB, map[string]string{"authSource": user.Spec.Database})
-	mongoAuthUserSRVURI := connectionBuilder.BuildConnectionString(user.Spec.Username, password, user.Spec.ConnectionStringDatabase, connectionstring.SchemeMongoDBSRV, map[string]string{"authSource": user.Spec.Database})
+	userOptions := user.AuthUser()
 
-	secretBuilder := secret.Builder().
-		SetName(secretName).
-		SetNamespace(user.Namespace).
-		SetField("connectionString.standard", mongoAuthUserURI).
-		SetField("connectionString.standardSrv", mongoAuthUserSRVURI).
-		SetField("username", user.Spec.Username)
-
-	// External users have no password, so the key is left out rather than written empty.
-	if user.Spec.Database != authentication.ExternalDB {
-		secretBuilder.SetField("password", password)
-	}
-
-	memberClusterSecret := secretBuilder.Build()
-
+	// The member cluster secrets carry no owner references, ownership is
+	// validated before overwriting since GC cannot reach across clusters.
+	memberSecret := connectionstringsecret.Secret{Name: secretName, Namespace: user.Namespace}
 	for _, c := range r.memberClusterSecretClientsMap {
-		err = secret.CreateOrUpdate(ctx, c, memberClusterSecret)
-		if err != nil {
+		if err := connectionstringsecret.PublishForUser(ctx, c, connectionOptions, userOptions, password, memberSecret); err != nil {
 			return err
 		}
 	}
 
-	centralClusterSecret := memberClusterSecret
-	if err := controllerutil.SetControllerReference(&user, &centralClusterSecret, r.client.Scheme()); err != nil {
-		return err
+	centralSecret := connectionstringsecret.Secret{
+		Name:            secretName,
+		Namespace:       user.Namespace,
+		OwnerReferences: kube.BaseOwnerReference(&user),
 	}
-	return secret.CreateOrUpdate(ctx, r.SecretClient, centralClusterSecret)
+	return connectionstringsecret.PublishForUser(ctx, r.SecretClient, connectionOptions, userOptions, password, centralSecret)
 }
 
 func AddMongoDBUserController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
@@ -418,7 +383,7 @@ func toOmUser(spec userv1.MongoDBUserSpec, password string, ac *om.AutomationCon
 	}
 
 	needsFollowUp := false
-	if spec.Database != authentication.ExternalDB {
+	if spec.Database != constants.ExternalDB {
 		followUp, err := authentication.ConfigureScramCredentials(&user, password, ac)
 		if err != nil {
 			return om.MongoDBUser{}, false, xerrors.Errorf("error generating SCRAM credentials: %w", err)

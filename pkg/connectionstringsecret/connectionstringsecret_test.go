@@ -16,6 +16,7 @@ import (
 
 	apiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
 func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
@@ -37,7 +38,7 @@ func TestPublishForMongoDB_ReplicaSet_UsesProvidedHostnames(t *testing.T) {
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"my-rs-1.my-rs-svc.ns-1.svc.cluster.local:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), c, rs, hostnames))
+	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
@@ -74,7 +75,7 @@ func TestPublishForMongoDB_PassesThroughCallerHostnamesIncludingExternal(t *test
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"vm-0.example.com:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), c, rs, hostnames))
+	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
@@ -91,8 +92,8 @@ func TestPublishForMongoDB_Idempotent(t *testing.T) {
 	c := newFakeClient(t, rs)
 
 	hostnames := []string{"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017"}
-	require.NoError(t, PublishForMongoDB(context.Background(), c, rs, hostnames))
-	require.NoError(t, PublishForMongoDB(context.Background(), c, rs, hostnames))
+	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	list := &corev1.SecretList{}
 	require.NoError(t, c.List(context.Background(), list, client.InNamespace("ns-1")))
@@ -114,7 +115,7 @@ func TestPublishForMongoDB_ReplicaSetParam_DefaultsToResourceName(t *testing.T) 
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"my-rs-1.my-rs-svc.ns-1.svc.cluster.local:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), c, rs, hostnames))
+	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
@@ -140,7 +141,7 @@ func TestPublishForMongoDB_ReplicaSetParam_UsesReplicaSetNameOverride(t *testing
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"my-rs-1.my-rs-svc.ns-1.svc.cluster.local:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), c, rs, hostnames))
+	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),

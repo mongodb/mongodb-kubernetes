@@ -8,6 +8,7 @@ import (
 
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // TestGenerateUserCRs_EmptyMechanisms verifies users with empty mechanisms generate successfully.
@@ -88,13 +89,13 @@ func TestNormalizeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := userv1.NormalizeName(tt.input)
+			result := util.NormalizeName(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
 func TestNormalizeName_InvalidInput(t *testing.T) {
-	result := userv1.NormalizeName("---")
+	result := util.NormalizeName("---")
 	assert.Empty(t, result)
 }
