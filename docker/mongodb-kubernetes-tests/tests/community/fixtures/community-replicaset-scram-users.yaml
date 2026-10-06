@@ -1,0 +1,38 @@
+---
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: community-scram-rs
+spec:
+  members: 3
+  type: ReplicaSet
+  version: "6.0.5"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    # No connectionStringDatabase: the URI path is empty and the authSource
+    # falls back to the user's db, like the enterprise resource.
+    - name: my-user
+      db: admin
+      connectionStringSecretAnnotations:
+        environment: e2e
+      passwordSecretRef:
+        name: my-user-password
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+      scramCredentialsSecretName: my-scram
+    # connectionStringDatabase is the only setter of the URI path: the user
+    # authenticates against admin but the URI points at the myapp database.
+    - name: app-user
+      db: admin
+      connectionStringDatabase: myapp
+      passwordSecretRef:
+        name: app-user-password
+      roles:
+        - name: readWrite
+          db: myapp
+      scramCredentialsSecretName: app-user-scram

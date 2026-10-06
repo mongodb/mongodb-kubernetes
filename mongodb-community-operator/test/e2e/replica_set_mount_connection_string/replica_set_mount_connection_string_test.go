@@ -109,7 +109,7 @@ func TestMountConnectionString(t *testing.T) {
 	t.Run("AutomationConfig has the correct version", mongodbtests.AutomationConfigVersionHasTheExpectedVersion(ctx, &mdb, 1))
 
 	t.Run("Application Pod can connect to MongoDB using the generated standard connection string.", func(t *testing.T) {
-		testPod := createPythonTestPod(0, mdb.Namespace, fmt.Sprintf("%s-admin-%s", mdb.Name, user.Name), "connectionString.standard")
+		testPod := createPythonTestPod(0, mdb.Namespace, scramUser.ConnectionStringSecretName, "connectionString.standard")
 		err := e2eutil.TestClient.Create(ctx, &testPod, &e2eutil.CleanupOptions{
 			TestContext: testCtx,
 		})
@@ -118,7 +118,7 @@ func TestMountConnectionString(t *testing.T) {
 	})
 
 	t.Run("Application Pod can connect to MongoDB using the generated secret SRV connection string", func(t *testing.T) {
-		testPod := createPythonTestPod(1, mdb.Namespace, fmt.Sprintf("%s-admin-%s", mdb.Name, user.Name), "connectionString.standardSrv")
+		testPod := createPythonTestPod(1, mdb.Namespace, scramUser.ConnectionStringSecretName, "connectionString.standardSrv")
 		err := e2eutil.TestClient.Create(ctx, &testPod, &e2eutil.CleanupOptions{
 			TestContext: testCtx,
 		})
