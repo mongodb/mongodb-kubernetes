@@ -113,12 +113,6 @@ func (r *MongoDBUserReconciler) getUser(ctx context.Context, request reconcile.R
 		return nil, err
 	}
 
-	// if database isn't specified default to the admin database, the recommended
-	// place for creating non-$external users
-	if user.Spec.Database == "" {
-		user.Spec.Database = "admin"
-	}
-
 	return user, nil
 }
 
