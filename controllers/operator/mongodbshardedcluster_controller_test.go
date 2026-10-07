@@ -38,7 +38,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -2241,7 +2240,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 
 	secret := &corev1.Secret{}
 	require.NoError(t, kubeClient.Get(ctx,
-		kube.ObjectKey(sc.Namespace, "conn-str-sc"+connectionstringsecret.SecretNameSuffix),
+		kube.ObjectKey(sc.Namespace, "conn-str-sc"+clusterConnectionStringSecretSuffix),
 		secret))
 
 	std := string(secret.Data["connectionString.standard"])

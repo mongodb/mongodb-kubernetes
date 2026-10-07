@@ -59,7 +59,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -1055,7 +1054,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	connStringHostnames := r.GetAllMongosHostnamesAndPorts()
 	extHostnames := sc.GetExternalMembersHostnames()
 	connStringHostnames = append(connStringHostnames, extHostnames...)
-	if err := connectionstringsecret.PublishForMongoDB(ctx, kubernetesClient.NewClient(r.commonController.client), sc, connStringHostnames); err != nil {
+	if err := publishConnectionStringSecret(ctx, kubernetesClient.NewClient(r.commonController.client), sc, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
 	}
 

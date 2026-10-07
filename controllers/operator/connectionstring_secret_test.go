@@ -1,4 +1,4 @@
-package connectionstringsecret
+package operator
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
+func newConnectionStringSecretTestClient(t *testing.T, objs ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	require.NoError(t, apiv1.AddToScheme(scheme))
@@ -27,22 +27,22 @@ func newFakeClient(t *testing.T, objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 }
 
-func TestPublishForMongoDB_ReplicaSet_UsesProvidedHostnames(t *testing.T) {
+func TestPublishConnectionStringSecret_ReplicaSet_UsesProvidedHostnames(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetName("my-rs").SetMembers(2).Build()
 	rs.Namespace = "ns-1"
 	rs.UID = "rs-uid"
 
-	c := newFakeClient(t, rs)
+	c := newConnectionStringSecretTestClient(t, rs)
 
 	hostnames := []string{
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"my-rs-1.my-rs-svc.ns-1.svc.cluster.local:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + clusterConnectionStringSecretSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 
@@ -66,60 +66,60 @@ func TestPublishForMongoDB_ReplicaSet_UsesProvidedHostnames(t *testing.T) {
 	assert.Equal(t, types.UID("rs-uid"), got.OwnerReferences[0].UID)
 }
 
-func TestPublishForMongoDB_PassesThroughCallerHostnamesIncludingExternal(t *testing.T) {
+func TestPublishConnectionStringSecret_PassesThroughCallerHostnamesIncludingExternal(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetName("my-rs").SetMembers(1).Build()
 	rs.Namespace = "ns-1"
 
-	c := newFakeClient(t, rs)
+	c := newConnectionStringSecretTestClient(t, rs)
 	hostnames := []string{
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"vm-0.example.com:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + clusterConnectionStringSecretSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 	assert.Contains(t, std, "vm-0.example.com:27017")
 	assert.Contains(t, std, "my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017")
 }
 
-func TestPublishForMongoDB_Idempotent(t *testing.T) {
+func TestPublishConnectionStringSecret_Idempotent(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetName("my-rs").SetMembers(1).Build()
 	rs.Namespace = "ns-1"
-	c := newFakeClient(t, rs)
+	c := newConnectionStringSecretTestClient(t, rs)
 
 	hostnames := []string{"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017"}
-	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
-	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	list := &corev1.SecretList{}
 	require.NoError(t, c.List(context.Background(), list, client.InNamespace("ns-1")))
 	count := 0
 	for _, s := range list.Items {
-		if s.Name == "my-rs"+SecretNameSuffix {
+		if s.Name == "my-rs"+clusterConnectionStringSecretSuffix {
 			count++
 		}
 	}
 	assert.Equal(t, 1, count, "secret must be created exactly once across repeated calls")
 }
 
-func TestPublishForMongoDB_ReplicaSetParam_DefaultsToResourceName(t *testing.T) {
+func TestPublishConnectionStringSecret_ReplicaSetParam_DefaultsToResourceName(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetName("my-rs").SetMembers(2).Build()
 	rs.Namespace = "ns-1"
 
-	c := newFakeClient(t, rs)
+	c := newConnectionStringSecretTestClient(t, rs)
 	hostnames := []string{
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"my-rs-1.my-rs-svc.ns-1.svc.cluster.local:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + clusterConnectionStringSecretSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 	assert.Contains(t, std, "replicaSet=my-rs",
@@ -128,7 +128,7 @@ func TestPublishForMongoDB_ReplicaSetParam_DefaultsToResourceName(t *testing.T) 
 		"replicaSet param must appear exactly once")
 }
 
-func TestPublishForMongoDB_ReplicaSetParam_UsesReplicaSetNameOverride(t *testing.T) {
+func TestPublishConnectionStringSecret_ReplicaSetParam_UsesReplicaSetNameOverride(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().
 		SetName("my-rs").
 		SetMembers(2).
@@ -136,16 +136,16 @@ func TestPublishForMongoDB_ReplicaSetParam_UsesReplicaSetNameOverride(t *testing
 		Build()
 	rs.Namespace = "ns-1"
 
-	c := newFakeClient(t, rs)
+	c := newConnectionStringSecretTestClient(t, rs)
 	hostnames := []string{
 		"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017",
 		"my-rs-1.my-rs-svc.ns-1.svc.cluster.local:27017",
 	}
-	require.NoError(t, PublishForMongoDB(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
 
 	got := &corev1.Secret{}
 	require.NoError(t, c.Get(context.Background(),
-		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + SecretNameSuffix}, got))
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + clusterConnectionStringSecretSuffix}, got))
 
 	std := string(got.Data["connectionString.standard"])
 	assert.Contains(t, std, "replicaSet=custom-replica-set",

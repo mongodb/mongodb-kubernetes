@@ -52,7 +52,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
-	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -412,7 +411,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	connStringHostnames := rs.GetConnectionHostnamesAndPorts()
-	if err := connectionstringsecret.PublishForMongoDB(ctx, kubernetesClient.NewClient(r.reconciler.client), rs, connStringHostnames); err != nil {
+	if err := publishConnectionStringSecret(ctx, kubernetesClient.NewClient(r.reconciler.client), rs, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
 	}
 
