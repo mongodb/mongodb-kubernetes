@@ -96,11 +96,26 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 
 		expectedMatchLabels := singleClusterOverride.SpecWrapper.Spec.Selector.MatchLabels
 		expectedMatchLabels["app"] = ""
-		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name + "-0"
+		expectedMatchLabels["pod-anti-affinity"] = mdbm.Name
 		expectedMatchLabels[util.OperatorLabelName] = util.OperatorLabelValue
 
 		assert.Equal(t, singleClusterOverride.SpecWrapper.Spec.Replicas, sts.Spec.Replicas)
 		assert.Equal(t, expectedMatchLabels, sts.Spec.Selector.MatchLabels)
+	})
+
+	t.Run("AppDB role selects on the per-cluster StatefulSet name", func(t *testing.T) {
+		mdbm := getMultiClusterMongoDB()
+		mdbm.Spec.Role = mdb.RoleAppDB
+		opts := MultiClusterReplicaSetOptions(
+			WithClusterNum(0),
+			WithMemberCount(3),
+			construct.GetPodEnvOptions(),
+		)
+
+		sts := MultiClusterStatefulSet(mdbm, opts)
+
+		assert.Equal(t, mdbm.Name+"-0", sts.Spec.Selector.MatchLabels["pod-anti-affinity"])
+		assert.Equal(t, mdbm.Name+"-0", sts.Spec.Template.Labels["pod-anti-affinity"])
 	})
 
 	t.Run("Override provided only at Spec level", func(t *testing.T) {
