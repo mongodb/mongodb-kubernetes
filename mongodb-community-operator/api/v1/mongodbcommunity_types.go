@@ -13,9 +13,9 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
@@ -305,11 +305,7 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 // GetConnectionStringSecretName gets the connection string secret name provided by the user or generated
 // from the SCRAM user configuration.
 func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
-	if m.ConnectionStringSecretName != "" {
-		return m.ConnectionStringSecretName
-	}
-
-	return util.NormalizeName(fmt.Sprintf("%s-%s-%s", resourceName, m.DB, m.Name))
+	return connectionstringsecret.UserSecretName(m.ConnectionStringSecretName, resourceName, m.Name, m.DB)
 }
 
 // GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated

@@ -324,7 +324,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 				DB:                         "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
-			"replica-set-admin-mdb-0",
+			"replica-set-mdb-0-admin",
 		},
 		{
 			MongoDBUser{
@@ -332,7 +332,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 				DB:                         "admin",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
-			"replica-set-admin-normalize-username-with-no-allowed-chars-only",
+			"replica-set-normalize-username-with-no-allowed-chars-only-admin",
 		},
 		{
 			MongoDBUser{
@@ -340,7 +340,7 @@ func TestGetConnectionStringSecretName(t *testing.T) {
 				DB:                         "Administrators",
 				ScramCredentialsSecretName: "scram-credential-secret-name-0",
 			},
-			"replica-set-administrators-appuser",
+			"replica-set-appuser-administrators",
 		},
 		{
 			MongoDBUser{
@@ -583,7 +583,7 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		PasswordSecretKey:               "password",
 		PasswordSecretName:              "my-user-password",
 		ScramCredentialsSecretName:      "my-scram-scram-credentials",
-		ConnectionStringSecretName:      "mdb-admin-my-user",
+		ConnectionStringSecretName:      "mdb-my-user-admin",
 		ConnectionStringSecretNamespace: mdb.Namespace,
 		ConnectionStringOptions:         nil,
 	}, authUsers[0])
@@ -597,7 +597,7 @@ func TestMongoDBCommunity_GetAuthUsers(t *testing.T) {
 		PasswordSecretKey:               "",
 		PasswordSecretName:              "",
 		ScramCredentialsSecretName:      "",
-		ConnectionStringSecretName:      "mdb-external-cn-my-x509-authenticated-user-ou-organizationalunit-o-organization",
+		ConnectionStringSecretName:      "mdb-cn-my-x509-authenticated-user-ou-organizationalunit-o-organization-external",
 		ConnectionStringSecretNamespace: mdb.Namespace,
 		ConnectionStringOptions:         nil,
 	}, authUsers[1])

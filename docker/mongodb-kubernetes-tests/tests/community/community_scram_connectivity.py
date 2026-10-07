@@ -30,8 +30,8 @@ CUSTOM_CONNECTION_STRING_SECRET_NAME = "custom-conn-secret-name"
 
 
 def user_secret_name(username: str, database: str) -> str:
-    # generated name order: <resource>-<database>-<username>
-    return "{}-{}-{}".format(MDB_RESOURCE, database, username)
+    # generated name order: <resource>-<username>-<database>
+    return "{}-{}-{}".format(MDB_RESOURCE, username, database)
 
 
 def secret_is_deleted(namespace: str, secret_name: str) -> bool:
