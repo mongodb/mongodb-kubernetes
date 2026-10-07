@@ -28,6 +28,7 @@ func publishConnectionStringSecret(ctx context.Context, c secret.GetUpdateCreato
 	return connectionstringsecret.Publish(ctx, c, connectionstringsecret.Secret{
 		Name:            clusterConnectionStringSecretName(mdb),
 		Namespace:       mdb.Namespace,
+		Annotations:     mdb.Spec.ConnectionStringSecretAnnotations,
 		OwnerReferences: kube.BaseOwnerReference(mdb),
 		Fields: map[string]string{
 			connectionstringsecret.StandardURIField:    standard,

@@ -153,3 +153,19 @@ func TestPublishConnectionStringSecret_ReplicaSetParam_UsesReplicaSetNameOverrid
 	assert.NotContains(t, std, "replicaSet=my-rs",
 		"replicaSet param must NOT use the Kubernetes resource name when an override is present")
 }
+
+func TestPublishConnectionStringSecret_AppliesAnnotations(t *testing.T) {
+	rs := mdbv1.NewReplicaSetBuilder().SetName("my-rs").SetMembers(1).Build()
+	rs.Namespace = "ns-1"
+	rs.Spec.ConnectionStringSecretAnnotations = map[string]string{"my-annotation": "my-value"}
+
+	c := newConnectionStringSecretTestClient(t, rs)
+	hostnames := []string{"my-rs-0.my-rs-svc.ns-1.svc.cluster.local:27017"}
+	require.NoError(t, publishConnectionStringSecret(context.Background(), kubernetesClient.NewClient(c), rs, hostnames))
+
+	got := &corev1.Secret{}
+	require.NoError(t, c.Get(context.Background(),
+		types.NamespacedName{Namespace: "ns-1", Name: "my-rs" + clusterConnectionStringSecretSuffix}, got))
+
+	assert.Equal(t, "my-value", got.Annotations["my-annotation"])
+}

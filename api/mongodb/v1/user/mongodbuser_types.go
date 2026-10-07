@@ -111,6 +111,11 @@ type MongoDBUserSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +nullable
 	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
+
+	// ConnectionStringSecretAnnotations are the annotations applied to the generated
+	// connection string secret of the user.
+	// +optional
+	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
 }
 
 type MongoDBUserStatus struct {
