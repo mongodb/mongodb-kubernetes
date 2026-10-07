@@ -41,7 +41,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -57,6 +56,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
@@ -410,10 +410,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
 	}
 
-	connStringHostnames := rs.GetRSHostnamesAndPorts()
-	extHostnames := rs.GetExternalMembersHostnames()
-	connStringHostnames = append(connStringHostnames, extHostnames...)
-	if err := connectionstringsecret.PublishForMongoDB(ctx, r.reconciler.client, rs, connStringHostnames); err != nil {
+	connStringHostnames := rs.GetConnectionHostnamesAndPorts()
+	if err := publishConnectionStringSecret(ctx, kubernetesClient.NewClient(r.reconciler.client), rs, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
 	}
 

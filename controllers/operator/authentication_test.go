@@ -39,6 +39,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
 func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T) {
@@ -221,7 +222,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().SetTLSCA("custom-ca").EnableAuth().EnableX509().Build()
-	x509User := DefaultMongoDBUserBuilder().SetDatabase(authentication.ExternalDB).SetMongoDBResourceName("my-rs").Build()
+	x509User := DefaultMongoDBUserBuilder().SetDatabase(constants.ExternalDB).SetMongoDBResourceName("my-rs").Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	memberClusterMap := getFakeMultiClusterMap(nil)

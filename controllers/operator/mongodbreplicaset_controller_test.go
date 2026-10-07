@@ -36,7 +36,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -1772,7 +1771,7 @@ func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 
 	secret := &corev1.Secret{}
 	require.NoError(t, kubeClient.Get(ctx,
-		kube.ObjectKey(rs.Namespace, "rs"+connectionstringsecret.SecretNameSuffix),
+		kube.ObjectKey(rs.Namespace, "rs"+clusterConnectionStringSecretSuffix),
 		secret))
 
 	std := string(secret.Data["connectionString.standard"])

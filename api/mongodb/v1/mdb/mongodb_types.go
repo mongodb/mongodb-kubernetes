@@ -18,7 +18,6 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
@@ -1022,6 +1021,14 @@ func (m *MongoDB) GetRSHostnamesAndPorts() []string {
 		hostnamePorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
 	}
 	return hostnamePorts
+}
+
+// GetConnectionHostnamesAndPorts returns the replica set hostnames and ports
+// together with the external members, the full host list for the connection
+// string secret.
+func (m *MongoDB) GetConnectionHostnamesAndPorts() []string {
+	hostnames := m.GetRSHostnamesAndPorts()
+	return append(hostnames, m.GetExternalMembersHostnames()...)
 }
 
 func (s *Security) GetTLSCAFilePath(defaultPath string) string {
@@ -2184,12 +2191,6 @@ func newSecurity() *Security {
 	return &Security{TLSConfig: &TLSConfig{}}
 }
 
-// BuildConnectionString returns a string with a connection string for this resource.
-func (m *MongoDB) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	builder := NewMongoDBConnectionStringBuilder(*m, nil)
-	return builder.BuildConnectionString(username, password, connectionStringDatabase, scheme, connectionParams)
-}
-
 func (m *MongoDB) GetAuthenticationModes() []string {
 	return m.Spec.Security.Authentication.GetModes()
 }
@@ -2264,60 +2265,6 @@ func (m *MongoDbSpec) GetConfigSrvClusterSpecList() ClusterSpecList {
 			},
 		}
 	}
-}
-
-type MongoDBConnectionStringBuilder struct {
-	MongoDB
-	hostnames []string
-}
-
-// NewMongoDBConnectionStringBuilder creates a new instance of MongoDBConnectionStringBuilder.
-// Parameters:
-//   - mdb: The MongoDB resource object containing the configuration and metadata for the MongoDB instance.
-//   - hostnames: A slice of strings representing the hostnames to be included in the connection string,
-//     if this parameter is passed then no other hostnames will be generated or used.
-func NewMongoDBConnectionStringBuilder(mdb MongoDB, hostnames []string) *MongoDBConnectionStringBuilder {
-	return &MongoDBConnectionStringBuilder{
-		MongoDB:   mdb,
-		hostnames: hostnames,
-	}
-}
-
-func (m *MongoDBConnectionStringBuilder) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
-	name := m.Name
-	// Both connection strings are built from the mongos tier for a sharded cluster, so the external
-	// domain must be resolved from spec.mongos.externalAccess too, not only from the top-level field.
-	// EffectiveExternalDomain still falls back to spec.externalAccess for the mongos tier. The member
-	// cluster is left empty on purpose: a connection string is cluster-agnostic, so per-cluster
-	// clusterSpecList domains are not honoured here.
-	externalDomain := m.Spec.GetExternalDomain()
-	if m.IsShardedCluster() {
-		name = m.MongosRsName()
-		externalDomain = m.Spec.EffectiveExternalDomain(m.Spec.MongosSpec, TierMongos, "")
-	} else if m.IsReplicaSet() {
-		name = m.GetReplicaSetName()
-	}
-
-	builder := connectionstring.Builder().
-		SetName(name).
-		SetNamespace(m.Namespace).
-		SetUsername(username).
-		SetPassword(password).
-		SetReplicas(m.Spec.Replicas()).
-		SetService(m.ServiceName()).
-		SetPort(m.Spec.GetAdditionalMongodConfig().GetPortOrDefault()).
-		SetVersion(m.Spec.GetMongoDBVersion()).
-		SetAuthenticationModes(m.Spec.GetSecurityAuthenticationModes()).
-		SetClusterDomain(m.Spec.GetClusterDomain()).
-		SetExternalDomain(externalDomain).
-		SetIsReplicaSet(m.Spec.ResourceType == ReplicaSet).
-		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
-		SetConnectionParams(connectionParams).
-		SetScheme(scheme).
-		SetHostnames(m.hostnames).
-		SetConnectionStringDatabase(connectionStringDatabase)
-
-	return builder.Build()
 }
 
 // MongodbCleanUpOptions implements the required interface to be passed

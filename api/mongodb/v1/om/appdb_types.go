@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -12,9 +13,9 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -473,29 +474,31 @@ func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.C
 	panic(fmt.Errorf("cluster with name %s could not be found in AppDB's clusterSpecList", memberClusterName))
 }
 
+// BuildConnectionURL builds a connection string for the AppDB. The caller supplies the hostnames
+// for a multi cluster AppDB, which honour the external domain of each member cluster. The SRV URI
+// can only carry one domain, so it uses the top level spec.externalAccess domain and falls back to
+// the in cluster service name when that is unset.
 func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, multiClusterHostnames []string) string {
-	builder := connectionstring.Builder().
-		SetName(m.Name()).
-		SetNamespace(m.Namespace).
-		SetUsername(username).
-		SetPassword(password).
-		SetReplicas(m.Replicas()).
-		SetService(m.ServiceName()).
-		SetVersion(m.GetMongoDBVersion()).
-		SetAuthenticationModes(m.GetSecurityAuthenticationModes()).
-		SetClusterDomain(m.GetClusterDomain()).
-		SetExternalDomain(m.GetExternalDomain()).
-		SetIsReplicaSet(true).
-		SetIsTLSEnabled(m.IsSecurityTLSConfigEnabled()).
-		SetConnectionParams(connectionParams).
-		SetScheme(scheme)
-
+	hostnames := []string(nil)
 	if m.IsMultiCluster() {
-		builder.SetReplicas(len(multiClusterHostnames))
-		builder.SetHostnames(multiClusterHostnames)
+		hostnames = multiClusterHostnames
 	}
 
-	return builder.Build()
+	options := connectionstring.ForSpec(m, connectionstring.Options{
+		Name:         m.Name(),
+		Namespace:    m.Namespace,
+		Service:      m.ServiceName(),
+		Port:         util.MongoDbDefaultPort,
+		IsReplicaSet: true,
+		Hostnames:    hostnames,
+		Params:       connectionstring.OperatorParams(),
+	})
+	options.Username = username
+	options.Password = password
+	options.ExternalDomain = m.GetExternalDomain()
+	maps.Copy(options.Params, connectionParams)
+
+	return options.Build(scheme)
 }
 
 func (m *AppDBSpec) GetClusterSpecList() mdbv1.ClusterSpecList {

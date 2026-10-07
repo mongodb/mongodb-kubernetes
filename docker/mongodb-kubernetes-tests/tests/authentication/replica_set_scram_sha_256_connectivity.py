@@ -309,7 +309,7 @@ def test_credentials_can_connect_to_db_with_srv(replica_set: MongoDB, standard_s
     # mongodb+srv defaults to TLS unless ssl=false is present in the generated secret.
     assert_connection_string_with_mongosh(conn, expect_success=True, eval_script="db.runCommand({ping: 1})")
 
-    # Prove ssl=false is required: without it, mongosh assumes TLS and cannot reach a non-TLS cluster.
+    # Prove ssl=false is required: without it, mongosh assumes TLS and cannot reach a cluster without TLS.
     conn_without_ssl_false = connection_string_without_query_param(conn, "ssl")
     assert "ssl=false" not in conn_without_ssl_false
     assert_connection_string_with_mongosh(
