@@ -5,13 +5,11 @@
 
 # The external AppDB is an Ops-Manager-managed MongoDB, so its version (APPDB_VERSION) must be a
 # MongoDB version the management OM actually offers in its version manifest. The shared private/dev
-# e2e context pins CUSTOM_OM_VERSION to a line that may not list 8.0.x MongoDB versions -> the
-# external AppDB fails to reconcile with "MongoDB version 8.0.5-ent is not available". When running
-# under a dev context pin the management OM to the 8.0 line (read from the same anchor the contexts
-# use) to keep it consistent with APPDB_VERSION. The public flavor leaves CUSTOM_OM_VERSION unset and
-# keeps the customer-facing OM_VERSION from env_variables.sh.
-if [[ -n "${CUSTOM_OM_VERSION:-}" && -n "${PROJECT_DIR:-}" ]]; then
-  OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_80_latest\s+(\S+)\s+#" "${PROJECT_DIR}/.evergreen.yml" | awk '{print $3}')
+# e2e context (variables/omXX) sets CUSTOM_OM_VERSION and CUSTOM_APPDB_VERSION together from the same
+# OM line, so they are already consistent -> use CUSTOM_OM_VERSION as-is. The public flavor leaves
+# CUSTOM_OM_VERSION unset and keeps the customer-facing OM_VERSION from env_variables.sh.
+if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
+  OM_VERSION="${CUSTOM_OM_VERSION}"
 fi
 export OM_VERSION
 export APPDB_VERSION="${CUSTOM_APPDB_VERSION:-${APPDB_VERSION}}"
