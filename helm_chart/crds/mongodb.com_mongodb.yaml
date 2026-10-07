@@ -832,6 +832,13 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
+              connectionStringSecretAnnotations:
+                additionalProperties:
+                  type: string
+                description: |-
+                  ConnectionStringSecretAnnotations are the annotations applied to the generated
+                  connection string secret of the resource.
+                type: object
               connectivity:
                 properties:
                   replicaSetHorizons:

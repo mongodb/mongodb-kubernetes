@@ -61,6 +61,13 @@ spec:
                   (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
                   depends on the connecting client.
                 type: string
+              connectionStringSecretAnnotations:
+                additionalProperties:
+                  type: string
+                description: |-
+                  ConnectionStringSecretAnnotations are the annotations applied to the generated
+                  connection string secret of the user.
+                type: object
               connectionStringSecretName:
                 type: string
               db:

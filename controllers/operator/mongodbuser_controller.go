@@ -301,7 +301,11 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 
 	// The member cluster secrets carry no owner references, ownership is
 	// validated before overwriting since GC cannot reach across clusters.
-	memberSecret := connectionstringsecret.Secret{Name: secretName, Namespace: user.Namespace}
+	memberSecret := connectionstringsecret.Secret{
+		Name:        secretName,
+		Namespace:   user.Namespace,
+		Annotations: user.Spec.ConnectionStringSecretAnnotations,
+	}
 	for _, c := range r.memberClusterSecretClientsMap {
 		if err := connectionstringsecret.PublishForUser(ctx, c, connectionOptions, userOptions, password, memberSecret); err != nil {
 			return err
@@ -311,6 +315,7 @@ func (r *MongoDBUserReconciler) updateConnectionStringSecret(ctx context.Context
 	centralSecret := connectionstringsecret.Secret{
 		Name:            secretName,
 		Namespace:       user.Namespace,
+		Annotations:     user.Spec.ConnectionStringSecretAnnotations,
 		OwnerReferences: kube.BaseOwnerReference(&user),
 	}
 	return connectionstringsecret.PublishForUser(ctx, r.SecretClient, connectionOptions, userOptions, password, centralSecret)

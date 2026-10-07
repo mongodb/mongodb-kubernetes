@@ -1203,3 +1203,26 @@ func TestUpdateConnectionStringSecret_RejectsUnownedPreExistingSecret(t *testing
 	assert.Equal(t, []byte("do-not-overwrite"), secretAfter.Data["original-data"],
 		"the pre-existing secret should not have been overwritten")
 }
+
+func TestConnectionStringSecret_AppliesAnnotations(t *testing.T) {
+	ctx := context.Background()
+	user := DefaultMongoDBUserBuilder().
+		SetMongoDBResourceName("my-rs").
+		SetDatabase("admin").
+		Build()
+	user.Spec.ConnectionStringSecretAnnotations = map[string]string{"my-annotation": "my-value"}
+	reconciler, client, _ := userReconcilerWithAuthMode(ctx, user, util.AutomationConfigScramSha256Option)
+
+	_ = client.Create(ctx, DefaultReplicaSetBuilder().EnableSCRAM().AgentAuthMode("SCRAM").SetName("my-rs").Build())
+	createUserControllerConfigMap(ctx, client)
+	createPasswordSecret(ctx, client, user.Spec.PasswordSecretKeyRef, "password")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
+	require.NoError(t, err)
+
+	secret := &corev1.Secret{}
+	err = client.Get(ctx, kube.ObjectKey(user.Namespace, user.GetConnectionStringSecretName()), secret)
+	require.NoError(t, err)
+
+	assert.Equal(t, "my-value", secret.Annotations["my-annotation"])
+}

@@ -566,6 +566,11 @@ type MongoDbSpec struct {
 
 	// +optional
 	ReplicaSetNameOverride string `json:"replicaSetNameOverride,omitempty"`
+
+	// ConnectionStringSecretAnnotations are the annotations applied to the generated
+	// connection string secret of the resource.
+	// +optional
+	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
 }
 
 func (m *MongoDbSpec) GetExternalDomain() *string {
