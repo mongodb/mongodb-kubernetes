@@ -2803,16 +2803,25 @@ func (r *ShardedClusterReconcileHelper) GetMongosStsName(memberCluster multiclus
 	}
 }
 
+// hasExternalMembers reports whether the sharded cluster is being migrated from VMs. It is
+// deliberately global across components — config server, shards and mongos alike: a migration
+// always covers the whole deployment (there is no config-server-only migration), and one-by-one
+// scaling during migration matches the normal scale-up behavior, so a per-component flag would
+// add complexity without changing behavior.
+func (r *ShardedClusterReconcileHelper) hasExternalMembers() bool {
+	return len(r.sc.Spec.GetExternalMembers()) > 0
+}
+
 func (r *ShardedClusterReconcileHelper) GetConfigSrvScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters, r.hasExternalMembers())
 }
 
 func (r *ShardedClusterReconcileHelper) GetMongosScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters, r.hasExternalMembers())
 }
 
 func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
+	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx], r.hasExternalMembers())
 }
 
 func (r *ShardedClusterReconcileHelper) getAllScalers() []interfaces.MultiClusterReplicaSetScaler {

@@ -15,15 +15,20 @@ type MultiClusterReplicaSetScaler struct {
 	memberClusterNum  int
 	prevMembers       []multicluster.MemberCluster
 	scalerDescription string
+	// hasExternalMembers forces one-member-at-a-time scaling even when scaling up from zero:
+	// the replica set then already exists with its external (VM) members, and MongoDB forbids
+	// adding more than one voting member to an existing replica set in a single reconfiguration.
+	hasExternalMembers bool
 }
 
-func NewMultiClusterReplicaSetScaler(scalerDescription string, clusterSpecList mdbv1.ClusterSpecList, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster) *MultiClusterReplicaSetScaler {
+func NewMultiClusterReplicaSetScaler(scalerDescription string, clusterSpecList mdbv1.ClusterSpecList, memberClusterName string, memberClusterNum int, prevMembers []multicluster.MemberCluster, hasExternalMembers bool) *MultiClusterReplicaSetScaler {
 	return &MultiClusterReplicaSetScaler{
-		scalerDescription: scalerDescription,
-		clusterSpecList:   clusterSpecList,
-		memberClusterName: memberClusterName,
-		memberClusterNum:  memberClusterNum,
-		prevMembers:       prevMembers,
+		scalerDescription:  scalerDescription,
+		clusterSpecList:    clusterSpecList,
+		memberClusterName:  memberClusterName,
+		memberClusterNum:   memberClusterNum,
+		prevMembers:        prevMembers,
+		hasExternalMembers: hasExternalMembers,
 	}
 }
 
@@ -46,6 +51,12 @@ func (s *MultiClusterReplicaSetScaler) ForcedIndividualScaling() bool {
 	// When scaling ReplicaSet for the first time, it's safe to add all the members.
 	// When adding a new cluster, we want to force individual scaling because ReplicasThisReconciliation
 	// short circuits the one-by-one scaling when individual scaling is disabled and starting replicas is zero.
+	// External members are the exception: zero current replicas does not mean the replica set is being
+	// created — it exists on the external members — so the from-zero shortcut must stay disabled
+	// (mirrors MongoDB.ForcedIndividualScaling used by the replica set controller).
+	if s.hasExternalMembers {
+		return true
+	}
 	if s.ScalingFirstTime() {
 		return false
 	} else {

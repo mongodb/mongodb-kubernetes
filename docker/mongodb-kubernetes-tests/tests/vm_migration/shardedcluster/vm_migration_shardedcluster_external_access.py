@@ -9,10 +9,12 @@ spec.<tier>.externalAccess fields, so this scenario was not workable at all.
 
 MetalLB assigns LoadBalancer IPs from 172.18.255.200 upwards on kind (see
 scripts/dev/recreate_kind_clusters.sh). Single-cluster external services are created inside
-create.DatabaseInKubernetes, so allocation follows the tier creation order in createKubernetesResources:
-config servers, then shards, then mongos. The IPs are predicted on that basis and seeded into CoreDNS
-before the resource is applied, which removes any DNS race as the LoadBalancers appear. The order is
-load-bearing, which is what test_external_services_created exists to catch.
+create.DatabaseInKubernetes for the replicas of the current reconciliation step, and migration forces
+one-member-at-a-time scaling, so allocation is interleaved by scaling round: each reconcile grows
+every tier not yet at its target by one member, in tier order (config servers, then shards, then
+mongos). The IPs are predicted on that basis and seeded into CoreDNS before the resource is applied,
+which removes any DNS race as the LoadBalancers appear. The order is load-bearing, which is what
+test_external_services_created exists to catch.
 """
 
 from kubetester import get_service, get_statefulset, try_load
@@ -72,8 +74,10 @@ VM_MONGOS_NAME = "vm-mongos"
 EXTERNAL_DOMAIN = default_external_domain()
 LB_IP_BASE = "172.18.255.200"
 
-# Single-cluster external services are created inside create.DatabaseInKubernetes, so MetalLB hands
-# out addresses in the tier creation order of createKubernetesResources: config, shards, mongos.
+# Single-cluster external services are created inside create.DatabaseInKubernetes for the replicas
+# of the current scaling step, one member per tier per reconcile round while external members force
+# individual scaling. MetalLB hands out addresses in creation order: round by round, tiers in the
+# createKubernetesResources order (config, shards, mongos), skipping tiers already at their target.
 TIER_ALLOCATION_ORDER = (
     (f"{MDB_RESOURCE_NAME}-config", MIN_K8S_CONFIGSRV),
     (f"{MDB_RESOURCE_NAME}-0", MIN_K8S_SHARD),
@@ -81,12 +85,22 @@ TIER_ALLOCATION_ORDER = (
 )
 
 
+def _pod_names_in_allocation_order() -> list[str]:
+    """Pod names in the order their external services are created: interleaved by scaling round."""
+    names = []
+    for pod_idx in range(max(count for _, count in TIER_ALLOCATION_ORDER)):
+        for prefix, count in TIER_ALLOCATION_ORDER:
+            if pod_idx < count:
+                names.append(f"{prefix}-{pod_idx}")
+    return names
+
+
 def _external_service_names_in_allocation_order() -> list[str]:
-    return [f"{prefix}-{i}-svc-external" for prefix, count in TIER_ALLOCATION_ORDER for i in range(count)]
+    return [f"{pod_name}-svc-external" for pod_name in _pod_names_in_allocation_order()]
 
 
 def _external_fqdns_in_allocation_order() -> list[str]:
-    return [f"{prefix}-{i}.{EXTERNAL_DOMAIN}" for prefix, count in TIER_ALLOCATION_ORDER for i in range(count)]
+    return [f"{pod_name}.{EXTERNAL_DOMAIN}" for pod_name in _pod_names_in_allocation_order()]
 
 
 def _predicted_lb_ips() -> list[str]:
@@ -337,9 +351,9 @@ def test_external_services_created(namespace: str, mdb_migration: MongoDB):
     """Every member of every tier gets a LoadBalancer service on the IP CoreDNS was seeded with.
 
     Asserting IP equality identifies a MetalLB allocation shift as the cause of failure here. Two
-    things can shift it: the tier creation order in createKubernetesResources changing, or another
-    LoadBalancer service being live in the kind cluster and taking .200 first -- MetalLB hands out the
-    lowest free address in 172.18.255.200-250.
+    things can shift it: the service creation order changing (scaling rounds interleave tiers:
+    config, shards, mongos), or another LoadBalancer service being live in the kind cluster and
+    taking .200 first -- MetalLB hands out the lowest free address in 172.18.255.200-250.
     """
     for service_name, expected_ip in zip(_external_service_names_in_allocation_order(), _predicted_lb_ips()):
         service = get_service(namespace, service_name)
@@ -350,8 +364,8 @@ def test_external_services_created(namespace: str, mdb_migration: MongoDB):
         assert ingress, f"{service_name} has no LoadBalancer ingress assigned"
         assert ingress[0].ip == expected_ip, (
             f"{service_name} got IP {ingress[0].ip}, expected {expected_ip} (the address CoreDNS was seeded with). "
-            f"Either the tier creation order changed (expected config, shards, mongos) or another "
-            f"LoadBalancer service consumed an address from the 172.18.255.200-250 pool first."
+            f"Either the scaling-round service creation order changed (config, shards, mongos per round) "
+            f"or another LoadBalancer service consumed an address from the 172.18.255.200-250 pool first."
         )
 
 
