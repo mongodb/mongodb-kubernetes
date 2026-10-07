@@ -20,6 +20,12 @@ evergreen patch -p mongodb-kubernetes -v release_decider_patch -t decide_release
   --param target_commit=<full-sha> --param tag_description_override="[new] Dry-run X.Y.Z"
 ```
 
+`[new]` tag- or patch-triggered releases (including dry-run patches) generate the GKE/Kind snippets and run the existing `update_docs_repo` variant to open the docs PR.
+
+For dry-run releases (`BUILD_SCENARIO=dryrun-release`), the docs snippet update may push a branch
+(e.g. `MCK-snippets-update-<patch-id>`) to the docs repository, but it does **not** open a PR.
+Open the PR manually if the snippet updates are wanted.
+
 | Step | Real release | Dry-run |
 |---|---|---|
 | Images / chart destination | `quay.io/mongodb` | `REGISTRY` (staging org by default) |

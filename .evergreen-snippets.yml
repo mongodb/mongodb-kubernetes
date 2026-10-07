@@ -302,18 +302,25 @@ buildvariants:
     tasks:
       - name: kind_code_snippets_task_group
 
+  # Opens the docs PR with generated snippets; runs in manual and release flows.
   - name: update_docs_repo
     display_name: update_docs_repo
-    tags: [ "public_docs_snippets" ]
+    tags: [ "public_docs_snippets", "release-publish" ]
     run_on:
       - ubuntu2404-small
-    allowed_requesters: [ "patch" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
         variant: public_gke_code_snippets
         patch_optional: true
       - name: "*"
         variant: public_kind_code_snippets
+        patch_optional: true
+      - name: "*"
+        variant: release_gke_code_snippets
+        patch_optional: true
+      - name: "*"
+        variant: release_kind_code_snippets
         patch_optional: true
     tasks:
       - name: update_docs_snippets

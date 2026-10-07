@@ -106,6 +106,11 @@ def main():
             for v in variants
         ],
     }
+
+    # Reference the update_docs_repo variant defined in .evergreen-snippets.yml.
+    if is_new_process:
+        output["buildvariants"].append({"name": "update_docs_repo", "tasks": [{"name": "update_docs_snippets"}]})
+
     with open("evergreen_tasks.json", "w") as f:
         json.dump(output, f, indent=2)
 
