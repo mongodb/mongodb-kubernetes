@@ -11,47 +11,36 @@ import (
 )
 
 func TestBuild_DatabaseInPath(t *testing.T) {
-	build := func(database, defaultDatabase string) string {
+	build := func(database string) string {
 		options := Options{
 			AuthenticationModes: []string{util.SCRAM},
 			Hostnames:           []string{"host:27017"},
 			Username:            "user",
 			Password:            "password",
 			Database:            database,
-			DefaultDatabase:     defaultDatabase,
 		}
 		return options.Build(SchemeMongoDB)
 	}
 
 	t.Run("database appears in URI path", func(t *testing.T) {
-		cs := build("mydb", "")
+		cs := build("mydb")
 		assert.Contains(t, cs, "/mydb?")
 		assert.NotContains(t, cs, "/?")
 	})
 
 	t.Run("no database produces empty path segment", func(t *testing.T) {
-		cs := build("", "")
+		cs := build("")
 		assert.Contains(t, cs, "/?")
 	})
 
-	t.Run("default database fills an empty path", func(t *testing.T) {
-		cs := build("", "admin")
-		assert.Contains(t, cs, "/admin?")
-	})
-
-	t.Run("explicit database wins over the default", func(t *testing.T) {
-		cs := build("mydb", "admin")
-		assert.Contains(t, cs, "/mydb?")
-	})
-
 	t.Run("reserved URI characters in database are percent-encoded", func(t *testing.T) {
-		cs := build("my?db#name", "")
+		cs := build("my?db#name")
 		assert.Contains(t, cs, "/my%3Fdb%23name?")
 		assert.NotContains(t, cs, "/my?db#name?")
 	})
 
 	t.Run("space in database is percent-encoded", func(t *testing.T) {
-		cs := build("my db", "")
+		cs := build("my db")
 		assert.Contains(t, cs, "/my%20db?")
 	})
 }

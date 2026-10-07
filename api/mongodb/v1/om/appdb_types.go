@@ -476,8 +476,8 @@ func (m *AppDBSpec) GetMemberClusterSpecByName(memberClusterName string) mdbv1.C
 
 // BuildConnectionURL builds a connection string for the AppDB. The caller supplies the hostnames
 // for a multi cluster AppDB, which honour the external domain of each member cluster. The SRV URI
-// can only carry one domain, so it uses the top level spec.externalAccess domain, which ForSpec
-// fills in, and falls back to the in cluster service name when that is unset.
+// can only carry one domain, so it uses the top level spec.externalAccess domain and falls back to
+// the in cluster service name when that is unset.
 func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string, multiClusterHostnames []string) string {
 	hostnames := []string(nil)
 	if m.IsMultiCluster() {
@@ -495,6 +495,7 @@ func (m *AppDBSpec) BuildConnectionURL(username, password string, scheme connect
 	})
 	options.Username = username
 	options.Password = password
+	options.ExternalDomain = m.GetExternalDomain()
 	maps.Copy(options.Params, connectionParams)
 
 	return options.Build(scheme)

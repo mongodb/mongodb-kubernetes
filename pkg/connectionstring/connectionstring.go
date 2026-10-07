@@ -41,20 +41,18 @@ type Spec interface {
 	GetMongoDBVersion() string
 	GetSecurityAuthenticationModes() []string
 	GetClusterDomain() string
-	GetExternalDomain() *string
 	IsSecurityTLSConfigEnabled() bool
 }
 
 // ForSpec returns the options for the given resource specification, filled
 // with the fields the spec carries. The resource identity (name, namespace,
-// service, hostnames) and the topology specific overrides stay with the
-// caller.
+// service, hostnames), the external domain and the topology specific
+// overrides stay with the caller.
 func ForSpec(spec Spec, options Options) Options {
 	options.Replicas = spec.Replicas()
 	options.Version = spec.GetMongoDBVersion()
 	options.AuthenticationModes = spec.GetSecurityAuthenticationModes()
 	options.ClusterDomain = spec.GetClusterDomain()
-	options.ExternalDomain = spec.GetExternalDomain()
 	options.IsTLSEnabled = spec.IsSecurityTLSConfigEnabled()
 	return options
 }
@@ -93,11 +91,9 @@ type Options struct {
 	// must already include the port.
 	Hostnames []string
 
-	// Database is the database placed in the URI path. When empty the
-	// DefaultDatabase is used instead, allowing callers to opt into a
-	// default database such as "admin" for user connection strings.
-	Database        string
-	DefaultDatabase string
+	// Database is the database placed in the URI path. When empty the path
+	// segment is empty and the connecting client picks its default database.
+	Database string
 
 	// Params are operator provided connection parameters. They override the
 	// parameters derived from the resource configuration.
@@ -121,8 +117,10 @@ func (o Options) BuildStandardAndSRV() (standard, srv string) {
 
 // WithUser extends the options with the authentication data of the given
 // user. The user's database becomes the authSource and the URI path comes
-// from the user's connection string database.
+// from the user's connection string database. The returned options carry a
+// copy of Params so the map of the caller is left untouched.
 func (o Options) WithUser(user authtypes.User, password string) Options {
+	o.Params = maps.Clone(o.Params)
 	if o.Params == nil {
 		o.Params = map[string]string{}
 	}
@@ -135,14 +133,6 @@ func (o Options) WithUser(user authtypes.User, password string) Options {
 	o.Database = user.ConnectionStringDatabase
 	o.UserParams = StringParams(user.ConnectionStringOptions)
 	return o
-}
-
-// Database returns the database to place in the URI path.
-func (o Options) database() string {
-	if o.Database != "" {
-		return o.Database
-	}
-	return o.DefaultDatabase
 }
 
 // OperatorParams returns the connection parameters the operator applies to
@@ -233,7 +223,7 @@ func (o Options) Build(scheme Scheme) string {
 		uri += strings.Join(hostnames, ",")
 	}
 
-	uri += "/" + stringutil.EncodeUserinfoComponent(o.database()) + "?"
+	uri += "/" + stringutil.EncodeUserinfoComponent(o.Database) + "?"
 
 	// sorted parameters make the url stable
 	for _, k := range slices.Sorted(maps.Keys(params)) {
@@ -243,8 +233,10 @@ func (o Options) Build(scheme Scheme) string {
 }
 
 // authSourceAndMechanism returns the authSource and authMechanism implied by
-// the configured authentication modes, preferring the strongest SCRAM
-// mechanism the deployment version supports.
+// the configured authentication modes. The modes are applied in a fixed order,
+// SCRAM then SCRAM-SHA-256 then SCRAM-SHA-1, so the last one configured wins.
+// Only the bare SCRAM mode depends on the deployment version, which decides
+// between SCRAM-SHA-256 and SCRAM-SHA-1.
 func authSourceAndMechanism(authenticationModes []string, version string) (string, string) {
 	var authSource string
 	var authMechanism string
