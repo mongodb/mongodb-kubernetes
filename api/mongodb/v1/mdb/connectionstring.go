@@ -7,19 +7,25 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 )
 
+// connectionStringExternalDomain returns the external domain a connection string of this
+// resource uses. Both connection strings of a sharded cluster are built from the mongos tier,
+// so its effective domain applies, and that resolution still falls back to spec.externalAccess.
+// Replica sets and standalones only ever read the top level field. The member cluster is left
+// empty on purpose, a connection string is cluster agnostic and does not honour the per member
+// cluster domains from clusterSpecList.
+func (m *MongoDB) connectionStringExternalDomain() *string {
+	if m.IsShardedCluster() {
+		return m.Spec.EffectiveExternalDomain(m.Spec.MongosSpec, TierMongos, "")
+	}
+	return m.Spec.GetExternalDomain()
+}
+
 // connectionOptions fills the resource level connection string settings.
 // The hostnames, when non empty, replace the generated pod DNS names.
 func (m *MongoDB) connectionOptions(hostnames []string) connectionstring.Options {
 	name := m.Name
-	// Both connection strings are built from the mongos tier for a sharded cluster, so the external
-	// domain must be resolved from spec.mongos.externalAccess too, not only from the top-level field.
-	// EffectiveExternalDomain still falls back to spec.externalAccess for the mongos tier. The member
-	// cluster is left empty on purpose: a connection string is cluster-agnostic, so per-cluster
-	// clusterSpecList domains are not honoured here.
-	externalDomain := m.Spec.GetExternalDomain()
 	if m.IsShardedCluster() {
 		name = m.MongosRsName()
-		externalDomain = m.Spec.EffectiveExternalDomain(m.Spec.MongosSpec, TierMongos, "")
 	} else if m.IsReplicaSet() {
 		name = m.GetReplicaSetName()
 	}
@@ -29,12 +35,11 @@ func (m *MongoDB) connectionOptions(hostnames []string) connectionstring.Options
 		Namespace:    m.Namespace,
 		Service:      m.ServiceName(),
 		Port:         m.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
-		IsReplicaSet: m.Spec.ResourceType == ReplicaSet,
+		IsReplicaSet: m.IsReplicaSet(),
 		Hostnames:    hostnames,
 		Params:       connectionstring.OperatorParams(),
 	})
-	// The sharded topology can resolve a different domain than the top level spec.
-	options.ExternalDomain = externalDomain
+	options.ExternalDomain = m.connectionStringExternalDomain()
 	return options
 }
 
