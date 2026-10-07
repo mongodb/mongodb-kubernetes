@@ -2194,11 +2194,7 @@ func TestReconcileAppDB_ReshapesReAdoptedStatefulSet(t *testing.T) {
 }
 
 func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
-	const (
-		foreignUID          = "cr-uid-2222"
-		externalAppDBCRName = "external-appdb"
-		foreignAppDBCRName  = "test-mdbm"
-	)
+	const foreignUID = "cr-uid-2222"
 
 	mergeLabels := func(base map[string]string, extra map[string]string) map[string]string {
 		merged := make(map[string]string, len(base)+len(extra))
@@ -2246,19 +2242,19 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 			name: "foreign label requests release and blocks even with an OM ownerReference",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
 				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.NameForCluster(0)).
-					SetLabels(map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + foreignAppDBCRName, "app": "demo"}).
+					SetLabels(map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(), "app": "demo"}).
 					SetOwnerReferences(kube.BaseOwnerReference(testOm)).
 					Build()
 			},
 			expectedLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
-				return map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + foreignAppDBCRName, "app": "demo"}
+				return map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(), "app": "demo"}
 			},
 			expectedOwnerReferences: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
 				return kube.BaseOwnerReference(testOm)
 			},
 			centralObjects: func(testOm *omv1.MongoDBOpsManager) []client.Object {
 				return []client.Object{&mdbmultiv1.MongoDBMultiCluster{
-					ObjectMeta: metav1.ObjectMeta{Name: foreignAppDBCRName, Namespace: testOm.Namespace},
+					ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.Name(), Namespace: testOm.Namespace},
 				}}
 			},
 			expectedOwned:             false,
@@ -2270,7 +2266,7 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
 				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.NameForCluster(0)).
 					SetLabels(map[string]string{
-						util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + externalAppDBCRName,
+						util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(),
 						"app": "demo",
 					}).
 					SetAnnotations(map[string]string{
@@ -2293,7 +2289,7 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
 				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.NameForCluster(0)).
 					SetLabels(map[string]string{
-						util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + externalAppDBCRName,
+						util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(),
 						"app": "demo",
 					}).
 					SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: trueString}).
@@ -2301,13 +2297,13 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 			},
 			expectedLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
 				return map[string]string{
-					util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + externalAppDBCRName,
+					util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(),
 					"app": "demo",
 				}
 			},
 			centralObjects: func(testOm *omv1.MongoDBOpsManager) []client.Object {
 				return []client.Object{&mdbmultiv1.MongoDBMultiCluster{
-					ObjectMeta: metav1.ObjectMeta{Name: externalAppDBCRName, Namespace: testOm.Namespace},
+					ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.Name(), Namespace: testOm.Namespace},
 				}}
 			},
 			expectedOwned:             false,
@@ -2348,16 +2344,19 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 			expectedOwned: true,
 		},
 		{
-			name: "conflicting Ops Manager owner label blocks ownership",
+			name: "stale Ops Manager owner label is overwritten at reclaim",
 			sts: func(testOm *omv1.MongoDBOpsManager) appsv1.StatefulSet {
 				return DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.NameForCluster(0)).
 					SetLabels(map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "other-om", "app": "demo"}).
 					Build()
 			},
 			expectedLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
-				return map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "other-om", "app": "demo"}
+				return mergeLabels(map[string]string{"app": "demo"}, testOm.GetOwnerLabels())
 			},
-			expectedOwned: false,
+			expectedOwnerReferences: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return kube.BaseOwnerReference(testOm)
+			},
+			expectedOwned: true,
 		},
 		{
 			name: "legacy own ownerReference without the owner label is backfilled and adopted without a write",
@@ -2412,7 +2411,7 @@ func TestEnsureAppDBStatefulSetOwnership(t *testing.T) {
 				require.NoError(t, statefulSetClient.Create(ctx, &sts))
 			}
 
-			ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+			ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
 			assert.Equal(t, tt.expectedOwned, ownershipStatus.IsOK())
 			result, err := ownershipStatus.ReconcileResult()
 			require.NoError(t, err)
@@ -2458,7 +2457,7 @@ func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testin
 		require.NoError(t, kubeClient.CreateSecret(ctx, s))
 	}
 
-	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
 	require.True(t, ownershipStatus.IsOK())
 
 	for _, name := range []string{omv1.OpsManagerUserPasswordSecretName("test-om-db"), testOm.Spec.AppDB.GetAgentKeyfileSecretNamespacedName().Name} {
@@ -2490,7 +2489,7 @@ func TestEnsureAppDBStatefulSetOwnership_ReclaimsSharedSecretsWhenStatefulSetIsA
 		require.NoError(t, kubeClient.CreateSecret(ctx, s))
 	}
 
-	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
 	require.True(t, ownershipStatus.IsOK())
 
 	for _, name := range secretNames {
@@ -2522,16 +2521,23 @@ func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
 	cluster1Name := testOm.Spec.AppDB.NameForCluster(1)
 	foreignOwnerRef := []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "test-om-db", UID: types.UID("foreign-uid-4444")}}
 
+	// cluster-1: the external AppDB CR still exists, so its StatefulSet must be released, not reclaimed
+	liveOwner := &mdbmultiv1.MongoDBMultiCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: testOm.Spec.AppDB.Name(), Namespace: testOm.Namespace},
+	}
+	require.NoError(t, kubeClient.Create(ctx, liveOwner))
+
 	cluster0Sts := DefaultStatefulSetBuilder().SetName(cluster0Name).
-		SetLabels(map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "foreign-appdb", "app": "demo"}).
+		SetLabels(map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(), "app": "demo"}).
 		SetOwnerReferences(kube.BaseOwnerReference(testOm)).Build()
 	require.NoError(t, memberClustersMap["cluster-1"].Create(ctx, &cluster0Sts))
+	// cluster-2: ownerless, so the StatefulSet is reclaimed immediately
 	cluster1Sts := DefaultStatefulSetBuilder().SetName(cluster1Name).
 		SetLabels(map[string]string{"app": "demo"}).
 		SetOwnerReferences(foreignOwnerRef).Build()
 	require.NoError(t, memberClustersMap["cluster-2"].Create(ctx, &cluster1Sts))
 
-	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm)
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
 	require.False(t, ownershipStatus.IsOK())
 	result, err := ownershipStatus.ReconcileResult()
 	require.NoError(t, err)
@@ -2540,8 +2546,8 @@ func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
 	cluster0Result := appsv1.StatefulSet{}
 	require.NoError(t, memberClustersMap["cluster-1"].Get(ctx, kube.ObjectKey(mock.TestNamespace, cluster0Name), &cluster0Result))
 	assert.Equal(t, kube.BaseOwnerReference(testOm), cluster0Result.OwnerReferences)
-	assert.Equal(t, map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "foreign-appdb", "app": "demo"}, cluster0Result.Labels)
-	assert.NotContains(t, cluster0Result.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	assert.Equal(t, map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: testOm.Namespace + "-" + testOm.Spec.AppDB.Name(), "app": "demo"}, cluster0Result.Labels)
+	assert.Equal(t, "true", cluster0Result.Annotations[util.AppDBReverseMigrationReadyAnnotation])
 	assert.NotContains(t, cluster0Result.Annotations, util.AppDBMigrationReadyAnnotation)
 
 	cluster1Result := appsv1.StatefulSet{}
@@ -2554,6 +2560,33 @@ func TestEnsureAppDBStatefulSetOwnership_MultiCluster(t *testing.T) {
 	assert.Equal(t, expectedLabels, cluster1Result.Labels)
 	assert.NotContains(t, cluster1Result.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	assert.NotContains(t, cluster1Result.Annotations, util.AppDBMigrationReadyAnnotation)
+}
+
+// The AppDB StatefulSet can lag behind in one member cluster while it rolls out; the gate must
+// arbitrate only the clusters where it exists.
+func TestEnsureAppDBStatefulSetOwnership_PartialRollout(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		SetName("test-om").
+		SetAppDbMembers(0).
+		SetAppDBTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetAppDBClusterSpecList(mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-1", Members: 3},
+			{ClusterName: "cluster-2", Members: 3},
+		}).
+		Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(testOm)
+	memberClustersMap := getAppDBFakeMultiClusterMapWithClusters([]string{"cluster-1", "cluster-2"}, omConnectionFactory)
+	reconciler, err := newAppDbMultiReconciler(ctx, kubeClient, testOm, memberClustersMap, zap.S(), omConnectionFactory.GetConnectionFunc)
+	require.NoError(t, err)
+
+	ownedSts := DefaultStatefulSetBuilder().SetName(testOm.Spec.AppDB.NameForCluster(0)).
+		SetLabels(testOm.GetOwnerLabels()).Build()
+	require.NoError(t, memberClustersMap["cluster-1"].Create(ctx, &ownedSts))
+
+	ownershipStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, testOm, zap.S())
+	require.True(t, ownershipStatus.IsOK())
 }
 
 func TestAllStatefulSetsExistsInValidState(t *testing.T) {
