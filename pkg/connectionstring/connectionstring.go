@@ -149,26 +149,35 @@ func (o Options) mergedParams() map[string]string {
 		params["replicaSet"] = o.Name
 	}
 
-	// The authentication parameters only apply to connection strings that carry
-	// credentials. A driver rejects an authMechanism without a username.
+	maps.Copy(params, o.authParams())
+	maps.Copy(params, o.Params)
+	maps.Copy(params, o.UserParams)
+
+	return params
+}
+
+// authParams returns the authSource and authMechanism of the connection string.
+func (o Options) authParams() map[string]string {
+	params := map[string]string{}
+
+	// The database of the user is the authSource. It is written even when empty,
+	// which is different from not having a user database at all.
+	if o.AuthDatabase != nil {
+		params["authSource"] = *o.AuthDatabase
+	}
+
+	// A driver rejects an authMechanism without a username, and $external users
+	// authenticate without one, so the parameters implied by the authentication
+	// modes only apply to strings that carry credentials.
 	if o.authenticated() {
 		authSource, authMechanism := authSourceAndMechanism(o.AuthenticationModes, o.Version)
-		if authSource != "" {
+		if o.AuthDatabase == nil && authSource != "" {
 			params["authSource"] = authSource
 		}
 		if authMechanism != "" {
 			params["authMechanism"] = authMechanism
 		}
 	}
-
-	// The user's database is the authSource of a user connection string, even when
-	// the database is empty.
-	if o.AuthDatabase != nil {
-		params["authSource"] = *o.AuthDatabase
-	}
-
-	maps.Copy(params, o.Params)
-	maps.Copy(params, o.UserParams)
 
 	return params
 }
