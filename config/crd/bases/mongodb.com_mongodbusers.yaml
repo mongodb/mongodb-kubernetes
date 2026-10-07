@@ -57,6 +57,9 @@ spec:
               connectionStringSecretName:
                 type: string
               db:
+                default: admin
+                description: Database is the database the user is stored in. Defaults
+                  to "admin"
                 type: string
               mongodbResourceRef:
                 properties:
@@ -95,7 +98,6 @@ spec:
               username:
                 type: string
             required:
-            - db
             - username
             type: object
           status:

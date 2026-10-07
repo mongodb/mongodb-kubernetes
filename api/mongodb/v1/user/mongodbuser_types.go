@@ -87,7 +87,10 @@ type MongoDBResourceRef struct {
 type MongoDBUserSpec struct {
 	Roles    []Role `json:"roles,omitempty"`
 	Username string `json:"username"`
-	Database string `json:"db"`
+	// Database is the database the user is stored in. Defaults to "admin"
+	// +optional
+	// +kubebuilder:default=admin
+	Database string `json:"db,omitempty"`
 	// ConnectionStringDatabase is an optional database name for the connection string URI path
 	// (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
 	// depends on the connecting client.
