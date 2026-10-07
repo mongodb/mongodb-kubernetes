@@ -404,6 +404,7 @@ func (in *DbCommonSpec) DeepCopyInto(out *DbCommonSpec) {
 		*out = new(ExternalAccessConfiguration)
 		(*in).DeepCopyInto(*out)
 	}
+	in.AdditionalConnectionStringConfig.DeepCopyInto(&out.AdditionalConnectionStringConfig)
 	if in.Persistent != nil {
 		in, out := &in.Persistent, &out.Persistent
 		*out = new(bool)

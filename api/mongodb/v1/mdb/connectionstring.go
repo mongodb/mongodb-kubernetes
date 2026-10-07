@@ -4,6 +4,8 @@
 package mdb
 
 import (
+	"maps"
+
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 )
 
@@ -40,6 +42,7 @@ func (m *MongoDB) connectionOptions(hostnames []string) connectionstring.Options
 		Params:       connectionstring.OperatorParams(),
 	})
 	options.ExternalDomain = m.connectionStringExternalDomain()
+	maps.Copy(options.Params, connectionstring.StringParams(m.Spec.AdditionalConnectionStringConfig.Object))
 	return options
 }
 

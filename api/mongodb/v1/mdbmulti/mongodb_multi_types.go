@@ -3,6 +3,7 @@ package mdbmulti
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/blang/semver"
@@ -655,6 +656,7 @@ func (m *MongoDBMultiCluster) ConnectionOptions() connectionstring.Options {
 		Params:       connectionstring.OperatorParams(),
 	})
 	options.ExternalDomain = m.Spec.GetExternalDomain()
+	maps.Copy(options.Params, connectionstring.StringParams(m.Spec.AdditionalConnectionStringConfig.Object))
 	return options
 }
 

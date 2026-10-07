@@ -103,6 +103,14 @@ type MongoDBUserSpec struct {
 	PasswordSecretKeyRef SecretKeyRef `json:"passwordSecretKeyRef"`
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName"`
+
+	// Additional options to be appended to the connection string.
+	// These options apply only to this user and will override any existing options in the resource.
+	// +kubebuilder:validation:Type=object
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +nullable
+	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
 }
 
 type MongoDBUserStatus struct {
@@ -183,6 +191,7 @@ func (u MongoDBUser) AuthUser() authtypes.User {
 		Username:                 u.Spec.Username,
 		Database:                 u.Spec.Database,
 		ConnectionStringDatabase: u.Spec.ConnectionStringDatabase,
+		ConnectionStringOptions:  u.Spec.AdditionalConnectionStringConfig.Object,
 	}
 }
 
