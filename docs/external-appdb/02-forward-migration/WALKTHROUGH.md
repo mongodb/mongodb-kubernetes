@@ -202,4 +202,3 @@ rolled during the switch.
   answers (`GET /api/public/v1.0` returns `401`), then re-reconcile.
 - **OM pods rolled during the switch** — indicates the computed connection string changed. For the
   default-port replica-set case it is identical; non-default ports are out of scope.
-</content>

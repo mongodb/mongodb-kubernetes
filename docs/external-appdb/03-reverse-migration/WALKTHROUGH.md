@@ -152,4 +152,3 @@ handover.
 - **`applicationDatabase.version` mismatch** — set it to the version the AppDB is already running so
   the re-adopted StatefulSet keeps the same binaries; changing it here triggers an AppDB upgrade at
   the same time as the handover.
-</content>

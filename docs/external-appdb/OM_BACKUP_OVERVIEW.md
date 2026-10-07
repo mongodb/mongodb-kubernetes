@@ -134,4 +134,3 @@ Manager UI (or its API) for any project OM manages.
   `headDB` and the store databases/buckets accordingly.
 - **Disabling Backup** (`enabled: false`) removes the Backup Daemon but does not delete data already
   written to external stores (S3 buckets, blockstore databases).
-</content>

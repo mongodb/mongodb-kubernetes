@@ -116,4 +116,3 @@ switch.
 - [02-forward-migration](./02-forward-migration) — internal → external (uses `appdb-migration-ready`).
 - [03-reverse-migration](./03-reverse-migration) — external → internal (uses
   `appdb-reverse-migration-ready`).
-</content>
