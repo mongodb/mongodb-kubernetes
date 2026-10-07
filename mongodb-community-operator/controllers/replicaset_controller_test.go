@@ -647,7 +647,7 @@ func assertConnectionStringSecretPorts(ctx context.Context, t *testing.T, c k8sC
 	connectionStringSecret := corev1.Secret{}
 	scramUsers := mdb.GetAuthUsers()
 	require.Len(t, scramUsers, 1)
-	secretNamespacedName := types.NamespacedName{Name: scramUsers[0].ConnectionStringSecretName, Namespace: scramUsers[0].ConnectionStringSecretNamespace}
+	secretNamespacedName := types.NamespacedName{Name: scramUsers[0].ConnectionStringSecretName, Namespace: mdb.Namespace}
 	err := c.Get(ctx, secretNamespacedName, &connectionStringSecret)
 	require.NoError(t, err)
 	require.Contains(t, connectionStringSecret.Data, "connectionString.standard")
@@ -717,7 +717,7 @@ func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, 
 	connectionStringSecret := corev1.Secret{}
 	scramUsers := mdb.GetAuthUsers()
 	require.Len(t, scramUsers, 1)
-	secretNamespacedName := types.NamespacedName{Name: scramUsers[0].ConnectionStringSecretName, Namespace: scramUsers[0].ConnectionStringSecretNamespace}
+	secretNamespacedName := types.NamespacedName{Name: scramUsers[0].ConnectionStringSecretName, Namespace: mdb.Namespace}
 	err := c.Get(ctx, secretNamespacedName, &connectionStringSecret)
 	require.NoError(t, err)
 	assert.Subset(t, connectionStringSecret.Annotations, expectedAnnotations)

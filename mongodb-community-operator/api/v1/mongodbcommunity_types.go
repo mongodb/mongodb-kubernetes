@@ -266,10 +266,6 @@ type MongoDBUser struct {
 	// +optional
 	ConnectionStringSecretName string `json:"connectionStringSecretName,omitempty"`
 
-	// ConnectionStringSecretNamespace is the namespace of the secret object created by the operator which exposes the connection strings for the user.
-	// +optional
-	ConnectionStringSecretNamespace string `json:"connectionStringSecretNamespace,omitempty"`
-
 	// ConnectionStringSecretAnnotations is the annotations of the secret object created by the operator which exposes the connection strings for the user.
 	// +optional
 	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
@@ -306,16 +302,6 @@ func (m MongoDBUser) GetScramCredentialsSecretName() string {
 // from the SCRAM user configuration.
 func (m MongoDBUser) GetConnectionStringSecretName(resourceName string) string {
 	return connectionstringsecret.UserSecretName(m.ConnectionStringSecretName, resourceName, m.Name, m.DB)
-}
-
-// GetConnectionStringSecretNamespace gets the connection string secret namespace provided by the user or generated
-// from the SCRAM user configuration.
-func (m MongoDBUser) GetConnectionStringSecretNamespace(resourceNamespace string) string {
-	if m.ConnectionStringSecretNamespace != "" {
-		return m.ConnectionStringSecretNamespace
-	}
-
-	return resourceNamespace
 }
 
 // Role is the database role this user should have
@@ -536,7 +522,6 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			Database:                          u.DB,
 			Roles:                             roles,
 			ConnectionStringSecretName:        u.GetConnectionStringSecretName(m.Name),
-			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
 			ConnectionStringSecretAnnotations: u.ConnectionStringSecretAnnotations,
 			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
 			ConnectionStringDatabase:          u.ConnectionStringDatabase,

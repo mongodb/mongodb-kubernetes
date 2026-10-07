@@ -47,9 +47,6 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 		secretName := user.ConnectionStringSecretName
 
 		secretNamespace := mdb.Namespace
-		if user.ConnectionStringSecretNamespace != "" {
-			secretNamespace = user.ConnectionStringSecretNamespace
-		}
 
 		if err := connectionstringsecret.ValidateExistingOwnership(ctx, r.client, secretName, secretNamespace, &mdb); err != nil {
 			return err
