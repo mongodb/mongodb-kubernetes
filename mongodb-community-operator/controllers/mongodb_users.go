@@ -9,6 +9,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
@@ -50,18 +51,12 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 			secretNamespace = user.ConnectionStringSecretNamespace
 		}
 
-		existingSecret, err := r.client.GetSecret(ctx, types.NamespacedName{
-			Name:      secretName,
-			Namespace: secretNamespace,
-		})
-		if err != nil && !apiErrors.IsNotFound(err) {
+		if err := connectionstringsecret.ValidateExistingOwnership(ctx, r.client, secretName, secretNamespace, &mdb); err != nil {
 			return err
-		}
-		if err == nil && !secret.HasOwnerReferences(existingSecret, mdb.GetOwnerReferences()) {
-			return fmt.Errorf("connection string secret %s already exists and is not managed by the operator", secretName)
 		}
 
 		pwd := ""
+		var err error
 
 		if user.Database != constants.ExternalDB {
 			secretNamespacedName := types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdb.Namespace}
@@ -71,22 +66,19 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 			}
 		}
 
-		connectionStringSecret := secret.Builder().
-			SetName(secretName).
-			SetNamespace(secretNamespace).
-			SetAnnotations(user.ConnectionStringSecretAnnotations).
-			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd)).
-			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd)).
-			SetField("username", user.Username).
-			SetField("password", pwd).
-			SetOwnerReferences(mdb.GetOwnerReferences()).
-			Build()
-
-		if err := secret.CreateOrUpdate(ctx, r.client, connectionStringSecret); err != nil {
+		// External users have no password, so the password field is left out
+		// rather than written empty.
+		err = connectionstringsecret.PublishForUser(ctx, r.client, mdb.ConnectionOptions(), user, pwd, connectionstringsecret.Secret{
+			Name:            secretName,
+			Namespace:       secretNamespace,
+			Annotations:     user.ConnectionStringSecretAnnotations,
+			OwnerReferences: mdb.GetOwnerReferences(),
+		})
+		if err != nil {
 			return err
 		}
 
-		secretNamespacedName := types.NamespacedName{Name: connectionStringSecret.Name, Namespace: connectionStringSecret.Namespace}
+		secretNamespacedName := types.NamespacedName{Name: secretName, Namespace: secretNamespace}
 		r.secretWatcher.Watch(ctx, secretNamespacedName, mdb.NamespacedName())
 	}
 

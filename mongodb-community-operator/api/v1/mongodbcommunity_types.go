@@ -2,7 +2,6 @@ package v1
 
 import (
 	"fmt"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,6 +13,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -24,8 +24,7 @@ import (
 type Type string
 
 const (
-	ReplicaSet       Type   = "ReplicaSet"
-	defaultDBForUser string = "admin"
+	ReplicaSet Type = "ReplicaSet"
 )
 
 type Phase string
@@ -44,15 +43,6 @@ const (
 
 const (
 	defaultClusterDomain = "cluster.local"
-)
-
-// Connection string options that should be ignored as they are set through other means.
-var (
-	protectedConnectionStringOptions = map[string]struct{}{
-		"replicaSet": {},
-		"ssl":        {},
-		"tls":        {},
-	}
 )
 
 // MongoDBCommunitySpec defines the desired state of MongoDB
@@ -283,6 +273,12 @@ type MongoDBUser struct {
 	// ConnectionStringSecretAnnotations is the annotations of the secret object created by the operator which exposes the connection strings for the user.
 	// +optional
 	ConnectionStringSecretAnnotations map[string]string `json:"connectionStringSecretAnnotations,omitempty"`
+
+	// ConnectionStringDatabase is an optional database name for the connection string URI path
+	// (e.g. .../myapp?...). When unset, the URI path is omitted and which database is used
+	// depends on the connecting client.
+	// +optional
+	ConnectionStringDatabase string `json:"connectionStringDatabase,omitempty"`
 
 	// Additional options to be appended to the connection string.
 	// These options apply only to this user and will override any existing options in the resource.
@@ -539,15 +535,6 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 		}
 
 		// When the MongoDB resource has been fetched from Kubernetes,
-		// the User's database will be set to "admin" because this is set
-		// by default on the CRD, but when running e2e tests, the resource
-		// we are working with is local -- it has not been posted to the
-		// Kubernetes API and the `u.DB` was not set to the default ("admin").
-		// This is why the "admin" value is being set here.
-		if u.DB == "" {
-			u.DB = defaultDBForUser
-		}
-
 		users[i] = authtypes.User{
 			Username:                          u.Name,
 			Database:                          u.DB,
@@ -556,6 +543,7 @@ func (m *MongoDBCommunity) GetAuthUsers() []authtypes.User {
 			ConnectionStringSecretNamespace:   u.GetConnectionStringSecretNamespace(m.Namespace),
 			ConnectionStringSecretAnnotations: u.ConnectionStringSecretAnnotations,
 			ConnectionStringOptions:           u.AdditionalConnectionStringConfig.Object,
+			ConnectionStringDatabase:          u.ConnectionStringDatabase,
 		}
 
 		if u.DB != constants.ExternalDB {
@@ -659,119 +647,44 @@ func (m *MongoDBCommunity) AutomationConfigArbitersThisReconciliation() int {
 	})
 }
 
-// GetOptionsString return a string format of the connection string
-// options that can be appended directly to the connection string.
-//
-// Only takes into account options for the resource and not any user.
-func (m *MongoDBCommunity) GetOptionsString() string {
-	generalOptionsMap := m.Spec.AdditionalConnectionStringConfig.Object
-	optionValues := make([]string, len(generalOptionsMap))
-	i := 0
-
-	for key, value := range generalOptionsMap {
-		if _, protected := protectedConnectionStringOptions[key]; !protected {
-			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
-			i += 1
-		}
+// authenticationModes returns the resource authentication modes as plain
+// strings for the connection string builder.
+func (m *MongoDBCommunitySpec) GetSecurityAuthenticationModes() []string {
+	modes := make([]string, 0, len(m.Security.Authentication.Modes))
+	for _, mode := range m.Security.Authentication.Modes {
+		modes = append(modes, string(mode))
 	}
-
-	optionValues = optionValues[:i]
-
-	optionsString := ""
-	if i > 0 {
-		optionsString = "&" + strings.Join(optionValues, "&")
-	}
-	return optionsString
+	return modes
 }
 
-// GetUserOptionsString return a string format of the connection string
-// options that can be appended directly to the connection string.
-//
-// Takes into account both user options and resource options.
-// User options will override any existing options in the resource.
-func (m *MongoDBCommunity) GetUserOptionsString(user authtypes.User) string {
-	generalOptionsMap := m.Spec.AdditionalConnectionStringConfig.Object
-	userOptionsMap := user.ConnectionStringOptions
-	optionValues := make([]string, len(generalOptionsMap)+len(userOptionsMap))
-	i := 0
-	for key, value := range userOptionsMap {
-		if _, protected := protectedConnectionStringOptions[key]; !protected {
-			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
-			i += 1
-		}
-	}
-
-	for key, value := range generalOptionsMap {
-		_, ok := userOptionsMap[key]
-		if _, protected := protectedConnectionStringOptions[key]; !ok && !protected {
-			optionValues[i] = fmt.Sprintf("%s=%v", key, value)
-			i += 1
-		}
-	}
-
-	optionValues = optionValues[:i]
-
-	optionsString := ""
-	if i > 0 {
-		optionsString = "&" + strings.Join(optionValues, "&")
-	}
-	return optionsString
+// Replicas returns the desired number of members.
+func (m *MongoDBCommunitySpec) Replicas() int {
+	return m.Members
 }
 
-// MongoURI returns a mongo uri which can be used to connect to this deployment
-func (m *MongoDBCommunity) MongoURI() string {
-	optionsString := m.GetOptionsString()
-
-	return fmt.Sprintf("mongodb://%s/?replicaSet=%s%s", strings.Join(m.Hosts(), ","), m.Name, optionsString)
+// GetMongoDBVersion returns the MongoDB version of the deployment.
+func (m *MongoDBCommunitySpec) GetMongoDBVersion() string {
+	return m.Version
 }
 
-// MongoSRVURI returns a mongo srv uri which can be used to connect to this deployment
-func (m *MongoDBCommunity) MongoSRVURI() string {
-	optionsString := m.GetOptionsString()
-
-	return fmt.Sprintf("mongodb+srv://%s.%s.svc.%s/?replicaSet=%s%s", m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Name, optionsString)
+// GetExternalDomain returns nil, the community resource does not support
+// publishing connection strings under a custom domain.
+func (m *MongoDBCommunitySpec) GetExternalDomain() *string {
+	return nil
 }
 
-// MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
-// and includes the authentication data for the user
-func (m *MongoDBCommunity) MongoAuthUserURI(user authtypes.User, password string) string {
-	optionsString := m.GetUserOptionsString(user)
-	return fmt.Sprintf("mongodb://%s%s/%s?replicaSet=%s&ssl=%t%s",
-		user.GetLoginString(password),
-		strings.Join(m.Hosts(), ","),
-		user.Database,
-		m.Name,
-		m.Spec.Security.TLS.Enabled,
-		optionsString)
-}
-
-// MongoAuthUserSRVURI returns a mongo srv uri which can be used to connect to this deployment
-// and includes the authentication data for the user
-func (m *MongoDBCommunity) MongoAuthUserSRVURI(user authtypes.User, password string) string {
-	optionsString := m.GetUserOptionsString(user)
-	return fmt.Sprintf("mongodb+srv://%s%s.%s.svc.%s/%s?replicaSet=%s&ssl=%t%s",
-		user.GetLoginString(password),
-		m.ServiceName(),
-		m.Namespace,
-		m.Spec.GetClusterDomain(),
-		user.Database,
-		m.Name,
-		m.Spec.Security.TLS.Enabled,
-		optionsString)
+// IsSecurityTLSConfigEnabled reports whether TLS is enabled for the deployment.
+func (m *MongoDBCommunitySpec) IsSecurityTLSConfigEnabled() bool {
+	return m.Security.TLS.Enabled
 }
 
 func (m *MongoDBCommunity) Hosts() []string {
-	hosts := make([]string, m.Spec.Members)
-
-	for i := 0; i < m.Spec.Members; i++ {
-		hosts[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d",
-			m.Name, i,
-			m.ServiceName(),
-			m.Namespace,
-			m.Spec.GetClusterDomain(),
-			m.GetMongodConfiguration().GetDBPort())
+	hostnames, _ := dns.GetDNSNames(m.Name, m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), m.Spec.Members, nil)
+	port := m.GetMongodConfiguration().GetDBPort()
+	for i, hostname := range hostnames {
+		hostnames[i] = fmt.Sprintf("%s:%d", hostname, port)
 	}
-	return hosts
+	return hostnames
 }
 
 // ServiceName returns the name of the Service that should be created for this resource.
