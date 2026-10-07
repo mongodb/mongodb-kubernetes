@@ -103,10 +103,12 @@ type Options struct {
 	// Params.
 	UserParams map[string]string
 
-	// ExternalAuth marks the connection as targeting the $external database:
-	// no authMechanism is derived since the client supplies the mechanism at
-	// connect time.
-	ExternalAuth bool
+	// AuthDatabase is the database the user authenticates against and becomes the
+	// authSource of the connection string. A nil value leaves the authSource to the
+	// authentication modes, an empty string is a database that is explicitly empty.
+	// A $external database also drops the derived authMechanism, since the client
+	// supplies the mechanism at connect time.
+	AuthDatabase *string
 }
 
 // BuildStandardAndSRV builds the connection string with both schemes, the
@@ -117,19 +119,11 @@ func (o Options) BuildStandardAndSRV() (standard, srv string) {
 
 // WithUser extends the options with the authentication data of the given
 // user. The user's database becomes the authSource and the URI path comes
-// from the user's connection string database. The returned options carry a
-// copy of Params so the map of the caller is left untouched.
+// from the user's connection string database.
 func (o Options) WithUser(user authtypes.User, password string) Options {
-	o.Params = maps.Clone(o.Params)
-	if o.Params == nil {
-		o.Params = map[string]string{}
-	}
 	o.Username = user.Username
 	o.Password = password
-	o.Params["authSource"] = user.Database
-	// Overriding the authSource comes with the responsibility of dropping the
-	// derived authMechanism: $external users authenticate without one.
-	o.ExternalAuth = user.Database == constants.ExternalDB
+	o.AuthDatabase = &user.Database
 	o.Database = user.ConnectionStringDatabase
 	o.UserParams = StringParams(user.ConnectionStringOptions)
 	return o
@@ -167,6 +161,12 @@ func (o Options) mergedParams() map[string]string {
 		}
 	}
 
+	// The user's database is the authSource of a user connection string, even when
+	// the database is empty.
+	if o.AuthDatabase != nil {
+		params["authSource"] = *o.AuthDatabase
+	}
+
 	maps.Copy(params, o.Params)
 	maps.Copy(params, o.UserParams)
 
@@ -180,7 +180,8 @@ func (o Options) authenticated() bool {
 	scramEnabled := stringutil.Contains(o.AuthenticationModes, util.SCRAM) ||
 		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA1) ||
 		stringutil.Contains(o.AuthenticationModes, util.SCRAMSHA256)
-	return scramEnabled && !o.ExternalAuth && o.Username != "" && o.Password != ""
+	externalAuth := o.AuthDatabase != nil && *o.AuthDatabase == constants.ExternalDB
+	return scramEnabled && !externalAuth && o.Username != "" && o.Password != ""
 }
 
 // userinfo returns the "user:password@" prefix to use in the connection

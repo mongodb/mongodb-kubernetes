@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -106,11 +107,11 @@ func TestBuild_CredentialEncoding(t *testing.T) {
 			Hostnames:           []string{"host:27017"},
 			Username:            "user",
 			Password:            "password",
-			ExternalAuth:        true,
-			Params:              map[string]string{"authSource": constants.ExternalDB},
+			AuthDatabase:        ptr.To(constants.ExternalDB),
 		}
 		assert.NotContains(t, options.Build(SchemeMongoDB), "@")
 		assert.NotContains(t, options.Build(SchemeMongoDB), "authMechanism")
+		assert.Contains(t, options.Build(SchemeMongoDB), "authSource=$external")
 	})
 }
 
@@ -188,8 +189,8 @@ func TestBuild_Parameters(t *testing.T) {
 		options := base
 		options.AuthenticationModes = []string{util.SCRAM}
 		options.Version = "4.2.0"
-		options.ExternalAuth = true
-		options.Params = map[string]string{"authSource": constants.ExternalDB, "authMechanism": "MONGODB-X509"}
+		options.AuthDatabase = ptr.To(constants.ExternalDB)
+		options.Params = map[string]string{"authMechanism": "MONGODB-X509"}
 		cs := options.Build(SchemeMongoDB)
 		assert.Contains(t, cs, "authSource=$external")
 		assert.Contains(t, cs, "authMechanism=MONGODB-X509")
