@@ -48,6 +48,12 @@ spec:
             type: object
           spec:
             properties:
+              additionalConnectionStringConfig:
+                description: Additional options to be appended to the connection string.
+                  These options apply to the entire resource and to each user.
+                nullable: true
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
               additionalMongodConfig:
                 description: |-
                   AdditionalMongodConfig is additional configuration that can be passed to

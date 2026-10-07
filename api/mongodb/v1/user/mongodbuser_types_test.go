@@ -5,7 +5,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 )
 
 func TestMongoDBUser_ChangedIdentifier(t *testing.T) {
@@ -53,4 +55,28 @@ func TestMongoDBUser_UpdateStatus_DoesNotSetProjectIdWhenOptionAbsent(t *testing
 	u := &MongoDBUser{Status: MongoDBUserStatus{ProjectId: "existing-id"}}
 	u.UpdateStatus(status.PhaseRunning)
 	assert.Equal(t, "existing-id", u.Status.ProjectId)
+}
+
+func TestMongoDBUser_AuthUser_CarriesAdditionalConnectionStringConfig(t *testing.T) {
+	user := MongoDBUser{
+		Spec: MongoDBUserSpec{
+			Username: "my-user",
+			Database: "admin",
+			AdditionalConnectionStringConfig: v1.MapWrapper{Object: map[string]interface{}{
+				"appName":     "my-app",
+				"retryWrites": false,
+			}},
+		},
+	}
+
+	authUser := user.AuthUser()
+
+	assert.Equal(t, "my-user", authUser.Username)
+	assert.Equal(t, "admin", authUser.Database)
+
+	// The user options reach the URI through the shared builder, where they win over the
+	// resource level options.
+	uri := connectionstring.Options{Hostnames: []string{"host:27017"}}.WithUser(authUser, "password").Build(connectionstring.SchemeMongoDB)
+	assert.Contains(t, uri, "appName=my-app")
+	assert.Contains(t, uri, "retryWrites=false")
 }

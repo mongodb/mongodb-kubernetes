@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -256,6 +257,24 @@ func TestMongoDBMultiCluster_ConnectionURL_SRVExternalDomain(t *testing.T) {
 			"?connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&ssl=false",
 			buildConnectionString(mrs, "", "", "", connectionstring.SchemeMongoDBSRV, nil))
 	})
+}
+
+// TestMongoDBMultiCluster_ConnectionURL_AdditionalConfig pins that the resource level
+// additionalConnectionStringConfig reaches both schemes.
+func TestMongoDBMultiCluster_ConnectionURL_AdditionalConfig(t *testing.T) {
+	mrs := DefaultMultiReplicaSetBuilder().Build()
+	mrs.Spec.AdditionalConnectionStringConfig = v1.MapWrapper{Object: map[string]interface{}{
+		"appName":     "my-app",
+		"retryWrites": false,
+	}}
+
+	standard := buildConnectionString(mrs, "", "", "", connectionstring.SchemeMongoDB, nil)
+	assert.Contains(t, standard, "appName=my-app")
+	assert.Contains(t, standard, "retryWrites=false")
+
+	srv := buildConnectionString(mrs, "", "", "", connectionstring.SchemeMongoDBSRV, nil)
+	assert.Contains(t, srv, "appName=my-app")
+	assert.Contains(t, srv, "retryWrites=false")
 }
 
 // buildConnectionString mirrors the positional API removed from the resource:

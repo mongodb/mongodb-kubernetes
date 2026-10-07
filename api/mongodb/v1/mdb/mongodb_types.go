@@ -474,6 +474,13 @@ type DbCommonSpec struct {
 	// +optional
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 
+	// Additional options to be appended to the connection string. These options apply to the entire resource and to each user.
+	// +kubebuilder:validation:Type=object
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +nullable
+	AdditionalConnectionStringConfig v1.MapWrapper `json:"additionalConnectionStringConfig,omitempty"`
+
 	Persistent *bool `json:"persistent,omitempty"`
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
 	// +kubebuilder:validation:Required
