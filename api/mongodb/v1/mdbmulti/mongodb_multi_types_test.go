@@ -224,6 +224,40 @@ func TestMongoDBMultiCluster_ConnectionURL_ExternalDomain(t *testing.T) {
 		cnx)
 }
 
+// TestMongoDBMultiCluster_ConnectionURL_SRVExternalDomain pins how the SRV URI resolves the
+// external domain. An SRV URI can only carry one domain, so it uses the top level
+// spec.externalAccess domain and falls back to the in cluster service name when only the per
+// member cluster domains are set.
+func TestMongoDBMultiCluster_ConnectionURL_SRVExternalDomain(t *testing.T) {
+	az1Domain := "az1.example.com"
+	az2Domain := "az2.example.com"
+	topLevelDomain := "example.com"
+
+	perClusterDomains := mdb.ClusterSpecList{
+		{ClusterName: "cluster-1", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &az1Domain}},
+		{ClusterName: "cluster-2", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &az2Domain}},
+	}
+
+	t.Run("uses the top level domain when it is set", func(t *testing.T) {
+		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs.Spec.ClusterSpecList = perClusterDomains
+		mrs.Spec.ExternalAccessConfiguration = &mdb.ExternalAccessConfiguration{ExternalDomain: &topLevelDomain}
+
+		assert.Equal(t, "mongodb+srv://example.com/"+
+			"?connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&ssl=false",
+			buildConnectionString(mrs, "", "", "", connectionstring.SchemeMongoDBSRV, nil))
+	})
+
+	t.Run("falls back to the in cluster service name for per member cluster domains", func(t *testing.T) {
+		mrs := DefaultMultiReplicaSetBuilder().Build()
+		mrs.Spec.ClusterSpecList = perClusterDomains
+
+		assert.Equal(t, "mongodb+srv://temple-svc.my-namespace.svc.cluster.local/"+
+			"?connectTimeoutMS=20000&replicaSet=temple&serverSelectionTimeoutMS=20000&ssl=false",
+			buildConnectionString(mrs, "", "", "", connectionstring.SchemeMongoDBSRV, nil))
+	})
+}
+
 // buildConnectionString mirrors the positional API removed from the resource:
 // it fills the resource options with caller supplied user data and parameters.
 func buildConnectionString(mrs *MongoDBMultiCluster, username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {

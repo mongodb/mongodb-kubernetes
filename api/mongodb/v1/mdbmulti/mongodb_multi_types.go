@@ -634,6 +634,10 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 }
 
 // ConnectionOptions fills the resource level connection string settings.
+// The standard URI hostnames honour the external domain of each member cluster. The SRV URI can
+// only carry one domain, so it uses the top level spec.externalAccess domain, which ForSpec fills
+// in. When only per member cluster domains are set the SRV URI falls back to the in cluster service
+// name while the standard URI keeps the external hostnames.
 func (m *MongoDBMultiCluster) ConnectionOptions() connectionstring.Options {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
