@@ -116,11 +116,6 @@ kubeadmConfigPatches:
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
-- |
-  apiVersion: kubeadm.k8s.io/v1beta3
-  kind: ClusterConfiguration
-  networking:
-    dnsDomain: "${cluster_domain}"
 EOF
 }
 
@@ -140,11 +135,6 @@ networking:
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta4
-  kind: ClusterConfiguration
-  networking:
-    dnsDomain: "${cluster_domain}"
-- |
-  apiVersion: kubeadm.k8s.io/v1beta3
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
