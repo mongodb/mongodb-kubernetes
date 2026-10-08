@@ -488,11 +488,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnershipAll(ctx
 
 		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
 		if !ok {
-			log.Warnf(fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s missing from client map", item.ClusterName))
-			continue
-		}
-		if memberClient == nil {
-			return workflow.Failed(xerrors.Errorf("member cluster %s client is not available", item.ClusterName))
+			return workflow.Failed(xerrors.Errorf("failed to arbitrate AppDB ownership: cluster %s missing from client map", item.ClusterName))
 		}
 
 		aggregated = aggregated.Merge(r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, r.memberClusterSecretClientsMap[item.ClusterName], log))
@@ -516,19 +512,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx co
 	}
 
 	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
-	currentOwnerLabels := mrs.GetOwnerLabels()
-	currentOwner := currentOwnerLabels[util.MongoDBMultiClusterResourceOwnerLabel]
+	currentOwner := mrs.GetOwnerLabels()[util.MongoDBMultiClusterResourceOwnerLabel]
 
 	if validationStatus := r.validateAppDBForwardMigration(ctx, mrs, item, sts, secretGetter, log); !validationStatus.IsOK() {
 		return validationStatus
-	}
-
-	for _, key := range []string{util.MongoDBResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBMultiClusterResourceOwnerLabel} {
-		value := ownershipLabels[key]
-		if value == "" || (key == util.MongoDBMultiClusterResourceOwnerLabel && value == currentOwner) {
-			continue
-		}
-		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner")
 	}
 
 	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {

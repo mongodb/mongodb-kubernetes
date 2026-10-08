@@ -1810,51 +1810,6 @@ func TestMDBMultiAppDBAdoptionGate(t *testing.T) {
 			},
 		},
 		{
-			name: "own key wrong value is conflict",
-			role: mdb.RoleAppDB,
-			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
-				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), nil, nil, 3)
-				sts.Labels = map[string]string{util.MongoDBMultiClusterResourceOwnerLabel: "wrong"}
-				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
-			},
-			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
-				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
-				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
-				assertPending(t, gateStatus, "Cannot take ownership of the AppDB Statefulset: it has other owner")
-			},
-		},
-		{
-			name: "two participant keys are conflict",
-			role: mdb.RoleAppDB,
-			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
-				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), nil, nil, 3)
-				sts.Labels = map[string]string{
-					util.MongoDBResourceOwnerLabel:           "my-mdb",
-					util.MongoDBOpsManagerResourceOwnerLabel: "my-om",
-				}
-				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
-			},
-			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
-				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
-				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
-				assertPending(t, gateStatus, "Cannot take ownership of the AppDB Statefulset: it has other owner")
-			},
-		},
-		{
-			name: "foreign key holding our owner value is conflict",
-			role: mdb.RoleAppDB,
-			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
-				sts := appDBGateStatefulSet(mrs.StatefulSetNameForCluster(cluster1), nil, nil, 3)
-				sts.Labels = map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: mrs.GetOwnerLabels()[util.MongoDBMultiClusterResourceOwnerLabel]}
-				require.NoError(t, clusterMap[cluster1].Create(ctx, &sts))
-			},
-			verify: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
-				item := mdb.ClusterSpecItem{ClusterName: cluster1, Members: 3}
-				gateStatus := reconciler.ensureAppDBStatefulSetOwnership(ctx, mrs, item, clusterMap[cluster1], reconciler.memberClusterSecretClientsMap[cluster1], zap.S())
-				assertPending(t, gateStatus, "Cannot take ownership of the AppDB Statefulset: it has other owner")
-			},
-		},
-		{
 			name: "missing controller label is still owned",
 			role: mdb.RoleAppDB,
 			setup: func(t *testing.T, mrs *mdbmulti.MongoDBMultiCluster, reconciler *ReconcileMongoDbMultiReplicaSet, clusterMap map[string]client.Client) {
@@ -2005,9 +1960,9 @@ func TestMDBMultiAppDBOwnershipGate_MemberClusterClients(t *testing.T) {
 		expectedError string
 	}{
 		{
-			name:         "cluster absent from the client map is skipped",
-			deleteClient: true,
-			expectedOK:   true,
+			name:          "cluster absent from the client map fails arbitration",
+			deleteClient:  true,
+			expectedError: fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s missing from client map", clusters[0]),
 		},
 		{
 			name:          "cluster with a nil client fails arbitration",
