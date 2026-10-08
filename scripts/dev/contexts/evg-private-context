@@ -78,8 +78,6 @@ export EXECUTION="${execution:-"unknown"}"
 export BUILD_VARIANT="${build_variant:-"unknown"}"
 export VERSION_ID="${version_id:-"unknown"}"
 GIT_TAG="${triggered_by_git_tag:-}"
-IS_DRYRUN="${IS_DRYRUN:-false}"
-export IS_DRYRUN
 export GIT_TAG
 
 # var used in pipeline.py to determine if we're running on EVG host
@@ -106,6 +104,7 @@ export MDB_UPDATE_LICENSES=true
 BUILD_SCENARIO_RELEASE="release" # Official release triggered by a git tag
 BUILD_SCENARIO_STAGING="staging" # CI build from a merge to the master
 BUILD_SCENARIO_PATCH="patch" # CI build for a patch/pull request
+BUILD_SCENARIO_DRYRUN_RELEASE="dryrun-release" # Release pipeline dry-run
 if [ -n "${BUILD_SCENARIO-}" ]; then
   echo "Build scenario has been set externally, not overriding it"
 elif [ "${GIT_TAG}" ]; then
@@ -117,7 +116,26 @@ else
 fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
+
+if [ -z "${preflight_submit:-}" ]; then
+  if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_DRYRUN_RELEASE}" ]; then
+    preflight_submit="false"
+  else
+    preflight_submit="true"
+  fi
+fi
+export preflight_submit
 export RELEASE_VERSION="${RELEASE_VERSION:-$(jq -r '.mongodbOperator' "${PROJECT_DIR}/release.json")}"
+
+# Select Quay credentials based on build scenario: staging credentials only for
+# dryrun-release (images go to the staging org), production credentials otherwise.
+if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_DRYRUN_RELEASE}" ]; then
+  export quay_username="${quay_staging_username:-}"
+  export quay_password="${quay_staging_robot_token:-}"
+else
+  export quay_username="${quay_prod_username:-}"
+  export quay_password="${quay_prod_robot_token:-}"
+fi
 
 # Set REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION based on build scenario
 # REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION can be overridden externally if needed
@@ -125,8 +143,13 @@ PATCH_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev"
 STAGING_REGISTRY="268558157000.dkr.ecr.us-east-1.amazonaws.com/staging"
 RELEASE_REGISTRY="quay.io/mongodb"
 case ${BUILD_SCENARIO} in
-  "${BUILD_SCENARIO_RELEASE}")
-    REGISTRY="${REGISTRY:-${RELEASE_REGISTRY}}"
+  "${BUILD_SCENARIO_RELEASE}"|"${BUILD_SCENARIO_DRYRUN_RELEASE}")
+    # Dry-run defaults REGISTRY to the staging org; both use release version resolution.
+    if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_DRYRUN_RELEASE}" ]; then
+      REGISTRY="${REGISTRY:-quay.io/mongodb/staging}"
+    else
+      REGISTRY="${REGISTRY:-${RELEASE_REGISTRY}}"
+    fi
     OPERATOR_VERSION="${OPERATOR_VERSION:-${GIT_TAG}}"
     READINESS_PROBE_VERSION_FROM_RELEASE_JSON="$(jq -r '.readinessProbeVersion' "${PROJECT_DIR}/release.json")"
     READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-${READINESS_PROBE_VERSION_FROM_RELEASE_JSON}}"
