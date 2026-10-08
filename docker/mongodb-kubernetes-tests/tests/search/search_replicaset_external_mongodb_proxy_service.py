@@ -17,6 +17,8 @@ Phases:
   3. Scale back to 1 mongot, remove LB -- verify proxy service reverts
 """
 
+from copy import deepcopy
+
 from kubernetes import client as k8s_client
 from kubetester import get_service
 from kubetester.kubetester import run_periodically
@@ -69,6 +71,44 @@ CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 _state = {}
 
 TEST_MARKER = "e2e_search_replicaset_external_mongodb_proxy_service"
+
+SERVICE_METADATA = {
+    "labels": {"example.com/team": "search", "app.kubernetes.io/component": "search"},
+    "annotations": {"example.com/owner": "search", "example.com/keep": "retained"},
+}
+
+
+def assert_service_metadata(namespace: str, expected: dict):
+    expected_names = {
+        search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME),
+        proxy_service_name(MDBS_RESOURCE_NAME),
+    }
+
+    def check():
+        services = (
+            k8s_client.CoreV1Api()
+            .list_namespaced_service(
+                namespace,
+                label_selector=f"mongodb.com/search-name={MDBS_RESOURCE_NAME},mongodb.com/search-namespace={namespace}",
+            )
+            .items
+        )
+        actual_names = {svc.metadata.name for svc in services}
+        if actual_names != expected_names:
+            return False, f"owned Services={actual_names}, expected {expected_names}"
+        for svc in services:
+            for field in ("labels", "annotations"):
+                actual = getattr(svc.metadata, field) or {}
+                wanted = expected.get(field, {})
+                for key in SERVICE_METADATA[field].keys() | {"example.com/added"}:
+                    if actual.get(key) != wanted.get(key):
+                        return (
+                            False,
+                            f"{svc.metadata.name} {field}[{key}]={actual.get(key)}, expected {wanted.get(key)}",
+                        )
+        return True, "both Services have the expected metadata"
+
+    run_periodically(check, timeout=120, sleep_time=5, msg="Search Service metadata")
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +241,7 @@ def mdbs(namespace: str, helper: SearchDeploymentHelper) -> MongoDBSearch:
     """MongoDBSearch with external RS source, single replica, no LB (initial state)."""
     return helper.mdbs_for_ext_rs_source(
         mongot_user_name=MONGOT_USER_NAME,
-        replicas=1,
+        clusters=[{"replicas": 1, "service": {"metadata": deepcopy(SERVICE_METADATA)}}],
     )
 
 
@@ -329,6 +369,7 @@ def test_verify_headless_service_exists(namespace: str):
     assert svc is not None, f"Headless Service {headless_svc_name} not found"
     assert svc.spec.cluster_ip == "None", f"Expected headless (clusterIP=None), got {svc.spec.cluster_ip}"
     logger.info(f"Headless Service {headless_svc_name} exists with clusterIP=None")
+    assert_service_metadata(namespace, SERVICE_METADATA)
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
@@ -388,7 +429,10 @@ def test_scale_up_to_managed_lb(mdbs: MongoDBSearch, namespace: str):
     """Scale to 2 replicas and enable managed LB. mongotHost does NOT change."""
     mdbs.load()
     external_hostname = f"{proxy_service_name(MDBS_RESOURCE_NAME)}.{namespace}.svc.cluster.local"
-    mdbs["spec"]["clusters"] = [{"replicas": 2, "loadBalancer": {"managed": {"externalHostname": external_hostname}}}]
+    service = mdbs["spec"]["clusters"][0]["service"]
+    mdbs["spec"]["clusters"] = [
+        {"replicas": 2, "loadBalancer": {"managed": {"externalHostname": external_hostname}}, "service": service}
+    ]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -409,6 +453,7 @@ def test_verify_proxy_service_managed_lb(namespace: str):
         expected_target_port=ENVOY_PROXY_PORT,
         expected_cluster_ip=_state.get("cluster_ip"),
     )
+    assert_service_metadata(namespace, SERVICE_METADATA)
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
@@ -423,6 +468,26 @@ def test_search_query_phase2(mdb: MongoDB):
     """Search still works -- traffic now flows through Envoy to 2 mongot pods."""
     search_tester = get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     verify_text_search_query(search_tester)
+
+
+@mark.e2e_search_replicaset_external_mongodb_proxy_service
+def test_update_service_metadata(mdbs: MongoDBSearch, namespace: str):
+    mdbs.load()
+    metadata = mdbs["spec"]["clusters"][0]["service"]["metadata"]
+    metadata["labels"].update({"example.com/team": "updated", "example.com/added": "temporary"})
+    metadata["annotations"].update({"example.com/owner": "updated", "example.com/added": "temporary"})
+    mdbs.update()
+    assert_service_metadata(namespace, metadata)
+
+
+@mark.e2e_search_replicaset_external_mongodb_proxy_service
+def test_remove_individual_service_metadata_keys(mdbs: MongoDBSearch, namespace: str):
+    mdbs.load()
+    metadata = mdbs["spec"]["clusters"][0]["service"]["metadata"]
+    del metadata["labels"]["example.com/added"]
+    del metadata["annotations"]["example.com/added"]
+    mdbs.update()
+    assert_service_metadata(namespace, metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +515,7 @@ def test_verify_proxy_service_after_scaledown(namespace: str):
         expected_target_port=MONGOT_GRPC_PORT,
         expected_cluster_ip=_state.get("cluster_ip"),
     )
+    assert_service_metadata(namespace, {})
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service

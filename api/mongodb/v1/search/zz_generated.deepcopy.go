@@ -76,6 +76,11 @@ func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
 		*out = (*in).DeepCopy()
 	}
+	if in.Service != nil {
+		in, out := &in.Service, &out.Service
+		*out = new(mongodbv1.ServiceConfiguration)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.SyncSourceSelector != nil {
 		in, out := &in.SyncSourceSelector, &out.SyncSourceSelector
 		*out = new(SyncSourceSelector)
@@ -757,6 +762,11 @@ func (in *ShardOverride) DeepCopyInto(out *ShardOverride) {
 	if in.StatefulSetConfiguration != nil {
 		in, out := &in.StatefulSetConfiguration, &out.StatefulSetConfiguration
 		*out = (*in).DeepCopy()
+	}
+	if in.Service != nil {
+		in, out := &in.Service, &out.Service
+		*out = new(mongodbv1.ServiceConfiguration)
+		(*in).DeepCopyInto(*out)
 	}
 	if in.JVMFlags != nil {
 		in, out := &in.JVMFlags, &out.JVMFlags
