@@ -328,6 +328,10 @@ patch_aliases:
     description: "Run OM9 variants"
     variant_tags: [ "om9" ]
     task: ".*"
+  - alias: "agent_smoke"
+    description: "Agent-deploying smoke set for cross-triggered agent builds (static + non-static OM9)."
+    variant: "^e2e_(static_)?om90_kind_ubi$"
+    task: "^e2e_om_appdb_(scram|scale_up_down)$"
   - alias: "race"
     description: "Run race detector variants"
     variant_tags: [ "race" ]
