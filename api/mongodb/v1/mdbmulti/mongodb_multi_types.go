@@ -8,6 +8,7 @@ import (
 	"github.com/blang/semver"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -231,6 +232,16 @@ type MongoDBMultiStatus struct {
 	Link                        string              `json:"link,omitempty"`
 	FeatureCompatibilityVersion string              `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// SetStatusCondition adds or updates a status condition on the resource, recording the resource
+// generation the condition was computed for.
+func (m *MongoDBMultiCluster) SetStatusCondition(condition metav1.Condition) {
+	condition.ObservedGeneration = m.GetGeneration()
+	apimeta.SetStatusCondition(&m.Status.Conditions, condition)
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role == \"\"",message="spec.role is not supported on MongoDBMultiCluster"

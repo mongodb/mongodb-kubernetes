@@ -1620,3 +1620,70 @@ func getFakeMultiClusterMapWithoutInterceptor(clusters []string) map[string]clie
 	}
 	return clientMap
 }
+
+// TestManagedMemberSANs covers how many members the shared member certificate covers per cluster.
+func TestManagedMemberSANs(t *testing.T) {
+	spec := func(items ...mdb.ClusterSpecItem) mdb.ClusterSpecList { return mdb.ClusterSpecList(items) }
+
+	tests := []struct {
+		name      string
+		effective mdb.ClusterSpecList
+		desired   mdb.ClusterSpecList
+		expected  []int
+	}{
+		{
+			name:      "scale-up covers the target number so the cert is issued once",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 2}, mdb.ClusterSpecItem{ClusterName: "c3", Members: 3}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 5}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 6}, mdb.ClusterSpecItem{ClusterName: "c3", Members: 3}),
+			expected:  []int{5, 6, 3},
+		},
+		{
+			name:      "steady state is unchanged",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 3}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 3}),
+			expected:  []int{3, 3},
+		},
+		{
+			name:      "scale-down keeps the members that exist",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 1}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 1}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 1}),
+			expected:  []int{3, 1},
+		},
+		{
+			name:      "cluster being removed keeps its effective members",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 2}, mdb.ClusterSpecItem{ClusterName: "gone", Members: 0}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 2}),
+			expected:  []int{2, 0},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			mrs.Spec.ClusterSpecList = tc.desired
+
+			sans := memberClustersForManagedCert(mrs, tc.effective)
+			got := make([]int, 0, len(sans))
+			for _, s := range sans {
+				got = append(got, s.Members)
+			}
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+
+	t.Run("the external domain is taken per member cluster", func(t *testing.T) {
+		extA, extC := "ext-cluster-a.example.com", "ext-cluster-c.example.com"
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+			{ClusterName: "c1", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &extA}},
+			{ClusterName: "c2", Members: 2},
+			{ClusterName: "c3", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &extC}},
+		}
+
+		sans := memberClustersForManagedCert(mrs, mrs.Spec.ClusterSpecList)
+		require.Len(t, sans, 3)
+		assert.Equal(t, &extA, sans[0].ExternalDomain)
+		assert.Nil(t, sans[1].ExternalDomain)
+		assert.Equal(t, &extC, sans[2].ExternalDomain)
+	})
+}
