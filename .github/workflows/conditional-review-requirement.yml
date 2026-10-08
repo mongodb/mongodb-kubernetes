@@ -1,0 +1,82 @@
+name: Conditional review requirement
+
+on:
+  pull_request_target:
+    branches:
+      - master
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - labeled
+      - unlabeled
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+
+concurrency:
+  group: conditional-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  update-review-status:
+    name: Update conditional review status
+    if: github.event.pull_request.base.ref == 'master' && github.event.pull_request.state == 'open'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+
+    steps:
+      - name: Mark review status as pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${PR_HEAD_SHA}" \
+            -f state=pending \
+            -f context='Conditional review requirement' \
+            -f description='Checking the current pull request reviews.'
+
+      - name: Check out trusted base revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Evaluate current review approvals
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "${temp_dir}"' EXIT
+
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "${temp_dir}/pull-request.json"
+          head_sha="$(jq -r '.head.sha' "${temp_dir}/pull-request.json")"
+          if [[ "${head_sha}" != "${PR_EVENT_HEAD_SHA}" ]]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${head_sha}" \
+              -f state=pending \
+              -f context='Conditional review requirement' \
+              -f description='Checking the current pull request reviews.'
+          fi
+
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+            > "${temp_dir}/review-pages.json"
+          result="$(python3 scripts/conditional_review_requirement.py "${temp_dir}/pull-request.json" "${temp_dir}/review-pages.json")"
+          state="$(jq -r '.state' <<<"${result}")"
+          description="$(jq -r '.description' <<<"${result}")"
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${head_sha}" \
+            -f "state=${state}" \
+            -f context='Conditional review requirement' \
+            -f "description=${description}"
+          printf '%s\n' "${description}" >> "${GITHUB_STEP_SUMMARY}"
+
+          [[ "${state}" == "success" ]]
