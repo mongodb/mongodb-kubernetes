@@ -112,7 +112,7 @@ networking:
   serviceSubnet: "${service_network}"
 kubeadmConfigPatches:
 - |
-  apiVersion: kubeadm.k8s.io/v1beta3
+  apiVersion: kubeadm.k8s.io/v1beta4
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
@@ -134,7 +134,7 @@ networking:
   serviceSubnet: "${service_network}"
 kubeadmConfigPatches:
 - |
-  apiVersion: kubeadm.k8s.io/v1beta3
+  apiVersion: kubeadm.k8s.io/v1beta4
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
