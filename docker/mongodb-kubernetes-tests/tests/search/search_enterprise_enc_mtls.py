@@ -216,8 +216,8 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 
 
 @mark.e2e_search_enterprise_enc_mtls
-def test_search_verify_prometheus_enabled(namespace: str, mdbs: MongoDBSearch):
-    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
+def test_search_verify_prometheus_enabled(namespace: str, custom_mdb_version: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace, custom_mdb_version)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=9946)
     assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=9946)
 
@@ -230,8 +230,8 @@ def test_search_change_prometheus_to_custom_port(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_enterprise_enc_mtls
-def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, mdbs: MongoDBSearch):
-    tools_pod = mongodb_tools_pod.get_tools_pod(namespace)
+def test_search_verify_prometheus_enabled_on_custom_port(namespace: str, custom_mdb_version: str, mdbs: MongoDBSearch):
+    tools_pod = mongodb_tools_pod.get_tools_pod(namespace, custom_mdb_version)
     assert_search_service_prometheus_port(mdbs, should_exist=True, expected_port=10000)
     assert_search_pod_prometheus_endpoint(mdbs, tools_pod, should_be_accessible=True, port=10000)
 
@@ -242,7 +242,7 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.S
         SearchTester.for_replicaset(
             mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
         ),
-        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdb.get_version()),
     )
 
 

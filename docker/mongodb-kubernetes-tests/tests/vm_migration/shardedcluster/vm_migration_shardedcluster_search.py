@@ -305,7 +305,7 @@ def sample_movies_helper(namespace: str) -> SampleMoviesSearchHelper:
     hosts = ",".join(_vm_mongos_hosts(namespace))
     cnx_string = f"mongodb://{ADMIN_USER_NAME}:{ADMIN_USER_PASSWORD}@{hosts}/?authSource=admin"
     return movies_search_helper.SampleMoviesSearchHelper(
-        SearchTester(cnx_string), tools_pod=mongodb_tools_pod.get_tools_pod(namespace)
+        SearchTester(cnx_string), tools_pod=mongodb_tools_pod.get_tools_pod(namespace, MDB_VERSION)
     )
 
 
@@ -624,7 +624,9 @@ def test_search_resource_still_running(mdbs: MongoDBSearch):
 @mark.e2e_vm_migration_shardedcluster_search
 def test_search_query_works_after_migration(mdb_migration: MongoDB, namespace: str):
     tester = SearchTester.for_sharded(mdb_migration, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
-    helper = movies_search_helper.SampleMoviesSearchHelper(tester, tools_pod=mongodb_tools_pod.get_tools_pod(namespace))
+    helper = movies_search_helper.SampleMoviesSearchHelper(
+        tester, tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdb_migration.get_version())
+    )
     helper.assert_search_query(retry_timeout=180)
 
 
