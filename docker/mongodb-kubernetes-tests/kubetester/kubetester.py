@@ -242,11 +242,6 @@ class KubernetesTester(object):
         )
 
     @classmethod
-    def read_operator_pod(cls, namespace: str) -> Dict[str, str]:
-        label_selector = "app.kubernetes.io/name=mongodb-enterprise-operator"
-        return cls.read_pod_labels(namespace, label_selector).items[0]
-
-    @classmethod
     def read_pod_labels(cls, namespace: str, label_selector: Optional[str] = None):
         """Reads a Pod by labels."""
         return cls.clients("corev1").list_namespaced_pod(namespace=namespace, label_selector=label_selector)
