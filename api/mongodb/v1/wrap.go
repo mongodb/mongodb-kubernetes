@@ -210,6 +210,20 @@ func (s *ServiceSpecWrapper) DeepCopy() *ServiceSpecWrapper {
 	}
 }
 
+// ServiceConfiguration configures metadata on operator-created Services.
+type ServiceConfiguration struct {
+	// +optional
+	MetadataWrapper ServiceMetadataWrapper `json:"metadata,omitempty"`
+}
+
+// ServiceMetadataWrapper contains user-defined Service labels and annotations.
+type ServiceMetadataWrapper struct {
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
 // StatefulSetConfiguration holds the optional custom StatefulSet
 // that should be merged into the operator created one.
 type StatefulSetConfiguration struct {
