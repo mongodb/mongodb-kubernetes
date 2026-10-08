@@ -29,7 +29,7 @@ jobs:
     permissions:
       pull-requests: read
     steps:
-      - name: Evaluate review requirement
+      - name: Fetch pull request review data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -37,7 +37,7 @@ jobs:
           set -Eeuo pipefail
 
           # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
-          pr_json="$(gh api graphql \
+          gh api graphql \
             -f owner="${GITHUB_REPOSITORY%/*}" \
             -f name="${GITHUB_REPOSITORY#*/}" \
             -F number="${PR_NUMBER}" \
@@ -45,28 +45,30 @@ jobs:
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
                   pullRequest(number: $number) {
-                    author { login }
-                    labels(first: 100) { nodes { name } }
                     latestReviews(first: 100) {
-                      nodes { state author { login __typename } authorAssociation }
+                      nodes { state author { __typename } authorAssociation }
                     }
                   }
                 }
-              }')"
+              }' > "${RUNNER_TEMP}/pull-request.json"
 
-          if ! jq -e '.data.repository.pullRequest.labels.nodes | map(.name | ascii_downcase) | index("needs-extra-review")' <<<"${pr_json}" > /dev/null; then
+      - name: Evaluate review requirement
+        env:
+          GATED: ${{ contains(github.event.pull_request.labels.*.name, 'needs-extra-review') }}
+        run: |
+          set -Eeuo pipefail
+
+          if [ "${GATED}" != "true" ]; then
             echo "needs-extra-review is not set; the default one-approval rule applies." >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
 
-          author="$(jq -r '.data.repository.pullRequest.author.login // "" | ascii_downcase' <<<"${pr_json}")"
-          approvals="$(jq --arg author "${author}" '
+          approvals="$(jq '
             [.data.repository.pullRequest.latestReviews.nodes[]
              | select(.state == "APPROVED")
              | select(.author.__typename == "User")
-             | select((.authorAssociation // "") | IN("MEMBER", "OWNER", "COLLABORATOR"))
-             | select(((.author.login // "") | ascii_downcase) != $author)]
-            | length' <<<"${pr_json}")"
+             | select((.authorAssociation // "") | IN("MEMBER", "OWNER", "COLLABORATOR"))]
+            | length' "${RUNNER_TEMP}/pull-request.json")"
 
           if [ "${approvals}" -ge 2 ]; then
             echo "${approvals} distinct reviewers approved; 2 required." >> "${GITHUB_STEP_SUMMARY}"
