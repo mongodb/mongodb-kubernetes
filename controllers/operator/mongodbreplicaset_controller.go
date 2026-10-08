@@ -7,12 +7,15 @@ import (
 	"slices"
 	"strings"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -283,6 +286,25 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// === 2. Auth and Certificates
 	// Get certificate paths for later use
 	rsCertsConfig := certs.ReplicaSetConfig(*rs)
+
+	// If managedCertificate is enabled (spec.security.managedCertificate), the certs required
+	// for this workload (the resource that's being reconciled) need to be created before the
+	// rest of the workflow reads the resulting cert secrets.
+	if rs.GetSecurity().IsManagedCertificateEnabled() {
+		status, certsCondition := certs.EnsureCertificatesAndCA(
+			ctx,
+			reconciler.client,
+			rs,
+			[]certs.Options{rsCertsConfig},
+			log,
+		)
+
+		rs.SetStatusCondition(certsCondition)
+		if !status.IsOK() {
+			return r.updateStatus(ctx, status)
+		}
+	}
+
 	var databaseSecretPath string
 	if reconciler.VaultClient != nil {
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
@@ -652,6 +674,19 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	return rsConfig
 }
 
+// certManagerCRDsInstalled reports whether the cert-manager Certificate CRD is
+// installed in the cluster, by asking the RESTMapper for a mapping. Used to gate
+// the Certificate watch, since watching an absent CRD fails the informer.
+func certManagerCRDsInstalled(restMapper apimeta.RESTMapper) bool {
+	gvk := schema.GroupVersionKind{
+		Group:   certmanagerv1.SchemeGroupVersion.Group,
+		Version: certmanagerv1.SchemeGroupVersion.Version,
+		Kind:    "Certificate",
+	}
+	_, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	return err == nil
+}
+
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture) error {
@@ -693,6 +728,20 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
+	}
+
+	// Watch operator-owned cert-manager Certificates so a Ready-status transition
+	// re-triggers reconcile of the owning MongoDB.
+	// ToDo @viveksinghggits: Right now we do it only if cert-manager resources are
+	// registered in the cluster that would change after install ux day 2 TD if finalised.
+	if certManagerCRDsInstalled(mgr.GetRESTMapper()) {
+		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &certmanagerv1.Certificate{},
+			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner())))
+		if err != nil {
+			return err
+		}
+	} else {
+		zap.S().Info("cert-manager CRDs not installed; skipping Certificate watch. Operator-managed TLS certificates will be unavailable until cert-manager is installed.")
 	}
 
 	if enableClusterMongoDBRoles {

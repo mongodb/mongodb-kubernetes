@@ -314,6 +314,10 @@ const (
 
 	TLSCertMountPath = PvcMmsHomeMountPath + "/tls"
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
+	// TLSClusterCaMountPath is where the operator-owned client-category CA bundle
+	// ConfigMap is mounted in managed-certificate mode. Wired to mongod's
+	// net.tls.clusterCAFile.
+	TLSClusterCaMountPath = PvcMmsHomeMountPath + "/tls/clusterca"
 
 	// Annotation keys used by the operator
 	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"

@@ -134,6 +134,12 @@ type Options struct {
 	ResourceName string
 	// Replicas is the number of replicas.
 	Replicas int
+	// MembersToCover is how many members the member/server cert's SANs should cover this reconcile and
+	// is max(current, desired). On a scale-up this is the target size, so we generate the SANs for all
+	// target members at once and issue the cert a single time, instead of recomputing the SANs (and reissuing
+	// the cert) at every reconcile. On a scale-down it equals current, there the SANs are held steady by the
+	// count recorded in the Certificate annotation, not by this field.
+	MembersToCover int
 	// Namespace is the namespace the resource is in.
 	Namespace string
 	// ServiceName is the name of the service which is created for the resource.
@@ -176,6 +182,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(&mdb),
+		MembersToCover:               max(mdb.CurrentReplicas(), mdb.DesiredReplicas()),
 		ServiceName:                  mdb.ServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
