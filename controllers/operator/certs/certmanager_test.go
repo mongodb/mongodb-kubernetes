@@ -555,3 +555,76 @@ func TestShardedComponentConfigsSetMembersToCover(t *testing.T) {
 		assert.Equal(t, 5, opts.MembersToCover, "%s cert Options must set MembersToCover to max(current, desired)", name)
 	}
 }
+
+// TestResolveMultiClusterMembersToCover covers the per-cluster never-shrink rule for the
+// multi-cluster member certificate: each cluster covers max(desired, previously covered) members.
+func TestResolveMultiClusterMembersToCover(t *testing.T) {
+	ext := "example.com"
+	mk := func(name string, num, members int, external *string) MemberCluster {
+		return MemberCluster{ClusterName: name, ClusterNum: num, Members: members, ExternalDomain: external}
+	}
+
+	tests := []struct {
+		name       string
+		clusters   []MemberCluster
+		covered    map[string]int
+		expMembers map[string]int
+	}{
+		{
+			name:       "first reconcile covers the desired members and covered would be empty",
+			clusters:   []MemberCluster{mk("a", 0, 3, nil), mk("b", 1, 3, &ext)},
+			covered:    map[string]int{},
+			expMembers: map[string]int{"a": 3, "b": 3},
+		},
+		{
+			name:       "scale-up in one cluster jumps to the target and doesn't go one by one",
+			clusters:   []MemberCluster{mk("a", 0, 5, nil), mk("b", 1, 3, nil)},
+			covered:    map[string]int{"a": 3, "b": 3},
+			expMembers: map[string]int{"a": 5, "b": 3},
+		},
+		{
+			name:       "scale-down holds the previously covered count",
+			clusters:   []MemberCluster{mk("a", 0, 3, nil), mk("b", 1, 3, nil)},
+			covered:    map[string]int{"a": 5, "b": 3},
+			expMembers: map[string]int{"a": 5, "b": 3},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, annotation := resolveMultiClusterMembersToCover(tc.clusters, tc.covered)
+			gotMembers := map[string]int{}
+			for _, m := range resolved {
+				gotMembers[m.ClusterName] = m.Members
+			}
+			assert.Equal(t, tc.expMembers, gotMembers)
+			// The annotation records the same per-cluster counts.
+			assert.Equal(t, tc.expMembers, annotation)
+			// External domains are carried through untouched.
+			assert.Equal(t, tc.clusters[0].ExternalDomain, resolved[0].ExternalDomain)
+		})
+	}
+}
+
+// TestMemberClusterDNSNames covers the per-cluster SAN generation for the multi-cluster member
+// cert, the internal per-pod service FQDNs, plus the external hostnames when the cluster is exposed.
+func TestMemberClusterDNSNames(t *testing.T) {
+	opts := Options{ResourceName: "mrs", Namespace: "ns", ClusterDomain: "cluster.local"}
+
+	t.Run("internal FQDNs only when the cluster is not externally exposed", func(t *testing.T) {
+		names := memberClusterDNSNames(opts, 0, 2, nil)
+		assert.ElementsMatch(t, []string{
+			"mrs-0-0-svc.ns.svc.cluster.local",
+			"mrs-0-1-svc.ns.svc.cluster.local",
+		}, names)
+	})
+
+	t.Run("internal and external hostnames when the cluster is externally exposed", func(t *testing.T) {
+		ext := "example.com"
+		names := memberClusterDNSNames(opts, 1, 1, &ext)
+		assert.ElementsMatch(t, []string{
+			"mrs-1-0-svc.ns.svc.cluster.local",
+			"mrs-1-0.example.com",
+		}, names)
+	})
+}

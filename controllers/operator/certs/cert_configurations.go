@@ -140,6 +140,9 @@ type Options struct {
 	// the cert) at every reconcile. On a scale-down it equals current, there the SANs are held steady by the
 	// count recorded in the Certificate annotation, not by this field.
 	MembersToCover int
+	// MultiClusterMembers is set in multi cluster scenarios and is used to figure out the union
+	// of the member's SAN across all the clusters while creating the shared member certificate.
+	MultiClusterMembers []MemberCluster
 	// Namespace is the namespace the resource is in.
 	Namespace string
 	// ServiceName is the name of the service which is created for the resource.
@@ -157,6 +160,15 @@ type Options struct {
 	Topology string
 
 	OwnerReference []metav1.OwnerReference
+}
+
+// MemberCluster describes one member cluster's details to figure out the union SAN list of a
+// multi-cluster member certificate.
+type MemberCluster struct {
+	ClusterNum     int
+	ClusterName    string
+	Members        int
+	ExternalDomain *string
 }
 
 // StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
@@ -267,6 +279,22 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 		Topology:                  mdbv1.ClusterTopologyMultiCluster,
 		OwnerReference:            mdbm.GetOwnerReferences(),
 		ExternalDomain:            mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
+	}
+}
+
+// MultiReplicaSetManagedCertConfig builds the single Options type for the managed member certificate of a
+// multi-cluster replica set. All member clusters share one member cert, so its SANs are the union
+// across clusters.
+func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, clusters []MemberCluster) Options {
+	return Options{
+		ResourceName:              mdbm.Name,
+		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
+		InternalClusterSecretName: mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
+		Namespace:                 mdbm.Namespace,
+		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
+		Topology:                  mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:            mdbm.GetOwnerReferences(),
+		MultiClusterMembers:       clusters,
 	}
 }
 

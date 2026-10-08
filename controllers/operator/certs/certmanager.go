@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -94,6 +96,13 @@ type certToEnsure struct {
 // SAN list steady while the scale fo deployment is in progress so the shared cert is not
 // reissued at every one-at-a-time step.
 const coveredMembersAnnotation = "mongodb.com/covered-members"
+
+// coveredMembersPerClusterAnnotation stores, per member cluster, how many members' SANs are
+// currently baked into the multi-cluster member certificate. Same purpose as
+// coveredMembersAnnotation but for the multi-cluster case, where one certificate covers several
+// clusters so the count has to be held per cluster. The value is a JSON object of
+// cluster name -> member count.
+const coveredMembersPerClusterAnnotation = "mongodb.com/covered-members-per-cluster"
 
 func selfSignedIssuerName(res CertificateOwner, cat certCategory) string {
 	return fmt.Sprintf("%s-%s-selfsigned", res.GetName(), cat)
@@ -338,20 +347,28 @@ func inspectCertificateStatus(name string, cert *certmanagerv1.Certificate) cert
 func componentCertificates(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, opts Options) []certToEnsure {
 	sec := res.GetSecurity()
 
-	// SAN count for the shared member (server) cert, max(current, desired), but never below what
-	// the cert already covers (the annotation value in certificate resource). Holding the count
+	// SANs for the shared member (server) cert. For a multi-cluster replica set one cert covers
+	// every member cluster, so its SANs are the union across clusters and the never-shrink count is
+	// held per cluster. For everything else it is a single count: max(current, desired), but never
+	// below what the cert already covers (the annotation on the certificate). Holding the count
 	// steady across a scale avoids reissuing the cert at every one-at-a-time step, which would
 	// churn its hash-named file and can leave agents loading a file that's already been deleted.
 	// Names are rebuilt from current config each reconcile; only the count is held.
-	covered := readCoveredMembersCount(ctx, c, res, opts.CertSecretName)
-	toCover := resolveMembersToCover(opts, covered)
-	// we create memberDNSOpts and set Replicas to toCover so that the buildDNSNames generates
-	// the DNS names for the resolved member count rather than opts.Replicas.
-	memberDNSOpts := opts
-	memberDNSOpts.Replicas = toCover
-	dnsNames := buildDNSNames(memberDNSOpts)
-
-	memberCertAnnotations := map[string]string{coveredMembersAnnotation: strconv.Itoa(toCover)}
+	var dnsNames []string
+	var memberCertAnnotations map[string]string
+	if len(opts.MultiClusterMembers) > 0 {
+		// multi cluster deployment
+		dnsNames, memberCertAnnotations = multiClusterMemberSANs(ctx, c, res, opts)
+	} else {
+		covered := readCoveredMembersCount(ctx, c, res, opts.CertSecretName)
+		toCover := resolveMembersToCover(opts, covered)
+		// we create memberDNSOpts and set Replicas to toCover so that the buildDNSNames generates
+		// the DNS names for the resolved member count rather than opts.Replicas.
+		memberDNSOpts := opts
+		memberDNSOpts.Replicas = toCover
+		dnsNames = buildDNSNames(memberDNSOpts)
+		memberCertAnnotations = map[string]string{coveredMembersAnnotation: strconv.Itoa(toCover)}
+	}
 	internalX509 := sec.GetInternalClusterAuthenticationMode() == util.X509
 
 	var memberSub *certmanagerv1.X509Subject
@@ -591,6 +608,77 @@ func readCoveredMembersCount(ctx context.Context, c kubernetesClient.Client, res
 		}
 	}
 	return 0
+}
+
+// multiClusterMemberSANs builds the union SAN list for a multi-cluster member certificate and the
+// per-cluster never-shrink annotation. Each cluster covers max(desired, previously covered) members,
+// so a scale-up jumps to the target once and a scale-down holds the SANs steady.
+func multiClusterMemberSANs(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, opts Options) ([]string, map[string]string) {
+	covered := coveredMembersPerCluster(ctx, c, res, opts.CertSecretName)
+	resolved, perClusterCount := resolveMultiClusterMembersToCover(opts.MultiClusterMembers, covered)
+
+	var dnsNames []string
+	for _, m := range resolved {
+		dnsNames = append(dnsNames, memberClusterDNSNames(opts, m.ClusterNum, m.Members, m.ExternalDomain)...)
+	}
+
+	encoded, err := json.Marshal(perClusterCount)
+	if err != nil {
+		// fall back to an empty object rather than fail.
+		encoded = []byte("{}")
+	}
+	return dnsNames, map[string]string{coveredMembersPerClusterAnnotation: string(encoded)}
+}
+
+// resolveMultiClusterMembersToCover decides how many members' SANs the member certificate should cover in
+// each member cluster, the bigger of what the cluster wants now and what the certificate already covers.
+// So a scale-up grows the certificate, but a scale-down never shrinks it. It returns the counts as a list,
+// used to build the SANs, and as a map, saved in the certificate annotation for the next reconcile.
+func resolveMultiClusterMembersToCover(clusters []MemberCluster, covered map[string]int) ([]MemberCluster, map[string]int) {
+	resolved := make([]MemberCluster, 0, len(clusters))
+	perClusterCount := make(map[string]int, len(clusters))
+	for _, m := range clusters {
+		members := m.Members
+		if prev := covered[m.ClusterName]; prev > members {
+			members = prev
+		}
+		perClusterCount[m.ClusterName] = members
+		resolved = append(resolved, MemberCluster{
+			ClusterNum:     m.ClusterNum,
+			ClusterName:    m.ClusterName,
+			Members:        members,
+			ExternalDomain: m.ExternalDomain,
+		})
+	}
+	return resolved, perClusterCount
+}
+
+// memberClusterDNSNames returns the SANs for one member cluster, the internal per-pod service
+// FQDNs for its members, plus the external hostnames when that cluster is externally exposed. Both
+// are listed so the certificate works for internal and external connections.
+func memberClusterDNSNames(opts Options, clusterNum, members int, externalDomain *string) []string {
+	names := dns.GetMultiClusterProcessHostnames(opts.ResourceName, opts.Namespace, clusterNum, members, opts.ClusterDomain, nil)
+	if externalDomain != nil {
+		names = append(names, dns.GetMultiClusterProcessHostnames(opts.ResourceName, opts.Namespace, clusterNum, members, opts.ClusterDomain, externalDomain)...)
+	}
+	return names
+}
+
+// coveredMembersPerCluster returns, for each member cluster, how many members' SANs the member
+// certificate covers. The operator stores these counts in an annotation on the certificate. Returns an
+// empty map when the certificate or the annotation does not exist yet (e.g. the first reconcile).
+func coveredMembersPerCluster(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, memberCertName string) map[string]int {
+	covered := map[string]int{}
+	existing := &certmanagerv1.Certificate{}
+	if err := c.Get(ctx, types.NamespacedName{Name: memberCertName, Namespace: res.GetNamespace()}, existing); err != nil {
+		return covered
+	}
+	v, ok := existing.Annotations[coveredMembersPerClusterAnnotation]
+	if !ok {
+		return covered
+	}
+	_ = json.Unmarshal([]byte(v), &covered)
+	return covered
 }
 
 // ensureSelfSignedCA idempotently creates the per-category self-signed CA chain used to
