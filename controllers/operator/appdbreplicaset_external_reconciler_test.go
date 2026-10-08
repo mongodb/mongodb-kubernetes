@@ -262,7 +262,7 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnershipAndAnnotates(t *testing.
 	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 }
 
-func TestEnsureAppDBStatefulSetOwnership_NoOpWhenNoStatefulSetExists(t *testing.T) {
+func TestEnsureAppDBStatefulSetOwnership_WaitsWhenNoStatefulSetExists(t *testing.T) {
 	ctx := context.Background()
 
 	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().SetName("test-om").Build(), validExternalAppDBRef())
@@ -276,7 +276,7 @@ func TestEnsureAppDBStatefulSetOwnership_NoOpWhenNoStatefulSetExists(t *testing.
 	externalAppDB, err := ext.getExternalAppDBReference(ctx, testOm)
 	require.NoError(t, err)
 	st := ext.ensureAppDBStatefulSetOwnership(ctx, testOm, externalAppDB)
-	require.True(t, st.IsOK(), "Fresh Start: no internal AppDB StatefulSet ever existed, detach must be a no-op")
+	require.Equal(t, status.PhasePending, st.Phase(), "Fresh Start: no internal AppDB StatefulSet ever existed, the gate waits for the external AppDB to create it")
 }
 
 func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
@@ -428,9 +428,11 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 		runTwice        bool
 	}{
 		{
-			name:           "fresh start skips missing StatefulSets in every cluster",
-			createStates:   map[string]appDBStatefulSetState{},
-			expectedStates: map[string]appDBStatefulSetState{},
+			name:            "fresh start waits for the external AppDB to create the StatefulSets",
+			createStates:    map[string]appDBStatefulSetState{},
+			expectedStates:  map[string]appDBStatefulSetState{},
+			expectedPhase:   status.PhasePending,
+			expectedMessage: "waiting for the external AppDB to create StatefulSet test-om-db-0 for cluster cluster-1",
 		},
 		{
 			name: "OM-owned StatefulSets detach per cluster and leave others untouched",
@@ -484,7 +486,7 @@ func TestEnsureAppDBStatefulSetOwnership_MultiClusterExternal(t *testing.T) {
 				"cluster-3": {ownerReferences: kube.BaseOwnerReference(testOm), annotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: trueString}, labels: mergeAppDBStatefulSetLabels(map[string]string{"app": "demo"}, omOwnerLabels)},
 			},
 			expectedPhase:   status.PhaseFailed,
-			expectedMessage: "StatefulSet test-om-db-1 for cluster cluster-2 does not exist: the external AppDB cluster numbers do not match the internal AppDB",
+			expectedMessage: "StatefulSet test-om-db-1 for cluster cluster-2 is missing: declared by the external AppDB reference but not part of the internal AppDB",
 		},
 		{
 			name: "partially existing StatefulSets wait for the external AppDB when none are OM-owned",

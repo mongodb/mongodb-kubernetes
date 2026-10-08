@@ -1654,6 +1654,9 @@ func TestOpsManagerReconcile_ExternalAppDBRef_TLS_MountsAppDBCAVolume(t *testing
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+	// the ownership gate waits for the external AppDB StatefulSet to exist before the OM deploys
+	externalAppDBSts := DefaultStatefulSetBuilder().SetName("test-om-db").SetLabels(map[string]string{util.MongoDBResourceOwnerLabel: "test-om-db"}).Build()
+	require.NoError(t, reconciler.client.Create(ctx, &externalAppDBSts))
 	require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
 		SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
 		SetNamespace(testOm.Namespace).
