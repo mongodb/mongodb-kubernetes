@@ -75,6 +75,7 @@ start_minikube_cluster() {
   local start_args=("--driver=podman" "--container-runtime=containerd" "--force")
   start_args+=("--cpus=4" "--memory=8g")
   start_args+=("--cni=bridge")
+  start_args+=("--kubernetes-version=v$(jq -r '.kubernetes.max' "${PROJECT_DIR:-.}/kubernetes-versions.json")")
 
   echo "Starting minikube with args: ${start_args[*]}"
   if sudo TMPDIR="${MINIKUBE_TMPDIR}" "${PROJECT_DIR:-.}/bin/minikube" start "${start_args[@]}"; then

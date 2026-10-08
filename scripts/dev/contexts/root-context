@@ -160,7 +160,7 @@ export OPERATOR_CLUSTER_SCOPED=false
 
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
-export KUBECTL_VERSION="v1.35.0"
+export KUBECTL_VERSION="v$(jq -r '.kubernetes.max' "${PROJECT_DIR}/kubernetes-versions.json")"
 
 # s390x-specific feature flags — use ${VAR:-default} so they can be overridden before sourcing this context.
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation
