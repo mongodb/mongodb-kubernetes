@@ -37,7 +37,7 @@ func TestReadAutomationAgents_StopsAtMaxPagesWhenServerAlwaysReportsNext(t *test
 	conn := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: srv.URL, GroupID: "1"}, OptionRetryConfig(0, 0, 0))
 
 	itemsSeen := 0
-	found, err := TraversePages(context.Background(), conn.ReadAutomationAgents, func(interface{}) bool {
+	found, err := TraversePages(context.Background(), conn.ReadAutomationAgents, func(any) bool {
 		itemsSeen++
 		return false
 	})
@@ -62,7 +62,7 @@ func TestReadAutomationAgents_ContextDeadlineAbortsHangingOpsManager(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	_, err := TraversePages(ctx, conn.ReadAutomationAgents, func(interface{}) bool { return false })
+	_, err := TraversePages(ctx, conn.ReadAutomationAgents, func(any) bool { return false })
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)

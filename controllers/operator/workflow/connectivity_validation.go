@@ -18,7 +18,7 @@ type connectivityValidationStatus struct {
 }
 
 // ConnectivityValidation returns a status that sets phase to PhaseConnectivityValidation (migration dry-run).
-func ConnectivityValidation(msg string, params ...interface{}) *connectivityValidationStatus {
+func ConnectivityValidation(msg string, params ...any) *connectivityValidationStatus {
 	return &connectivityValidationStatus{commonStatus: newCommonStatus(msg, params...)}
 }
 

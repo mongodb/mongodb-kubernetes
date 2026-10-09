@@ -228,8 +228,7 @@ func classifyError(err error, log *zap.SugaredLogger) int {
 	}
 	// ServerSelectionError.Wrapped is just "server selection timeout" — the actual
 	// per-server cause lives in Desc.Servers[i].LastError.
-	var selErr topology.ServerSelectionError
-	if errors.As(err, &selErr) {
+	if selErr, ok := errors.AsType[topology.ServerSelectionError](err); ok {
 		log.Debugw("ServerSelectionError", "numServers", len(selErr.Desc.Servers))
 		for i, srv := range selErr.Desc.Servers {
 			if srv.LastError != nil {
@@ -253,18 +252,15 @@ func classifyConnectionError(err error, log *zap.SugaredLogger) int {
 		return exitcode.ExitSuccess
 	}
 	// DNS implements net.Error; check DNS before net.Error.
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
+	if dnsErr, ok := errors.AsType[*net.DNSError](err); ok {
 		log.Debugw("Classified as DNS error", "err", dnsErr)
 		return exitcode.ExitNetworkFailed
 	}
-	var certInvalid x509.CertificateInvalidError
-	if errors.As(err, &certInvalid) {
+	if certInvalid, ok := errors.AsType[x509.CertificateInvalidError](err); ok {
 		log.Debugw("Classified as cert invalid", "reason", certInvalid.Reason)
 		return exitcode.ExitNetworkFailed
 	}
-	var unknownAuthority x509.UnknownAuthorityError
-	if errors.As(err, &unknownAuthority) {
+	if _, ok := errors.AsType[x509.UnknownAuthorityError](err); ok {
 		log.Debugw("Classified as unknown authority")
 		return exitcode.ExitNetworkFailed
 	}
@@ -278,8 +274,7 @@ func classifyConnectionError(err error, log *zap.SugaredLogger) int {
 		log.Debugw("Classified as auth failed (command)", "code", cmdErr.Code)
 		return exitcode.ExitAuthFailed
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if netErr, ok := errors.AsType[net.Error](err); ok {
 		log.Debugw("Classified as network error", "timeout", netErr.Timeout())
 		return exitcode.ExitNetworkFailed
 	}

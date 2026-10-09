@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -147,8 +146,8 @@ func TestMerge(t *testing.T) {
 				"node-1": "node-1",
 			},
 			ServiceAccountName:            "my-service-account-override",
-			TerminationGracePeriodSeconds: int64Ref(11),
-			ActiveDeadlineSeconds:         int64Ref(10),
+			TerminationGracePeriodSeconds: new(int64(11)),
+			ActiveDeadlineSeconds:         new(int64(10)),
 			NodeName:                      "my-node-name",
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			Containers: []corev1.Container{
@@ -208,7 +207,7 @@ func TestMultipleMerges(t *testing.T) {
 	mergedSpec := defaultPodSpec
 
 	// multiple merges must give the same result
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mergedSpec := merge.PodTemplateSpecs(mergedSpec, customPodSpecTemplate)
 		assert.Equal(t, referenceSpec, mergedSpec)
 	}
@@ -396,7 +395,7 @@ func TestMergeContainer(t *testing.T) {
 	otherDefaultContainer.Name = "default-side-car"
 	otherDefaultContainer.VolumeMounts = []corev1.VolumeMount{sideCarVol}
 	otherDefaultContainer.SecurityContext = &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.To(false),
+		AllowPrivilegeEscalation: new(false),
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
 		},
@@ -449,7 +448,7 @@ func TestMergeContainer(t *testing.T) {
 		},
 		ReadinessProbe: otherDefaultContainer.ReadinessProbe,
 		SecurityContext: &corev1.SecurityContext{
-			AllowPrivilegeEscalation: ptr.To(false),
+			AllowPrivilegeEscalation: new(false),
 			Capabilities: &corev1.Capabilities{
 				Drop: []corev1.Capability{"ALL"},
 			},
@@ -528,10 +527,6 @@ func TestAddVolumes(t *testing.T) {
 	assert.Equal(t, "new-host-path", p.Spec.Volumes[0].HostPath.Path)
 }
 
-func int64Ref(i int64) *int64 {
-	return &i
-}
-
 func getDefaultPodSpec() corev1.PodTemplateSpec {
 	initContainer := getDefaultContainer()
 	initContainer.Name = "init-container-default"
@@ -548,8 +543,8 @@ func getDefaultPodSpec() corev1.PodTemplateSpec {
 				"node-0": "node-0",
 			},
 			ServiceAccountName:            "my-default-service-account",
-			TerminationGracePeriodSeconds: int64Ref(12),
-			ActiveDeadlineSeconds:         int64Ref(10),
+			TerminationGracePeriodSeconds: new(int64(12)),
+			ActiveDeadlineSeconds:         new(int64(10)),
 			Containers:                    []corev1.Container{getDefaultContainer()},
 			InitContainers:                []corev1.Container{initContainer},
 			Affinity:                      affinity("hostname", "default"),
@@ -572,7 +567,7 @@ func getCustomPodSpec() corev1.PodTemplateSpec {
 				"node-1": "node-1",
 			},
 			ServiceAccountName:            "my-service-account-override",
-			TerminationGracePeriodSeconds: int64Ref(11),
+			TerminationGracePeriodSeconds: new(int64(11)),
 			NodeName:                      "my-node-name",
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			Containers:                    []corev1.Container{getCustomContainer()},

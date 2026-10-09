@@ -352,10 +352,7 @@ func validationClusterIndex(c ClusterSpec, position int) int {
 // maxValidationClusterIndex returns the largest index admission can foresee:
 // the largest pinned clusterIndex, else len(spec.clusters)-1 (0 when empty).
 func maxValidationClusterIndex(s *MongoDBSearch) int {
-	maxIdx := len(s.Spec.Clusters) - 1
-	if maxIdx < 0 {
-		maxIdx = 0
-	}
+	maxIdx := max(len(s.Spec.Clusters)-1, 0)
 	for _, c := range s.Spec.Clusters {
 		if c.Index != nil && int(*c.Index) > maxIdx {
 			maxIdx = int(*c.Index)
@@ -664,7 +661,7 @@ func validateExternalHostnameDNSLength(s *MongoDBSearch) v1.ValidationResult {
 				path, h, strings.Join(errs, ", "),
 			)
 		}
-		for _, label := range strings.Split(h, ".") {
+		for label := range strings.SplitSeq(h, ".") {
 			if errs := validation.IsDNS1123Label(label); len(errs) > 0 {
 				return v1.ValidationError(
 					"%s resolves to an invalid DNS subdomain %q: label %q: %s",

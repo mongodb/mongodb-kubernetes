@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"reflect"
 	"sort"
@@ -15,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -321,7 +321,7 @@ func isScalingDown(mrs *mdbmultiv1.MongoDBMultiCluster) (bool, error) {
 		return true, nil
 	}
 
-	for i := 0; i < len(specThisReconciliation); i++ {
+	for i := range specThisReconciliation {
 		specItem := desiredSpec[i]
 		reconciliationItem := specThisReconciliation[i]
 
@@ -698,9 +698,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	for k, val := range roleAnnotation {
-		annotationsToAdd[k] = val
-	}
+	maps.Copy(annotationsToAdd, roleAnnotation)
 
 	return annotations.SetAnnotations(ctx, &mrs, annotationsToAdd, r.client)
 }
@@ -943,7 +941,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileServices(ctx context.Context,
 		// ensure Headless service
 		headlessServiceName := mrs.MultiHeadlessServiceName(mrs.ClusterNum(e.ClusterName))
 		nameSpacedName := kube.ObjectKey(mrs.Namespace, headlessServiceName)
-		headlessService := create.BuildService(nameSpacedName, mrs, ptr.To(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+		headlessService := create.BuildService(nameSpacedName, mrs, new(headlessServiceName), nil, mrs.Spec.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 		headlessService.OwnerReferences = nil
 		if err := ensureHeadlessService(ctx, client, headlessService, e.ClusterName); err != nil {
 			return err
@@ -1033,7 +1031,7 @@ func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMultiCluster, clusterNum
 	data := make(map[string]string)
 
 	externalDomain := mrs.Spec.GetExternalDomainForMemberCluster(clusterName)
-	for podNum := 0; podNum < members; podNum++ {
+	for podNum := range members {
 		key := dns.GetMultiPodName(mrs.Name, clusterNum, podNum)
 		data[key] = dns.GetMultiClusterPodServiceFQDN(mrs.Name, mrs.Namespace, clusterNum, externalDomain, podNum, mrs.Spec.GetClusterDomain())
 	}

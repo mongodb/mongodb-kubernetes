@@ -70,7 +70,7 @@ func TestComputeScramCredentials_ComputesSameStoredAndServerKey_WithSameSalt(t *
 	username := "user-1"
 	password := "X6oSVAfD1la8fJwhfN" // nolint
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sha1Creds0, sha256Creds0, err := computeScramShaCredentials(username, password, sha1Salt, sha256SaltKey)
 		assert.NoError(t, err)
 		sha1Creds1, sha256Creds1, err := computeScramShaCredentials(username, password, sha1Salt, sha256SaltKey)

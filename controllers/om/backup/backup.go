@@ -82,8 +82,7 @@ func StopBackupIfEnabled(readUpdater ConfigHostReadUpdater, hostClusterReader Ho
 		// TODO: Discussion. To avoid removing dependant objects in a DELETE operation, a finalizer should be implemented
 		// This finalizer would be required to add a "delay" to the deletion of the StatefulSet waiting for monitoring
 		// to be activated at the project.
-		var v *apierror.Error
-		if errors.As(err, &v) {
+		if v, ok := errors.AsType[*apierror.Error](err); ok {
 			if v.ErrorCode == "CANNOT_GET_BACKUP_CONFIG_INVALID_STATE" {
 				log.Warnf("Could not read backup configs for this deployment. Will continue with the removal of the objects. %s", err)
 				return nil

@@ -9,6 +9,7 @@ package connectionstring
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -138,9 +139,7 @@ func (b *builder) SetScheme(scheme Scheme) *builder {
 }
 
 func (b *builder) SetConnectionParams(cParams map[string]string) *builder {
-	for key, value := range cParams {
-		b.connectionParams[key] = value
-	}
+	maps.Copy(b.connectionParams, cParams)
 	return b
 }
 
@@ -200,9 +199,7 @@ func (b *builder) Build() string {
 
 	// Merge received (b.connectionParams) on top of local (connectionParams)
 	// Make sure that received parameters have priority.
-	for k, v := range b.connectionParams {
-		connectionParams[k] = v
-	}
+	maps.Copy(connectionParams, b.connectionParams)
 
 	var keys []string
 	for k := range connectionParams {

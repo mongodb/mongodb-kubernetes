@@ -155,15 +155,9 @@ func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []str
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
-		for _, move := range p.Plan {
-			// This means the following:
-			// - the cluster is in static architecture
-			// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
-			// - this can only happen if the statefulset is ready, therefore we are returning ready here
-			if move == automationAgentKubeUpgradeMove {
-				log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
-				return true
-			}
+		if slices.Contains(p.Plan, automationAgentKubeUpgradeMove) {
+			log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+			return true
 		}
 	}
 	return false

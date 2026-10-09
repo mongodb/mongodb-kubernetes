@@ -12,7 +12,6 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -685,7 +684,7 @@ func populateMigrationFields(props *DeploymentUsageSnapshotProperties, condition
 	}
 
 	props.MigrationPhase = cond.Reason
-	props.ExternalMembersCount = ptr.To(externalCount)
+	props.ExternalMembersCount = new(externalCount)
 
 	if isActive {
 		props.MigrationStartedAt = cond.LastTransitionTime.UTC().Format(time.RFC3339)

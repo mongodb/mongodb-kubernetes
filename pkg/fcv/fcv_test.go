@@ -21,14 +21,14 @@ func TestCalculateFeatureCompatibilityVersion(t *testing.T) {
 			name:                  "FCV is set",
 			newVersion:            "4.4.6",
 			lastAppliedFCVVersion: "4.2",
-			currentFCV:            ptr.To("4.4"),
+			currentFCV:            new("4.4"),
 			expectedResult:        "4.4",
 		},
 		{
 			name:                  "FCV is set and equal",
 			newVersion:            "4.4.6",
 			lastAppliedFCVVersion: "4.4",
-			currentFCV:            ptr.To("4.4"),
+			currentFCV:            new("4.4"),
 			expectedResult:        "4.4",
 		},
 		{

@@ -12,7 +12,7 @@ func NewMongoDBSearchVersionOption(version string) MongoDBSearchVersionOption {
 	return MongoDBSearchVersionOption{Version: version}
 }
 
-func (o MongoDBSearchVersionOption) Value() interface{} {
+func (o MongoDBSearchVersionOption) Value() any {
 	return o.Version
 }
 
@@ -28,7 +28,7 @@ func NewMongoDBSearchClusterStatusesOption(statuses []ClusterStatus) MongoDBSear
 	return MongoDBSearchClusterStatusesOption{Statuses: statuses}
 }
 
-func (o MongoDBSearchClusterStatusesOption) Value() interface{} {
+func (o MongoDBSearchClusterStatusesOption) Value() any {
 	return o.Statuses
 }
 
@@ -55,6 +55,6 @@ func NewSearchPartOption(part SearchPart) SearchPartOption {
 	return SearchPartOption{Part: part}
 }
 
-func (o SearchPartOption) Value() interface{} {
+func (o SearchPartOption) Value() any {
 	return o.Part
 }

@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/spf13/cast"
@@ -35,7 +36,7 @@ import (
 		]
 }*/
 
-type ReplicaSet map[string]interface{}
+type ReplicaSet map[string]any
 
 /* This corresponds to:
  {
@@ -46,14 +47,14 @@ type ReplicaSet map[string]interface{}
  		"buildIndexes": true
  }*/
 
-type ReplicaSetMember map[string]interface{}
+type ReplicaSetMember map[string]any
 
-func NewReplicaSetFromInterface(i interface{}) ReplicaSet {
-	return i.(map[string]interface{})
+func NewReplicaSetFromInterface(i any) ReplicaSet {
+	return i.(map[string]any)
 }
 
-func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
-	return i.(map[string]interface{})
+func NewReplicaSetMemberFromInterface(i any) ReplicaSetMember {
+	return i.(map[string]any)
 }
 
 func NewReplicaSet(name, version string) ReplicaSet {
@@ -265,7 +266,7 @@ func (r ReplicaSet) Members() []ReplicaSetMember {
 	switch v := r["members"].(type) {
 	case []ReplicaSetMember:
 		return v
-	case []interface{}:
+	case []any:
 		ans := make([]ReplicaSetMember, len(v))
 		for i, val := range v {
 			ans[i] = NewReplicaSetMemberFromInterface(val)
@@ -358,9 +359,7 @@ func (r ReplicaSetMember) setPriority(priority float32) ReplicaSetMember {
 
 func (r ReplicaSetMember) setTags(tags map[string]string) ReplicaSetMember {
 	finalTags := make(map[string]string)
-	for k, v := range tags {
-		finalTags[k] = v
-	}
+	maps.Copy(finalTags, tags)
 	r["tags"] = finalTags
 	return r
 }

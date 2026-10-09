@@ -2,6 +2,7 @@ package statefulset
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/hashicorp/go-multierror"
@@ -180,9 +181,7 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 
 func copyMap(originalMap map[string]string) map[string]string {
 	newMap := map[string]string{}
-	for k, v := range originalMap {
-		newMap[k] = v
-	}
+	maps.Copy(newMap, originalMap)
 	return newMap
 }
 

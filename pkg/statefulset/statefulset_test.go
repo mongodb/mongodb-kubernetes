@@ -18,10 +18,6 @@ const (
 	TestName      = "test-name"
 )
 
-func int64Ref(i int64) *int64 {
-	return &i
-}
-
 func TestGetContainerIndexByName(t *testing.T) {
 	containers := []corev1.Container{
 		{
@@ -222,8 +218,8 @@ func getDefaultPodSpec() corev1.PodTemplateSpec {
 				"node-0": "node-0",
 			},
 			ServiceAccountName:            "my-default-service-account",
-			TerminationGracePeriodSeconds: int64Ref(12),
-			ActiveDeadlineSeconds:         int64Ref(10),
+			TerminationGracePeriodSeconds: new(int64(12)),
+			ActiveDeadlineSeconds:         new(int64(10)),
 			Containers:                    []corev1.Container{getDefaultContainer()},
 			InitContainers:                []corev1.Container{initContainer},
 			Affinity:                      affinity("hostname", "default"),
@@ -262,7 +258,7 @@ func getCustomPodSpec() corev1.PodTemplateSpec {
 				"node-1": "node-1",
 			},
 			ServiceAccountName:            "my-service-account-override",
-			TerminationGracePeriodSeconds: int64Ref(11),
+			TerminationGracePeriodSeconds: new(int64(11)),
 			NodeName:                      "my-node-name",
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			Containers:                    []corev1.Container{getCustomContainer()},
@@ -278,11 +274,11 @@ func TestMergePodSpecsEmptyCustom(t *testing.T) {
 
 	mergedPodTemplateSpec := merge.PodTemplateSpecs(defaultPodSpec, customPodSpecTemplate)
 	assert.Equal(t, "my-default-service-account", mergedPodTemplateSpec.Spec.ServiceAccountName)
-	assert.Equal(t, int64Ref(12), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
+	assert.Equal(t, new(int64(12)), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
 
 	assert.Equal(t, "my-default-name", mergedPodTemplateSpec.Name)
 	assert.Equal(t, "my-default-namespace", mergedPodTemplateSpec.Namespace)
-	assert.Equal(t, int64Ref(10), mergedPodTemplateSpec.Spec.ActiveDeadlineSeconds)
+	assert.Equal(t, new(int64(10)), mergedPodTemplateSpec.Spec.ActiveDeadlineSeconds)
 
 	// ensure collections have been merged
 	assert.Contains(t, mergedPodTemplateSpec.Spec.NodeSelector, "node-0")
@@ -301,7 +297,7 @@ func TestMergePodSpecsEmptyDefault(t *testing.T) {
 	mergedPodTemplateSpec := merge.PodTemplateSpecs(customPodSpecTemplate, defaultPodSpec)
 
 	assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
-	assert.Equal(t, int64Ref(11), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
+	assert.Equal(t, new(int64(11)), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
 	assert.Equal(t, "my-node-name", mergedPodTemplateSpec.Spec.NodeName)
 	assert.Equal(t, corev1.RestartPolicy("Always"), mergedPodTemplateSpec.Spec.RestartPolicy)
 
@@ -319,18 +315,18 @@ func TestMergePodSpecsBoth(t *testing.T) {
 	var mergedPodTemplateSpec corev1.PodTemplateSpec
 
 	// multiple merges must give the same result
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		mergedPodTemplateSpec = merge.PodTemplateSpecs(defaultPodSpec, customPodSpecTemplate)
 		// ensure values that were specified in the custom pod spec template remain unchanged
 		assert.Equal(t, "my-service-account-override", mergedPodTemplateSpec.Spec.ServiceAccountName)
-		assert.Equal(t, int64Ref(11), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
+		assert.Equal(t, new(int64(11)), mergedPodTemplateSpec.Spec.TerminationGracePeriodSeconds)
 		assert.Equal(t, "my-node-name", mergedPodTemplateSpec.Spec.NodeName)
 		assert.Equal(t, corev1.RestartPolicy("Always"), mergedPodTemplateSpec.Spec.RestartPolicy)
 
 		// ensure values from the default pod spec template have been merged in
 		assert.Equal(t, "my-default-name", mergedPodTemplateSpec.Name)
 		assert.Equal(t, "my-default-namespace", mergedPodTemplateSpec.Namespace)
-		assert.Equal(t, int64Ref(10), mergedPodTemplateSpec.Spec.ActiveDeadlineSeconds)
+		assert.Equal(t, new(int64(10)), mergedPodTemplateSpec.Spec.ActiveDeadlineSeconds)
 
 		// ensure collections have been merged
 		assert.Contains(t, mergedPodTemplateSpec.Spec.NodeSelector, "node-0")
@@ -371,14 +367,14 @@ func TestMergeSpec(t *testing.T) {
 	t.Run("Change terminationGracePeriodSeconds", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().Build()
 		assert.NoError(t, err)
-		sts.Spec.Template.Spec.TerminationGracePeriodSeconds = int64Ref(30)
+		sts.Spec.Template.Spec.TerminationGracePeriodSeconds = new(int64(30))
 		customSts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}})).Build()
-		sts.Spec.Template.Spec.TerminationGracePeriodSeconds = int64Ref(600)
+		sts.Spec.Template.Spec.TerminationGracePeriodSeconds = new(int64(600))
 		assert.NoError(t, err)
 
 		mergedSpec := merge.StatefulSetSpecs(sts.Spec, customSts.Spec)
 		assert.Contains(t, mergedSpec.Template.Spec.Containers, corev1.Container{Name: "container-0"})
-		assert.Equal(t, mergedSpec.Template.Spec.TerminationGracePeriodSeconds, int64Ref(600))
+		assert.Equal(t, mergedSpec.Template.Spec.TerminationGracePeriodSeconds, new(int64(600)))
 	})
 	t.Run("Containers are added to existing list", func(t *testing.T) {
 		sts, err := defaultStatefulSetBuilder().SetPodTemplateSpec(podTemplateWithContainers([]corev1.Container{{Name: "container-0"}})).Build()

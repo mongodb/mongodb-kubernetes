@@ -80,7 +80,7 @@ func newSome(name, property string) someId {
 	}
 }
 
-func (s someId) Identifier() interface{} {
+func (s someId) Identifier() any {
 	return s.name
 }
 

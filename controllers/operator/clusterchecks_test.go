@@ -100,7 +100,7 @@ func (c *clusterChecks) checkProjectIDConfigMap(ctx context.Context, configMapNa
 }
 
 func (c *clusterChecks) checkPerPodServices(ctx context.Context, statefulSetName string, expectedMembers int) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+	for podIdx := range expectedMembers {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
@@ -115,7 +115,7 @@ func (c *clusterChecks) checkPerPodServices(ctx context.Context, statefulSetName
 }
 
 func (c *clusterChecks) checkPerPodServicesDontExist(ctx context.Context, statefulSetName string, expectedMembers int) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+	for podIdx := range expectedMembers {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
@@ -124,7 +124,7 @@ func (c *clusterChecks) checkPerPodServicesDontExist(ctx context.Context, statef
 }
 
 func (c *clusterChecks) checkExternalServices(ctx context.Context, statefulSetName string, expectedMembers int) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+	for podIdx := range expectedMembers {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
@@ -137,7 +137,7 @@ func (c *clusterChecks) checkExternalServices(ctx context.Context, statefulSetNa
 }
 
 func (c *clusterChecks) checkExternalServicesDontExist(ctx context.Context, statefulSetName string, expectedMembers int) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+	for podIdx := range expectedMembers {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
@@ -166,7 +166,7 @@ func (c *clusterChecks) checkServiceExists(ctx context.Context, serviceName stri
 }
 
 func (c *clusterChecks) checkServiceAnnotations(ctx context.Context, statefulSetName string, expectedMembers int, sc *mdbv1.MongoDB, clusterName string, clusterIdx int, externalDomain string) {
-	for podIdx := 0; podIdx < expectedMembers; podIdx++ {
+	for podIdx := range expectedMembers {
 		svc := corev1.Service{}
 		serviceName := fmt.Sprintf("%s-%d-svc-external", statefulSetName, podIdx)
 		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)

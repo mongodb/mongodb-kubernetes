@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -24,7 +25,7 @@ var ErrPageLimitExceeded = errors.New("pagination exceeded the maximum number of
 // Paginated is the general interface for a single page returned by Ops Manager api.
 type Paginated interface {
 	HasNext() bool
-	Results() []interface{}
+	Results() []any
 }
 
 type OMPaginated struct {
@@ -52,7 +53,7 @@ type PageReader func(ctx context.Context, pageNum int) (Paginated, error)
 
 // PageItemPredicate is the function that processes single item on the page and returns true if no further processing
 // needs to be done (usually it's the search logic)
-type PageItemPredicate func(interface{}) bool
+type PageItemPredicate func(any) bool
 
 // TraversePages reads page after page using 'reader' and applies the 'predicate' for each item on the page.
 // Stops traversal when the 'predicate' returns true or when the page has no 'next' link.
@@ -113,10 +114,5 @@ func readPage(ctx context.Context, reader PageReader, pageNum int) (Paginated, e
 // anyItemMatches reports whether the predicate returns true for any item on the page,
 // stopping at the first item it does (the predicate signals the search is over).
 func anyItemMatches(paginated Paginated, predicate PageItemPredicate) bool {
-	for _, entity := range paginated.Results() {
-		if predicate(entity) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(paginated.Results(), predicate)
 }

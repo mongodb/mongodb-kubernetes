@@ -72,7 +72,7 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 	assert.NotNil(t, result)
 
 	// Extract expected keys from struct using reflection
-	expectedKeys := getExpectedKeysFromStruct(reflect.TypeOf(props))
+	expectedKeys := getExpectedKeysFromStruct(reflect.TypeFor[SearchDeploymentUsageSnapshotProperties]())
 
 	// Add special keys from AuthenticationModes transformation
 	for _, mode := range props.AuthenticationModes {
@@ -99,7 +99,7 @@ func getExpectedKeysFromStruct(t reflect.Type) []string {
 	var keys []string
 
 	// Handle pointer types
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -107,8 +107,7 @@ func getExpectedKeysFromStruct(t reflect.Type) []string {
 		return keys
 	}
 
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		jsonTag := field.Tag.Get("json")
 
 		// Skip fields without json tags or with "-" tag

@@ -132,11 +132,11 @@ type File struct {
 func NewFileFrom(data string) File {
 	parts := separatePemFile(data)
 	privateKey := ""
-	certificate := ""
+	var certificate strings.Builder
 
 	for _, el := range parts {
 		if strings.Contains(el, "BEGIN CERTIFICATE") {
-			certificate += el
+			certificate.WriteString(el)
 		} else if strings.Contains(el, "PRIVATE KEY") {
 			privateKey = el
 		}
@@ -144,7 +144,7 @@ func NewFileFrom(data string) File {
 
 	return File{
 		PrivateKey:  privateKey,
-		Certificate: certificate,
+		Certificate: certificate.String(),
 	}
 }
 
